@@ -22,13 +22,15 @@ async function ghFetch(url, token, opts = {}) {
 }
 
 export async function setupCommand() {
-  console.log('\nSetting up teamctx with a new private GitHub repo.\n');
+  console.log('\nSetting up teamctx with a new private GitHub repo.');
+  console.log('You need a GitHub classic PAT with "repo" scope.');
+  console.log('Create one at: https://github.com/settings/tokens/new\n');
 
   // 1. GitHub token
-  const token = await ask('GitHub personal access token (needs "repo" scope)');
+  const token = await ask('GitHub personal access token');
   if (!token) { console.error('Token is required.'); process.exit(1); }
 
-  // 2. Verify token
+  // 2. Verify token + get user info
   process.stdout.write('→ Verifying token...');
   let user;
   try {
@@ -39,15 +41,22 @@ export async function setupCommand() {
     process.exit(1);
   }
 
-  // 3. Repo name
+  // 3. Personal account or org?
+  const ownerAnswer = await ask(`Create repo under your account (${user.login}) or an org? Enter org name, or press Enter for personal account`, '');
+  const owner = ownerAnswer.trim() || user.login;
+
+  // 4. Repo name
   const repoName = await ask('Private repo name for team context data', 'team-context');
   if (!repoName) { console.error('Repo name is required.'); process.exit(1); }
 
-  // 4. Create private repo on GitHub
-  process.stdout.write(`\n→ Creating private repo ${user.login}/${repoName}...`);
+  // 5. Create private repo on GitHub
+  process.stdout.write(`\n→ Creating private repo ${owner}/${repoName}...`);
   let repo;
+  const createUrl = owner === user.login
+    ? 'https://api.github.com/user/repos'
+    : `https://api.github.com/orgs/${owner}/repos`;
   try {
-    repo = await ghFetch('https://api.github.com/user/repos', token, {
+    repo = await ghFetch(createUrl, token, {
       method: 'POST',
       body: JSON.stringify({
         name: repoName,
@@ -59,6 +68,9 @@ export async function setupCommand() {
     process.stdout.write(' done.\n');
   } catch (err) {
     console.error(`\nFailed to create repo: ${err.message}`);
+    if (err.message.includes('not accessible')) {
+      console.error('The token needs "repo" scope (classic PAT) or org admin permissions.');
+    }
     process.exit(1);
   }
 
@@ -85,7 +97,7 @@ export async function setupCommand() {
   // 6. cd in and run teamctx init
   process.chdir(localPath);
 
-  const rawBase = `https://raw.githubusercontent.com/${user.login}/${repoName}/main`;
+  const rawBase = `https://raw.githubusercontent.com/${owner}/${repoName}/main`;
   console.log(`\n→ Initializing teamctx. When prompted for:\n`);
   console.log(`   Vercel deploy URL      → your deployed web app URL`);
   console.log(`   GitHub raw base URL    → ${rawBase}`);
@@ -97,7 +109,7 @@ export async function setupCommand() {
   console.log('\n─────────────────────────────────────────────────────────');
   console.log('Add these env vars to your Vercel project, then redeploy:');
   console.log('─────────────────────────────────────────────────────────');
-  console.log(`  GITHUB_REPO      ${user.login}/${repoName}`);
+  console.log(`  GITHUB_REPO      ${owner}/${repoName}`);
   console.log(`  GITHUB_RAW_BASE  ${rawBase}`);
   console.log(`  GITHUB_TOKEN     [the token you entered above]`);
   console.log('─────────────────────────────────────────────────────────\n');
