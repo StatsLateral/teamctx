@@ -7,6 +7,19 @@ import { initCommand } from './init.js';
 
 const execFileAsync = promisify(execFile);
 
+// MVP: hardcoded to the single hosted Vercel project.
+// Post-MVP: make this configurable (ask user or read from config).
+const VERCEL_PROJECT = 'git-for-non-tech-teams';
+
+function setVercelEnv(key, value) {
+  const r = spawnSync('vercel', ['env', 'add', key, 'production', '--project', VERCEL_PROJECT], {
+    input: value + '\n',
+    stdio: ['pipe', 'inherit', 'inherit'],
+    encoding: 'utf-8',
+  });
+  if (r.status !== 0) throw new Error(`vercel env add ${key} failed`);
+}
+
 async function getGitRemoteUrl() {
   const { stdout } = await execFileAsync('git', ['remote', 'get-url', 'origin']);
   return stdout.trim();
@@ -27,106 +40,74 @@ async function getCurrentBranch() {
   }
 }
 
-function vercelInstalled() {
-  const r = spawnSync('vercel', ['--version'], { stdio: 'pipe' });
-  return r.status === 0;
-}
-
-function setVercelEnv(key, value, project) {
-  const args = ['env', 'add', key, 'production', '--project', project];
-  const r = spawnSync('vercel', args, {
-    input: value + '\n',
-    stdio: ['pipe', 'inherit', 'inherit'],
-    encoding: 'utf-8',
-  });
-  if (r.status !== 0) throw new Error(`vercel env add ${key} failed`);
-}
-
 export async function setupCommand() {
-  console.log('\nSetting up teamctx.');
-  console.log('Step 1: create a private GitHub repo at github.com/new, clone it, and cd into it.');
-  console.log('Once you\'ve done that, this command handles the rest.\n');
-
   await checkGitRepo();
 
-  // Auto-detect repo from git remote
+  // Detect repo from git remote
+  const remoteUrl = await getGitRemoteUrl().catch(() => null);
+  if (!remoteUrl) {
+    console.error('No git remote found. Add a remote (git remote add origin <url>) first.');
+    process.exit(1);
+  }
+
   let owner, repoName;
   try {
-    const remoteUrl = await getGitRemoteUrl();
     ({ owner, repo: repoName } = parseGitHubUrl(remoteUrl));
-    console.log(`Detected: ${owner}/${repoName}`);
   } catch {
-    const manual = await ask('GitHub repo (e.g. myorg/my-repo)');
-    if (!manual?.includes('/')) { console.error('Invalid repo.'); process.exit(1); }
-    [owner, repoName] = manual.split('/');
+    console.error('Remote does not look like a GitHub repo. Expected: github.com/owner/repo');
+    process.exit(1);
   }
 
   const branch = await getCurrentBranch();
   const rawBase = `https://raw.githubusercontent.com/${owner}/${repoName}/${branch}`;
 
-  // GitHub token
-  console.log('\nYou need a GitHub personal access token with read+write access to this repo.');
-  console.log('Create one at github.com/settings/tokens/new — check the "repo" scope.\n');
-  const token = await ask('GitHub token');
+  console.log(`\nSetting up teamctx for ${owner}/${repoName}\n`);
+
+  // GitHub token — fine-grained PAT scoped to this repo, Contents: read+write
+  const token = await ask('GitHub token (fine-grained PAT, Contents: read+write on this repo)');
   if (!token) { console.error('Token is required.'); process.exit(1); }
 
-  // Verify token can access the repo
+  // Verify token has access
   process.stdout.write('→ Verifying access...');
   const verifyRes = await fetch(`https://api.github.com/repos/${owner}/${repoName}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
   if (!verifyRes.ok) {
-    console.error(`\nCannot access ${owner}/${repoName} with that token (HTTP ${verifyRes.status}).`);
-    console.error('Make sure the token has "repo" scope and access to this repository.');
+    console.error(`\nCannot access ${owner}/${repoName} (HTTP ${verifyRes.status}).`);
+    console.error('Check that the token has Contents: read+write on this repo.');
     process.exit(1);
   }
   console.log(' ok.\n');
 
-  // teamctx init (skip if already done)
+  // Initialize teamctx if not already done
   if (existsSync('.teamctx')) {
-    console.log('✓ teamctx already initialized in this repo.\n');
+    console.log('✓ teamctx already initialized.\n');
   } else {
-    console.log('Initializing teamctx...');
     console.log(`When prompted for "GitHub raw base URL", enter:\n  ${rawBase}\n`);
     await initCommand();
   }
 
-  // Connect to Vercel
+  // Set Vercel env vars
   const envVars = {
     GITHUB_REPO: `${owner}/${repoName}`,
     GITHUB_RAW_BASE: rawBase,
     GITHUB_TOKEN: token,
   };
 
-  if (vercelInstalled()) {
-    const auto = await ask('Auto-set Vercel env vars? (y/n)', 'y');
-    if (auto.toLowerCase() === 'y') {
-      const project = await ask('Vercel project name (e.g. git-for-non-tech-teams)');
-      if (!project) { console.error('Project name required.'); process.exit(1); }
-      console.log();
-      for (const [key, value] of Object.entries(envVars)) {
-        process.stdout.write(`→ Setting ${key}... `);
-        try {
-          setVercelEnv(key, value, project);
-          console.log('✓');
-        } catch (err) {
-          console.log(`failed: ${err.message}`);
-        }
-      }
-      console.log('\n✓ Env vars set. Now deploy from your web app directory:');
-      console.log('  cd path/to/git-for-non-tech-teams');
-      console.log('  vercel --prod\n');
-      return;
+  console.log(`\n→ Setting env vars on Vercel project "${VERCEL_PROJECT}"...`);
+  for (const [key, value] of Object.entries(envVars)) {
+    process.stdout.write(`  ${key}... `);
+    try {
+      setVercelEnv(key, value);
+      console.log('✓');
+    } catch (err) {
+      console.log(`failed — ${err.message}`);
     }
   }
 
-  // Manual fallback
-  console.log('\n──────────────────────────────────────────────────────');
-  console.log('Set these env vars in your Vercel project, then deploy:');
-  console.log('──────────────────────────────────────────────────────');
-  for (const [key, value] of Object.entries(envVars)) {
-    console.log(`  ${key.padEnd(18)} ${value}`);
-  }
-  console.log('──────────────────────────────────────────────────────');
-  console.log('Then run vercel --prod from your web app directory.\n');
+  console.log('\n✓ Done. Deploy to pick up the new env vars:');
+  console.log(`  vercel --prod --cwd path/to/git-for-non-tech-teams\n`);
+
+  // Post-MVP: prompt for Vercel project name, support multiple deployments.
+  // Post-MVP: offer to trigger the deploy automatically.
 }
