@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { extractJson } from './ai.js';
+import { callClaude, extractJson } from './ai.js';
 
 vi.mock('@anthropic-ai/sdk', () => ({
   default: vi.fn().mockImplementation(() => ({
@@ -42,5 +42,23 @@ describe('extractJson', () => {
 
   it('repairs JSON with missing comma between objects', () => {
     expect(extractJson('{"ops":[{"x":1}{"y":2}]}')).toEqual({ ops: [{ x: 1 }, { y: 2 }] });
+  });
+});
+
+describe('callClaude', () => {
+  it('throws a clear error when ANTHROPIC_API_KEY is not set', async () => {
+    const original = process.env.ANTHROPIC_API_KEY;
+    delete process.env.ANTHROPIC_API_KEY;
+    try {
+      await expect(callClaude({ prompt: 'test' })).rejects.toThrow(/ANTHROPIC_API_KEY/i);
+    } finally {
+      if (original !== undefined) process.env.ANTHROPIC_API_KEY = original;
+    }
+  });
+
+  it('returns text content from the mocked SDK response', async () => {
+    process.env.ANTHROPIC_API_KEY = 'test-key';
+    const result = await callClaude({ prompt: 'hello' });
+    expect(result).toBe('{"result":"ok"}');
   });
 });

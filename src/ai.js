@@ -21,7 +21,7 @@ export async function callClaude({ prompt, model = DEFAULT_MODEL, system = '', m
     ...(system ? { system } : {}),
     messages: [{ role: 'user', content: prompt }],
   });
-  return msg.content.map(b => (b.type === 'text' ? b.text : '')).join('\n').trim();
+  return msg.content.filter(b => b.type === 'text').map(b => b.text).join('\n').trim();
 }
 
 export function extractJson(text) {
