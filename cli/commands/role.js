@@ -3,6 +3,22 @@ import { readConfig, writeConfig, readShared, writeRoleFile } from '../../src/st
 import { addRole, suggestRoles, slugify } from '../../src/roles.js';
 import { generateRoleFile } from '../../src/context.js';
 import { commitContext, pushContext } from '../../src/git.js';
+import { callClaude, extractJson } from '../../src/ai.js';
+
+async function suggestRoleDetails(name, workstream, config) {
+  const tree = workstream.whys.map(w => `- ${w.text}`).join('\n') || '(no context yet)';
+  const prompt = [
+    `Given the role "${name}" at a company with this context:`,
+    tree,
+    ``,
+    `Suggest brief, specific responsibilities and exclusions for this role.`,
+    `Return JSON: {"responsibilities": "...", "excludes": "..."}`,
+    `Keep each under 15 words. JSON only.`,
+  ].join('\n');
+  const raw = await callClaude({ prompt, model: 'claude-haiku-4-5' });
+  const parsed = extractJson(raw);
+  return { responsibilities: parsed.responsibilities || '', excludes: parsed.excludes || '' };
+}
 
 export async function roleCommand(subcommand, opts) {
   if (subcommand === 'list') return listRoles();
@@ -31,10 +47,26 @@ async function addRoleInteractive(prefill = {}) {
   const name = prefill.name || await ask('Role title (e.g. "Chief Product Officer")');
   if (!name) { console.error('Role title is required.'); process.exit(1); }
 
-  const responsibilities = prefill.responsibilities || await ask('What do they own?');
+  let defaultResponsibilities = prefill.responsibilities || '';
+  let defaultExcludes = prefill.excludes || '';
+
+  if (!prefill.responsibilities) {
+    process.stdout.write('  → Asking Haiku to suggest...');
+    try {
+      const workstream = readShared();
+      const suggestion = await suggestRoleDetails(name, workstream, config);
+      defaultResponsibilities = suggestion.responsibilities;
+      defaultExcludes = suggestion.excludes;
+      process.stdout.write(' done.\n\n');
+    } catch {
+      process.stdout.write(' skipped.\n\n');
+    }
+  }
+
+  const responsibilities = await ask('What do they own?', defaultResponsibilities);
   if (!responsibilities) { console.error('Responsibilities are required.'); process.exit(1); }
 
-  const excludes = prefill.excludes || await ask('What should they NOT worry about? (optional)', '');
+  const excludes = await ask('What should they NOT worry about? (optional)', defaultExcludes);
 
   console.log('\n→ Role profile:');
   console.log(`  Name:     ${name} (${slugify(name)})`);
