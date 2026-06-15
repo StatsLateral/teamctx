@@ -89,11 +89,15 @@ Replace `YOUR_USERNAME/team-context` with your actual GitHub username and repo n
 ```bash
 npm install
 npm install -g .          # makes `teamctx` available in your shell
-
-cp .env.example .env.local
-# Edit .env.local — add your key:
-# ANTHROPIC_API_KEY=sk-ant-...
 ```
+
+Create a `.env.local` file in the project folder and add your Anthropic API key ([get one here](https://console.anthropic.com)):
+
+```
+ANTHROPIC_API_KEY=sk-ant-your-key-here
+```
+
+This file is gitignored and stays on your machine only.
 
 **3. Initialize teamctx**
 
