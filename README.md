@@ -69,16 +69,20 @@ Manager runs `teamctx pull` to process web submissions.
 
 **Prerequisites:** Node 18+, git, [Vercel CLI](https://vercel.com/docs/cli), Anthropic API key, GitHub account.
 
-**1. Fork to a private repo**
+**1. Create a private GitHub repo**
 
-Create a new **private** GitHub repo (e.g. `github.com/you/team-context`), then:
+Go to [github.com/new](https://github.com/new) and create a new **private** repository (e.g. `team-context`). Leave "Add a README" and "Add .gitignore" unchecked — the repo must be empty.
+
+Then clone teamctx and point it at your new private repo:
 
 ```bash
 git clone https://github.com/StatsLateral/teamctx team-context
 cd team-context
-git remote set-url origin https://github.com/you/team-context
+git remote set-url origin https://github.com/YOUR_USERNAME/team-context
 git push -u origin main
 ```
+
+Replace `YOUR_USERNAME/team-context` with your actual GitHub username and repo name.
 
 **2. Install and configure locally**
 
