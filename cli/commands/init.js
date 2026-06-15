@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, writeFileSync } from 'fs';
+import { existsSync, mkdirSync, writeFileSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { ask, askChoice } from '../prompt.js';
 import { checkGitRepo, commitContext, pushContext } from '../../src/git.js';
@@ -6,8 +6,20 @@ import { MODELS, DEFAULT_MODEL } from '../../src/ai.js';
 import { writeConfig, writeShared, writeSharedMd } from '../../src/storage.js';
 import { serializeToMd } from '../../src/context.js';
 
+function unignoreTeamctx() {
+  const gitignorePath = join(process.cwd(), '.gitignore');
+  if (!existsSync(gitignorePath)) return;
+  const lines = readFileSync(gitignorePath, 'utf-8').split('\n');
+  const filtered = lines.filter(l => l.trim() !== '.teamctx/' && l.trim() !== '.teamctx');
+  if (filtered.length !== lines.length) {
+    writeFileSync(gitignorePath, filtered.join('\n'));
+    console.log('→ Removed .teamctx/ from .gitignore (it must be tracked in your private repo).\n');
+  }
+}
+
 export async function initCommand() {
   await checkGitRepo();
+  unignoreTeamctx();
 
   const teamctxDir = join(process.cwd(), '.teamctx');
   if (existsSync(teamctxDir)) {
