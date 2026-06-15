@@ -9,10 +9,12 @@ import { reflectCommand } from './commands/reflect.js';
 import { contextCommand } from './commands/context.js';
 import { statusCommand } from './commands/status.js';
 import { configModelCommand, configGithubRawBaseCommand, configManagerEmailCommand } from './commands/config.js';
+import { setupCommand } from './commands/setup.js';
 
 program.name('teamctx').description('AI-native version control for team context').version('0.1.0');
 
-program.command('init').description('Set up teamctx in the current git repo').action(initCommand);
+program.command('setup').description('Create a private GitHub repo and initialize teamctx').action(setupCommand);
+program.command('init').description('Set up teamctx in an existing git repo').action(initCommand);
 
 const role = program.command('role').description('Manage team roles');
 role.command('add').description('Add a new role (AI-assisted)').option('--suggest', 'AI suggests roles from context').action(opts => roleCommand('add', opts));
