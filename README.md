@@ -18,7 +18,7 @@ AI-native version control for team context. Every team member gets a continuousl
 ## Quickstart
 
 ```bash
-# Prerequisites: Node 18+, git, Anthropic API key in .env
+# Prerequisites: Node 18+, git, Anthropic API key in .env.local
 
 npx teamctx init
 

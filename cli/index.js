@@ -1,5 +1,7 @@
 #!/usr/bin/env node
-import 'dotenv/config';
+import dotenv from 'dotenv';
+dotenv.config({ path: '.env.local' });
+dotenv.config();
 import { program } from 'commander';
 import { initCommand } from './commands/init.js';
 import { roleCommand } from './commands/role.js';
