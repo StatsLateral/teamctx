@@ -32,8 +32,9 @@ function vercelInstalled() {
   return r.status === 0;
 }
 
-function setVercelEnv(key, value) {
-  const r = spawnSync('vercel', ['env', 'add', key, 'production'], {
+function setVercelEnv(key, value, project) {
+  const args = ['env', 'add', key, 'production', '--project', project];
+  const r = spawnSync('vercel', args, {
     input: value + '\n',
     stdio: ['pipe', 'inherit', 'inherit'],
     encoding: 'utf-8',
@@ -100,20 +101,21 @@ export async function setupCommand() {
   if (vercelInstalled()) {
     const auto = await ask('Auto-set Vercel env vars? (y/n)', 'y');
     if (auto.toLowerCase() === 'y') {
+      const project = await ask('Vercel project name (e.g. git-for-non-tech-teams)');
+      if (!project) { console.error('Project name required.'); process.exit(1); }
       console.log();
       for (const [key, value] of Object.entries(envVars)) {
         process.stdout.write(`→ Setting ${key}... `);
         try {
-          setVercelEnv(key, value);
+          setVercelEnv(key, value, project);
           console.log('✓');
         } catch (err) {
           console.log(`failed: ${err.message}`);
         }
       }
-      const deploy = await ask('\nDeploy to production now? (y/n)', 'y');
-      if (deploy.toLowerCase() === 'y') {
-        spawnSync('vercel', ['--prod'], { stdio: 'inherit' });
-      }
+      console.log('\n✓ Env vars set. Now deploy from your web app directory:');
+      console.log('  cd path/to/git-for-non-tech-teams');
+      console.log('  vercel --prod\n');
       return;
     }
   }
@@ -126,5 +128,5 @@ export async function setupCommand() {
     console.log(`  ${key.padEnd(18)} ${value}`);
   }
   console.log('──────────────────────────────────────────────────────');
-  console.log('Then run: vercel --prod\n');
+  console.log('Then run vercel --prod from your web app directory.\n');
 }
