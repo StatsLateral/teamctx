@@ -27,6 +27,7 @@ export async function contributeCommand(text, opts) {
 
   if (operations.length === 0) {
     console.log('No changes to context tree (contribution logged).');
+    return;
   } else {
     console.log(`\nProposed changes (${operations.length} op${operations.length !== 1 ? 's' : ''}):`);
     console.log(`  Summary: ${summary}`);

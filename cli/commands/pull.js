@@ -26,6 +26,7 @@ export async function pullCommand() {
 
   console.log(`\n${items.length} pending web contribution${items.length !== 1 ? 's' : ''}:\n`);
 
+  const skipped = [];
   let processed = 0;
   for (let i = 0; i < items.length; i++) {
     const item = typeof items[i] === 'string' ? JSON.parse(items[i]) : items[i];
@@ -33,7 +34,11 @@ export async function pullCommand() {
     console.log(`  "${item.text}"\n`);
 
     const answer = await ask('Apply? (y/n/skip-all)', 'y');
-    if (answer.toLowerCase() === 'skip-all') { console.log('Skipping remaining.'); break; }
+    if (answer.toLowerCase() === 'skip-all') {
+      for (let j = i; j < items.length; j++) skipped.push(items[j]);
+      console.log('Skipping remaining.');
+      break;
+    }
 
     if (answer.toLowerCase() === 'y') {
       const text = item.author && item.author !== config.me
@@ -47,12 +52,19 @@ export async function pullCommand() {
         console.log('  Skipping — moving to next item.\n');
       }
     } else {
+      skipped.push(items[i]);
       console.log('Skipped.\n');
     }
   }
 
-  if (processed > 0) {
+  if (processed > 0 || skipped.length > 0) {
     await kv.del('teamctx:contributions');
-    console.log(`\n✓ Processed ${processed} contribution${processed !== 1 ? 's' : ''}. Queue cleared.`);
+    if (skipped.length > 0) {
+      for (const item of skipped) await kv.rpush('teamctx:contributions', typeof item === 'string' ? item : JSON.stringify(item));
+    }
+    if (processed > 0) {
+      const skippedNote = skipped.length > 0 ? `, ${skipped.length} skipped (re-queued)` : '';
+      console.log(`\n✓ Processed ${processed} contribution${processed !== 1 ? 's' : ''}${skippedNote}. Queue updated.`);
+    }
   }
 }
