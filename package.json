@@ -3,9 +3,31 @@
   "version": "0.1.0",
   "description": "AI-native version control for team context",
   "type": "module",
+  "license": "MIT",
+  "homepage": "https://github.com/StatsLateral/teamctx#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/StatsLateral/teamctx.git"
+  },
+  "bugs": {
+    "url": "https://github.com/StatsLateral/teamctx/issues"
+  },
+  "keywords": [
+    "ai",
+    "context",
+    "team",
+    "claude",
+    "cli",
+    "version-control"
+  ],
   "bin": {
     "teamctx": "./cli/index.js"
   },
+  "files": [
+    "cli",
+    "src",
+    "!**/*.test.js"
+  ],
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest"
