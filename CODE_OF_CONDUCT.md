@@ -1,9 +1,3 @@
-+++
-version = "2.1"
-aliases = ["/version/2/1"]
-reportingPlaceholder = "shikhin@statslateral.com"
-+++
-
 # Contributor Covenant Code of Conduct
 
 ## Our Pledge
