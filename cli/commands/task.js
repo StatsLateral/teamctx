@@ -1,11 +1,19 @@
+import { createHash } from 'crypto';
 import {
   readConfig, listTasks, readTask, writeTask, deleteTask,
   listWorkstreamIds, readWorkstream, readContributions,
   writeTaskFile, taskFilePath, taskFileExists,
-  workstreamFilePath, statMtimeMs,
 } from '../../src/storage.js';
 import { compileTaskPrompt } from '../../src/context.js';
 import { commitContext, pushContext } from '../../src/git.js';
+
+function whysHash(workstream) {
+  const material = JSON.stringify({
+    name: workstream?.name || '',
+    whys: workstream?.whys || [],
+  });
+  return createHash('sha1').update(material).digest('hex').slice(0, 16);
+}
 
 function slugify(title) {
   const base = String(title || '')
@@ -181,18 +189,16 @@ export async function taskCompileCommand(idOrPrefix, opts = {}) {
   const config = readConfig();
   const { task } = resolveTaskOrExit(idOrPrefix);
   const wsId = task.workstream || 'main';
-  const wsPath = workstreamFilePath(wsId);
-  const wsMtime = statMtimeMs(wsPath);
-  const compiledAtMs = task.compiledAt ? Date.parse(task.compiledAt) : null;
+  const workstream = readWorkstream(wsId);
+  const currentHash = whysHash(workstream);
 
-  if (!opts.force && taskFileExists(task.id) && compiledAtMs && wsMtime && wsMtime <= compiledAtMs) {
-    console.log(`\n✓ Task ${task.id} already compiled (workstream unchanged since ${task.compiledAt}).`);
+  if (!opts.force && taskFileExists(task.id) && task.compiledFromHash === currentHash) {
+    console.log(`\n✓ Task ${task.id} already compiled (workstream Whys unchanged since ${task.compiledAt}).`);
     console.log(`  Prompt file: ${taskFilePath(task.id)}`);
     console.log(`  Re-run with --force to regenerate.\n`);
     return;
   }
 
-  const workstream = readWorkstream(wsId);
   const contributions = readContributions();
   let role = null;
   if (opts.role) {
@@ -206,7 +212,7 @@ export async function taskCompileCommand(idOrPrefix, opts = {}) {
   console.log(`\n→ Compiling prompt for task ${task.id}${opts.role ? ` (role: ${opts.role})` : ''}...`);
   const markdown = await compileTaskPrompt({ task, workstream, role, contributions, config });
   writeTaskFile(task.id, markdown);
-  writeTask({ ...task, compiledAt: new Date().toISOString() });
+  writeTask({ ...task, compiledAt: new Date().toISOString(), compiledFromHash: currentHash });
 
   const roleTag = opts.role ? ` (role: ${opts.role})` : '';
   await commitAndPush(config, `task: compile ${task.id} by ${config.me}${roleTag}`,

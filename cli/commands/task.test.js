@@ -12,8 +12,6 @@ vi.mock('../../src/storage.js', () => ({
   writeTaskFile: vi.fn(),
   taskFilePath: vi.fn(id => `/fake/tasks/${id}.md`),
   taskFileExists: vi.fn(() => false),
-  workstreamFilePath: vi.fn(id => `/fake/workstreams/${id}.json`),
-  statMtimeMs: vi.fn(() => 1000),
 }));
 
 vi.mock('../../src/context.js', () => ({
@@ -33,7 +31,7 @@ import {
 } from './task.js';
 import {
   readConfig, listTasks, readTask, writeTask, deleteTask,
-  writeTaskFile, taskFileExists, statMtimeMs,
+  writeTaskFile, taskFileExists, readWorkstream,
 } from '../../src/storage.js';
 import { compileTaskPrompt } from '../../src/context.js';
 import { commitContext } from '../../src/git.js';
@@ -246,9 +244,12 @@ describe('taskCompileCommand', () => {
     id: 't-plan', title: 'Plan Q3', owner: 'priya', status: 'open',
     workstream: 'main', createdAt: '2026-07-24', doneAt: null, compiledAt: null,
   };
+  const wsA = { id: 'main', name: 'M', whys: [{ id: 'w1', text: 'a', whats: [] }] };
+  const wsB = { id: 'main', name: 'M', whys: [{ id: 'w1', text: 'b', whats: [] }] };
 
-  it('calls compileTaskPrompt, writes the file, bumps compiledAt, and commits', async () => {
+  it('calls compileTaskPrompt, writes the file, records compiledAt + compiledFromHash, and commits', async () => {
     readTask.mockReturnValue({ task: openTask, workstream: 'main' });
+    readWorkstream.mockReturnValue(wsA);
     await taskCompileCommand('t-plan', {});
     expect(compileTaskPrompt).toHaveBeenCalled();
     const [id, content] = writeTaskFile.mock.calls[0];
@@ -256,31 +257,76 @@ describe('taskCompileCommand', () => {
     expect(content).toBe('# Task: fake\n');
     const [updated] = writeTask.mock.calls[0];
     expect(updated.compiledAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    expect(updated.compiledFromHash).toMatch(/^[a-f0-9]{16}$/);
     expect(commitContext.mock.calls[0][0]).toMatch(/task: compile t-plan/);
   });
 
-  it('skips the AI call when workstream is unchanged since compiledAt (and no --force)', async () => {
+  it('skips the AI call when the Whys hash on the task matches the current workstream (no --force)', async () => {
+    readWorkstream.mockReturnValue(wsA);
+    // First compile to capture the hash the code would store.
+    readTask.mockReturnValue({ task: openTask, workstream: 'main' });
+    taskFileExists.mockReturnValue(false);
+    await taskCompileCommand('t-plan', {});
+    const savedHash = writeTask.mock.calls[0][0].compiledFromHash;
+
+    // Second compile: same workstream, task now has matching hash, cached file exists.
+    vi.clearAllMocks();
+    readConfig.mockReturnValue({ project: 'p', me: 'alice', autoPush: false });
     readTask.mockReturnValue({
-      task: { ...openTask, compiledAt: new Date(5000).toISOString() },
+      task: { ...openTask, compiledAt: '2026-07-24T00:00:00Z', compiledFromHash: savedHash },
       workstream: 'main',
     });
+    readWorkstream.mockReturnValue(wsA);
     taskFileExists.mockReturnValue(true);
-    statMtimeMs.mockReturnValue(4000);
     await taskCompileCommand('t-plan', {});
     expect(compileTaskPrompt).not.toHaveBeenCalled();
     expect(writeTaskFile).not.toHaveBeenCalled();
   });
 
-  it('with --force always regenerates', async () => {
+  it('with --force always regenerates even when the hash matches', async () => {
+    readWorkstream.mockReturnValue(wsA);
+    readTask.mockReturnValue({ task: openTask, workstream: 'main' });
+    await taskCompileCommand('t-plan', {});
+    const savedHash = writeTask.mock.calls[0][0].compiledFromHash;
+
+    vi.clearAllMocks();
+    readConfig.mockReturnValue({ project: 'p', me: 'alice', autoPush: false });
     readTask.mockReturnValue({
-      task: { ...openTask, compiledAt: new Date(5000).toISOString() },
+      task: { ...openTask, compiledAt: '2026-07-24T00:00:00Z', compiledFromHash: savedHash },
       workstream: 'main',
     });
+    readWorkstream.mockReturnValue(wsA);
     taskFileExists.mockReturnValue(true);
-    statMtimeMs.mockReturnValue(4000);
     await taskCompileCommand('t-plan', { force: true });
     expect(compileTaskPrompt).toHaveBeenCalled();
     expect(writeTaskFile).toHaveBeenCalled();
+  });
+
+  it('regenerates when the workstream Whys have actually changed', async () => {
+    // Task was compiled against wsA, but workstream now reads as wsB.
+    readWorkstream.mockReturnValue(wsA);
+    readTask.mockReturnValue({ task: openTask, workstream: 'main' });
+    await taskCompileCommand('t-plan', {});
+    const oldHash = writeTask.mock.calls[0][0].compiledFromHash;
+
+    vi.clearAllMocks();
+    readConfig.mockReturnValue({ project: 'p', me: 'alice', autoPush: false });
+    readTask.mockReturnValue({
+      task: { ...openTask, compiledAt: '2026-07-24T00:00:00Z', compiledFromHash: oldHash },
+      workstream: 'main',
+    });
+    readWorkstream.mockReturnValue(wsB);
+    taskFileExists.mockReturnValue(true);
+    await taskCompileCommand('t-plan', {});
+    expect(compileTaskPrompt).toHaveBeenCalled();
+  });
+
+  it('regenerates when the task has never been compiled (no cached file)', async () => {
+    readTask.mockReturnValue({ task: openTask, workstream: 'main' });
+    readWorkstream.mockReturnValue(wsA);
+    taskFileExists.mockReturnValue(false);
+    await taskCompileCommand('t-plan', {});
+    expect(compileTaskPrompt).toHaveBeenCalled();
   });
 
   it('with --role passes the matching role to compileTaskPrompt', async () => {
@@ -289,6 +335,7 @@ describe('taskCompileCommand', () => {
       roles: [{ slug: 'growth', name: 'Growth', responsibilities: 'r' }],
     });
     readTask.mockReturnValue({ task: openTask, workstream: 'main' });
+    readWorkstream.mockReturnValue(wsA);
     await taskCompileCommand('t-plan', { role: 'growth' });
     const arg = compileTaskPrompt.mock.calls[0][0];
     expect(arg.role).toMatchObject({ slug: 'growth', name: 'Growth' });
@@ -297,30 +344,13 @@ describe('taskCompileCommand', () => {
   it('exits when --role names a slug that does not exist', async () => {
     readConfig.mockReturnValue({ project: 'p', me: 'alice', autoPush: false, roles: [] });
     readTask.mockReturnValue({ task: openTask, workstream: 'main' });
+    readWorkstream.mockReturnValue(wsA);
     const exit = vi.spyOn(process, 'exit').mockImplementation(() => { throw new Error('exit'); });
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     await expect(taskCompileCommand('t-plan', { role: 'ghost' })).rejects.toThrow('exit');
     expect(compileTaskPrompt).not.toHaveBeenCalled();
     exit.mockRestore();
     errSpy.mockRestore();
-  });
-
-  it('regenerates when workstream has changed since compiledAt', async () => {
-    readTask.mockReturnValue({
-      task: { ...openTask, compiledAt: new Date(3000).toISOString() },
-      workstream: 'main',
-    });
-    taskFileExists.mockReturnValue(true);
-    statMtimeMs.mockReturnValue(9000);
-    await taskCompileCommand('t-plan', {});
-    expect(compileTaskPrompt).toHaveBeenCalled();
-  });
-
-  it('regenerates when the task has never been compiled (no cached file)', async () => {
-    readTask.mockReturnValue({ task: openTask, workstream: 'main' });
-    taskFileExists.mockReturnValue(false);
-    await taskCompileCommand('t-plan', {});
-    expect(compileTaskPrompt).toHaveBeenCalled();
   });
 });
 

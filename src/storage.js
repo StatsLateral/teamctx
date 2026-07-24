@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, mkdirSync, existsSync, appendFileSync, readdirSync, unlinkSync, statSync } from 'fs';
+import { readFileSync, writeFileSync, mkdirSync, existsSync, appendFileSync, readdirSync, unlinkSync } from 'fs';
 import { join, dirname } from 'path';
 
 function resolve(dir, ...parts) {
@@ -217,11 +217,6 @@ export function writeWorkstreamMd(id, content, dir) {
   writeFileSync(join(mdDir, `${id}.md`), content);
 }
 
-export function workstreamFilePath(id, dir) {
-  sanitizeWorkstreamId(id);
-  return resolve(dir, 'workstreams', `${id}.json`);
-}
-
 function sanitizeTaskId(id) {
   if (typeof id !== 'string' || !/^[a-zA-Z0-9_-]+$/.test(id)) {
     throw new Error(`Invalid task id: "${id}"`);
@@ -313,7 +308,3 @@ export function deleteTask(idOrPrefix, dir) {
   return { id, workstream: wsId };
 }
 
-export function statMtimeMs(path) {
-  if (!existsSync(path)) return null;
-  return statSync(path).mtimeMs;
-}
