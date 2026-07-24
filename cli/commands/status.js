@@ -1,4 +1,4 @@
-import { readConfig, readWorkstream, listWorkstreamIds, readContributions } from '../../src/storage.js';
+import { readConfig, readWorkstream, listWorkstreamIds, readContributions, listTasks } from '../../src/storage.js';
 
 export async function statusCommand() {
   const config = readConfig();
@@ -11,6 +11,10 @@ export async function statusCommand() {
   ])].sort();
   const workstreams = (wsIds.length ? wsIds : ['main']).map(id => ({ id, tree: readWorkstream(id) }));
   const totalWhys = workstreams.reduce((n, w) => n + (w.tree.whys?.length || 0), 0);
+  const allTasks = listTasks({});
+  const openTasks = allTasks.filter(t => t.status === 'open').length;
+  const doneTasks = allTasks.filter(t => t.status === 'done').length;
+  const compiledTasks = allTasks.filter(t => t.compiledAt).length;
 
   console.log(`\n${config.project} — teamctx status\n`);
   console.log(`  Model:        ${config.model}`);
@@ -24,6 +28,7 @@ export async function statusCommand() {
     });
   }
   console.log(`  Contributions: ${contributions.length} total, ${decisions.length} decisions`);
+  console.log(`  Tasks:        ${openTasks} open, ${doneTasks} done${compiledTasks ? ` (${compiledTasks} compiled)` : ''}`);
   console.log(`\nRoles (${config.roles.length}):`);
 
   if (config.roles.length === 0) {
