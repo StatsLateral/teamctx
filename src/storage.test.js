@@ -15,6 +15,8 @@ import {
   readCurrentSnapshotPointer, writeCurrentSnapshotPointer,
   readWorkstream, writeWorkstream, listWorkstreamIds,
   readWorkstreamMd, writeWorkstreamMd,
+  listTasks, readTask, writeTask, deleteTask, resolveTaskId,
+  writeTaskFile, readTaskFile, taskFileExists, taskFilePath,
 } from './storage.js';
 
 let dir;
@@ -246,5 +248,108 @@ describe('snapshots', () => {
     const p = { id: 'snap-1720000000000-aaaaa', approvedAt: '2026-07-13T14:00:00.000Z', approvedBy: 'manager', message: 'freeze' };
     writeCurrentSnapshotPointer(p, dir);
     expect(readCurrentSnapshotPointer(dir)).toEqual(p);
+  });
+});
+
+describe('tasks', () => {
+  const mkTask = (id, extras = {}) => ({
+    id,
+    title: 'Plan the Q3 pivot',
+    owner: 'priya',
+    status: 'open',
+    workstream: 'main',
+    createdAt: '2026-07-24',
+    doneAt: null,
+    compiledAt: null,
+    ...extras,
+  });
+
+  it('listTasks returns [] when no workstreams exist', () => {
+    expect(listTasks({}, dir)).toEqual([]);
+  });
+
+  it('treats a workstream without a tasks field as empty', () => {
+    writeWorkstream('main', { id: 'main', name: 'M', whys: [] }, dir);
+    expect(listTasks({}, dir)).toEqual([]);
+  });
+
+  it('writeTask upserts into the correct workstream and readTask round-trips', () => {
+    writeWorkstream('main', { id: 'main', name: 'M', whys: [] }, dir);
+    const t = mkTask('t-plan');
+    writeTask(t, dir);
+    const ws = readWorkstream('main', dir);
+    expect(ws.tasks).toEqual([t]);
+    expect(readTask('t-plan', dir)).toEqual({ task: t, workstream: 'main' });
+  });
+
+  it('writeTask updates an existing task in place (no duplicate)', () => {
+    writeWorkstream('main', { id: 'main', name: 'M', whys: [] }, dir);
+    writeTask(mkTask('t-plan'), dir);
+    writeTask(mkTask('t-plan', { status: 'done', doneAt: '2026-07-25' }), dir);
+    const ws = readWorkstream('main', dir);
+    expect(ws.tasks).toHaveLength(1);
+    expect(ws.tasks[0].status).toBe('done');
+  });
+
+  it('writeTask lands on the workstream named in the task', () => {
+    writeWorkstream('main', { id: 'main', name: 'M', whys: [] }, dir);
+    writeWorkstream('growth', { id: 'growth', name: 'G', whys: [] }, dir);
+    writeTask(mkTask('t-plan', { workstream: 'growth' }), dir);
+    expect(readWorkstream('main', dir).tasks || []).toEqual([]);
+    expect(readWorkstream('growth', dir).tasks).toHaveLength(1);
+  });
+
+  it('listTasks flattens across all workstreams by default', () => {
+    writeWorkstream('main', { id: 'main', name: 'M', whys: [] }, dir);
+    writeWorkstream('growth', { id: 'growth', name: 'G', whys: [] }, dir);
+    writeTask(mkTask('t-main-1'), dir);
+    writeTask(mkTask('t-g-1', { workstream: 'growth' }), dir);
+    expect(listTasks({}, dir).map(t => t.id).sort()).toEqual(['t-g-1', 't-main-1']);
+    expect(listTasks({ workstream: 'growth' }, dir).map(t => t.id)).toEqual(['t-g-1']);
+  });
+
+  it('resolveTaskId supports git-style prefix matching', () => {
+    writeWorkstream('main', { id: 'main', name: 'M', whys: [] }, dir);
+    writeTask(mkTask('t-plan-q3-ads'), dir);
+    writeTask(mkTask('t-migrate-auth'), dir);
+    expect(resolveTaskId('t-plan', dir)).toBe('t-plan-q3-ads');
+    expect(resolveTaskId('t-mig', dir)).toBe('t-migrate-auth');
+  });
+
+  it('resolveTaskId throws on no match or ambiguity', () => {
+    writeWorkstream('main', { id: 'main', name: 'M', whys: [] }, dir);
+    writeTask(mkTask('t-plan-a'), dir);
+    writeTask(mkTask('t-plan-b'), dir);
+    expect(() => resolveTaskId('nope', dir)).toThrow(/no task matches/);
+    expect(() => resolveTaskId('t-plan', dir)).toThrow(/ambiguous/);
+  });
+
+  it('resolveTaskId prefers exact match over prefix', () => {
+    writeWorkstream('main', { id: 'main', name: 'M', whys: [] }, dir);
+    writeTask(mkTask('t-plan'), dir);
+    writeTask(mkTask('t-plan-2'), dir);
+    expect(resolveTaskId('t-plan', dir)).toBe('t-plan');
+  });
+
+  it('deleteTask removes from workstream and its compiled file', () => {
+    writeWorkstream('main', { id: 'main', name: 'M', whys: [] }, dir);
+    writeTask(mkTask('t-plan'), dir);
+    writeTaskFile('t-plan', '# compiled\n', dir);
+    expect(taskFileExists('t-plan', dir)).toBe(true);
+    deleteTask('t-plan', dir);
+    expect(readWorkstream('main', dir).tasks).toEqual([]);
+    expect(taskFileExists('t-plan', dir)).toBe(false);
+  });
+
+  it('rejects task ids with path-traversal characters', () => {
+    expect(() => writeTaskFile('../evil', 'x', dir)).toThrow(/invalid task id/i);
+    expect(() => readTaskFile('../evil', dir)).toThrow(/invalid task id/i);
+    expect(() => writeTask({ id: '../evil', title: 'x', workstream: 'main', status: 'open', createdAt: '2026-07-24' }, dir)).toThrow(/invalid task id/i);
+  });
+
+  it('writeTaskFile / readTaskFile / taskFilePath round-trip', () => {
+    writeTaskFile('t-plan', '# hi\n', dir);
+    expect(readTaskFile('t-plan', dir)).toBe('# hi\n');
+    expect(taskFilePath('t-plan', dir)).toContain(join('context', 'tasks', 't-plan.md'));
   });
 });
