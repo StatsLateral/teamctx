@@ -82,9 +82,17 @@ teamctx contribute "We decided to use AWS (Why). API migration starts next sprin
 | `teamctx workstream list` | List all workstreams and their assigned roles |
 | `teamctx workstream use <id>` | Set the active workstream |
 | `teamctx role assign <slug> --workstream <id>` | Move a role to a workstream |
+| `teamctx task add "<title>" [--owner ...] [--workstream ...]` | Track a task in the active workstream |
+| `teamctx task list [--status ...] [--all]` | List tasks (defaults to open in active workstream) |
+| `teamctx task show <id>` | Show a task by id or unique prefix |
+| `teamctx task done <id>` / `reopen <id>` | Toggle task status |
+| `teamctx task assign <id> --owner <name>` | Reassign a task |
+| `teamctx task rm <id>` | Remove a task (and its compiled prompt file, if any) |
+| `teamctx task compile <id> [--role <slug>] [--force]` | AI-compile a focused prompt file for the task |
 
 See [docs/providers.md](docs/providers.md) for the full provider guide.
 See [docs/workstreams.md](docs/workstreams.md) for the full sub-workstreams guide.
+See [docs/tasks.md](docs/tasks.md) for the full tasks guide.
 
 ---
 
