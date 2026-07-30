@@ -12,6 +12,7 @@ import {
   appendContribution, readContributions,
 } from '../src/storage.js';
 import { updateShared, generateRoleFile, serializeToMd, answerQuestion } from '../src/context.js';
+import { migrateIfNeeded } from '../src/migrate.js';
 import { commitContext, pushContext } from '../src/git.js';
 
 export function resolveProjectDir(argv = process.argv.slice(2), env = process.env, cwd = process.cwd()) {
@@ -89,7 +90,15 @@ function textResult(value) {
 }
 
 export function makeHandlers(projectRoot) {
-  const dir = () => getTeamctxDir(projectRoot);
+  let migrated = false;
+  const dir = () => {
+    const teamctxDir = getTeamctxDir(projectRoot);
+    if (!migrated) {
+      try { migrateIfNeeded(teamctxDir); } catch { /* best-effort */ }
+      migrated = true;
+    }
+    return teamctxDir;
+  };
 
   return {
     async get_context() {
