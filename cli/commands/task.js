@@ -41,7 +41,7 @@ function todayIso() {
 function resolveTargetWorkstream(config, requested) {
   const targetId = requested || config.activeWorkstream || 'main';
   const known = new Set((config.workstreams || []).map(w => w.id));
-  if (config.workstreams && !known.has(targetId)) {
+  if (known.size > 0 && !known.has(targetId)) {
     console.error(`Error: no workstream "${targetId}". Run \`teamctx workstream list\`.`);
     process.exit(1);
   }
