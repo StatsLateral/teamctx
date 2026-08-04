@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Tasks as first-class objects**: track units of work alongside Whys, Roles,
+  and Decisions. `teamctx task add / list / show / done / reopen / assign / rm`
+  are all cheap local file ops (no AI). Tasks live inline on their workstream
+  file at `.teamctx/workstreams/<ws>.json` under a `tasks` array. A
+  workstream without the field is treated as empty — no migration required.
+- **On-demand task prompt compile**: `teamctx task compile <id> [--role <slug>]
+  [--force]` generates an AI-ready markdown prompt file at
+  `.teamctx/context/tasks/<task-id>.md`. Compile is the one command that
+  costs an AI call. Skips re-compile if the workstream is unchanged since
+  the last `compiledAt`; `--force` overrides.
+- **`teamctx status`** now shows a `Tasks: N open, M done (K compiled)`
+  line so the count is visible without opening any file.
+- **`teamctx ask`** grounds against open tasks in the target workstream, so
+  answers can reference in-flight work.
+- **Docs**: `docs/tasks.md` — end-to-end explainer with the compiled file
+  shape and command reference.
+
+### Not shipping (deliberate)
+- No MCP surface for tasks in this release — the CLI shape should settle
+  first. A follow-up PR will expose `list_tasks`, `task_add`, `task_done`,
+  `task_compile`, etc.
+- No auto-regeneration of compiled task files on tree changes.
+- No due dates, priorities, dependencies, or cross-workstream tasks.
+
 ## [0.2.0] - 2026-07-21
 
 ### Added

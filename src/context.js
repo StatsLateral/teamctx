@@ -94,6 +94,54 @@ export async function generateRoleFile(workstream, role, projectName, config, co
   return callClaude({ prompt, model: config.model, config });
 }
 
+export async function compileTaskPrompt({ task, workstream, role, contributions, config }) {
+  const projectName = config?.project || workstream?.name || 'project';
+  const tree = serializeToMd(workstream, projectName, '', contributions);
+  const now = new Date().toISOString().split('T')[0];
+  const roleLine = role ? `Framed for role: ${role.name} — ${role.responsibilities || ''}` : 'No role filter — write for a general team member.';
+  const decisionsList = (contributions || [])
+    .filter(c => c.tagged === 'decision' && (c.workstream || 'main') === (task.workstream || 'main'))
+    .slice(-8)
+    .map(c => `- ${c.text} — ${c.author}, ${(c.ts || '').slice(0, 10)}, via ${c.source || 'cli'}`)
+    .join('\n') || '(none yet)';
+
+  const prompt = [
+    `Generate a focused, AI-ready prompt file for ONE specific task.`,
+    `Project: ${projectName}   Date: ${now}`,
+    ``,
+    `Task title: ${task.title}`,
+    `Task id: ${task.id}   Owner: ${task.owner || '(unassigned)'}   Workstream: ${task.workstream || 'main'}`,
+    roleLine,
+    ``,
+    `Full workstream context (Why/What/How tree — pick only what's relevant to THIS task):`,
+    tree,
+    ``,
+    `Recent decisions on this workstream (may or may not be relevant to the task):`,
+    decisionsList,
+    ``,
+    `Generate a markdown file with EXACTLY these sections:`,
+    ``,
+    `# Task: ${task.title}`,
+    ``,
+    `**Owner:** ${task.owner || '(unassigned)'} · **Workstream:** ${task.workstream || 'main'} · **Status:** ${task.status}`,
+    `**Created:** ${task.createdAt || '-'} · **Compiled:** ${now}`,
+    ``,
+    `## Relevant context`,
+    `[Pull ONLY the Whys / Whats / Hows that bear on this task. Skip everything else.]`,
+    `[IMPORTANT: preserve any inline "*[decision — author, date, via source]*" markers verbatim.]`,
+    ``,
+    `## Related decisions`,
+    `[List any decisions above that materially constrain this task. If none, write "None currently."]`,
+    ``,
+    `## Suggested framing for your AI`,
+    `[One short paragraph telling the reader how to use this file with an AI — e.g. "Paste this as system context and ask: how should I approach <task>?"]`,
+    ``,
+    `Return ONLY the markdown content — no code fences, no preamble.`,
+  ].join('\n');
+
+  return callClaude({ prompt, model: config.model, config });
+}
+
 export async function generateReflection(workstream, contributions, config) {
   const tree = serializeToMd(workstream, workstream.name, '', contributions);
   const recent = contributions.slice(-20).map(c => `- ${c.author}: "${c.text}"`).join('\n') || '(none yet)';
@@ -187,10 +235,14 @@ export function normalizeSubworkstreamProposal(parsed, whys) {
   return { splits, leftover };
 }
 
-export async function answerQuestion({ sharedMd, roleMd, question, config }) {
+export async function answerQuestion({ sharedMd, roleMd, question, config, openTasks }) {
+  const tasksMd = (openTasks && openTasks.length)
+    ? `## Open Tasks\n\n${openTasks.map(t => `- ${t.id} — ${t.title} (owner: ${t.owner || '?'})`).join('\n')}`
+    : '';
   const context = [
     roleMd ? `## Your Role Context\n\n${roleMd}` : '',
     sharedMd ? `## Shared Project Context\n\n${sharedMd}` : '',
+    tasksMd,
   ].filter(Boolean).join('\n\n---\n\n');
 
   const system = [

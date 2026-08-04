@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { serializeToMd, updateShared, generateRoleFile, answerQuestion, proposeSubworkstreams, normalizeSubworkstreamProposal } from './context.js';
+import { serializeToMd, updateShared, generateRoleFile, answerQuestion, proposeSubworkstreams, normalizeSubworkstreamProposal, compileTaskPrompt } from './context.js';
 
 vi.mock('./ai.js', () => ({
   proposeDiff: vi.fn(),
@@ -225,5 +225,81 @@ describe('answerQuestion', () => {
     });
     const call = callClaude.mock.calls[0][0];
     expect(call.prompt).not.toContain('Your Role Context');
+  });
+
+  it('includes an Open Tasks section when openTasks are provided', async () => {
+    callClaude.mockResolvedValue('answer');
+    await answerQuestion({
+      sharedMd: '# Shared',
+      roleMd: '',
+      question: 'q?',
+      config: { model: 'm' },
+      openTasks: [{ id: 't-1', title: 'Plan Q3', owner: 'priya' }],
+    });
+    const call = callClaude.mock.calls[0][0];
+    expect(call.prompt).toContain('Open Tasks');
+    expect(call.prompt).toContain('t-1 — Plan Q3');
+  });
+
+  it('omits the Open Tasks section when the list is empty or missing', async () => {
+    callClaude.mockResolvedValue('answer');
+    await answerQuestion({ sharedMd: '# S', roleMd: '', question: 'q?', config: { model: 'm' } });
+    let call = callClaude.mock.calls.at(-1)[0];
+    expect(call.prompt).not.toContain('Open Tasks');
+    await answerQuestion({ sharedMd: '# S', roleMd: '', question: 'q?', config: { model: 'm' }, openTasks: [] });
+    call = callClaude.mock.calls.at(-1)[0];
+    expect(call.prompt).not.toContain('Open Tasks');
+  });
+});
+
+describe('compileTaskPrompt', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('embeds the task title, workstream tree, and framing sections into the prompt', async () => {
+    callClaude.mockResolvedValue('# Task: Plan Q3\n');
+    const workstream = { id: 'growth', name: 'Growth', whys: [{ id: 'w1', text: 'grow revenue', whats: [] }] };
+    const task = { id: 't-plan', title: 'Plan Q3 pivot', owner: 'priya', status: 'open', workstream: 'growth', createdAt: '2026-07-24' };
+    const result = await compileTaskPrompt({
+      task, workstream, role: null, contributions: [],
+      config: { model: 'claude-sonnet-4-6', project: 'Acme' },
+    });
+    expect(callClaude).toHaveBeenCalledOnce();
+    const prompt = callClaude.mock.calls[0][0].prompt;
+    expect(prompt).toContain('Plan Q3 pivot');
+    expect(prompt).toContain('grow revenue');
+    expect(prompt).toContain('Relevant context');
+    expect(prompt).toContain('Suggested framing for your AI');
+    expect(result).toBe('# Task: Plan Q3\n');
+  });
+
+  it('includes a role framing line when a role is provided', async () => {
+    callClaude.mockResolvedValue('# md');
+    await compileTaskPrompt({
+      task: { id: 't-plan', title: 't', owner: 'p', status: 'open', workstream: 'main', createdAt: '2026-07-24' },
+      workstream: { id: 'main', name: 'M', whys: [] },
+      role: { slug: 'growth', name: 'Head of Growth', responsibilities: 'own paid acquisition' },
+      contributions: [],
+      config: { model: 'm', project: 'p' },
+    });
+    const prompt = callClaude.mock.calls[0][0].prompt;
+    expect(prompt).toContain('Framed for role: Head of Growth');
+    expect(prompt).toContain('own paid acquisition');
+  });
+
+  it('includes recent decisions on the same workstream', async () => {
+    callClaude.mockResolvedValue('# md');
+    await compileTaskPrompt({
+      task: { id: 't-plan', title: 't', workstream: 'growth', status: 'open', createdAt: '2026-07-24' },
+      workstream: { id: 'growth', name: 'G', whys: [] },
+      role: null,
+      contributions: [
+        { text: 'Pause Google Ads', author: 'priya', ts: '2026-06-14T10:00:00Z', source: 'cli', tagged: 'decision', workstream: 'growth' },
+        { text: 'Should be ignored', author: 'x', ts: '2026-06-15', source: 'cli', tagged: 'decision', workstream: 'main' },
+      ],
+      config: { model: 'm', project: 'p' },
+    });
+    const prompt = callClaude.mock.calls[0][0].prompt;
+    expect(prompt).toContain('Pause Google Ads');
+    expect(prompt).not.toContain('Should be ignored');
   });
 });

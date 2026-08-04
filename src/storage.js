@@ -216,3 +216,95 @@ export function writeWorkstreamMd(id, content, dir) {
   mkdirSync(mdDir, { recursive: true });
   writeFileSync(join(mdDir, `${id}.md`), content);
 }
+
+function sanitizeTaskId(id) {
+  if (typeof id !== 'string' || !/^[a-zA-Z0-9_-]+$/.test(id)) {
+    throw new Error(`Invalid task id: "${id}"`);
+  }
+}
+
+export function tasksDir(dir) {
+  return resolve(dir, 'context', 'tasks');
+}
+
+export function taskFilePath(id, dir) {
+  sanitizeTaskId(id);
+  return join(tasksDir(dir), `${id}.md`);
+}
+
+export function taskFileExists(id, dir) {
+  return existsSync(taskFilePath(id, dir));
+}
+
+export function writeTaskFile(id, content, dir) {
+  sanitizeTaskId(id);
+  const d = tasksDir(dir);
+  mkdirSync(d, { recursive: true });
+  writeFileSync(join(d, `${id}.md`), content);
+}
+
+export function readTaskFile(id, dir) {
+  return readFileSync(taskFilePath(id, dir), 'utf-8');
+}
+
+export function deleteTaskFile(id, dir) {
+  const p = taskFilePath(id, dir);
+  if (existsSync(p)) unlinkSync(p);
+}
+
+export function listTasks({ workstream } = {}, dir) {
+  const ids = workstream ? [workstream] : listWorkstreamIds(dir);
+  const out = [];
+  for (const wsId of ids) {
+    const ws = readWorkstream(wsId, dir);
+    const tasks = Array.isArray(ws.tasks) ? ws.tasks : [];
+    for (const task of tasks) {
+      out.push({ ...task, workstream: task.workstream || wsId });
+    }
+  }
+  return out;
+}
+
+export function resolveTaskId(prefix, dir) {
+  if (typeof prefix !== 'string' || prefix.length === 0) {
+    throw new Error(`no task matches "${prefix}"`);
+  }
+  const all = listTasks({}, dir);
+  const matches = all.filter(t => t.id === prefix || t.id.startsWith(prefix));
+  if (matches.length === 0) throw new Error(`no task matches "${prefix}"`);
+  const exact = matches.find(t => t.id === prefix);
+  if (exact) return exact.id;
+  if (matches.length > 1) throw new Error(`prefix "${prefix}" is ambiguous: ${matches.map(t => t.id).join(', ')}`);
+  return matches[0].id;
+}
+
+export function readTask(idOrPrefix, dir) {
+  const id = resolveTaskId(idOrPrefix, dir);
+  const all = listTasks({}, dir);
+  const task = all.find(t => t.id === id);
+  return { task, workstream: task.workstream };
+}
+
+export function writeTask(task, dir) {
+  sanitizeTaskId(task?.id);
+  const wsId = task.workstream || 'main';
+  sanitizeWorkstreamId(wsId);
+  const ws = readWorkstream(wsId, dir);
+  const tasks = Array.isArray(ws.tasks) ? ws.tasks : [];
+  const idx = tasks.findIndex(t => t.id === task.id);
+  if (idx >= 0) tasks[idx] = task;
+  else tasks.push(task);
+  ws.tasks = tasks;
+  writeWorkstream(wsId, ws, dir);
+}
+
+export function deleteTask(idOrPrefix, dir) {
+  const id = resolveTaskId(idOrPrefix, dir);
+  const { workstream: wsId } = readTask(id, dir);
+  const ws = readWorkstream(wsId, dir);
+  ws.tasks = (ws.tasks || []).filter(t => t.id !== id);
+  writeWorkstream(wsId, ws, dir);
+  deleteTaskFile(id, dir);
+  return { id, workstream: wsId };
+}
+

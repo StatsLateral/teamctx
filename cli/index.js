@@ -23,6 +23,11 @@ import {
 import { setupCommand } from './commands/setup.js';
 import { mcpCommand } from './commands/mcp.js';
 import { workstreamSuggestCommand, workstreamListCommand, workstreamUseCommand, workstreamSplitCommand } from './commands/workstream.js';
+import {
+  taskAddCommand, taskListCommand, taskShowCommand,
+  taskDoneCommand, taskReopenCommand, taskAssignCommand, taskRmCommand,
+  taskCompileCommand,
+} from './commands/task.js';
 import { getTeamctxDir } from '../src/storage.js';
 import { migrateIfNeeded } from '../src/migrate.js';
 
@@ -100,6 +105,29 @@ workstream.command('split').description('Interactively accept AI-proposed splits
   .action(workstreamSplitCommand);
 workstream.command('list').description('List all workstreams and their assigned roles').action(workstreamListCommand);
 workstream.command('use <id>').description('Set the active workstream for contribute/ask/reflect').action(workstreamUseCommand);
+
+const task = program.command('task').description('Track tasks and compile AI-ready per-task prompts on demand');
+task.command('add <title>').description('Add a new task (default owner: you, default workstream: active)')
+  .option('--owner <name>', 'Assign to someone other than yourself')
+  .option('--workstream <id>', 'Target workstream (default: active)')
+  .action(taskAddCommand);
+task.command('list').description('List tasks (defaults to open tasks in active workstream)')
+  .option('--status <state>', 'Filter by status (open|done)')
+  .option('--owner <name>', 'Filter by owner')
+  .option('--workstream <id>', 'Filter by workstream')
+  .option('--all', 'Include all statuses and all workstreams')
+  .action(taskListCommand);
+task.command('show <id>').description('Show a task by id or unique prefix').action(taskShowCommand);
+task.command('done <id>').description('Mark a task done').action(taskDoneCommand);
+task.command('reopen <id>').description('Reopen a done task').action(taskReopenCommand);
+task.command('assign <id>').description('Reassign a task')
+  .requiredOption('--owner <name>', 'New owner')
+  .action(taskAssignCommand);
+task.command('rm <id>').description('Remove a task (and its compiled prompt file, if any)').action(taskRmCommand);
+task.command('compile <id>').description('Generate an AI-ready prompt file for the task (AI call — writes context/tasks/<id>.md)')
+  .option('--role <slug>', 'Frame the prompt for a specific role')
+  .option('--force', 'Regenerate even if the workstream has not changed since last compile')
+  .action(taskCompileCommand);
 
 const config = program.command('config').description('View or change project settings');
 config.command('provider [value]').description('Get or set the AI provider (anthropic|openai|gemini)').action(configProviderCommand);
