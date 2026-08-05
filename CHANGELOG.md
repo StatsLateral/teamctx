@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Bring-your-own-agent recipes: new `recipes/` folder with two tool-agnostic
+  prompt templates (`author-contribution.md`, `cleanup-context.md`) and per-tool
+  guides for Claude Code, Cursor, and ChatGPT. Copy-paste prompts that shape
+  rough notes into well-formed contributions and clean up the shared tree
+  before running `teamctx reflect`.
 - **Tasks as first-class objects**: track units of work alongside Whys, Roles,
   and Decisions. `teamctx task add / list / show / done / reopen / assign / rm`
   are all cheap local file ops (no AI). Tasks live inline on their workstream

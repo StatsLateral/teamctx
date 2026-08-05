@@ -217,6 +217,14 @@ See [`docs/mcp.md`](docs/mcp.md) for the full reference.
 
 ---
 
+## Recipes: bring your own agent
+
+Copy-paste prompts you can feed into Claude Code, Cursor, or ChatGPT to help
+you author well-shaped contributions and clean up the shared context. See
+[`recipes/`](recipes/README.md) for the recipe pack and per-tool guides.
+
+---
+
 ## Self-hosting (web layer)
 
 Deploy to Vercel to give non-technical team members two routes:
@@ -331,17 +339,21 @@ Every `teamctx contribute` commits and pushes to your private repo. Vercel's git
 
 ```
 .teamctx/
-  config.json              # project name, roles, model, auto-push, manager
-  shared.json              # full Why/What/How tree (source of truth)
+  config.json                       # project name, roles, model, auto-push, manager
+  workstreams/
+    main.json                       # full Why/What/How tree for the main workstream (source of truth)
+    <id>.json                       # additional workstreams after `teamctx workstream split`
   context/
-    shared.md              # human-readable, auto-regenerated
+    workstreams/
+      main.md                       # human-readable, auto-regenerated projection of main.json
+      <id>.md                       # ditto per additional workstream
     roles/
-      <slug>.md            # role-specific context file — this is what gets shared
-  contributions.jsonl      # append-only audit log
-  queue/                   # pending contributions awaiting manager approval
-  rejected/                # archived rejected contributions (with reason)
-  snapshots/               # versioned context checkpoints; current.json points to the last approved
-  pending/                 # raw web submissions inbox (processed by `teamctx pull`)
+      <slug>.md                     # role-specific context file — this is what gets shared
+  contributions.jsonl               # append-only audit log
+  queue/                            # pending contributions awaiting manager approval
+  rejected/                         # archived rejected contributions (with reason)
+  snapshots/                        # versioned context checkpoints; current.json points to the last approved
+  pending/                          # raw web submissions inbox (processed by `teamctx pull`)
 ```
 
 ---
