@@ -3,4 +3,6 @@ node_modules/
 dist/
 .vercel
 .env*.local
-.teamctx/
+
+# Private strategy docs — never push
+docs/private/
