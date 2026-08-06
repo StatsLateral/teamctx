@@ -53,8 +53,32 @@ few hours. This proposal productizes that.
 - Tests: fixture directory of 2–3 small markdown files → expected queue items
   (mock the provider; see `contribute.core.test.js` for the pattern).
 
+## Follow-up: import connectors (Slack, Google Drive, then Microsoft 365, Dropbox, Notion)
+
+Local files are the starting point, but most teams' context lives in cloud tools.
+The design rule for connectors:
+
+- **A connector is a thin fetch adapter** — it turns a remote source (a Slack
+  channel/thread, a Drive folder) into the same normalized text documents the
+  local-file path produces. Everything downstream (distill → dedupe → review
+  queue) is shared and already exists. Connectors should contain *no* AI logic.
+- **Pull-based, user OAuth, no server** — `teamctx import --from slack <channel>`
+  runs locally with the user's own token, consistent with the project's
+  no-server/BYO-key ethos. No webhooks, no hosted component.
+- **One interface, many contributors** — define the connector contract once
+  (auth → list → fetch → normalize), so each new source is a well-scoped,
+  independent PR. First wave (6): Slack, Google Drive, Microsoft 365
+  (SharePoint/OneDrive — many SMB/mid-market teams are Microsoft-cloud-first),
+  Dropbox, Notion, Coda. Confluence/Airtable/Box after. Build the contract
+  first; connectors then land in any order, one PR each.
+- **Slack note:** threads are where decisions get made and then lost — a Slack
+  import that distills a channel's last N days into proposed contributions is
+  the highest-leverage connector, and also the hardest to keep signal-rich.
+  Start with explicit thread/channel selection, not firehose ingestion.
+
 ## Open questions
 
 - Chunking long documents: per-file is simplest; per-section may distill better.
 - Should import tag contributions (`--decision`-style) so imported context is
   distinguishable from lived context later?
+- Connector auth UX: device-code flow vs. pasted tokens for CLI-only users.

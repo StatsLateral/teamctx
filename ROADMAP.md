@@ -45,12 +45,15 @@ The current focus is making teamctx **easy to start** and **able to prove it wor
 
 - **First-run experience + `teamctx doctor`** — a new user should reach their first compiled role file in under 10 minutes. `doctor` checks the environment (git repo, Node version, API key present and valid, provider reachable) and prints one actionable fix per problem — *easy to start*
 - **Mid-session decision capture** — the deeper promise: when a team member's AI tool reaches a decision mid-session, the tool itself proposes `submit_contribution` over MCP (with the member's confirmation), so decisions flow into shared context at the speed they're made instead of at the weekly review — *bring your own tools & agents* — builds on the recipes + MCP surface
+- **Import connectors (6): Slack, Google Drive, Microsoft 365, Dropbox, Notion, Coda** — extend `teamctx import` beyond local files to where a team's context actually lives: a Slack channel or thread (where decisions get made and then die), a Google Drive folder, a SharePoint/OneDrive library (many SMB teams are Microsoft-cloud-first), a Dropbox folder, a Notion or Coda workspace. Thin, pull-based adapters with user OAuth — each connector feeds the same import → review-queue pipeline, no server required. One shared connector interface so each is a well-scoped, independent contribution: **build the contract first, then connectors in any order — each one is a great standalone PR** — *bring your own tools · easy to start* · [proposal](docs/proposals/context-import.md)
+- **Slack approval notifications** — when a contribution lands in the queue, ping the manager where they already live; approving stays in the CLI/MCP — *managers in control*
 - **Context freshness signals** — role files and `status` surface "last approved N days ago / M pending contributions" so a stale context is visible before it misleads someone's AI — *prove team productivity*
 - **OAuth hardening for hosted MCP** (after #17 lands) — validate `redirect_uri` at token exchange against the `/authorize` value; make one-shot code consumption atomic (`GETDEL`) — well-scoped, security-minded contributors welcome
 - **Self-host guide** — deploy the hosted MCP + web surface on your own Vercel account end to end
 
 ## Later
 
+- **More import connectors: Confluence, Airtable, Box…** — same connector interface; any popular document/knowledge tool is fair game once the contract exists — *bring your own tools*
 - **Export workstreams to project-management tools** — push workstreams/tasks out to Jira, Linear, Asana, or Trello — *structured workstreams*
 - **Non-git storage backends** — the GitHub-API adapter (#17) is the first step; a filesystem/DB backend would free teamctx from git entirely for non-technical teams
 - **Cross-project context links** — a decision in one project's context updates a linked context in another (e.g. a product-strategy decision updates the GTM team's context)
