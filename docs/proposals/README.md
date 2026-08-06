@@ -17,6 +17,15 @@ These are **contributor-facing write-ups** for the larger items on the
 
 | Proposal | Serves | Rough size |
 |----------|--------|-----------|
-| [Provider-agnostic AI layer](provider-agnostic-ai.md) | No platform lock-in | Medium |
-| [Public API + MCP server](external-api-and-mcp.md) | Bring your own tools & agents | Large (splittable) |
-| [Manager approval queue](manager-approval-queue.md) | Managers in control | Large (splittable) |
+| [Context import (cold-start onboarding)](context-import.md) | Bring your own tools · Managers in control | Medium–Large (splittable) |
+| [Local team-productivity metrics](local-metrics.md) | Prove team productivity | Medium (splittable) |
+
+## Shipped proposals 🎉
+
+Kept for reference — these were built (see [CHANGELOG](../../CHANGELOG.md)):
+
+| Proposal | Landed as |
+|----------|-----------|
+| [Provider-agnostic AI layer](provider-agnostic-ai.md) | `src/providers/` — Claude, OpenAI, Gemini behind one interface |
+| [Public API + MCP server](external-api-and-mcp.md) | `teamctx mcp` full tool surface (#14); hosted variant in review (#17) |
+| [Manager approval queue](manager-approval-queue.md) | `teamctx review list/approve/reject` + manager identity gate |
