@@ -3,24 +3,48 @@
 AI-native version control for team context. Every team member gets a continuously updated, role-specific context file for Claude, ChatGPT, or Gemini.
 
 **No server. No seats. Bring your own API key.**
+**New:** run it entirely from your AI client via [MCP](#use-teamctx-from-your-ai-tool-mcp) — no terminal needed.
+
+## The problem
+
+**Your team syncs weekly. Their AIs diverge hourly.**
+
+AI is brilliant at iterating with one person — and incapable of iterating
+across people. Each teammate's AI refines work in a private loop; every
+decision and correction stays trapped in that person's thread. Teams don't
+diverge because people disagree; they diverge because their AIs never met.
+The manager inherits the gap as rework.
 
 ## Vision
 
-As teams adopt AI tools, the context that makes those tools useful — *why* the
-team is doing something, *what* it's building, *how* it works — lives scattered
-across docs, chats, and people's heads, and goes stale immediately. teamctx
-treats that shared context like source code: version-controlled, continuously
-updated, and compiled into a role-specific file each person hands to Claude,
-ChatGPT, or Gemini. No server, no seats, bring your own key.
+Engineering teams already have the fix — accidentally. Their AI works because
+the repo is shared ground truth: every agent reads the same code, the same
+CLAUDE.md. **teamctx is that same machinery for the context that isn't code**
+— the *why* the team is doing something, *what* it's building, *how* it works,
+which otherwise lives scattered across docs, chats, and people's heads.
+
+teamctx treats that shared context like source code: version-controlled,
+manager-approved, and compiled into a role-specific file each person hands to
+Claude, ChatGPT, or Gemini — and designed so a team can *see* it working
+(contribution cadence, approval flow, context freshness — measured locally,
+never phoned home). No server, no seats, bring your own key.
+
+## Who is this for
+
+Small teams (2–10) doing deliverable-based knowledge work — GTM, product
+strategy, marketing, ops — where each person already uses their own AI tool
+and a manager owns output quality. If you're an engineering team, your repo
+already does this; teamctx is for the teams whose work has no repo.
 
 ---
 
 ## How it works
 
 1. Manager runs `teamctx init` in any git repo
-2. Contribute updates: `teamctx contribute "..."` — AI updates the shared Why/What/How context and regenerates every role's context file
-3. Role files auto-push to GitHub — accessible at a stable URL
-4. Non-technical team members go to `/contribute` to submit updates and `/context/<role>` to download their file
+2. Anyone contributes: `teamctx contribute "..."` — or the web form, or their own AI tool via MCP. AI distills it into proposed Why/What/How changes and enqueues them
+3. **The manager reviews and approves** (`teamctx review`) — only approved contributions enter the shared context
+4. Every role's context file regenerates and auto-pushes to GitHub — accessible at a stable URL
+5. Team members (and their AI tools) pull their role file from `/context/<role>`; non-technical teammates use `/contribute` to submit updates
 
 ---
 
@@ -165,8 +189,8 @@ teamctx resolves *which* project to use in this order:
    the file — don't replace the file.
 4. Fully quit Claude Desktop (system tray → Quit) and reopen it.
 5. Verify: click the tools/hammer icon near the chat input — you should
-   see four `teamctx` tools listed. Then prompt "Use the teamctx
-   get_context tool to summarize my project."
+   see the `teamctx` tools listed (the full surface is ~30 tools). Then
+   prompt "Use the teamctx get_context tool to summarize my project."
 
 #### Claude Code
 
@@ -257,7 +281,7 @@ Go to [github.com/new](https://github.com/new) and create a new **private** repo
 Then clone teamctx and point it at your new private repo:
 
 ```bash
-git clone https://github.com/StatsLateral/teamctx team-context
+git clone https://github.com/statslateralinc/teamctx team-context
 cd team-context
 git remote set-url origin https://github.com/YOUR_USERNAME/team-context
 git push -u origin main
