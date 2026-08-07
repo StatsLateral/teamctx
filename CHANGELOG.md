@@ -7,7 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-08-07
+
 ### Added
+- **Hosted, multi-tenant MCP server.** Deploy once to Vercel and any number
+  of users connect over `https://<deployment>/api/mcp/<owner>/<repo>` with
+  zero local install — no tokens, no PATs, no files on their machine. Full
+  OAuth 2.1 authorization server (`api/oauth-server.js`) proxying GitHub as
+  identity provider, with dynamic client registration, PKCE, one-shot
+  authorization codes, and rotating refresh tokens. A GitHub-backed storage
+  adapter (`src/adapters/github.js`) reads and writes `.teamctx/` via the
+  Git Data API for atomic, attributed commits — no server-side git clone.
+  Per-request `AsyncLocalStorage` isolation for both the caller's GitHub
+  session and their saved AI provider key, safe under Vercel Fluid Compute's
+  instance reuse. Setup guide: [docs/mcp-hosted-setup.md](docs/mcp-hosted-setup.md).
+  Self-hosting single-tenant (one deployment, one repo, env-var credentials)
+  remains supported with no OAuth required.
 - **Per-answer contribution attribution on `ask`.** Every
   `teamctx ask "..."` answer ends with a one-line summary of the
   contributors whose material the AI actually cited for this specific
@@ -91,6 +106,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`get_context` response shape** stays as `{workstreams: [{id, tree}, ...]}`
   from the previous release; documented in
   [docs/mcp.md](docs/mcp.md#breaking-change--get_context-response-shape).
+
+### Fixed
+- **Citation anchoring**: `ask`'s citation parser now anchors on the last
+  `## Citations:`-style block in the AI's response instead of the first,
+  closing a truncation/forgery path where a cited contribution's own text
+  quoting that heading could otherwise cut off the real answer or inject
+  fake citations.
+- **OAuth `redirect_uri` validation**: the token endpoint now checks the
+  `redirect_uri` at code exchange against the one used at `/authorize`,
+  rejecting mismatches. Defense-in-depth alongside the PKCE check that was
+  already enforced end-to-end.
+- **Atomic one-shot OAuth codes**: `kvTake` (used for authorization codes
+  and pending-auth state) now does a single atomic `GETDEL` against the KV
+  store instead of a get-then-delete, closing a narrow replay window under
+  concurrent requests.
 
 ## [0.2.0] - 2026-07-21
 
