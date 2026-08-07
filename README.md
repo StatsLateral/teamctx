@@ -84,7 +84,7 @@ teamctx contribute "We decided to use AWS (Why). API migration starts next sprin
 | `teamctx role add --suggest` | AI suggests roles from current context |
 | `teamctx role list` | List all roles and their context URLs |
 | `teamctx context <role>` | Print role MD to stdout |
-| `teamctx ask "<question>" [--role <slug>]` | Ask a question, answered from your team context |
+| `teamctx ask "<question>" [--role <slug>] [--audit]` | Ask a question, answered from your team context. `--audit` appends a per-contribution source list |
 | `teamctx pull` | Fetch and process web contributions |
 | `teamctx reflect` | AI rewrites context for clarity (run weekly) |
 | `teamctx review list` | List pending contributions awaiting manager approval |
@@ -117,6 +117,7 @@ teamctx contribute "We decided to use AWS (Why). API migration starts next sprin
 See [docs/providers.md](docs/providers.md) for the full provider guide.
 See [docs/workstreams.md](docs/workstreams.md) for the full sub-workstreams guide.
 See [docs/tasks.md](docs/tasks.md) for the full tasks guide.
+See [docs/audit.md](docs/audit.md) for how `ask --audit` and the Contributors section work.
 
 ---
 

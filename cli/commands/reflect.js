@@ -1,6 +1,7 @@
 import { ask } from '../prompt.js';
 import { readConfig, readWorkstream, writeWorkstream, writeWorkstreamMd, readContributions, writeRoleFile } from '../../src/storage.js';
 import { generateReflection, serializeToMd, generateRoleFile } from '../../src/context.js';
+import { preserveSourcesThroughReflect } from '../../src/provenance.js';
 import { extractJson } from '../../src/ai.js';
 import { commitContext, pushContext } from '../../src/git.js';
 
@@ -19,7 +20,8 @@ export async function reflectCommand(opts = {}) {
   let updated;
   try {
     const parsed = extractJson(raw);
-    updated = { ...workstream, whys: Array.isArray(parsed.whys) ? parsed.whys : workstream.whys };
+    const next = { ...workstream, whys: Array.isArray(parsed.whys) ? parsed.whys : workstream.whys };
+    updated = preserveSourcesThroughReflect(workstream, next);
   } catch (err) {
     console.error('Error: AI returned invalid JSON. Reflection aborted.');
     console.error(err.message);

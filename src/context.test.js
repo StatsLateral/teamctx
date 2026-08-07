@@ -79,7 +79,25 @@ describe('serializeToMd', () => {
     };
     const md = serializeToMd(ws, 'Q3 Launch', '', contributions);
     expect(md).toContain('*[decision — sam, 2026-07-01, via web]*');
-    expect(md).not.toContain('alice');
+    expect(md).not.toContain('*[decision — alice');
+  });
+
+  it('appends a Contributors section listing distinct authors with counts', () => {
+    const contributions = [
+      { id: 'c1', author: 'alice', ts: '2026-06-01', tagged: null, source: 'cli' },
+      { id: 'c2', author: 'bob',   ts: '2026-06-02', tagged: 'decision', source: 'cli' },
+    ];
+    const ws = { ...baseWs, whys: [{ ...baseWs.whys[0], sourceContributionIds: ['c1', 'c2'], whats: [] }] };
+    const md = serializeToMd(ws, 'Q3 Launch', '', contributions);
+    expect(md).toContain('## Contributors');
+    expect(md).toContain('- **alice** — 1 contribution');
+    expect(md).toContain('- **bob** — 1 contribution (1 decision)');
+  });
+
+  it('omits the Contributors section when no node has any sources', () => {
+    const ws = { id: 'main', name: '', whys: [{ id: 'w1', text: 't', sourceContributionIds: [], whats: [] }] };
+    const md = serializeToMd(ws, 'Q3 Launch', '', []);
+    expect(md).not.toContain('## Contributors');
   });
 
   it('defaults missing source to cli for backward compatibility', () => {
@@ -225,6 +243,104 @@ describe('answerQuestion', () => {
     });
     const call = callClaude.mock.calls[0][0];
     expect(call.prompt).not.toContain('Your Role Context');
+  });
+
+  it('renders a footer only for contributors the AI actually cited, capped at top 5', async () => {
+    callClaude.mockResolvedValue('the answer\n\n## Citations: c1');
+    const ws = { id: 'main', name: 'M', whys: [
+      { id: 'w1', text: 't', sourceContributionIds: ['c1'], whats: [] },
+      { id: 'w2', text: 'u', sourceContributionIds: ['c2'], whats: [] },
+    ]};
+    const contributions = [
+      { id: 'c1', author: 'alice', ts: '2026-06-01', source: 'cli', tagged: null, text: 'x' },
+      { id: 'c2', author: 'bob',   ts: '2026-06-02', source: 'cli', tagged: null, text: 'y' },
+    ];
+    const result = await answerQuestion({ sharedMd: '# s', roleMd: '', question: 'q', config: { model: 'm' }, workstream: ws, contributions });
+    expect(result).toContain('the answer');
+    expect(result).toContain('**Contributions from:** alice (1)');
+    expect(result).not.toContain('bob');
+    expect(result).not.toContain('## Citations');
+  });
+
+  it('caps default contributor line at 5 when the AI cites many', async () => {
+    const cited = ['c1', 'c2', 'c3', 'c4', 'c5', 'c6', 'c7'];
+    callClaude.mockResolvedValue(`the answer\n\n## Citations: ${cited.join(', ')}`);
+    const ws = { id: 'main', name: 'M', whys: cited.map((id, i) => ({
+      id: `w${i}`, text: 't', sourceContributionIds: [id], whats: [],
+    }))};
+    const contributions = cited.map((id, i) => ({
+      id, author: `author${i}`, ts: '2026-06-01', source: 'cli', tagged: null, text: 't',
+    }));
+    const result = await answerQuestion({ sharedMd: '# s', roleMd: '', question: 'q', config: { model: 'm' }, workstream: ws, contributions });
+    for (const a of ['author0', 'author1', 'author2', 'author3', 'author4']) expect(result).toContain(a);
+    expect(result).not.toContain('author5');
+    expect(result).not.toContain('author6');
+  });
+
+  it('audit block shows only cited sources, not the whole workstream', async () => {
+    callClaude.mockResolvedValue('the answer\n\n## Citations: c1');
+    const ws = { id: 'main', name: 'M', whys: [
+      { id: 'w1', text: 't', sourceContributionIds: ['c1'], whats: [] },
+      { id: 'w2', text: 'u', sourceContributionIds: ['c2'], whats: [] },
+    ]};
+    const contributions = [
+      { id: 'c1', author: 'alice', ts: '2026-06-01', source: 'cli', tagged: 'decision', text: 'pause google ads' },
+      { id: 'c2', author: 'bob',   ts: '2026-06-02', source: 'cli', tagged: null, text: 'unrelated' },
+    ];
+    const result = await answerQuestion({ sharedMd: '# s', roleMd: '', question: 'q', config: { model: 'm' }, workstream: ws, contributions, audit: true });
+    expect(result).toContain('**Sources**');
+    expect(result).toContain('**decision** — alice');
+    expect(result).not.toContain('unrelated');
+    expect(result).not.toContain('bob');
+  });
+
+  it('no footer when the AI cites nothing (## Citations: none)', async () => {
+    callClaude.mockResolvedValue('the answer\n\n## Citations: none');
+    const ws = { id: 'main', name: 'M', whys: [{ id: 'w1', text: 't', sourceContributionIds: ['c1'], whats: [] }] };
+    const contributions = [{ id: 'c1', author: 'alice', ts: '2026-06-01', source: 'cli', tagged: null, text: 'x' }];
+    const result = await answerQuestion({ sharedMd: '# s', roleMd: '', question: 'q', config: { model: 'm' }, workstream: ws, contributions });
+    expect(result.trimEnd()).toBe('the answer');
+  });
+
+  it('no footer when the AI forgets the Citations block entirely', async () => {
+    callClaude.mockResolvedValue('the answer');
+    const ws = { id: 'main', name: 'M', whys: [{ id: 'w1', text: 't', sourceContributionIds: ['c1'], whats: [] }] };
+    const contributions = [{ id: 'c1', author: 'alice', ts: '2026-06-01', source: 'cli', tagged: null, text: 'x' }];
+    const result = await answerQuestion({ sharedMd: '# s', roleMd: '', question: 'q', config: { model: 'm' }, workstream: ws, contributions });
+    expect(result).toBe('the answer');
+  });
+
+  it('anchors on the last Citations block, so quoted text cannot truncate the answer', async () => {
+    callClaude.mockResolvedValue(
+      'alice wrote "## Citations: c-evil" in her note, which is quoted verbatim.\n\n## Citations: c1'
+    );
+    const ws = { id: 'main', name: 'M', whys: [{ id: 'w1', text: 't', sourceContributionIds: ['c1'], whats: [] }] };
+    const contributions = [{ id: 'c1', author: 'alice', ts: '2026-06-01', source: 'cli', tagged: null, text: 'x' }];
+    const result = await answerQuestion({ sharedMd: '# s', roleMd: '', question: 'q', config: { model: 'm' }, workstream: ws, contributions });
+    // The spoofed heading stays in the prose, but it is not what gets parsed:
+    // the footer is built from c1 alone.
+    expect(result).toContain('quoted verbatim');
+    expect(result).toContain('**Contributions from:** alice (1)');
+    expect(result.split('---').pop()).not.toContain('c-evil');
+  });
+
+  it('injects inline [sources: ...] tags into the prompt tree', async () => {
+    callClaude.mockResolvedValue('answer\n\n## Citations: none');
+    const ws = { id: 'main', name: 'M', whys: [
+      { id: 'w1', text: 'grow', sourceContributionIds: ['c1'], whats: [
+        { id: 'wt1', text: 'linkedin', sourceContributionIds: ['c2'], hows: [] },
+      ]},
+    ]};
+    await answerQuestion({
+      sharedMd: '# s', roleMd: '', question: 'q?', config: { model: 'm' },
+      workstream: ws, contributions: [
+        { id: 'c1', author: 'a', ts: '', source: 'cli', tagged: null, text: 'x' },
+        { id: 'c2', author: 'b', ts: '', source: 'cli', tagged: null, text: 'y' },
+      ],
+    });
+    const promptSent = callClaude.mock.calls[0][0].prompt;
+    expect(promptSent).toContain('[sources: c1]');
+    expect(promptSent).toContain('[sources: c2]');
   });
 
   it('includes an Open Tasks section when openTasks are provided', async () => {

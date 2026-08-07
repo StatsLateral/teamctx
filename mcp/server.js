@@ -115,12 +115,13 @@ export const TOOLS = [
   },
   {
     name: 'ask',
-    description: "Ask a question answered from the team's shared context; optionally include a role's perspective.",
+    description: "Ask a question answered from the team's shared context; optionally include a role's perspective. Pass audit=true to append a per-contribution source list to the answer.",
     inputSchema: {
       type: 'object',
       properties: {
         question: { type: 'string' },
-        role: { type: 'string', description: 'Optional role slug' },
+        role: { type: 'string', description: 'Optional role slug to add role-specific context' },
+        audit: { type: 'boolean', description: 'When true, append a detailed source list; when false (default), append a one-line contributor summary' },
       },
       required: ['question'], additionalProperties: false,
     },
@@ -417,7 +418,7 @@ export function makeHandlers(projectRoot) {
       return textResult(getConfig({ teamctxDir: dir() }));
     },
 
-    async ask({ question, role }) {
+    async ask({ question, role, audit }) {
       const teamctxDir = dir();
       const config = readConfig(teamctxDir);
       let roleMd = '';
@@ -430,7 +431,12 @@ export function makeHandlers(projectRoot) {
         roleMd = readRoleFile(role, teamctxDir);
       }
       const sharedMd = readSharedMd(teamctxDir);
-      const answer = await answerQuestion({ sharedMd, roleMd, question, config });
+      const workstream = readWorkstream(config.activeWorkstream || 'main', teamctxDir);
+      const contributions = readContributions(teamctxDir);
+      const answer = await answerQuestion({
+        sharedMd, roleMd, question, config,
+        workstream, contributions, audit: !!audit,
+      });
       return textResult(answer);
     },
 

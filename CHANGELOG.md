@@ -8,6 +8,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Per-answer contribution attribution on `ask`.** Every
+  `teamctx ask "..."` answer ends with a one-line summary of the
+  contributors whose material the AI actually cited for this specific
+  answer (capped at top 5). The tree passed to the AI is annotated with
+  inline `[sources: c-x]` tags, and the AI is asked to end its answer with
+  a `## Citations: c-x, c-y` block that teamctx parses and strips. No
+  second API call.
+- **`ask --audit`** expands the footer into the full source list for the
+  contributions the AI cited — author, date, source system, decision tag,
+  and text snippet, uncapped. Same one-call flow, richer rendering.
+- **Compiled workstream markdown** gains a `## Contributors` section at
+  the bottom, listing distinct authors with counts. Same source of truth
+  as the `ask` footer.
+- **MCP `ask` tool** gains an optional `audit: boolean` argument that
+  mirrors the CLI flag.
+- **Web `/ask` endpoint** accepts an `audit` field on the POST body
+  (`true`/`1`/`on`/`yes` all count).
+- **`teamctx reflect` preserves provenance.** When the AI-rewritten tree
+  keeps a node id, the original `sourceContributionIds` are merged into
+  the new node — reflection no longer loses the trail.
+- **Docs**: `docs/audit.md` — end-user explainer with examples.
 - **MCP full-surface**: the MCP server now exposes every mutating CLI command
   as a tool, so managers can drive teamctx from Claude Desktop / Code / Cursor
   with no terminal after the initial install + API key. New tools include
@@ -55,6 +76,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `task_compile`, etc.
 - No auto-regeneration of compiled task files on tree changes.
 - No due dates, priorities, dependencies, or cross-workstream tasks.
+- Per-sentence citation ("this claim came from contribution X"). Attribution
+  is at the node level.
+- Backfill of provenance on nodes that predate this feature — they simply
+  show no contributors and audit-flags them as "unknown."
+- A diff view of what each contribution changed in the tree.
 
 ### Changed
 - **MCP `contribute` supersedes `submit_contribution`**: the new `contribute`

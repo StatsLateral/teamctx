@@ -48,7 +48,7 @@ import {
   readConfig, readWorkstream, writeWorkstream, listWorkstreamIds,
   readSharedMd, writeWorkstreamMd,
   readRoleFile, writeRoleFile,
-  appendContribution,
+  appendContribution, readContributions,
 } from '../src/storage.js';
 import { updateShared, generateRoleFile, answerQuestion } from '../src/context.js';
 import { migrateIfNeeded } from '../src/migrate.js';
@@ -259,6 +259,35 @@ describe('ask', () => {
     await handlers.ask({ question: 'q?', role: 'cpo' });
     expect(readRoleFile).toHaveBeenCalledWith('cpo', TDIR);
     expect(answerQuestion).toHaveBeenCalledWith(expect.objectContaining({ roleMd: '# CPO' }));
+  });
+
+  it('forwards audit:true and the workstream/contributions provenance inputs', async () => {
+    readConfig.mockReturnValue({ ...baseConfig, roles: [], activeWorkstream: 'tech' });
+    readSharedMd.mockReturnValue('# Shared');
+    readWorkstream.mockReturnValue({ id: 'tech', name: 'Tech', whys: [] });
+    readContributions.mockReturnValue([{ id: 'c1', author: 'alice' }]);
+    answerQuestion.mockResolvedValue('answer');
+
+    const handlers = makeHandlers(ROOT);
+    await handlers.ask({ question: 'q?', audit: true });
+    expect(readWorkstream).toHaveBeenCalledWith('tech', TDIR);
+    expect(answerQuestion).toHaveBeenCalledWith(expect.objectContaining({
+      audit: true,
+      workstream: expect.objectContaining({ id: 'tech' }),
+      contributions: [{ id: 'c1', author: 'alice' }],
+    }));
+  });
+
+  it('defaults audit to false when the arg is omitted', async () => {
+    readConfig.mockReturnValue({ ...baseConfig, roles: [] });
+    readSharedMd.mockReturnValue('# Shared');
+    readWorkstream.mockReturnValue({ id: 'main', name: 'Main', whys: [] });
+    readContributions.mockReturnValue([]);
+    answerQuestion.mockResolvedValue('answer');
+
+    const handlers = makeHandlers(ROOT);
+    await handlers.ask({ question: 'q?' });
+    expect(answerQuestion).toHaveBeenCalledWith(expect.objectContaining({ audit: false }));
   });
 
   it('throws a helpful error when the role does not exist', async () => {

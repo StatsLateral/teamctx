@@ -1,4 +1,4 @@
-import { readConfig, readSharedMd, readRoleFile } from '../src/storage.js';
+import { readConfig, readSharedMd, readRoleFile, readShared, readContributions } from '../src/storage.js';
 import { answerQuestion } from '../src/context.js';
 
 function esc(s) {
@@ -90,10 +90,16 @@ export default async function handler(req, res) {
     }
 
     const sharedMd = readSharedMd();
+    const workstream = readShared();
+    const contributions = readContributions();
+    const audit = /^(1|true|on|yes)$/i.test(String(req.body?.audit || ''));
 
     let answer;
     try {
-      answer = await answerQuestion({ sharedMd, roleMd, question: question.trim(), config });
+      answer = await answerQuestion({
+        sharedMd, roleMd, question: question.trim(), config,
+        workstream, contributions, audit,
+      });
     } catch (err) {
       console.error('Ask error:', err.message);
       res.status(500).send('AI request failed. Please try again.');

@@ -67,6 +67,7 @@ program.command('contribute <text>').description('Add context — AI proposes ch
 program.command('ask <question>').description("Ask a question, answered from your team's context")
   .option('--role <slug>', "Answer from a specific role's perspective")
   .option('--workstream <id>', 'Answer from a specific workstream (default: role\'s workstream, else active)')
+  .option('--audit', 'Append a per-contribution source list to the answer')
   .action(askCommand);
 
 program.command('pull').description('Fetch and process pending web contributions').action(pullCommand);
