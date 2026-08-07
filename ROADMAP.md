@@ -29,8 +29,8 @@ The previous roadmap is nearly all built (thank you, contributors!):
 - **AI-suggested sub-workstreams** — `workstream suggest` / `split`, nested workstreams
 - **Tasks as first-class objects** — cheap local task CRUD + on-demand AI prompt compile per task
 - **Bring-your-own-agent recipes** — copy-paste prompts for Claude Code, Cursor, ChatGPT
-
-In review: **`ask` citations & audit** (#16 — every answer names the contributions it drew from) and **hosted MCP with OAuth** (#17 — use teamctx from any MCP client with zero local install).
+- **`ask` citations & audit** (#16) — every answer names the contributions it drew from; `ask --audit` expands the full source list
+- **Hosted MCP with OAuth** (#17) — use teamctx from any MCP client with zero local install; operators deploy once via [docs/mcp-hosted-setup.md](docs/mcp-hosted-setup.md)
 
 ## Now
 
@@ -48,8 +48,6 @@ The current focus is making teamctx **easy to start** and **able to prove it wor
 - **Import connectors (6): Slack, Google Drive, Microsoft 365, Dropbox, Notion, Coda** — extend `teamctx import` beyond local files to where a team's context actually lives: a Slack channel or thread (where decisions get made and then die), a Google Drive folder, a SharePoint/OneDrive library (many SMB teams are Microsoft-cloud-first), a Dropbox folder, a Notion or Coda workspace. Thin, pull-based adapters with user OAuth — each connector feeds the same import → review-queue pipeline, no server required. One shared connector interface so each is a well-scoped, independent contribution: **build the contract first ([#21](https://github.com/statslateralinc/teamctx/issues/21)), then connectors in any order — each one is a great standalone PR**: [Slack #22](https://github.com/statslateralinc/teamctx/issues/22) · [Drive #23](https://github.com/statslateralinc/teamctx/issues/23) · [M365 #24](https://github.com/statslateralinc/teamctx/issues/24) · [Dropbox #25](https://github.com/statslateralinc/teamctx/issues/25) · [Notion #26](https://github.com/statslateralinc/teamctx/issues/26) · [Coda #27](https://github.com/statslateralinc/teamctx/issues/27) — *bring your own tools · easy to start* · [proposal](docs/proposals/context-import.md)
 - **Slack approval notifications** — when a contribution lands in the queue, ping the manager where they already live; approving stays in the CLI/MCP — *managers in control*
 - **Context freshness signals** — role files and `status` surface "last approved N days ago / M pending contributions" so a stale context is visible before it misleads someone's AI — *prove team productivity*
-- **OAuth hardening for hosted MCP** (after #17 lands) — validate `redirect_uri` at token exchange against the `/authorize` value; make one-shot code consumption atomic (`GETDEL`) — well-scoped, security-minded contributors welcome
-- **Self-host guide** — deploy the hosted MCP + web surface on your own Vercel account end to end
 
 ## Later
 
