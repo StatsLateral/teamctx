@@ -1,9 +1,10 @@
 import OpenAI from 'openai';
+import { getRequestAiKey } from '../ai-context.js';
 
 export const id = 'openai';
 
 export async function complete({ system = '', prompt, model, max_tokens = 4096 }) {
-  const apiKey = process.env.OPENAI_API_KEY;
+  const apiKey = getRequestAiKey() || process.env.OPENAI_API_KEY;
   if (!apiKey) {
     throw new Error('OPENAI_API_KEY not set. Add it to your .env file or shell environment.');
   }

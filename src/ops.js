@@ -2,30 +2,36 @@ function uid() {
   return Math.random().toString(36).slice(2, 10);
 }
 
+// Legacy trees (or trees written by callers that don't fill defaults) may
+// have Whys without a `whats` array and Whats without a `hows` array. All
+// traversal here defaults to `[]` so a partial tree never crashes iteration.
+const whats = (why) => why.whats || [];
+const hows = (what) => what.hows || [];
+
 function newHow({ text, summary }, contributionId) {
   return { id: uid(), text: String(text ?? ''), sourceContributionIds: [contributionId], summary: String(summary ?? '') };
 }
 
-function newWhat({ text, summary, hows }, contributionId) {
+function newWhat({ text, summary, hows: whatHows }, contributionId) {
   return {
     id: uid(), text: String(text ?? ''), sourceContributionIds: [contributionId], summary: String(summary ?? ''),
-    hows: (hows || []).map(h => newHow(h, contributionId)),
+    hows: (whatHows || []).map(h => newHow(h, contributionId)),
   };
 }
 
-function newWhy({ text, summary, whats }, contributionId) {
+function newWhy({ text, summary, whats: whyWhats }, contributionId) {
   return {
     id: uid(), text: String(text ?? ''), sourceContributionIds: [contributionId], summary: String(summary ?? ''),
-    whats: (whats || []).map(w => newWhat(w, contributionId)),
+    whats: (whyWhats || []).map(w => newWhat(w, contributionId)),
   };
 }
 
 function findStatement(workstream, id) {
   for (const why of workstream.whys) {
     if (why.id === id) return { node: why, tier: 'why' };
-    for (const what of why.whats) {
+    for (const what of whats(why)) {
       if (what.id === id) return { node: what, tier: 'what' };
-      for (const how of what.hows) {
+      for (const how of hows(what)) {
         if (how.id === id) return { node: how, tier: 'how' };
       }
     }
@@ -34,7 +40,7 @@ function findStatement(workstream, id) {
 }
 
 function appendContrib(stmt, contributionId) {
-  return { ...stmt, sourceContributionIds: [...stmt.sourceContributionIds, contributionId] };
+  return { ...stmt, sourceContributionIds: [...(stmt.sourceContributionIds || []), contributionId] };
 }
 
 function applyAdd(workstream, op, contributionId) {
@@ -45,19 +51,24 @@ function applyAdd(workstream, op, contributionId) {
     const idx = workstream.whys.findIndex(w => w.id === op.parentWhyId);
     if (idx === -1) return workstream;
     const why = workstream.whys[idx];
-    return { ...workstream, whys: workstream.whys.map((w, i) => i === idx ? { ...why, whats: [...why.whats, newWhat(op, contributionId)] } : w) };
+    return {
+      ...workstream,
+      whys: workstream.whys.map((w, i) => i === idx
+        ? { ...why, whats: [...whats(why), newWhat(op, contributionId)] }
+        : w),
+    };
   }
   if (op.type === 'addHow') {
     let whyIdx = -1, whatIdx = -1;
     for (let wi = 0; wi < workstream.whys.length; wi++) {
-      const ti = workstream.whys[wi].whats.findIndex(t => t.id === op.parentWhatId);
+      const ti = whats(workstream.whys[wi]).findIndex(t => t.id === op.parentWhatId);
       if (ti !== -1) { whyIdx = wi; whatIdx = ti; break; }
     }
     if (whyIdx === -1) return workstream;
     const why = workstream.whys[whyIdx];
-    const what = why.whats[whatIdx];
-    const nextWhat = { ...what, hows: [...what.hows, newHow(op, contributionId)] };
-    const nextWhy = { ...why, whats: why.whats.map((t, i) => i === whatIdx ? nextWhat : t) };
+    const what = whats(why)[whatIdx];
+    const nextWhat = { ...what, hows: [...hows(what), newHow(op, contributionId)] };
+    const nextWhy = { ...why, whats: whats(why).map((t, i) => i === whatIdx ? nextWhat : t) };
     return { ...workstream, whys: workstream.whys.map((w, i) => i === whyIdx ? nextWhy : w) };
   }
   return workstream;
@@ -69,12 +80,12 @@ function applyEdit(workstream, op, contributionId) {
   return {
     ...workstream,
     whys: workstream.whys.map(why => {
-      if (why.id === op.id) return { ...updateNode(why), whats: why.whats };
+      if (why.id === op.id) return { ...updateNode(why), whats: whats(why) };
       return {
         ...why,
-        whats: why.whats.map(what => {
-          if (what.id === op.id) return { ...updateNode(what), hows: what.hows };
-          return { ...what, hows: what.hows.map(how => how.id === op.id ? updateNode(how) : how) };
+        whats: whats(why).map(what => {
+          if (what.id === op.id) return { ...updateNode(what), hows: hows(what) };
+          return { ...what, hows: hows(what).map(how => how.id === op.id ? updateNode(how) : how) };
         }),
       };
     }),
@@ -88,9 +99,9 @@ function applyDelete(workstream, op) {
       .filter(why => why.id !== op.id)
       .map(why => ({
         ...why,
-        whats: why.whats
+        whats: whats(why)
           .filter(what => what.id !== op.id)
-          .map(what => ({ ...what, hows: what.hows.filter(how => how.id !== op.id) })),
+          .map(what => ({ ...what, hows: hows(what).filter(how => how.id !== op.id) })),
       })),
   };
 }
