@@ -9,6 +9,7 @@ import { program } from 'commander';
 import { initCommand } from './commands/init.js';
 import { roleCommand, roleAssignCommand } from './commands/role.js';
 import { contributeCommand } from './commands/contribute.js';
+import { importCommand } from './commands/import.js';
 import { askCommand } from './commands/ask.js';
 import { pullCommand } from './commands/pull.js';
 import { reflectCommand } from './commands/reflect.js';
@@ -72,6 +73,10 @@ program.command('ask <question>').description("Ask a question, answered from you
   .action(askCommand);
 
 program.command('pull').description('Fetch and process pending web contributions').action(pullCommand);
+program.command('import <paths...>').description('Import local .md/.txt files as contributions for manager review')
+  .option('--workstream <id>', 'Target workstream (default: active)')
+  .option('--dry-run', 'List what would be imported without distilling or queueing')
+  .action(importCommand);
 program.command('reflect').description('AI rewrites shared context for clarity')
   .option('--workstream <id>', 'Target workstream (default: active)')
   .action(reflectCommand);

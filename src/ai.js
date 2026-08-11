@@ -95,10 +95,29 @@ function stripWorkstreamForPrompt(workstream) {
   };
 }
 
-export async function proposeDiff({ workstream, contribution, source, model, config }) {
-  const system =
-    'You distill a single team contribution into typed edits to a hierarchical ' +
-    'Why / What / How record. Output STRICT JSON only — no markdown fences, no commentary.';
+/**
+ * `intent` shapes how the input is read.
+ *
+ *   'contribution' — someone typed a deliberate update; every sentence is signal.
+ *   'document'     — an imported artifact, mostly prose written for a different
+ *                    purpose. Most of it is not durable team context, and the
+ *                    distiller has to be told so or it dutifully turns headings
+ *                    and meeting dates into Why nodes.
+ *
+ * `avoid` carries Why texts already proposed earlier in the same import run.
+ * Each document is distilled against the same unchanged record, so without it
+ * two documents covering the same decision both propose it.
+ */
+export async function proposeDiff({ workstream, contribution, source, model, config, intent = 'contribution', avoid = [] }) {
+  const isDocument = intent === 'document';
+
+  const system = isDocument
+    ? 'You extract durable team context from a document into typed edits to a ' +
+      'hierarchical Why / What / How record. Output STRICT JSON only — no markdown fences, no commentary.'
+    : 'You distill a single team contribution into typed edits to a hierarchical ' +
+      'Why / What / How record. Output STRICT JSON only — no markdown fences, no commentary.';
+
+  const label = isDocument ? 'Document' : 'Contribution';
 
   const prompt = [
     `Workstream: "${workstream.name}"`,
@@ -106,7 +125,12 @@ export async function proposeDiff({ workstream, contribution, source, model, con
     'Current record (id + text only):',
     JSON.stringify(stripWorkstreamForPrompt(workstream), null, 2),
     '',
-    `Contribution (source: ${source}):`,
+    ...(avoid.length ? [
+      'Already proposed earlier in this same import — do NOT restate these:',
+      ...avoid.map(t => `- ${t}`),
+      '',
+    ] : []),
+    `${label} (source: ${source}):`,
     `"""${contribution}"""`,
     '',
     'Propose how the record should change. Output STRICT JSON:',
@@ -126,6 +150,17 @@ export async function proposeDiff({ workstream, contribution, source, model, con
     'Rules: Why = 3-8 words action-leaning. What = short phrase. How = specific task.',
     'Use smallest set of ops. Prefer editing over near-duplicate adds.',
     'parentWhyId and parentWhatId MUST exist in the current record. JSON only.',
+    ...(isDocument ? [
+      '',
+      'This is a document, not a deliberate update. Extract only durable team',
+      'context — the whys, decisions and constraints that outlive this file.',
+      'Ignore document structure (headings, tables of contents, section order)',
+      'and one-off details (a single meeting date, names mentioned in passing).',
+      'If something is already in the record above, or listed as already',
+      'proposed, emit no operation for it rather than a near-duplicate.',
+      'If the document carries no durable team context, return an empty',
+      'operations array — that is a valid and useful answer.',
+    ] : []),
   ].join('\n');
 
   const raw = await callClaude({ prompt, model, system, config });

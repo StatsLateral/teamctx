@@ -39,6 +39,9 @@ async function commitAndOptionallyPush(config, msg, projectDir) {
 export async function contributeCore({
   text, author, workstreamId, decision = false, apply = false,
   source = 'cli', teamctxDir, projectDir,
+  // Forwarded to the distiller. `import` sets intent:'document' so prose is
+  // read for durable context rather than treated as a deliberate update.
+  intent, avoid,
 } = {}) {
   if (!text) throw new Error('contribution text is required');
   const config = readConfig(teamctxDir);
@@ -67,7 +70,7 @@ export async function contributeCore({
   const contribution = newContribution({ text, author: actor, authorKey, tagged, source, workstream: targetId });
   appendContribution(contribution, teamctxDir);
 
-  const { workstream: updated, summary, operations } = await updateShared(workstream, contribution, config);
+  const { workstream: updated, summary, operations } = await updateShared(workstream, contribution, config, { intent, avoid });
 
   if (!operations || operations.length === 0) {
     return {

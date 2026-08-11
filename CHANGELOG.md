@@ -29,6 +29,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Contributions now carry an `authorKey` alongside `author`, so one person is
   counted once in the `## Contributors` roll-up even when their display name
   differs between the CLI (git name) and the hosted server (GitHub name).
+- **`teamctx import <paths…>`** — turn a team's existing `.md` / `.txt` files
+  into proposed contributions, so a new project does not start from a blank
+  context tree. Each document becomes one contribution, distilled by the
+  existing pipeline and left in the manager's review queue — import is not a
+  second way into shared context, and nothing is ever applied directly. The
+  contribution records which file it came from (`source: import:docs/plan.md`),
+  so the audit trail points back at the artifact.
+  `--dry-run` lists what would be imported without spending an AI call;
+  `--workstream <id>` targets a specific workstream.
+  Files that cannot be used (too large, empty, unsupported type) are reported
+  with a reason before any distilling starts; a path that does not exist is an
+  error rather than a silent no-op.
+  Imported files are distilled as *documents* — asked for the whys, decisions
+  and constraints that outlive the file, and told to ignore its structure — so
+  headings and meeting dates do not become Why nodes. A document carrying no
+  durable context adds nothing rather than being padded into a contribution.
+  Within one run, each document is told what earlier ones already proposed, so
+  three files describing the same decision produce one contribution rather than
+  three near-duplicates for the manager to reject. Closes #20.
 
 ### Changed
 - `workstream_use` / `teamctx workstream use` now records a personal
