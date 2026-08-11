@@ -44,6 +44,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the chosen handle as the initializer's own preference.
 
 ### Fixed
+- `reflect` now rejects unknown workstream ids instead of creating empty
+  workstream stubs.
 - `teamctx pull` threw a `ReferenceError` when applying a contribution from
   another author — it compared against an undefined `me`.
 - A saved AI provider key was applied against the provider named in the
