@@ -31,15 +31,15 @@ The previous roadmap is nearly all built (thank you, contributors!):
 - **Bring-your-own-agent recipes** — copy-paste prompts for Claude Code, Cursor, ChatGPT
 - **`ask` citations & audit** (#16) — every answer names the contributions it drew from; `ask --audit` expands the full source list
 - **Hosted MCP with OAuth** (#17) — use teamctx from any MCP client with zero local install; operators deploy once via [docs/mcp-hosted-setup.md](docs/mcp-hosted-setup.md)
+- **Context import (cold-start onboarding)** (#20) — `teamctx import <files…>` reads local docs a team already has and reverse-engineers a starting Why/What/How tree, proposed as pending contributions through the same manager-approval pipeline
+- **`reflect` errors on unknown workstream ids** (#18) — rejects a typo'd workstream id instead of silently writing an empty stub
+- **MCP test for `ask`'s `audit` param** (#19) — `mcp/server.test.js` covers the `audit` flag on the `ask` tool
 
 ## Now
 
 The current focus is making teamctx **easy to start** and **able to prove it works** — the two things small pilot teams need most.
 
-- **Context import (cold-start onboarding)** — `teamctx import <files…>`: point it at the artifacts a team already has (decks, docs, meeting notes) and the AI reverse-engineers a starting Why/What/How tree, proposed as pending contributions for the manager to review. Today a new team starts from a blank tree, which is the single biggest adoption cliff — *bring your own tools · managers in control* · [proposal](docs/proposals/context-import.md) · [#20](https://github.com/statslateralinc/teamctx/issues/20)
 - **Local team-productivity metrics** — `teamctx stats`: contributions per week, approval latency, first-pass acceptance rate (approved vs. rejected/redone), role-file pulls, context freshness — all computed locally from the git history and audit log, nothing phones home — *prove team productivity* · [proposal](docs/proposals/local-metrics.md) · [#28](https://github.com/statslateralinc/teamctx/issues/28)
-- 🟢 **`reflect` should error on unknown workstreams** — `reflectCore` has an unreachable guard: `readWorkstream` never returns falsy, so reflecting a typo'd workstream id silently writes an empty stub instead of failing. Make it a real error with a test — [#18](https://github.com/statslateralinc/teamctx/issues/18)
-- 🟢 **MCP test for `ask`'s `audit` param** — once #16 lands, `mcp/server.test.js` should cover the `audit` flag on the `ask` tool — [#19](https://github.com/statslateralinc/teamctx/issues/19)
 
 ## Next
 
