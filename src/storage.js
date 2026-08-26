@@ -384,27 +384,53 @@ export function tasksDir(dir) {
   return resolve(dir, 'context', 'tasks');
 }
 
+/**
+ * Where a task's compiled prompt lives.
+ *
+ * Hosted mode has no filesystem — the repo is reached over the Git Data API and
+ * `dir` is a project descriptor rather than a path, so `resolve()` would throw
+ * on it. Every other reader here already branches on the session; these did
+ * not, because no task code had ever run through the hosted path until tasks
+ * reached MCP.
+ *
+ * The hosted form is the repo-relative path, which is the honest answer: there
+ * is no local file to open, and `compileTask` returns the markdown itself for
+ * exactly that reason.
+ */
 export function taskFilePath(id, dir) {
   sanitizeTaskId(id);
+  if (getCurrentSession()) return ctxPath('context', 'tasks', `${id}.md`);
   return join(tasksDir(dir), `${id}.md`);
 }
 
 export function taskFileExists(id, dir) {
+  sanitizeTaskId(id);
+  const s = sessionRead(ctxPath('context', 'tasks', `${id}.md`));
+  if (s !== undefined) return s !== null;
   return existsSync(taskFilePath(id, dir));
 }
 
 export function writeTaskFile(id, content, dir) {
   sanitizeTaskId(id);
+  if (sessionWrite(ctxPath('context', 'tasks', `${id}.md`), content)) return;
   const d = tasksDir(dir);
   mkdirSync(d, { recursive: true });
   writeFileSync(join(d, `${id}.md`), content);
 }
 
 export function readTaskFile(id, dir) {
+  sanitizeTaskId(id);
+  const s = sessionRead(ctxPath('context', 'tasks', `${id}.md`));
+  if (s !== undefined) {
+    if (s === null) throw new Error(`no compiled prompt for task "${id}"`);
+    return s;
+  }
   return readFileSync(taskFilePath(id, dir), 'utf-8');
 }
 
 export function deleteTaskFile(id, dir) {
+  sanitizeTaskId(id);
+  if (sessionDelete(ctxPath('context', 'tasks', `${id}.md`))) return;
   const p = taskFilePath(id, dir);
   if (existsSync(p)) unlinkSync(p);
 }

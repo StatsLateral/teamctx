@@ -6,6 +6,7 @@ vi.mock('../../src/storage.js', () => ({
   readTask: vi.fn(),
   writeTask: vi.fn(),
   deleteTask: vi.fn(() => ({ id: 't-x', workstream: 'main' })),
+  readTaskFile: vi.fn(() => '# cached prompt'),
   listWorkstreamIds: vi.fn(() => ['main']),
   readWorkstream: vi.fn(() => ({ id: 'main', name: 'M', whys: [] })),
   readContributions: vi.fn(() => []),
@@ -209,7 +210,7 @@ describe('taskRmCommand', () => {
   it('deletes the task and commits', async () => {
     deleteTask.mockReturnValue({ id: 't-plan', workstream: 'growth' });
     await taskRmCommand('t-plan');
-    expect(deleteTask).toHaveBeenCalledWith('t-plan');
+    expect(deleteTask).toHaveBeenCalledWith('t-plan', undefined);
     expect(commitContext.mock.calls[0][0]).toMatch(/task: rm t-plan by alice/);
   });
 });
@@ -220,7 +221,7 @@ describe('taskListCommand', () => {
     listTasks.mockReturnValue([]);
     const log = vi.spyOn(console, 'log').mockImplementation(() => {});
     await taskListCommand({});
-    expect(listTasks).toHaveBeenCalledWith({ workstream: 'growth' });
+    expect(listTasks).toHaveBeenCalledWith({ workstream: 'growth' }, undefined);
     expect(log.mock.calls.some(c => c[0]?.includes?.('No tasks match'))).toBe(true);
     log.mockRestore();
   });
@@ -232,7 +233,7 @@ describe('taskListCommand', () => {
     ]);
     const log = vi.spyOn(console, 'log').mockImplementation(() => {});
     await taskListCommand({ all: true });
-    expect(listTasks).toHaveBeenCalledWith({});
+    expect(listTasks).toHaveBeenCalledWith({}, undefined);
     const printed = log.mock.calls.map(c => c[0]).join('\n');
     expect(printed).toContain('t-a');
     expect(printed).toContain('t-b');

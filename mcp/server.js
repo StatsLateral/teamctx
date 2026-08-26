@@ -29,6 +29,9 @@ import {
   listAllWorkstreams, suggestWorkstreamSplits, splitWorkstreams, useWorkstream,
 } from '../cli/commands/workstream.core.js';
 import { contributeCore } from '../cli/commands/contribute.core.js';
+import {
+  listTasksFiltered, getTask, addTask, setTaskStatus, assignTask, removeTask, compileTask,
+} from '../cli/commands/task.core.js';
 import { reflectWorkstream } from '../cli/commands/reflect.core.js';
 import { getConfig, setConfig } from '../cli/commands/config.core.js';
 import { resolveActor } from '../src/actor.js';
@@ -143,6 +146,31 @@ export const TOOLS = [
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
   },
 
+  {
+    name: 'list_tasks',
+    description: "List tasks. Defaults to open tasks in the caller's active workstream, which is what \"what am I working on\" means; pass all:true for every status across every workstream, which is what \"did we finish X\" means. Read-only.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        status: { type: 'string', description: 'open | done' },
+        owner: { type: 'string' },
+        workstream: { type: 'string' },
+        all: { type: 'boolean', description: 'Every status, every workstream' },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'get_task',
+    description: 'Return one task by id or unique id prefix: title, owner, status, workstream, created/done/compiled timestamps, and the prompt file path if one has been compiled. Read-only. Use task_compile to get the prompt text itself.',
+    inputSchema: {
+      type: 'object',
+      properties: { id: { type: 'string', description: 'Task id, or a unique prefix of one' } },
+      required: ['id'],
+      additionalProperties: false,
+    },
+  },
+
   // Tier 1 — additive writes
   {
     name: 'contribute',
@@ -168,6 +196,53 @@ export const TOOLS = [
         text: { type: 'string' }, workstream: { type: 'string' }, author: { type: 'string' },
       },
       required: ['text'], additionalProperties: false,
+    },
+  },
+
+  {
+    name: 'task_add',
+    description: 'Create a task in a workstream and commit it. Defaults to the caller as owner and their active workstream. Set compile:true to compile its prompt in the same call — that spends an AI call, so confirm the title with the user first; the result then carries the compiled markdown.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        title: { type: 'string' },
+        owner: { type: 'string', description: 'Defaults to the calling user' },
+        workstream: { type: 'string', description: 'Defaults to the active workstream' },
+        compile: { type: 'boolean', description: 'Also compile the prompt (AI call)' },
+        role: { type: 'string', description: 'With compile:true, frame the prompt for this role slug' },
+      },
+      required: ['title'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'task_done',
+    description: 'Mark a task done and commit. Returns unchanged:true without committing if it was already done.',
+    inputSchema: {
+      type: 'object',
+      properties: { id: { type: 'string' } },
+      required: ['id'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'task_reopen',
+    description: 'Reopen a done task and commit. Returns unchanged:true without committing if it was already open.',
+    inputSchema: {
+      type: 'object',
+      properties: { id: { type: 'string' } },
+      required: ['id'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'task_assign',
+    description: 'Reassign a task to a different owner and commit.',
+    inputSchema: {
+      type: 'object',
+      properties: { id: { type: 'string' }, owner: { type: 'string' } },
+      required: ['id', 'owner'],
+      additionalProperties: false,
     },
   },
 
@@ -323,6 +398,30 @@ export const TOOLS = [
       required: ['key', 'value'], additionalProperties: false,
     },
   },
+  {
+    name: 'task_rm',
+    description: RISKY + 'permanently deletes a task and its compiled prompt file, then commits. There is no undo short of a git revert. Report the task title to the user and confirm before calling.' + REPORT,
+    inputSchema: {
+      type: 'object',
+      properties: { id: { type: 'string' } },
+      required: ['id'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'task_compile',
+    description: RISKY + "spends an AI call to build a prompt for one task from the workstream's Why/What/How tree, the role's responsibilities and recent decisions, then overwrites any existing prompt file and commits. Returns the markdown itself, not just a path — the caller usually cannot read the file. Skips the AI call and returns the cached prompt with alreadyCompiled:true when the workstream's Whys have not changed; pass force:true to regenerate anyway. Do not call in a loop." + REPORT,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string' },
+        role: { type: 'string', description: 'Role slug to frame the prompt for' },
+        force: { type: 'boolean', description: 'Regenerate even if the Whys are unchanged' },
+      },
+      required: ['id'],
+      additionalProperties: false,
+    },
+  },
 ];
 
 function textResult(value) {
@@ -445,6 +544,103 @@ export function makeHandlers(projectRoot) {
         workstreams,
         contributions: { total: contributions.length, decisions: decisions.length },
         roles: (config.roles || []).map(r => ({ slug: r.slug, name: r.name, workstream: r.workstream || 'main' })),
+      });
+    },
+
+    async list_tasks(args = {}) {
+      const teamctxDir = dir();
+      const config = readConfig(teamctxDir);
+      const actor = await resolveActor({ config, cwd: gitCwd });
+      const activeWorkstream = await resolveActiveWorkstream({ actor, config, teamctxDir });
+      return textResult(listTasksFiltered({ ...args, activeWorkstream, teamctxDir }));
+    },
+
+    async get_task(args = {}) {
+      return textResult(getTask({ id: args.id, teamctxDir: dir() }));
+    },
+
+    async task_add(args = {}) {
+      const teamctxDir = dir();
+      const added = await addTask({
+        title: args.title,
+        owner: args.owner,
+        workstream: args.workstream,
+        teamctxDir,
+        projectDir: gitCwd,
+      });
+
+      // Raising a task and immediately compiling it is the common case, and two
+      // round trips for one intention is friction an assistant feels more than
+      // a person does. Kept opt-in because the second half spends an AI call.
+      if (!args.compile) {
+        return textResult({
+          ...added,
+          reportBack: `Task ${added.task.id} added, owned by ${added.task.owner}.`,
+        });
+      }
+
+      const compiled = await compileTask({
+        id: added.task.id,
+        role: args.role,
+        teamctxDir,
+        projectDir: gitCwd,
+      });
+      return textResult({
+        ...compiled,
+        reportBack: `Task ${added.task.id} added and its prompt compiled`
+          + `${compiled.role ? ` for role ${compiled.role}` : ''}.`,
+      });
+    },
+
+    async task_done(args = {}) {
+      const r = await setTaskStatus({
+        id: args.id, status: 'done', teamctxDir: dir(), projectDir: gitCwd,
+      });
+      return textResult({
+        ...r,
+        reportBack: r.unchanged
+          ? `Task ${r.task.id} was already done.`
+          : `Task ${r.task.id} marked done.`,
+      });
+    },
+
+    async task_reopen(args = {}) {
+      const r = await setTaskStatus({
+        id: args.id, status: 'open', teamctxDir: dir(), projectDir: gitCwd,
+      });
+      return textResult({
+        ...r,
+        reportBack: r.unchanged
+          ? `Task ${r.task.id} was already open.`
+          : `Task ${r.task.id} reopened.`,
+      });
+    },
+
+    async task_assign(args = {}) {
+      const r = await assignTask({
+        id: args.id, owner: args.owner, teamctxDir: dir(), projectDir: gitCwd,
+      });
+      return textResult({ ...r, reportBack: `Task ${r.task.id} assigned to ${r.task.owner}.` });
+    },
+
+    async task_rm(args = {}) {
+      const r = await removeTask({ id: args.id, teamctxDir: dir(), projectDir: gitCwd });
+      return textResult({
+        ...r,
+        reportBack: `Task ${r.id} ("${r.title}") permanently removed from workstream ${r.workstream}.`,
+      });
+    },
+
+    async task_compile(args = {}) {
+      const r = await compileTask({
+        id: args.id, role: args.role, force: !!args.force,
+        teamctxDir: dir(), projectDir: gitCwd,
+      });
+      return textResult({
+        ...r,
+        reportBack: r.alreadyCompiled
+          ? `Task ${r.task.id} was already compiled and its workstream has not changed — returned the existing prompt, no AI call spent.`
+          : `Compiled a prompt for task ${r.task.id}${r.role ? ` framed for role ${r.role}` : ''}.`,
       });
     },
 

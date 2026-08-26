@@ -27,6 +27,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   history was the only record of where the commit came from — and it did not say.
 
 ### Added
+- **Tasks over MCP.** All eight task commands are now tools: `list_tasks`,
+  `get_task`, `task_add`, `task_done`, `task_reopen`, `task_assign`, `task_rm`
+  and `task_compile`. The server described itself as covering the full CLI and
+  omitted every one of them — which mattered because `task compile` is the
+  command that turns shared context into something a person can act on, so a
+  manager could run everything from their assistant right up to the point of
+  doing the work.
+  Only `task_rm` and `task_compile` are marked risky: one deletes with no undo
+  short of a git revert, the other spends an AI call and overwrites an existing
+  prompt. The rest are field updates on a small JSON file. **None are
+  manager-gated** — tasks are work tracking rather than shared context, and
+  gating them would stop someone managing their own work from their own
+  assistant.
+  `task_compile` returns the **compiled markdown**, not just a file path: an MCP
+  caller is usually not on the machine holding the file, and the hosted server
+  has no working copy at all. It skips the AI call and returns the cached prompt
+  with `alreadyCompiled: true` when the workstream's Whys have not moved.
+  `task_add` accepts `compile: true` so raising a task and compiling its prompt
+  is one call rather than two — the common case in practice, kept opt-in because
+  the second half is not free.
+  Task operations moved to `cli/commands/task.core.js`, matching
+  `contribute.core.js` and `review.core.js`, so the CLI and the server run the
+  same code rather than two implementations.
 - **Per-user settings.** Identity and the active workstream are now resolved
   per person instead of being read from the committed `.teamctx/config.json`.
   A new actor context (`src/actor.js`) resolves who is calling — the GitHub

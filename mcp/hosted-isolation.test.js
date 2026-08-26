@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
+import { createHash } from 'crypto';
 import { makeHandlers } from './server.js';
 import { runWithSession } from '../src/session-context.js';
 import { runWithActor } from '../src/actor.js';
@@ -191,3 +192,138 @@ describe('the manager gate cannot be talked around', () => {
       .rejects.toThrow(/only the configured manager/);   // and it buys him nothing
   });
 });
+
+describe('tasks on the hosted server', () => {
+  // Hosted mode has no filesystem: `dir()` hands back a project descriptor, not
+  // a path. Every other storage reader already branches on the session; the
+  // task *file* helpers did not, so task_compile threw
+  // "The path argument must be of type string. Received an instance of Object"
+  // the first time anyone reached it over a hosted connector.
+  it('adds a task without touching the filesystem', async () => {
+    const session = fakeSession();
+    const r = await asUser(session, ALICE, h => json(h.task_add({ title: 'Ship the ledger' })));
+    expect(r.task.id).toBe('t-ship-the-ledger');
+    expect(r.committed).toBe(true);
+    expect(session.commits.some(m => /task: add t-ship-the-ledger/.test(m))).toBe(true);
+  });
+
+  it('reads a task back through the session', async () => {
+    const session = fakeSession();
+    await asUser(session, ALICE, h => json(h.task_add({ title: 'Ship the ledger' })));
+    const got = await asUser(session, ALICE, h => json(h.get_task({ id: 't-ship-the-ledger' })));
+    expect(got.title).toBe('Ship the ledger');
+    // Nothing has been compiled, so there is no prompt to point at.
+    expect(got.promptPath).toBe(null);
+  });
+
+  it('reports a compiled prompt as a repo path, never a local one', async () => {
+    // There is no local file to open here. A drive letter in this value would
+    // mean the caller had been handed a path that does not exist for them.
+    const session = fakeSession();
+    await asUser(session, ALICE, h => json(h.task_add({ title: 'Ship the ledger' })));
+    session.write('.teamctx/context/tasks/t-ship-the-ledger.md', '# compiled');
+
+    const got = await asUser(session, ALICE, h => json(h.get_task({ id: 't-ship-the-ledger' })));
+    expect(got.promptPath).toBe('.teamctx/context/tasks/t-ship-the-ledger.md');
+    expect(got.promptPath).not.toMatch(/^[A-Za-z]:|^\//);
+  });
+
+  it('returns the cached prompt from the session rather than spending an AI call', async () => {
+    const session = fakeSession();
+    const added = await asUser(session, ALICE, h => json(h.task_add({ title: 'Ship the ledger' })));
+
+    // Simulate a previous compile: the prompt file plus the hash that says it
+    // is still current for this workstream.
+    session.write('.teamctx/context/tasks/t-ship-the-ledger.md', '# already compiled');
+    const ws = JSON.parse(session.read('.teamctx/workstreams/main.json').content);
+    ws.tasks = ws.tasks.map(t => t.id === added.task.id
+      ? { ...t, compiledAt: '2026-01-01T00:00:00.000Z', compiledFromHash: hashOf(ws) }
+      : t);
+    session.write('.teamctx/workstreams/main.json', JSON.stringify(ws));
+
+    const r = await asUser(session, ALICE, h => json(h.task_compile({ id: 't-ship-the-ledger' })));
+    expect(r.alreadyCompiled).toBe(true);
+    expect(r.markdown).toBe('# already compiled');
+    expect(r.committed).toBe(false);
+  });
+
+  // Task tools are deliberately ungated — any member can act on any task, the
+  // same as the CLI. The risk that buys is not a permission leak but a *scope*
+  // leak: `list_tasks` with no arguments has to mean "my workstream", and the
+  // active workstream is per-person preference, not repo state. If it resolved
+  // from the config instead of the caller, Bob would open his task list and
+  // find Alice's.
+  it('scopes an unfiltered list to the caller, not to whoever switched last', async () => {
+    const session = fakeSession();
+
+    await asUser(session, ALICE, h => h.workstream_use({ id: 'engineering-hiring' }));
+    await asUser(session, ALICE, h => json(h.task_add({ title: 'Draft the hiring rubric' })));
+    await asUser(session, BOB, h => json(h.task_add({ title: 'Reconcile the ledger' })));
+
+    const forAlice = await asUser(session, ALICE, h => json(h.list_tasks()));
+    const forBob = await asUser(session, BOB, h => json(h.list_tasks()));
+
+    expect(forAlice.scope).toBe('workstream engineering-hiring');
+    expect(forAlice.tasks.map(t => t.id)).toEqual(['t-draft-the-hiring-rubric']);
+
+    // Bob never switched, so he is still on main and sees only what lives there.
+    expect(forBob.scope).toBe('workstream main');
+    expect(forBob.tasks.map(t => t.id)).toEqual(['t-reconcile-the-ledger']);
+  });
+
+  it('gives each caller their own task by default, and both of them --all', async () => {
+    const session = fakeSession();
+    await asUser(session, ALICE, h => h.workstream_use({ id: 'engineering-hiring' }));
+    await asUser(session, ALICE, h => json(h.task_add({ title: 'Draft the hiring rubric' })));
+    await asUser(session, BOB, h => json(h.task_add({ title: 'Reconcile the ledger' })));
+
+    const everything = await asUser(session, BOB, h => json(h.list_tasks({ all: true })));
+    expect(everything.tasks.map(t => t.id).sort())
+      .toEqual(['t-draft-the-hiring-rubric', 't-reconcile-the-ledger']);
+  });
+
+  it('records the owner as the caller, not as config.me', async () => {
+    // `config.me` is 'whoever-ran-init' — a value neither of them should ever
+    // be labelled with.
+    const session = fakeSession();
+    const a = await asUser(session, ALICE, h => json(h.task_add({ title: 'Ship the ledger' })));
+    const b = await asUser(session, BOB, h => json(h.task_add({ title: 'Close the books' })));
+    expect(a.task.owner).toBe('Alice Example');
+    expect(b.task.owner).toBe('Bob Example');
+  });
+
+  it('lets Bob act on a task Alice raised', async () => {
+    const session = fakeSession();
+    await asUser(session, ALICE, h => json(h.task_add({ title: 'Ship the ledger' })));
+
+    // Ungated on purpose: picking up a colleague's task is the ordinary case,
+    // and the manager gate exists for approving work, not for doing it.
+    const assigned = await asUser(session, BOB,
+      h => json(h.task_assign({ id: 't-ship-the-ledger', owner: 'Bob Example' })));
+    expect(assigned.task.owner).toBe('Bob Example');
+
+    const done = await asUser(session, BOB, h => json(h.task_done({ id: 't-ship-the-ledger' })));
+    expect(done.task.status).toBe('done');
+
+    // And Alice sees the change — one repo, two callers, no per-person copy.
+    const seen = await asUser(session, ALICE, h => json(h.get_task({ id: 't-ship-the-ledger' })));
+    expect(seen.status).toBe('done');
+    expect(seen.owner).toBe('Bob Example');
+  });
+
+  it('deletes a task and its prompt through the session', async () => {
+    const session = fakeSession();
+    await asUser(session, ALICE, h => json(h.task_add({ title: 'Ship the ledger' })));
+    session.write('.teamctx/context/tasks/t-ship-the-ledger.md', '# compiled');
+
+    await asUser(session, ALICE, h => json(h.task_rm({ id: 't-ship-the-ledger' })));
+    expect(session.read('.teamctx/context/tasks/t-ship-the-ledger.md')).toBe(null);
+  });
+});
+
+/** The same fingerprint compileTask uses to decide whether a prompt is stale. */
+function hashOf(ws) {
+  return createHash('sha1')
+    .update(JSON.stringify({ name: ws?.name || '', whys: ws?.whys || [] }))
+    .digest('hex').slice(0, 16);
+}

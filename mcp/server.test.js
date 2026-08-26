@@ -624,3 +624,80 @@ describe('config_set — personal keys', () => {
     expect(r.reportBack).toMatch(/config\.name set to "satya"/);
   });
 });
+
+describe('task tools', () => {
+  const tool = name => TOOLS.find(t => t.name === name);
+
+  it('exposes every task command the CLI has', () => {
+    // The server describes itself as covering the full CLI. Before this, all
+    // eight task commands were missing — including compile, which is the one
+    // that turns shared context into something a person can act on.
+    const names = TOOLS.map(t => t.name);
+    for (const n of ['list_tasks', 'get_task', 'task_add', 'task_done',
+                     'task_reopen', 'task_assign', 'task_rm', 'task_compile']) {
+      expect(names, `${n} is missing`).toContain(n);
+    }
+  });
+
+  it('marks only the destructive and the expensive one as risky', () => {
+    // task_rm deletes with no undo; task_compile spends an AI call and
+    // overwrites. The other six are field updates on a small JSON file.
+    for (const n of ['task_rm', 'task_compile']) {
+      expect(tool(n).description, `${n} should be RISKY`).toMatch(/RISKY/);
+    }
+    for (const n of ['list_tasks', 'get_task', 'task_add', 'task_done',
+                     'task_reopen', 'task_assign']) {
+      expect(tool(n).description, `${n} should not be RISKY`).not.toMatch(/RISKY/);
+    }
+  });
+
+  it('tells the caller task_compile returns the prompt, not a path', () => {
+    // An MCP caller is usually not on the machine holding the file, and the
+    // hosted server has no working copy at all.
+    expect(tool('task_compile').description).toMatch(/returns the markdown itself/i);
+  });
+
+  it('warns that task_compile is not free and not for loops', () => {
+    const d = tool('task_compile').description;
+    expect(d).toMatch(/AI call/);
+    expect(d).toMatch(/loop/i);
+  });
+
+  it('offers add-and-compile as one call, flagged as spending a call', () => {
+    const d = tool('task_add').description;
+    expect(d).toMatch(/compile:true/);
+    expect(d, 'the shorthand must say it costs an AI call').toMatch(/AI call/);
+    expect(tool('task_add').inputSchema.properties).toHaveProperty('compile');
+    expect(tool('task_add').inputSchema.properties).toHaveProperty('role');
+  });
+
+  it('requires only what cannot be defaulted', () => {
+    expect(tool('task_add').inputSchema.required).toEqual(['title']);
+    expect(tool('task_assign').inputSchema.required).toEqual(['id', 'owner']);
+    expect(tool('list_tasks').inputSchema.required).toBeUndefined();
+  });
+
+  it('says what list_tasks defaults to, since the default is a judgement call', () => {
+    // "What am I working on" and "did we finish X" want different answers, and
+    // the model has to know which one it is getting.
+    const d = tool('list_tasks').description;
+    expect(d).toMatch(/[Dd]efaults to open tasks/);
+    expect(d).toMatch(/all:true/);
+  });
+
+  it('accepts a unique prefix wherever the CLI does', () => {
+    expect(tool('get_task').inputSchema.properties.id.description).toMatch(/prefix/);
+  });
+
+  it('has a handler for every task tool it advertises', async () => {
+    // A tool listed with no handler fails only when someone calls it, which is
+    // the worst moment to find out.
+    const { makeHandlers } = await import('./server.js');
+    const handlers = makeHandlers(process.cwd());
+    const taskTools = TOOLS.filter(x => /task/.test(x.name));
+    expect(taskTools.length).toBe(8);
+    for (const t of taskTools) {
+      expect(typeof handlers[t.name], `${t.name} has no handler`).toBe('function');
+    }
+  });
+});
