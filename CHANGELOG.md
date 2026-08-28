@@ -125,6 +125,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and a failed login writes nothing. An existing value offered back as a prompt
   default is masked (`sl.u********TAIL`), so re-running the command never echoes
   a live credential into scrollback.
+- **Slack connector.** `teamctx import --from slack <channel-id|message-link>`
+  — a thread becomes one proposed contribution, because a thread has a topic
+  and an ending and is where the reasoning lives. Standalone messages, joins,
+  leaves and bot subtypes never reach the distiller; mentions and links are
+  rendered as prose so it reads what a human would. Threads are imported
+  oldest-first, so a decision is proposed by the thread where it was argued out
+  and a later reminder of it adds only what is new.
+  A pasted Slack "Copy link" works as a selector, which is how you import the
+  one conversation you already know mattered. `--since` bounds the window
+  (default 30 days).
+  Credentials are the user's own token from `SLACK_TOKEN`, never a shipped app:
+  since 29 May 2025 Slack limits distributed non-Marketplace apps to 1 request
+  per minute on `conversations.history`, against 50+ for an app the user
+  created themselves. Setup is in
+  [docs/proposals/import-slack.md](docs/proposals/import-slack.md). Closes #22.
 
 ### Changed
 - **Contributions record where they came from in the git history.** The commit
