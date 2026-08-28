@@ -1,5 +1,6 @@
 import * as folder from './folder.js';
 import * as slack from './slack.js';
+import * as notion from './notion.js';
 
 /**
  * Import connectors.
@@ -43,7 +44,7 @@ import * as slack from './slack.js';
  * secret live once in cli/commands/auth.core.js.
  */
 
-const CONNECTORS = { folder, slack };
+const CONNECTORS = { folder, notion, slack };
 
 export class UnknownConnectorError extends Error {
   constructor(name) {
