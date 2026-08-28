@@ -141,6 +141,16 @@ export const keys = {
   /** Per-user AI provider key, set via the settings page. Long-lived. */
   aiKey: githubUserId => `teamctx:aikey:${githubUserId}`,
   /**
+   * A key the manager shares with everyone on one project. Most team members
+   * never have a provider key of their own — a lot of them never have a GitHub
+   * account either, and reach the project only through an agent — so without
+   * this the model-backed tools are unusable for all but the person who set the
+   * project up. Falls back to, never overrides, a member's own key. Long-lived.
+   */
+  projectAiKey: (owner, repo) => `teamctx:aikey:project:${owner}/${repo}`,
+  /** Which projects one user shares a key with, so the settings page can show them. */
+  sharedProjects: githubUserId => `teamctx:aikey:shared-by:${githubUserId}`,
+  /**
    * Per-user, per-project settings (display name, active workstream). These are
    * personal, so they deliberately live here rather than in the repo's
    * config.json — see src/prefs.js. Long-lived.

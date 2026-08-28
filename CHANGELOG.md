@@ -50,6 +50,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Task operations moved to `cli/commands/task.core.js`, matching
   `contribute.core.js` and `review.core.js`, so the CLI and the server run the
   same code rather than two implementations.
+- **A key the manager can share with everyone on a project.** The model-backed
+  tools (`ask`, `contribute`, `reflect`, `role_add`, `suggest_*`) needed an AI
+  provider key stored against the caller's own GitHub account. Most people on a
+  project have neither: they reach it through an agent, and GitHub is where the
+  project is *stored*, not who they are. Those tools therefore worked for
+  whoever ran `init` and for nobody else. A key shared with `owner/repo` from
+  the settings page is now used for any caller who has not brought one of their
+  own — it never overrides a key that did arrive with the request, so a member
+  paying their own way keeps paying their own way. Sharing needs write access to
+  the repo, and only the person who shared a key can replace or remove it.
 - **Per-user settings.** Identity and the active workstream are now resolved
   per person instead of being read from the committed `.teamctx/config.json`.
   A new actor context (`src/actor.js`) resolves who is calling — the GitHub

@@ -25,6 +25,27 @@ import { kvGet, keys } from '../../../src/oauth/kv.js';
  * pointing at this repo's protected resource metadata, which is what starts
  * the OAuth flow in the client.
  */
+/**
+ * Fall back to the key the manager shared with this project.
+ *
+ * Last in the chain on purpose. A key that arrived with *this* request — the
+ * caller's own saved key, a header, a query param — is a deliberate choice
+ * about whose quota is spent, and a standing project-wide fallback must never
+ * quietly outrank it: doing so would bill the manager for work by someone who
+ * brought their own key. The fallback only fills the gap where there was no
+ * answer at all, which is the common case, because most people on a project
+ * never set a key up and many never sign in to teamctx at all.
+ *
+ * Exported for tests: this precedence is invisible at runtime — the wrong order
+ * still works, it just charges the wrong person.
+ */
+export async function withSharedKey({ apiKey, aiProvider, owner, repo }) {
+  if (apiKey) return { apiKey, aiProvider };
+  const shared = await kvGet(keys.projectAiKey(owner, repo));
+  if (!shared?.apiKey) return { apiKey, aiProvider };
+  return { apiKey: shared.apiKey, aiProvider: shared.provider ?? null };
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     res.statusCode = 405;
@@ -80,6 +101,9 @@ export default async function handler(req, res) {
     if (!ghToken) ghToken = readParam(req, 'gh_token');
     if (!apiKey) apiKey = readParam(req, 'api_key');
   }
+
+  // 4 — the project's shared key
+  ({ apiKey, aiProvider } = await withSharedKey({ apiKey, aiProvider, owner, repo }));
 
   if (!ghToken) {
     return unauthorized(req, res, owner, repo, 'Authentication required');
