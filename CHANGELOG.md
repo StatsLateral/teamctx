@@ -251,6 +251,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   median. A median alone cannot tell "everything reviewed within a day" apart
   from "everything reviewed in an hour except one that sat for a fortnight",
   and the second is the one worth acting on. `get_stats` returns the same list.
+- **Google Drive connector.** `teamctx import --from gdrive <folder-link|file-link>`
+  — every document beneath a folder becomes one proposed contribution. Google
+  Docs are exported as markdown and Slides as text; uploaded `.md` and `.txt`
+  are downloaded as they are. Drive has no recursive query, so subfolders are
+  walked, and a file that lives in two folders at once is imported once.
+  Everything else in a real Drive — photos, video, installers, PDFs, and
+  spreadsheets, which Drive can only export as CSV — is reported as skipped with
+  a reason. That decision is made from listing metadata, so nothing unimportable
+  is ever downloaded and `--dry-run` costs one request for a whole folder.
+  `--since` filters server-side on `modifiedTime`, and deliberately never
+  filters folders: a folder's own timestamp does not move when a document inside
+  it changes, so filtering them would hide the new work being asked for.
+  There is no "import everything" form. Notion has one because a Notion
+  integration only sees pages you connected by hand; `drive.readonly` sees your
+  entire Drive, so the folder or file has to be named.
+  Credentials come from `GDRIVE_CLIENT_ID`, `GDRIVE_CLIENT_SECRET` and
+  `GDRIVE_REFRESH_TOKEN` (or a bare `GDRIVE_ACCESS_TOKEN` for an hour); the
+  `GOOGLE_`-prefixed names are accepted as aliases, and the
+  access token is exchanged lazily on the first request rather than in `auth`.
+  `teamctx auth gdrive` obtains them: it prints the Cloud project and OAuth
+  client setup, opens Google's consent screen against a listener bound to
+  `127.0.0.1`, and exchanges the code. Google
+  [removed the paste-a-code flow in 2023](https://developers.google.com/identity/protocols/oauth2/resources/oob-migration),
+  so a loopback listener is the only supported desktop route — unlike Dropbox,
+  which needs no redirect at all. The consent request asks for `access_type=offline`
+  *and* `prompt=consent`: without the second, Google omits the refresh token on
+  every authorization after the first, so re-running the command to repair a
+  broken login would appear to work and change nothing.
+  Drive is the one source with no token to copy, and the help warns that a
+  consent screen left in "Testing" expires refresh tokens after seven days —
+  which is what an `invalid_grant` a week later actually means.
+  Setup and troubleshooting: [docs/import-gdrive.md](docs/import-gdrive.md).
+  Design notes:
+  [docs/proposals/import-gdrive.md](docs/proposals/import-gdrive.md). Closes #23.
 
 ### Changed
 - **Contributions record where they came from in the git history.** The commit

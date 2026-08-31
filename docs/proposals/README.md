@@ -23,6 +23,7 @@ These are **contributor-facing write-ups** for the larger items on the
 | [Notion import connector](import-notion.md) | Bring your own tools | Medium (the block tree is the work) |
 | [Coda import connector](import-coda.md) | Bring your own tools | Small–Medium (the async export is the work) |
 | [Dropbox import connector](import-dropbox.md) | Bring your own tools | Small (the easiest of the six) |
+| [Google Drive import connector](import-gdrive.md) | Bring your own tools | Medium (the auth is the work) |
 | [Local team-productivity metrics](local-metrics.md) | Prove team productivity | Medium (splittable) |
 | [Tasks over MCP](mcp-tasks.md) | Bring your own tools | Small (the core exists) |
 
