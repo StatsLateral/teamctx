@@ -1,4 +1,5 @@
 import * as coda from './coda.js';
+import * as dropbox from './dropbox.js';
 import * as folder from './folder.js';
 import * as slack from './slack.js';
 import * as notion from './notion.js';
@@ -45,7 +46,7 @@ import * as notion from './notion.js';
  * secret live once in cli/commands/auth.core.js.
  */
 
-const CONNECTORS = { coda, folder, notion, slack };
+const CONNECTORS = { coda, dropbox, folder, notion, slack };
 
 export class UnknownConnectorError extends Error {
   constructor(name) {

@@ -199,6 +199,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   per 6 seconds against ~10 writes and beginning an export is a write. Design
   notes: [docs/proposals/import-coda.md](docs/proposals/import-coda.md).
   Closes #27.
+- **Dropbox connector.** `teamctx import --from dropbox <path|file-id|shared-link>`
+  — every document beneath a path becomes one proposed contribution. Markdown
+  and text files are downloaded; Dropbox Paper docs are exported as markdown.
+  Word documents are reported as skipped rather than half-imported: Dropbox has
+  no text conversion, and `files/export` returns `docx` even for a Google Doc
+  kept in Dropbox, so both routes need an OOXML reader that does not exist yet.
+  Spreadsheets, decks, images and other binaries are skipped with a reason.
+  Which files can be fetched, and how, comes from the listing itself —
+  `is_downloadable` and `export_info.export_as` — rather than from a table of
+  types this project would have to keep current.
+  The whole tree arrives in one request (`recursive: true`), so there is no
+  folder walk, and `--since` filters on `server_modified` in memory without
+  costing an extra call. Oversized files are skipped from the listing, before
+  anything is transferred.
+  Shared links work, including listing inside a shared folder that is not in
+  your own Dropbox. A Paper doc reached that way is reported as unexportable
+  while listing rather than failing mid-import.
+  Credentials come from `DROPBOX_APP_KEY`, `DROPBOX_APP_SECRET` and
+  `DROPBOX_REFRESH_TOKEN` (or a short-lived `DROPBOX_ACCESS_TOKEN` on its own),
+  exchanged lazily on the first request. `teamctx auth dropbox` obtains them:
+  Dropbox's code flow needs no redirect URI, so it shows you a code to paste
+  back and nothing on your machine listens on a port. Setup and troubleshooting:
+  [docs/import-dropbox.md](docs/import-dropbox.md). Design notes:
+  [docs/proposals/import-dropbox.md](docs/proposals/import-dropbox.md).
+  Closes #25.
 
 ### Changed
 - **Contributions record where they came from in the git history.** The commit

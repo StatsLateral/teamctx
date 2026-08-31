@@ -22,6 +22,7 @@ These are **contributor-facing write-ups** for the larger items on the
 | [Slack import connector](import-slack.md) | Bring your own tools | Medium (first connector on the contract) |
 | [Notion import connector](import-notion.md) | Bring your own tools | Medium (the block tree is the work) |
 | [Coda import connector](import-coda.md) | Bring your own tools | Small–Medium (the async export is the work) |
+| [Dropbox import connector](import-dropbox.md) | Bring your own tools | Small (the easiest of the six) |
 | [Local team-productivity metrics](local-metrics.md) | Prove team productivity | Medium (splittable) |
 | [Tasks over MCP](mcp-tasks.md) | Bring your own tools | Small (the core exists) |
 
