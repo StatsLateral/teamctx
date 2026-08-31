@@ -4,6 +4,7 @@ import * as folder from './folder.js';
 import * as slack from './slack.js';
 import * as notion from './notion.js';
 import * as gdrive from './gdrive.js';
+import * as m365 from './m365.js';
 
 /**
  * Import connectors.
@@ -47,7 +48,7 @@ import * as gdrive from './gdrive.js';
  * secret live once in cli/commands/auth.core.js.
  */
 
-const CONNECTORS = { coda, dropbox, folder, gdrive, notion, slack };
+const CONNECTORS = { coda, dropbox, folder, gdrive, m365, notion, slack };
 
 export class UnknownConnectorError extends Error {
   constructor(name) {

@@ -121,6 +121,7 @@ See [docs/tasks.md](docs/tasks.md) for the full tasks guide.
 See [docs/audit.md](docs/audit.md) for how `ask --audit` and the Contributors section work.
 See [docs/import-dropbox.md](docs/import-dropbox.md) for importing documents from Dropbox.
 See [docs/import-gdrive.md](docs/import-gdrive.md) for importing documents from Google Drive.
+See [docs/import-m365.md](docs/import-m365.md) for importing documents from Microsoft 365.
 
 ---
 

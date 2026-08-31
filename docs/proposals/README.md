@@ -24,6 +24,8 @@ These are **contributor-facing write-ups** for the larger items on the
 | [Coda import connector](import-coda.md) | Bring your own tools | Small–Medium (the async export is the work) |
 | [Dropbox import connector](import-dropbox.md) | Bring your own tools | Small (the easiest of the six) |
 | [Google Drive import connector](import-gdrive.md) | Bring your own tools | Medium (the auth is the work) |
+| [Microsoft 365 import connector](import-m365.md) | Bring your own tools | Large (the .docx reader is a second PR) |
+| [Microsoft 365 import connector](import-m365.md) | Bring your own tools | Large (includes a .docx reader) |
 | [Local team-productivity metrics](local-metrics.md) | Prove team productivity | Medium (splittable) |
 | [Tasks over MCP](mcp-tasks.md) | Bring your own tools | Small (the core exists) |
 
