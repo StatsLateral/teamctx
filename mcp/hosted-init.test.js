@@ -70,6 +70,24 @@ describe('init over the hosted MCP server', () => {
     ]);
   });
 
+  it('makes whoever set the project up its manager', async () => {
+    // Left unset the gate is open — canApprove returns true when nothing is
+    // pinned — so a new project had a window in which anyone who could reach it
+    // could approve their own work. Pinning it here means the window never
+    // exists, and it is the only place the gate is ever written.
+    const session = emptySession();
+    const r = await asUser(session, h => json(h.init({ project: 'Ledger', me: 'alice' })));
+    expect(r.config.managerKey).toBe(ALICE.key);
+  });
+
+  it('pins the gate to the caller, not to the name they typed', async () => {
+    // `me` is a display name and is settable by its owner. Pinning on one would
+    // let anyone claim the manager's name and pass.
+    const session = emptySession();
+    const r = await asUser(session, h => json(h.init({ project: 'Ledger', me: 'somebody else' })));
+    expect(r.config.managerKey).toBe(ALICE.key);
+  });
+
   it('does not commit an empty contributions log', async () => {
     // appendContribution creates it on first write and readContributions treats
     // absence as empty, so an empty blob would be noise in the history.

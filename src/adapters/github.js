@@ -158,7 +158,16 @@ export class GithubSession {
 
   // ---- Batch commit via the Git Data API ----
 
-  async commit(message) {
+  /**
+   * `author` names the person the change is *from*; the token supplies the
+   * committer. Git has always separated the two, and the Git Data API exposes
+   * both — which is what lets a write made on one credential still be recorded
+   * against whoever actually made it.
+   *
+   * Without it every hosted commit is attributed to the token holder, so a
+   * team sharing one project would show one contributor in `git log`.
+   */
+  async commit(message, { author } = {}) {
     if (this.changes.size === 0) return { committed: false };
     if (!this.prefetched) throw new Error('GithubSession.commit called before prefetch');
 
@@ -201,6 +210,11 @@ export class GithubSession {
         message,
         tree: tree.sha,
         parents: this.baseCommitSha ? [this.baseCommitSha] : [],
+        // Omitted rather than guessed when unknown: GitHub then attributes to
+        // the token, which is at least true.
+        ...(author?.name && author?.email
+          ? { author: { name: author.name, email: author.email, date: new Date().toISOString() } }
+          : {}),
       }),
     });
     const commit = await commitRes.json();

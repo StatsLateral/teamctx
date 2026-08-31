@@ -35,14 +35,43 @@ export function matchesActor(ref, actor) {
     return !!login && r.slice(1) === login;
   }
   if (r.includes(':')) {
-    return r === String(actor.key || '').toLowerCase();
+    if (r === String(actor.key || '').toLowerCase()) return true;
+    // An email is the one identity every surface can agree on, and each names
+    // the same person differently: a clone keys them by email, the hosted
+    // server by GitHub id, a Google sign-in by the address Google verified.
+    // Matching the address as well means a gate pinned from one surface is not
+    // a lockout on the others.
+    const email = String(actor.email || '').toLowerCase();
+    return !!email && r === `git:${email}`;
   }
   return false;
 }
 
+/**
+ * Every identity the manager is known by.
+ *
+ * One person has more than one, and which one they present depends on how they
+ * connected: a clone resolves them from `git config` as `git:<email>`, the
+ * hosted server resolves them from GitHub OAuth as `github:<id>`, and a member
+ * signing in with Google arrives as neither. Matching a single stored key meant
+ * the person who set a project up from their laptop was refused by their own
+ * manager gate the moment they reached it from a chat client.
+ *
+ * `managerKey` (singular) stays readable so existing projects keep working; it
+ * is simply the first entry.
+ */
+export function managerKeys(config) {
+  const list = Array.isArray(config?.managerKeys) ? config.managerKeys : [];
+  const single = config?.managerKey;
+  const all = [...(single ? [single] : []), ...list]
+    .map(k => String(k || '').trim())
+    .filter(Boolean);
+  return [...new Set(all)];
+}
+
 /** True when `config.manager` is a legacy display name rather than an identity. */
 export function isLegacyManagerRef(config) {
-  return !config?.managerKey && !!config?.manager;
+  return managerKeys(config).length === 0 && !!config?.manager;
 }
 
 /**
@@ -54,14 +83,14 @@ export function isLegacyManagerRef(config) {
  * unforgeable — which it no longer is. `isLegacyManagerRef` lets callers warn.
  */
 export function canApprove(config, { actor, displayName } = {}) {
-  const key = config?.managerKey;
+  const keys = managerKeys(config);
   const legacy = config?.manager;
 
-  if (!key && !legacy) return true;            // no gate configured
+  if (keys.length === 0 && !legacy) return true;   // no gate configured
 
-  if (key) {
+  if (keys.length > 0) {
     // Never fall back to a name here: that is the hole this closes.
-    return matchesActor(key, actor);
+    return keys.some(k => matchesActor(k, actor));
   }
   return !!displayName && displayName === legacy;
 }

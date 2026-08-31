@@ -595,9 +595,23 @@ describe('config_set', () => {
   it('accepts a whitelisted key and reports back', async () => {
     readConfig.mockReturnValue({ ...baseConfig });
     const handlers = makeHandlers(ROOT);
-    const result = await handlers.config_set({ key: 'manager', value: 'alice' });
-    expect(writeConfig).toHaveBeenCalledWith(expect.objectContaining({ manager: 'alice' }), TDIR);
-    expect(JSON.parse(result.content[0].text).reportBack).toMatch(/config.manager set to/);
+    const result = await handlers.config_set({ key: 'managerEmail', value: 'ada@example.com' });
+    expect(writeConfig).toHaveBeenCalledWith(expect.objectContaining({ managerEmail: 'ada@example.com' }), TDIR);
+    expect(JSON.parse(result.content[0].text).reportBack).toMatch(/config.managerEmail set to/);
+  });
+
+  it('will not write the manager gate', async () => {
+    // The gate decides who may approve, so a caller able to write it can grant
+    // themselves approval and sign off their own submissions — exactly the
+    // trust a member is invited with less of. Pinned at init, not settable
+    // afterwards.
+    readConfig.mockReturnValue({ ...baseConfig });
+    const handlers = makeHandlers(ROOT);
+    await expect(handlers.config_set({ key: 'manager', value: 'alice' }))
+      .rejects.toThrow(/unknown config key/);
+    await expect(handlers.config_set({ key: 'managerKey', value: 'github:2' }))
+      .rejects.toThrow(/unknown config key/);
+    expect(writeConfig).not.toHaveBeenCalled();
   });
 });
 

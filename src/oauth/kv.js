@@ -127,6 +127,18 @@ export async function kvTake(key, env = process.env) {
 // --- key namespaces -----------------------------------------------------
 // Kept in one place so the shape of what we persist is easy to audit.
 
+/**
+ * The lookup name for a project, case-folded.
+ *
+ * A project-level entry is written from what the manager types into a form and
+ * read from what is in the request URL. GitHub treats those as the same
+ * repository whatever the case; a string key does not. So `Acme/Ledger` typed
+ * on the settings page stored something `acme/ledger` in a connector URL would
+ * never find — and the failure looked like the setting had simply not been
+ * saved.
+ */
+const slug = (owner, repo) => `${String(owner || '').toLowerCase()}/${String(repo || '').toLowerCase()}`;
+
 export const keys = {
   /** DCR-registered OAuth client. Long-lived. */
   client: id => `oauth:client:${id}`,
@@ -147,9 +159,17 @@ export const keys = {
    * this the model-backed tools are unusable for all but the person who set the
    * project up. Falls back to, never overrides, a member's own key. Long-lived.
    */
-  projectAiKey: (owner, repo) => `teamctx:aikey:project:${owner}/${repo}`,
+  projectAiKey: (owner, repo) => `teamctx:aikey:project:${slug(owner, repo)}`,
   /** Which projects one user shares a key with, so the settings page can show them. */
   sharedProjects: githubUserId => `teamctx:aikey:shared-by:${githubUserId}`,
+  /**
+   * A GitHub credential the project lends to members who have none of their
+   * own. Keyed by the repository it serves and looked up by the owner/repo in
+   * the request URL, so it can only ever act on the project it was stored for.
+   */
+  projectGhCred: (owner, repo) => `teamctx:ghcred:project:${slug(owner, repo)}`,
+  /** Which projects one user lends GitHub access to, for the settings page. */
+  lentProjects: githubUserId => `teamctx:ghcred:lent-by:${githubUserId}`,
   /**
    * Per-user, per-project settings (display name, active workstream). These are
    * personal, so they deliberately live here rather than in the repo's

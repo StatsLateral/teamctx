@@ -96,7 +96,7 @@ teamctx contribute "We decided to use AWS (Why). API migration starts next sprin
 | `teamctx snapshot approve <id>` | Approve a pending snapshot — sets it as the current-approved state |
 | `teamctx snapshot reject <id> [--reason "..."]` | Reject a pending snapshot |
 | `teamctx snapshot current` | Show the current-approved snapshot |
-| `teamctx config manager <name>` | Set the manager identity — only that identity may approve/reject |
+| `teamctx config manager` | Show who may approve or reject — pinned at init, not settable |
 | `teamctx config provider <anthropic\|openai\|gemini>` | Pick which LLM provider teamctx calls |
 | `teamctx config model <id>` | Pick a model from the selected provider's list |
 | `teamctx status` | Project summary |

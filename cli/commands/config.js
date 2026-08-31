@@ -1,6 +1,7 @@
 import { readConfig, writeConfig } from '../../src/storage.js';
 import { getModelsFor, getDefaultModelFor } from '../../src/ai.js';
 import { resolveActor } from '../../src/actor.js';
+import { managerKeys } from '../../src/review.js';
 import { setConfig } from './config.core.js';
 import { writePrefs, resolveDisplayName, resolveIdentity } from '../../src/prefs.js';
 
@@ -94,33 +95,33 @@ export async function configGithubRawBaseCommand(value) {
 /**
  * Who may approve or reject.
  *
- * Pinned to a stable identity, not a display name: display names are settable
- * by their owner (`teamctx config name`), so gating on one lets anyone claim
- * the manager's name and pass.
+ * Read-only. The gate is pinned at `init` to whoever set the project up and is
+ * not settable afterwards: a caller able to write it can grant themselves
+ * approval and sign off their own submissions. Showing it stays useful — it is
+ * how anyone finds out who to ask.
  */
-export async function configManagerCommand(value, opts = {}) {
+export async function configManagerCommand() {
   const config = readConfig();
   const actor = await resolveActor({ config });
+  const keys = managerKeys(config);
 
-  if (value === undefined && !opts.me && !opts.clear) {
-    const gate = config.managerKey
-      ? `${config.managerKey} (identity — secure)`
-      : (config.manager ? `${config.manager} (display name — advisory only)` : '(not set — anyone can approve/reject)');
-    console.log(`\nCurrent manager gate: ${gate}`);
-    console.log(`Your identity: ${actor.key}`);
-    console.log('\nUsage: teamctx config manager --me        # pin the gate to you');
-    console.log('       teamctx config manager @githublogin');
-    console.log('       teamctx config manager --clear');
-    if (config.manager && !config.managerKey) {
-      console.log('\nWarning: a display name is not a secure gate — anyone can set that');
-      console.log('name as their own with `teamctx config name`. Re-pin it with --me.');
-    }
-    return;
+  const gate = keys.length
+    ? keys.join(', ')
+    : (config.manager ? `${config.manager} (display name — advisory only)` : '(not set — anyone can approve/reject)');
+  console.log(`\nManager: ${gate}`);
+  console.log(`You:     ${actor.key}`);
+
+  if (keys.length && !keys.includes(actor.key) && !keys.some(k => k === `git:${actor.email || ''}`)) {
+    // The same person is a different key on a clone and in a chat client, so
+    // this is worth saying plainly rather than leaving to be discovered at the
+    // moment an approval is refused.
+    console.log('\nThis identity is not the manager, so you cannot approve or reject here.');
   }
-
-  const requested = opts.clear ? '' : (opts.me ? '--me' : value);
-  const r = await setConfig({ key: 'manager', value: requested });
-  console.log(`✓ ${r.notes.join(' ')}`);
+  if (!keys.length) {
+    console.log('\nThis project predates the pinned gate. The next `teamctx init` would set it;');
+    console.log('until something does, anyone reaching this project can approve.');
+  }
+  console.log('');
 }
 
 export async function configManagerEmailCommand(value) {

@@ -93,8 +93,14 @@ export async function initProject({
   if (!hosted) mkdirSync(join(teamctxDir, 'context', 'roles'), { recursive: true });
 
   const createdAt = new Date().toISOString();
+  // Whoever sets a project up is its manager. Left unset, the gate is open —
+  // `canApprove` returns true when nothing is pinned — so every new project had
+  // a window in which anyone who could reach it could approve their own work.
+  // Pinning it here means the window never exists.
+  const actor = await resolveActor({ config: { me }, cwd: hosted ? undefined : projectDir });
   const config = {
     project, me, provider, model: resolvedModel, autoPush,
+    managerKey: actor.key,
     deployUrl: deployUrl || '', githubRawBase: githubRawBase || '', managerEmail: managerEmail || '',
     roles: [],
     workstreams: [{ id: 'main', name: project, createdAt }],

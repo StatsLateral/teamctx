@@ -3,6 +3,9 @@ import { randomBytes } from 'crypto';
 import { mcpAuthRouter } from '@modelcontextprotocol/sdk/server/auth/router.js';
 import { providerFromEnv, oauthConfigStatus, GITHUB_SCOPES, OAuthCallbackError } from '../src/oauth/provider.js';
 import { kvGet, kvSet, kvTake, kvDelete, keys, TTL, isPersistent } from '../src/oauth/kv.js';
+import { googleAuthorizeUrl } from '../src/oauth/google.js';
+import { primaryEmail } from '../src/oauth/github-identity.js';
+import { lendDecision } from '../src/oauth/lend-decision.js';
 
 /**
  * Single Vercel function serving every OAuth surface. `vercel.json` rewrites
@@ -82,6 +85,61 @@ app.get('/.well-known/oauth-protected-resource/*splat', (req, res) => {
   });
 });
 
+// ---- Which account do you have? ---------------------------------------
+
+/**
+ * The fork in the road for a team member.
+ *
+ * Most people invited to a teamctx project have no GitHub account — GitHub is
+ * where the project is stored, not who they are. Redirecting straight to GitHub
+ * made "get a GitHub account" the first step of joining, which is the blocker
+ * this page exists to remove.
+ */
+app.get('/oauth/choose', (req, res) => {
+  const state = String(req.query.state || '');
+  if (!state) return res.status(400).send(errorPage('Missing state parameter.'));
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.send(choosePage(state));
+});
+
+app.get('/oauth/choose/github', (req, res) => {
+  const state = String(req.query.state || '');
+  if (!state || !provider) return res.status(400).send(errorPage('Missing state parameter.'));
+  res.redirect(provider.githubAuthorizeUrl(state));
+});
+
+app.get('/oauth/choose/google', (req, res) => {
+  const state = String(req.query.state || '');
+  if (!state) return res.status(400).send(errorPage('Missing state parameter.'));
+  if (!provider?.googleClientId) {
+    return res.status(503).send(errorPage('Google sign-in is not configured on this deployment.'));
+  }
+  res.redirect(googleAuthorizeUrl({
+    clientId: provider.googleClientId,
+    redirectUri: provider.googleCallbackUrl,
+    state,
+  }));
+});
+
+// ---- Google callback --------------------------------------------------
+
+app.get('/oauth/google/callback', async (req, res) => {
+  const { code, state, error, error_description: errorDescription } = req.query;
+  if (!state) return res.status(400).send(errorPage('Missing state parameter.'));
+  if (!provider) return res.status(500).send(errorPage('OAuth is not configured on this deployment.'));
+  try {
+    const redirectTo = await provider.handleGoogleCallback({
+      code: code ? String(code) : null,
+      state: String(state),
+      error: error ? String(error) : null,
+      errorDescription: errorDescription ? String(errorDescription) : null,
+    });
+    return res.redirect(redirectTo);
+  } catch (e) {
+    return res.status(400).send(errorPage(e.message));
+  }
+});
+
 // ---- GitHub callback --------------------------------------------------
 // Serves both flows: the MCP authorization flow and the settings-page login.
 
@@ -147,6 +205,7 @@ async function loginViaGithub(code, baseUrl) {
   // cookie and expires with the session.
   return {
     id: String(user.id), login: user.login, name: user.name ?? null,
+    email: user.email ? String(user.email).toLowerCase() : await primaryEmail(body.access_token),
     token: body.access_token,
   };
 }
@@ -177,8 +236,9 @@ app.get('/settings', async (req, res) => {
 
   const existing = await kvGet(keys.aiKey(user.id));
   const shared = (await kvGet(keys.sharedProjects(user.id)))?.projects || [];
+  const lent = (await kvGet(keys.lentProjects(user.id)))?.projects || [];
   res.send(settingsPage({
-    user, hasKey: !!existing, shared,
+    user, hasKey: !!existing, shared, lent,
     saved: req.query.saved === '1',
     error: req.query.error ? String(req.query.error) : null,
   }));
@@ -314,6 +374,108 @@ app.post('/settings/unshare', async (req, res) => {
   backToSettings(res);
 });
 
+/**
+ * Lend the project a GitHub credential, so members without an account of their
+ * own can act on it.
+ *
+ * Admin, not merely push: this hands a credential to everyone the roster names,
+ * which is a decision about who works on the project rather than a change to
+ * it. Whoever can already administer the repository is the person entitled to
+ * make it.
+ */
+/**
+ * May this person lend the project's GitHub access?
+ *
+ * The question teamctx actually cares about is "are you this project's
+ * manager", not "do you hold a GitHub permission bit". So the manager gate in
+ * the repo's own config.json is asked first: whoever ran `init` is the manager,
+ * which for the common case — you set the project up, you own the repo — makes
+ * this a step that simply passes instead of a second thing to go and arrange.
+ *
+ * Repository admin is the fallback for a project whose config has no manager
+ * pinned yet. Lending hands a credential to everyone the roster names, so
+ * without a manager recorded, the person who can administer the repository is
+ * the one entitled to decide.
+ */
+async function mayLend(user, ref) {
+  const headers = { Authorization: `Bearer ${user.token}`, Accept: 'application/vnd.github+json' };
+
+  const repoRes = await fetch(`https://api.github.com/repos/${ref.owner}/${ref.repo}`, { headers });
+  if (repoRes.status === 401) {
+    return { ok: false, why: 'GitHub rejected your sign-in. Sign out and sign in again.' };
+  }
+  if (repoRes.status === 404) {
+    return { ok: false, why: `No repository ${ref.owner}/${ref.repo}, or your GitHub account cannot see it.` };
+  }
+  if (!repoRes.ok) {
+    // Never fall through to a permissions message for a failure that was not
+    // about permissions — a rate limit reads as "you are not allowed" otherwise.
+    return { ok: false, why: `GitHub returned ${repoRes.status} for ${ref.owner}/${ref.repo}. Try again shortly.` };
+  }
+  const info = await repoRes.json().catch(() => ({}));
+
+  const cfgRes = await fetch(
+    `https://api.github.com/repos/${ref.owner}/${ref.repo}/contents/.teamctx/config.json`, { headers });
+  if (cfgRes.status === 404) {
+    return { ok: false, why: `${ref.owner}/${ref.repo} is not a teamctx project — no .teamctx/config.json in it.` };
+  }
+  let config = null;
+  if (cfgRes.ok) {
+    try {
+      const body = await cfgRes.json();
+      config = JSON.parse(Buffer.from(body.content || '', 'base64').toString('utf8'));
+    } catch { /* unreadable config falls back to the admin check */ }
+  }
+
+  // The same shape resolveActor produces, so the manager gate is matched by the
+  // one function that knows every form an identity takes.
+  const actor = { key: `github:${user.id}`, name: user.name || user.login, login: user.login, source: 'github' };
+  return lendDecision({ config, actor, isAdmin: !!info?.permissions?.admin, slug: `${ref.owner}/${ref.repo}` });
+}
+
+app.post('/settings/lend', async (req, res) => {
+  const user = await currentUser(req);
+  if (!user) return res.redirect(303, '/settings');
+  const ref = parseRepoRef(req.body?.project);
+  if (!ref) return backToSettings(res, 'Write the project as owner/repo.');
+
+  // A session minted before this feature shipped carries no token, and every
+  // GitHub call below would 401. That surfaced as "you need admin access" to
+  // someone who owned the repository, which is the worst kind of wrong error:
+  // it names a cause the reader cannot act on and is not true.
+  if (!user.token) {
+    return backToSettings(res, 'Your sign-in predates this feature. Sign out and sign in again, then retry.');
+  }
+
+  const allowed = await mayLend(user, ref);
+  if (!allowed.ok) return backToSettings(res, allowed.why);
+
+  const slug = `${ref.owner}/${ref.repo}`;
+  await kvSet(keys.projectGhCred(ref.owner, ref.repo), {
+    token: user.token, lentById: user.id, lentByLogin: user.login,
+  });
+  const list = (await kvGet(keys.lentProjects(user.id)))?.projects || [];
+  if (!list.includes(slug)) await kvSet(keys.lentProjects(user.id), { projects: [...list, slug] });
+  backToSettings(res);
+});
+
+/** Stop lending. Members without a GitHub account lose access immediately. */
+app.post('/settings/unlend', async (req, res) => {
+  const user = await currentUser(req);
+  if (!user) return res.redirect(303, '/settings');
+  const ref = parseRepoRef(req.body?.project);
+  if (!ref) return backToSettings(res, 'Write the project as owner/repo.');
+
+  const existing = await kvGet(keys.projectGhCred(ref.owner, ref.repo));
+  if (existing?.lentById && existing.lentById !== user.id) {
+    return backToSettings(res, 'That access was lent by someone else.');
+  }
+  await kvSet(keys.projectGhCred(ref.owner, ref.repo), null);
+  const list = (await kvGet(keys.lentProjects(user.id)))?.projects || [];
+  await kvSet(keys.lentProjects(user.id), { projects: list.filter(p => p !== `${ref.owner}/${ref.repo}`) });
+  backToSettings(res);
+});
+
 // ---- The SDK's OAuth server: metadata, /authorize, /token, /register --
 
 if (provider) {
@@ -358,7 +520,7 @@ button.link{background:none;border:0;padding:0;margin:0 0 0 .5rem;color:#888;
 code{background:#8881;padding:.1rem .3rem;border-radius:.2rem}
 </style></head><body>${body}</body></html>`;
 
-const settingsPage = ({ user, hasKey, saved, error, shared = [] }) => shell('Settings', `
+const settingsPage = ({ user, hasKey, saved, error, shared = [], lent = [] }) => shell('Settings', `
 <h1>teamctx settings</h1>
 <p>Signed in as <strong>${user.login}</strong>.
   <form method="POST" action="/settings/logout" style="display:inline;margin:0">
@@ -367,11 +529,8 @@ const settingsPage = ({ user, hasKey, saved, error, shared = [] }) => shell('Set
 </p>
 ${saved ? '<div class="ok">Saved.</div>' : ''}
 ${error ? `<div class="bad">${esc(error)}</div>` : ''}
-<p class="muted">Your AI provider key is used only for the teamctx tools that call a
-model — <code>ask</code>, <code>contribute</code>, <code>reflect</code>,
-<code>role_add</code> and the two <code>suggest_*</code> tools. The other 21
-tools work without it. Stored against your GitHub account; never written to
-your repo.</p>
+<p class="muted">Used only by the tools that call a model. Stored against your
+GitHub account, never written to your repo.</p>
 <form method="POST" action="/settings">
   <label for="provider">Provider</label>
   <select id="provider" name="provider">
@@ -387,12 +546,8 @@ your repo.</p>
 <hr style="margin:2.5rem 0;border:0;border-top:1px solid #8883">
 
 <h1>Share a key with a project</h1>
-<p class="muted">Most people on a project never set a key up — plenty of them
-never sign in here at all and reach the project only through their agent. A key
-shared with a project is used for anyone on it who has no key of their own, so
-the model-backed tools work for the whole team. Someone who <em>has</em> saved
-their own key above keeps using it; this never overrides it. You are paying for
-what the project spends.</p>
+<p class="muted">Used by anyone on the project who has no key of their own. Never
+overrides someone's own key. You pay for what the project spends.</p>
 ${shared.length ? `<p class="muted">Sharing a key with:</p>${shared.map(slug => `
 <form method="POST" action="/settings/unshare" style="margin:.35rem 0">
   <input type="hidden" name="project" value="${esc(slug)}">
@@ -411,7 +566,35 @@ ${shared.length ? `<p class="muted">Sharing a key with:</p>${shared.map(slug => 
   <label for="shareKey">API key to share</label>
   <input id="shareKey" name="apiKey" type="password" autocomplete="off" placeholder="sk-ant-…" required>
   <button type="submit">Share with project</button>
+</form>
+
+<hr style="margin:2.5rem 0;border:0;border-top:1px solid #8883">
+
+<h1>Let members without a GitHub account join</h1>
+<p class="muted">Lets people on the roster sign in with Google instead of GitHub,
+using the email you invited. Their work is committed under their own name and
+still comes to you for review. Roster only, this repository only.</p>
+${lent.length ? `<p class="muted">Lending access to:</p>${lent.map(slug => `
+<form method="POST" action="/settings/unlend" style="margin:.35rem 0">
+  <input type="hidden" name="project" value="${esc(slug)}">
+  <code>${esc(slug)}</code>
+  <button type="submit" class="link">Stop lending</button>
+</form>`).join('')}` : ''}
+<form method="POST" action="/settings/lend">
+  <label for="lendProject">Project</label>
+  <input id="lendProject" name="project" placeholder="owner/repo" required>
+  <button type="submit">Lend GitHub access</button>
 </form>`);
+
+const choosePage = (state) => shell('Connect', `
+<h1>Connect to teamctx</h1>
+<p>How do you sign in?</p>
+<p><a href="/oauth/choose/google?state=${encodeURIComponent(state)}">
+  <button type="button">Continue with Google</button></a></p>
+<p><a href="/oauth/choose/github?state=${encodeURIComponent(state)}">
+  <button type="button">Continue with GitHub</button></a></p>
+<p class="muted">Use Google if someone invited you to a project by email — sign
+in with that same address. Use GitHub if you work on the repository directly.</p>`);
 
 const signInPage = () => shell('Sign in', `
 <h1>teamctx settings</h1>

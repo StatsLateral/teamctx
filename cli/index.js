@@ -18,13 +18,14 @@ import { contextCommand } from './commands/context.js';
 import { statusCommand } from './commands/status.js';
 import { statsCommand } from './commands/stats.js';
 import { DEFAULT_WINDOW_DAYS } from '../src/metrics.js';
-import { configModelCommand, configGithubRawBaseCommand, configManagerCommand, configManagerEmailCommand, configDeployUrlCommand, configProviderCommand, configNameCommand } from './commands/config.js';
+import { configManagerCommand, configModelCommand, configGithubRawBaseCommand, configManagerEmailCommand, configDeployUrlCommand, configProviderCommand, configNameCommand } from './commands/config.js';
 import { reviewListCommand, reviewApproveCommand, reviewRejectCommand } from './commands/review.js';
 import {
   snapshotCreateCommand, snapshotListCommand, snapshotShowCommand,
   snapshotApproveCommand, snapshotRejectCommand, snapshotCurrentCommand,
 } from './commands/snapshot.js';
 import { setupCommand } from './commands/setup.js';
+import { memberAddCommand, memberListCommand, memberRmCommand } from './commands/member.js';
 import { mcpCommand } from './commands/mcp.js';
 import { workstreamSuggestCommand, workstreamListCommand, workstreamUseCommand, workstreamSplitCommand } from './commands/workstream.js';
 import {
@@ -100,6 +101,16 @@ program.command('mcp').description('Start MCP server over stdio (for Claude Code
   .option('-p, --project <path>', 'Absolute path to the teamctx project (defaults to $TEAMCTX_PROJECT_DIR or cwd)')
   .action(mcpCommand);
 
+const member = program.command('member').description('Who is on this project');
+member.command('add <username-or-email>').description('Add someone to the project (manager only)')
+  .option('--name <name>', 'Display name, if different from the handle')
+  .option('--invite', 'Also invite them to the GitHub repository')
+  .option('--permission <level>', 'Repository permission when inviting (pull|triage|push|maintain|admin)', 'push')
+  .action(memberAddCommand);
+member.command('list').description('List project members').action(memberListCommand);
+member.command('rm <username-or-email>').description('Remove someone from the project roster (does not revoke GitHub access)')
+  .action(memberRmCommand);
+
 const review = program.command('review').description('Review pending contributions awaiting manager approval');
 review.command('list').description('List all pending contributions').action(reviewListCommand);
 review.command('approve <id>').description('Approve a pending contribution — applies it to shared context').action(reviewApproveCommand);
@@ -158,9 +169,7 @@ config.command('name [value]').description('Get or set your own display name on 
 config.command('provider [value]').description('Get or set the AI provider (anthropic|openai|gemini)').action(configProviderCommand);
 config.command('model [value]').description('Get or set the AI model').action(configModelCommand);
 config.command('github-raw-base [value]').description('Get or set the GitHub raw base URL').action(configGithubRawBaseCommand);
-config.command('manager [value]').description('Get or set who may approve/reject — pin it to an identity, not a display name')
-  .option('--me', 'Pin the gate to your own identity')
-  .option('--clear', 'Remove the gate (anyone may approve/reject)')
+config.command('manager').description('Show who may approve or reject (pinned at init, not settable)')
   .action(configManagerCommand);
 config.command('manager-email [value]').description('Get or set the manager email for contribution notifications').action(configManagerEmailCommand);
 config.command('deploy-url [value]').description('Get or set the Vercel deploy URL').action(configDeployUrlCommand);

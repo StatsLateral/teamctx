@@ -12,6 +12,7 @@ import {
   readContributions,
 } from '../src/storage.js';
 import { answerQuestion } from '../src/context.js';
+import { commitContext } from '../src/git.js';
 import { migrateIfNeeded } from '../src/migrate.js';
 import { computeStats } from '../src/metrics.js';
 import { initProject } from '../cli/commands/init.core.js';
@@ -33,6 +34,7 @@ import { contributeCore } from '../cli/commands/contribute.core.js';
 import {
   listTasksFiltered, getTask, addTask, setTaskStatus, assignTask, removeTask, compileTask,
 } from '../cli/commands/task.core.js';
+import { listMembers, addMember, removeMember } from '../cli/commands/member.core.js';
 import { reflectWorkstream } from '../cli/commands/reflect.core.js';
 import { getConfig, setConfig } from '../cli/commands/config.core.js';
 import { resolveActor } from '../src/actor.js';
@@ -173,6 +175,11 @@ export const TOOLS = [
       },
       additionalProperties: false,
     },
+  },
+  {
+    name: 'list_members',
+    description: 'List the people on this project: name, GitHub login, email, who added them and when. Read-only. A member is a person the manager has put on the roster; it is not the same as having access to the repository.',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
   },
   {
     name: 'get_task',
@@ -399,7 +406,7 @@ export const TOOLS = [
   },
   {
     name: 'config_set',
-    description: RISKY + "writes a single config key. Project-wide keys: provider, model, githubRawBase, manager, managerEmail, deployUrl, autoPush — these change the project for everyone. Personal key: name — the display name used on the caller's own contributions, stored against them and never written to the repo. Changing `manager` re-gates who can approve/reject; changing `provider` may reset `model`." + REPORT,
+    description: RISKY + "writes a single config key. Project-wide keys: provider, model, githubRawBase, managerEmail, deployUrl, autoPush — these change the project for everyone. Personal key: name — the display name used on the caller's own contributions, stored against them and never written to the repo. Who may approve is fixed at init and cannot be changed here. Changing `provider` may reset `model`." + REPORT,
     inputSchema: {
       type: 'object',
       properties: {
@@ -410,6 +417,31 @@ export const TOOLS = [
         value: { description: 'String, boolean, or empty string to clear' },
       },
       required: ['key', 'value'], additionalProperties: false,
+    },
+  },
+  {
+    name: 'member_add',
+    description: RISKY + "adds a person to the project roster and commits. Manager-gated against the authenticated caller. Takes a GitHub username or an email address — only a username can be invited to the repository, since GitHub's collaborator endpoint takes no email. Set invite:true to also send a repository invitation, which they must accept before they can clone. Without it they are on the roster but have no access, which looks the same to a manager and is not. Confirm the person and whether to invite before calling." + REPORT,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ref: { type: 'string', description: 'GitHub username, or an email address' },
+        name: { type: 'string', description: 'Display name, if different from the handle' },
+        invite: { type: 'boolean', description: 'Also invite them to the GitHub repository' },
+        permission: { type: 'string', description: 'pull | triage | push | maintain | admin (default push)' },
+      },
+      required: ['ref'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'member_rm',
+    description: RISKY + 'removes a person from the project roster and commits. Manager-gated. Does **not** revoke their GitHub access — that has to be done on GitHub, and saying otherwise would leave a manager believing access was withdrawn when it was not.' + REPORT,
+    inputSchema: {
+      type: 'object',
+      properties: { ref: { type: 'string', description: 'Username, email, name or actor key' } },
+      required: ['ref'],
+      additionalProperties: false,
     },
   },
   {
@@ -558,6 +590,42 @@ export function makeHandlers(projectRoot) {
         workstreams,
         contributions: { total: contributions.length, decisions: decisions.length },
         roles: (config.roles || []).map(r => ({ slug: r.slug, name: r.name, workstream: r.workstream || 'main' })),
+      });
+    },
+
+    async list_members() {
+      return textResult({ members: listMembers({ teamctxDir: dir() }) });
+    },
+
+    async member_add(args = {}) {
+      const r = await addMember({
+        ref: args.ref,
+        name: args.name,
+        invite: !!args.invite,
+        permission: args.permission || 'push',
+        // Hosted requests carry the repo they are scoped to, and the caller's
+        // own token already holds the `repo` scope the invite needs.
+        owner: projectRoot?.owner,
+        repo: projectRoot?.repo,
+        ghToken: projectRoot?.ghToken,
+        teamctxDir: dir(),
+        projectDir: gitCwd,
+      });
+
+      const access = r.invite?.invited ? ' and invited to the repository'
+        : r.invite?.alreadyCollaborator ? ' (already had repository access)'
+        : r.invite?.error ? ` — the repository invite failed: ${r.invite.error}`
+        : r.member.login ? ' — not invited to the repository, so they cannot clone it yet'
+        : '';
+      return textResult({ ...r, reportBack: `${r.member.name} added to the project${access}.` });
+    },
+
+    async member_rm(args = {}) {
+      const r = await removeMember({ ref: args.ref, teamctxDir: dir(), projectDir: gitCwd });
+      return textResult({
+        ...r,
+        reportBack: `${r.member.name} removed from the roster.`
+          + (r.stillHasRepoAccess ? ' Their GitHub access is unchanged.' : ''),
       });
     },
 
@@ -848,6 +916,16 @@ export function makeHandlers(projectRoot) {
 
     async config_set({ key, value }) {
       const r = await setConfig({ key, value, teamctxDir: dir(), projectDir: gitCwd });
+      // Every other mutating tool commits; this one did not. Hosted writes land
+      // in the session's in-memory copy of the repo, so without a commit the
+      // request ended and the change was gone — while the tool still reported
+      // success, which is the worst way for a write to fail.
+      let committed = false;
+      if (r.wroteRepo) {
+        await commitContext(`config: ${r.key} by ${await who(dir(), readConfig(dir()))} (via mcp)`,
+          gitCwd ? { cwd: gitCwd } : undefined);
+        committed = true;
+      }
       const notes = r.notes.length ? ` Notes: ${r.notes.join(' | ')}` : '';
       // Clearing is not setting. A client that surfaces only reportBack would
       // otherwise tell the user their name was set to the very value they just
@@ -855,7 +933,7 @@ export function makeHandlers(projectRoot) {
       const what = r.cleared
         ? `config.${r.key} override cleared — it is derived again, currently ${JSON.stringify(r.value)}.`
         : `config.${r.key} set to ${JSON.stringify(r.value)}.`;
-      return textResult({ ...r, reportBack: `Tell the user: ${what}${notes}` });
+      return textResult({ ...r, committed, reportBack: `Tell the user: ${what}${notes}` });
     },
   };
 }

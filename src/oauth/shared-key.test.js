@@ -55,3 +55,20 @@ describe('a key shared with a project', () => {
     expect(r.apiKey).toBe(null);
   });
 });
+
+describe('a project key found regardless of how the repo was typed', () => {
+  it('matches when the form and the URL disagree on case', async () => {
+    // Written from what the manager types on the settings page, read from
+    // what is in the connector URL. GitHub calls those the same repository;
+    // a string key does not, and the failure looked like nothing was saved.
+    await kvSet(keys.projectAiKey('Acme', 'Ledger'), { provider: 'anthropic', apiKey: 'sk-shared' });
+    const r = await withSharedKey({ apiKey: null, aiProvider: null, owner: 'acme', repo: 'ledger' });
+    expect(r.apiKey).toBe('sk-shared');
+  });
+
+  it('still keeps different projects apart', async () => {
+    await kvSet(keys.projectAiKey('Acme', 'Ledger'), { provider: 'anthropic', apiKey: 'sk-shared' });
+    const r = await withSharedKey({ apiKey: null, aiProvider: null, owner: 'acme', repo: 'other' });
+    expect(r.apiKey).toBe(null);
+  });
+});

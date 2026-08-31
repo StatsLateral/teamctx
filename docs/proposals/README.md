@@ -28,6 +28,7 @@ These are **contributor-facing write-ups** for the larger items on the
 | [Microsoft 365 import connector](import-m365.md) | Bring your own tools | Large (includes a .docx reader) |
 | [Local team-productivity metrics](local-metrics.md) | Prove team productivity | Medium (splittable) |
 | [Tasks over MCP](mcp-tasks.md) | Bring your own tools | Small (the core exists) |
+| [Project members](project-members.md) | Managers in control | Small–Medium (phase 3 deferred) |
 
 ## Shipped proposals 🎉
 

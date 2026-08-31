@@ -1,6 +1,8 @@
 import { readConfig, writeConfig } from '../../src/storage.js';
 import { getModelsFor, getDefaultModelFor } from '../../src/ai.js';
 import { resolveActor } from '../../src/actor.js';
+import { managerKeys } from '../../src/review.js';
+import { assertManager } from './review.core.js';
 import { writePrefs, resolveDisplayName, resolveIdentity, resolveActiveWorkstream } from '../../src/prefs.js';
 
 const ALIASES = {
@@ -15,7 +17,17 @@ const PROVIDER_KEYS = {
   gemini: 'GEMINI_API_KEY',
 };
 
-const WRITABLE = new Set(['provider', 'model', 'githubRawBase', 'manager', 'managerKey', 'managerEmail', 'deployUrl', 'autoPush']);
+/**
+ * Keys `config_set` will write.
+ *
+ * `manager` / `managerKey` are deliberately absent. The gate decides who may
+ * approve, so a caller able to write it can grant themselves approval and sign
+ * off their own submissions — which is precisely the trust a member is invited
+ * with less of. It is pinned at `init` to whoever set the project up and is not
+ * reachable afterwards; the branch below still handles it, and is still gated,
+ * so re-exposing it is safe rather than a trap.
+ */
+const WRITABLE = new Set(['provider', 'model', 'githubRawBase', 'managerEmail', 'deployUrl', 'autoPush']);
 
 /**
  * Keys that describe the person rather than the project. They are stored
@@ -39,7 +51,7 @@ export async function getConfig({ teamctxDir, projectDir } = {}) {
     activeWorkstream: await resolveActiveWorkstream({ actor, config: c, teamctxDir }),
     projectDefaults: { me: c.me, activeWorkstream: c.activeWorkstream || 'main' },
     project: c.project, provider: c.provider || 'anthropic', model: c.model,
-    manager: c.manager || null, managerKey: c.managerKey || null, managerEmail: c.managerEmail || '',
+    manager: c.manager || null, managerKey: c.managerKey || null, managerKeys: managerKeys(c), managerEmail: c.managerEmail || '',
     deployUrl: c.deployUrl || '', githubRawBase: c.githubRawBase || '',
     autoPush: !!c.autoPush,
     workstreams: c.workstreams || [], roles: c.roles || [],
@@ -58,12 +70,12 @@ export async function setConfig({ key, value, teamctxDir, projectDir } = {}) {
       await writePrefs(actor, { name: null }, teamctxDir);
       const restored = await resolveIdentity({ actor, config, teamctxDir });
       return {
-        key, value: restored.name, cleared: true,
+        key, value: restored.name, cleared: true, wroteRepo: false,
         notes: [`override cleared — your name is derived again (from: ${restored.source}).`],
       };
     }
     await writePrefs(actor, { name: v }, teamctxDir);
-    return { key, value: v, cleared: false, notes: ['personal setting — stored against you, not written to the repo.'] };
+    return { key, value: v, cleared: false, wroteRepo: false, notes: ['personal setting — stored against you, not written to the repo.'] };
   }
   if (!WRITABLE.has(key)) throw new UnknownConfigKeyError(key);
   const config = readConfig(teamctxDir);
@@ -92,13 +104,51 @@ export async function setConfig({ key, value, teamctxDir, projectDir } = {}) {
     }
     next.model = resolved;
   } else if (key === 'manager' || key === 'managerKey') {
+    // Unreachable while `manager` is off WRITABLE, and gated regardless: the
+    // check belongs with the branch it protects, not with whatever exposes it.
+    // The empty gate is the bootstrap case — a project with no manager yet is
+    // how the first one gets set.
+    if (managerKeys(config).length > 0 || config.manager) {
+      assertManager(config, {
+        actor,
+        displayName: await resolveDisplayName({ actor, config, teamctxDir }),
+      });
+    }
     const raw = value === '' || value === '""' || value === "''" ? '' : String(value).trim();
     const actor = await resolveActor({ config, cwd: projectDir });
 
     if (!raw) {
       next.manager = '';
       next.managerKey = '';
+      next.managerKeys = [];
       notes.push('manager gate cleared — anyone may approve or reject.');
+    } else if (raw.startsWith('--add')) {
+      // The same person is a different key depending on how they connected: a
+      // clone knows them as git:<email>, the hosted server as github:<id>.
+      // Without this, setting the gate from a laptop locks you out of your own
+      // project from a chat client — which is where the work now happens.
+      //
+      // `--add <ref>` rather than only `--add-me`, because the identity you
+      // need to add is usually the one you are *not* currently using: adding it
+      // from the surface it belongs to would require already being recognised
+      // there, which is the lockout itself. Authorising the add on the surface
+      // where you are recognised is what breaks that circle.
+      const explicit = raw === '--add-me' || raw === 'add-me' ? '' : raw.replace(/^--add[= ]?/, '').trim();
+      const ref = explicit || actor.key;
+      if (explicit && !(explicit.includes(':') || explicit.startsWith('@'))) {
+        throw new Error(`"${explicit}" is not an identity — use github:<id>, git:<email> or @login.`);
+      }
+      const existing = managerKeys(next);
+      if (existing.length === 0) {
+        next.managerKey = ref;
+        notes.push(`gate pinned to ${ref}.`);
+      } else if (existing.includes(ref)) {
+        notes.push(`${ref} is already on the gate — nothing to do.`);
+      } else {
+        next.managerKeys = [...existing.slice(1), ref];
+        notes.push(`${ref} added to the gate, which now recognises ${existing.length + 1} identities for the manager.`);
+      }
+      next.manager = '';
     } else if (raw === '--me' || raw === 'me' || key === 'managerKey') {
       // Pin the gate to a stable identity. `--me` means whoever is running this.
       const ref = (raw === '--me' || raw === 'me') ? actor.key : raw;
@@ -125,7 +175,7 @@ export async function setConfig({ key, value, teamctxDir, projectDir } = {}) {
   }
 
   writeConfig(next, teamctxDir);
-  return { key, value: next[key], notes };
+  return { key, value: next[key], wroteRepo: true, notes };
 }
 
 export { PROVIDER_KEYS };

@@ -1,12 +1,13 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { getRequestAiKey } from '../ai-context.js';
+import { missingKeyMessage } from './missing-key.js';
 
 export const id = 'anthropic';
 
 export async function complete({ system = '', prompt, model, max_tokens = 4096 }) {
   const apiKey = getRequestAiKey() || process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
-    throw new Error('ANTHROPIC_API_KEY not set. Add it to your .env file or shell environment.');
+    throw new Error(missingKeyMessage('ANTHROPIC_API_KEY', 'Anthropic'));
   }
   const client = new Anthropic({ apiKey });
   const msg = await client.messages.create({

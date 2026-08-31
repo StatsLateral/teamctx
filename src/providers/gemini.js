@@ -1,12 +1,13 @@
 import { GoogleGenAI } from '@google/genai';
 import { getRequestAiKey } from '../ai-context.js';
+import { missingKeyMessage } from './missing-key.js';
 
 export const id = 'gemini';
 
 export async function complete({ system = '', prompt, model, max_tokens = 4096 }) {
   const apiKey = getRequestAiKey() || process.env.GEMINI_API_KEY;
   if (!apiKey) {
-    throw new Error('GEMINI_API_KEY not set. Add it to your .env file or shell environment.');
+    throw new Error(missingKeyMessage('GEMINI_API_KEY', 'Gemini'));
   }
   const client = new GoogleGenAI({ apiKey });
   const response = await client.models.generateContent({

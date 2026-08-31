@@ -41,6 +41,7 @@ either manager-gated or explicitly flagged as structural.
 | `ask({question, role?})` | Answer a question grounded in shared context. |
 | `suggest_roles({workstream?})` | AI-suggest 3-5 roles (dry-run; does not create them). |
 | `suggest_workstream_splits` | AI-propose sub-workstream splits (dry-run). |
+| `list_members` | The people on this project. A member is someone the manager put on the roster — **not** the same as having repository access. |
 | `list_tasks({status?, owner?, workstream?, all?})` | List tasks. Defaults to **open tasks in the caller's active workstream**; `all: true` returns every status across every workstream. |
 | `get_task({id})` | One task by id or unique prefix, plus its prompt path if compiled. |
 
@@ -63,6 +64,8 @@ marked *(manager-gated)* require the caller to pass `author` matching
 | Tool | Purpose |
 | --- | --- |
 | `init({project, me, provider?, model?, ...})` | Bootstrap a new teamctx project. Refuses if already initialized. Requires a git repo. |
+| `member_add({ref, name?, invite?, permission?})` | Add someone to the roster and commit. **Manager-gated.** `ref` is a GitHub username or an email — only a username can be invited, since GitHub's collaborator endpoint takes no email. `invite: true` also sends a repository invitation, which they must accept. |
+| `member_rm({ref})` | Remove from the roster and commit. **Manager-gated.** Does **not** revoke GitHub access. |
 | `task_rm({id})` | Permanently delete a task and its compiled prompt, then commit. No undo short of a git revert. |
 | `task_compile({id, role?, force?})` | **Spends an AI call.** Builds a prompt from the workstream tree, the role and recent decisions; overwrites any existing prompt and commits. **Returns the markdown itself**, not just a path — the caller usually cannot read the file. Skips the call and returns the cached prompt with `alreadyCompiled: true` when the workstream's Whys are unchanged; `force: true` regenerates anyway. Not for loops. |
 | `role_add({name, responsibilities, ...})` | Create a role, generate its context file, commit. |

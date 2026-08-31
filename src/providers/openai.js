@@ -1,12 +1,13 @@
 import OpenAI from 'openai';
 import { getRequestAiKey } from '../ai-context.js';
+import { missingKeyMessage } from './missing-key.js';
 
 export const id = 'openai';
 
 export async function complete({ system = '', prompt, model, max_tokens = 4096 }) {
   const apiKey = getRequestAiKey() || process.env.OPENAI_API_KEY;
   if (!apiKey) {
-    throw new Error('OPENAI_API_KEY not set. Add it to your .env file or shell environment.');
+    throw new Error(missingKeyMessage('OPENAI_API_KEY', 'OpenAI'));
   }
   const client = new OpenAI({ apiKey });
   const messages = [];

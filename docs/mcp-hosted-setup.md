@@ -22,6 +22,18 @@ secret — the secret is shown once.
 > Use an **OAuth App**, not a GitHub App. OAuth Apps issue the user-scoped
 > `repo` token the MCP tools need, with no per-repo installation step.
 
+teamctx asks for `repo read:user user:email`. There is nothing to configure —
+an OAuth App grants whatever the flow requests — but `user:email` is worth
+knowing about: it is what lets teamctx recognise you by the same email address
+your clone and a Google sign-in use. Without it a GitHub session is only a
+numeric id, and a manager gate pinned from a laptop would not recognise the
+same person in a chat client.
+
+> **If you deployed before this**, everyone signing in through the hosted
+> connector needs to authorise once more, since a token already issued does not
+> gain a scope. Until they do they are recognised by their numeric id, which
+> still works — it is only the cross-surface matching that waits.
+
 ## 2. Create the Redis store
 
 Use **Upstash directly** — <https://upstash.com>, sign in with GitHub →
@@ -49,6 +61,32 @@ Vercel project → **Settings** → **Environment Variables**. Apply to
 | `UPSTASH_REDIS_REST_URL` | from step 2 |
 | `UPSTASH_REDIS_REST_TOKEN` | from step 2 |
 | `TEAMCTX_BASE_URL` | `https://<your-deployment>.vercel.app` — no trailing slash |
+| `GOOGLE_OAUTH_CLIENT_ID` | optional — see below |
+| `GOOGLE_OAUTH_CLIENT_SECRET` | optional — see below |
+
+### Optional: let members join without a GitHub account
+
+Skip this and teamctx behaves exactly as before: every member needs a GitHub
+account. Set it and people invited by email can sign in with Google instead,
+which is usually what a non-technical team member has.
+
+1. [Google Cloud console](https://console.cloud.google.com/) → create or pick a
+   project → **APIs & Services** → **Credentials**.
+2. **Configure consent screen** if you have not: *External*, fill in the app
+   name and support email. No scopes need adding — teamctx asks only for
+   `openid email profile`, which are non-sensitive and need no verification.
+3. **Create credentials** → **OAuth client ID** → *Web application*.
+4. Under **Authorised redirect URIs** add exactly:
+   `https://<your-deployment>.vercel.app/oauth/google/callback`
+5. Copy the client ID and secret into the two variables above.
+
+While the consent screen is in *Testing*, only accounts listed under **Test
+users** can sign in. Publish it once you are past trying it out.
+
+Two more things are needed before an email member can actually do anything, both
+from `/settings` on your deployment: **share an AI key** with the project, and
+**lend it GitHub access**. Without the first, model-backed tools have no key;
+without the second, there is no credential to read the repo with.
 
 **Do not set** `TEAMCTX_ALLOW_URL_TOKENS`. It re-enables reading credentials
 from the query string, which is for local development only — the MCP spec

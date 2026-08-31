@@ -8,6 +8,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **A team member could make themselves the manager.** `config_set` accepted
+  `manager` and `managerKey`, and nothing checked who was asking — so someone
+  invited with deliberately reduced, roster-gated access could grant themselves
+  approval rights and then sign off their own submissions, which is the whole
+  trust boundary the invite exists to draw. The gate is now pinned at `init` to
+  whoever sets the project up and is not writable afterwards: both keys are off
+  `config_set`'s writable surface and `teamctx config manager` is gone, so there
+  is no reachable path rather than a gated one. `init` pins to the caller's
+  identity rather than the name they type, since a display name is settable by
+  its owner. A project with no manager recorded still accepts the first one,
+  which is how an existing project adopts the gate.
+- **One person is now recognised on every surface they connect from.** An actor
+  key depended on how you arrived — `git:<email>` from a clone, `github:<id>`
+  from the hosted server — so a manager gate pinned from a laptop refused the
+  same person in a chat client, and would have refused them again signing in
+  with Google. An email address is the one identity all three can agree on, so
+  teamctx now asks GitHub for `user:email`, reads the account's *verified*
+  primary address (an unverified one would let somebody claim a gate pinned to
+  an address they do not own), and matches a `git:<email>` gate against it.
+  A Google sign-in resolves into that same namespace, and the manager no longer
+  needs a roster entry to use it — they were being turned away from their own
+  project for signing in the way they tell everyone else to.
+  **Existing hosted sessions must authorise once more** to pick up the new
+  scope; until then they are matched by numeric id, which still works.
+  `teamctx config manager --add <ref>` adds an identity other than the one in
+  use, for a gate that predates this.
+- **The manager could be locked out of their own project.** An actor key
+  depends on how you connected — a clone resolves you from `git config` as
+  `git:<email>`, the hosted server resolves you from GitHub OAuth as
+  `github:<id>` — and the gate compared one stored key exactly. So pinning the
+  gate from a laptop and then reaching the project from a chat client refused
+  you your own project, which is now the ordinary way to work. The gate reads
+  `managerKeys` as well as `managerKey`, and `teamctx config manager --add-me`
+  adds the identity you are using now. `teamctx config manager` with no
+  arguments says when the gate does not recognise you, instead of leaving it to
+  be discovered at the moment of approving something.
+- **Lending a project GitHub access asked for the wrong thing.** It required
+  repository admin, a permission bit standing in for the question actually
+  being asked, and every failure to answer it — including a session with no
+  token, and a rate limit — reported "you need admin access", told to people who
+  had it. Admin or being the project manager now qualifies, matched against
+  every identity the gate knows, and each failure says what actually happened.
 - **`init` over the hosted MCP server crashed instead of bootstrapping a
   project.** `initProject` was the one write path with no hosted branch: it ran
   `join(projectDir, '.teamctx')` first, and in hosted mode `projectDir` is the
@@ -36,6 +78,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   between a clone and a chat client, either of which would quietly stop a
   member's own work being theirs. Existing tasks carry no key and still match by
   name. `mine` with `owner` is an error rather than an intersection. Part of #46.
+- **Team members no longer need a GitHub account.** GitHub is where a teamctx
+  project is stored, not who the people on it are, but joining one meant opening
+  a GitHub account, being added as a collaborator, and authorising GitHub OAuth
+  — which for a non-technical member was the whole onboarding blocker.
+  A member invited by email can now sign in with Google. teamctx does not verify
+  addresses itself: it reads `email_verified` from Google and refuses anything
+  else, because a Google account can be created against an address its holder
+  does not control. The verified address must then match a roster entry, or any
+  Google account would be a member of every project.
+  Such a member has no GitHub token, so the project lends one: the manager
+  stores a credential from `/settings`, pinned to a single repository and usable
+  only by people the roster names. Commits are attributed to the member, and
+  their contributions still queue for the manager's review — `assertManager`
+  compares the resolved actor against `managerKey`, which a member never is.
+  Both halves are optional. Without `GOOGLE_OAUTH_CLIENT_ID` the sign-in flow
+  goes straight to GitHub exactly as before. See `docs/mcp-hosted-setup.md`.
+- **Project members.** `teamctx member add <username|email>`, `member list`,
+  `member rm`, plus `list_members`, `member_add` and `member_rm` over MCP. A
+  teamctx project knew its manager and, implicitly, anyone holding a clone — it
+  had no idea who the team was, so contributions carried whatever
+  `git config user.name` said and task owners were free text.
+  Adding and removing are **manager-gated**. A member record reuses the actor
+  key from `src/actor.js` rather than inventing an identity scheme, so a member
+  joins up with contributions they have already made and with the `authorKey`
+  grouping `teamctx stats` counts by. Members are project-wide: workstreams are
+  a view over one repo, so per-workstream membership would enforce nothing.
+  `--invite` / `invite: true` also invites a GitHub collaborator — via `gh`
+  locally, or the caller's OAuth token when hosted, both of which already carry
+  the `repo` scope that needs. Only a username can be invited; GitHub's
+  collaborator endpoint takes no email address. The invitation is asynchronous
+  and must be accepted, and a failed invite still leaves the member on the
+  roster rather than discarding the manager's intent. `member rm` takes someone
+  off the roster and deliberately does **not** revoke repository access.
+- **Commits record an author separate from the committer.** The Git Data API
+  has always accepted both; teamctx sent neither, so every hosted write was
+  attributed to whoever's token made it and a whole team read as a single
+  contributor in `git log`. The author is now the acting person, via the
+  `<id>+<login>@users.noreply.github.com` form GitHub itself issues.
 - **Tasks over MCP.** All eight task commands are now tools: `list_tasks`,
   `get_task`, `task_add`, `task_done`, `task_reopen`, `task_assign`, `task_rm`
   and `task_compile`. The server described itself as covering the full CLI and

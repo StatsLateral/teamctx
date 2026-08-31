@@ -13,12 +13,12 @@ export async function checkGitRepo({ cwd } = {}) {
   }
 }
 
-export async function commitContext(message, { cwd } = {}) {
+export async function commitContext(message, { cwd, author } = {}) {
   const session = getCurrentSession();
   if (session) {
     // Hosted mode: flush all buffered writes as ONE atomic commit via the
     // Git Data API. Matches local behavior — one CLI/tool call = one commit.
-    await session.commit(message);
+    await session.commit(message, { author });
     return;
   }
   const opts = cwd ? { cwd } : undefined;

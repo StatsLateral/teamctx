@@ -32,7 +32,15 @@ beforeEach(() => {
 describe('actorFromGithubUser', () => {
   it('uses the display name when GitHub has one', () => {
     expect(actorFromGithubUser({ id: '42', login: 'satyagyasingh', name: 'Satyagya Singh' }))
-      .toEqual({ key: 'github:42', name: 'Satyagya Singh', login: 'satyagyasingh', source: 'github' });
+      .toEqual({ key: 'github:42', name: 'Satyagya Singh', login: 'satyagyasingh', email: null, source: 'github' });
+  });
+
+  it('carries the account email, lowercased, when the token revealed one', () => {
+    // The key stays the numeric id — it survives a rename and an address
+    // change — but the address is what lets a gate written as git:<email> on a
+    // clone recognise the same person here.
+    expect(actorFromGithubUser({ id: '42', login: 'ada', name: 'Ada', email: 'Ada@Example.com' }))
+      .toMatchObject({ key: 'github:42', email: 'ada@example.com' });
   });
 
   it('falls back to the login when the display name is null', () => {
