@@ -126,6 +126,7 @@ task.command('add <title>').description('Add a new task (default owner: you, def
   .action(taskAddCommand);
 task.command('list').description('List tasks (defaults to open tasks in active workstream)')
   .option('--status <state>', 'Filter by status (open|done)')
+  .option('--mine', 'Only your own tasks')
   .option('--owner <name>', 'Filter by owner')
   .option('--workstream <id>', 'Filter by workstream')
   .option('--all', 'Include all statuses and all workstreams')

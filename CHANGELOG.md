@@ -27,6 +27,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   history was the only record of where the commit came from — and it did not say.
 
 ### Added
+- **"What are my tasks?"** — `list_tasks` and `teamctx task list` take `mine`
+  / `--mine`. The task loop shipped in #47 worked from the second step onward;
+  the first one needed the caller to already know the exact display name this
+  project has for them, which an assistant can only guess at. Tasks now record
+  an `ownerKey` when raised for the caller, so `mine` matches on identity as
+  well as name: a display name changes with `teamctx config name` and differs
+  between a clone and a chat client, either of which would quietly stop a
+  member's own work being theirs. Existing tasks carry no key and still match by
+  name. `mine` with `owner` is an error rather than an intersection. Part of #46.
 - **Tasks over MCP.** All eight task commands are now tools: `list_tasks`,
   `get_task`, `task_add`, `task_done`, `task_reopen`, `task_assign`, `task_rm`
   and `task_compile`. The server described itself as covering the full CLI and

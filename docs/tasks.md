@@ -33,7 +33,7 @@ snapshots.
 | Command | Purpose |
 | --- | --- |
 | `teamctx task add "<title>" [--owner ...] [--workstream ...]` | Create a task. Default owner = you, default workstream = active. |
-| `teamctx task list [--status open\|done] [--owner ...] [--workstream ...] [--all]` | List tasks. Defaults to open tasks in active workstream. |
+| `teamctx task list [--mine] [--status open\|done] [--owner ...] [--workstream ...] [--all]` | List tasks. Defaults to open tasks in active workstream. `--mine` is your own, matched on identity rather than display name so it survives a rename. Not combinable with `--owner`. |
 | `teamctx task show <id>` | Show a task's metadata + compiled-file path. |
 | `teamctx task done <id>` | Mark done. Sets `doneAt` to today. |
 | `teamctx task reopen <id>` | Move a done task back to open. |

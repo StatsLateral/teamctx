@@ -126,13 +126,29 @@ async function resolveTargetWorkstream(config, requested, { teamctxDir, projectD
 
 // ---- reads --------------------------------------------------------------
 
+export class MineAndOwnerError extends Error {
+  constructor() {
+    // Two ways of asking the same question. Ranking one over the other silently
+    // is how a caller ends up trusting an empty list.
+    super('pass either mine or owner, not both — they are two ways to ask the same question');
+    this.code = 'MINE_AND_OWNER';
+  }
+}
+
 export function listTasksFiltered({
   status, owner, workstream, all = false, activeWorkstream = 'main', teamctxDir,
+  mine = false, me = null, myKey = null,
 } = {}) {
+  if (mine && owner) throw new MineAndOwnerError();
   const scope = all ? {} : { workstream: workstream || activeWorkstream };
   let tasks = listTasks(scope, teamctxDir);
   if (status) tasks = tasks.filter(t => t.status === status);
   if (owner) tasks = tasks.filter(t => t.owner === owner);
+  // The key covers a rename and a second surface; the name covers every task
+  // that already exists, none of which carries a key.
+  if (mine) {
+    tasks = tasks.filter(t => (myKey && t.ownerKey === myKey) || (me && t.owner === me));
+  }
   if (workstream) tasks = tasks.filter(t => t.workstream === workstream);
   // Matching the CLI: with no explicit status and no --all, open tasks are what
   // "my tasks" means. `all` is how a caller asks for the finished ones too.
@@ -159,11 +175,15 @@ export async function addTask({
   const targetWorkstream = await resolveTargetWorkstream(config, workstream, { teamctxDir, projectDir, actor });
   const me = await whoAmI({ config, teamctxDir, projectDir, actor });
 
+  const resolvedActor = actor || await resolveActor({ config, cwd: projectDir });
   const id = uniqueTaskId(slugify(title), teamctxDir);
   const task = {
     id,
     title: String(title),
     owner: owner || me,
+    // Only when the task is the caller's own. A name does not identify a
+    // person, so assigning to one records no key rather than a guessed one.
+    ...(owner ? {} : { ownerKey: resolvedActor.key }),
     status: 'open',
     workstream: targetWorkstream,
     createdAt: todayIso(),

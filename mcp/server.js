@@ -35,7 +35,7 @@ import {
 import { reflectWorkstream } from '../cli/commands/reflect.core.js';
 import { getConfig, setConfig } from '../cli/commands/config.core.js';
 import { resolveActor } from '../src/actor.js';
-import { resolveActiveWorkstream, resolveIdentity } from '../src/prefs.js';
+import { resolveActiveWorkstream, resolveIdentity, resolveDisplayName } from '../src/prefs.js';
 
 export function resolveProjectDir(argv = process.argv.slice(2), env = process.env, cwd = process.cwd()) {
   const flagIdx = argv.findIndex(a => a === '--project' || a === '-p');
@@ -153,7 +153,8 @@ export const TOOLS = [
       type: 'object',
       properties: {
         status: { type: 'string', description: 'open | done' },
-        owner: { type: 'string' },
+        mine: { type: 'boolean', description: "Only tasks belonging to the caller — this is what \"my tasks\" means. Cannot be combined with owner." },
+        owner: { type: 'string', description: 'Someone else, by the display name shown in the task list' },
         workstream: { type: 'string' },
         all: { type: 'boolean', description: 'Every status, every workstream' },
       },
@@ -552,7 +553,12 @@ export function makeHandlers(projectRoot) {
       const config = readConfig(teamctxDir);
       const actor = await resolveActor({ config, cwd: gitCwd });
       const activeWorkstream = await resolveActiveWorkstream({ actor, config, teamctxDir });
-      return textResult(listTasksFiltered({ ...args, activeWorkstream, teamctxDir }));
+      // The server already knows who is calling, so "what are my tasks?" does
+      // not need the caller to know what this project calls them.
+      const me = await resolveDisplayName({ actor, config, teamctxDir });
+      return textResult(listTasksFiltered({
+        ...args, activeWorkstream, teamctxDir, me, myKey: actor.key,
+      }));
     },
 
     async get_task(args = {}) {

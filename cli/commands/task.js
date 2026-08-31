@@ -54,14 +54,23 @@ export async function taskAddCommand(title, opts = {}) {
 
 export async function taskListCommand(opts = {}) {
   const config = readConfig();
-  const { activeWorkstream } = await currentIdentity(config);
-  const { tasks, scope } = listTasksFiltered({
-    status: opts.status,
-    owner: opts.owner,
-    workstream: opts.workstream,
-    all: !!opts.all,
-    activeWorkstream,
-  });
+  const { activeWorkstream, me, authorKey } = await currentIdentity(config);
+  let result;
+  try {
+    result = listTasksFiltered({
+      status: opts.status,
+      owner: opts.owner,
+      workstream: opts.workstream,
+      all: !!opts.all,
+      mine: !!opts.mine,
+      me,
+      myKey: authorKey,
+      activeWorkstream,
+    });
+  } catch (err) {
+    fail(err.message);
+  }
+  const { tasks, scope } = result;
 
   if (tasks.length === 0) {
     console.log('\nNo tasks match. Try `teamctx task list --all`.\n');
