@@ -1,8 +1,13 @@
 # ChatGPT — recipe guide
 
-ChatGPT is browser-based and can't reach into your filesystem, so the flow is
-straight copy-paste: paste the recipe, paste the inputs it asks for, then
-paste the output back into your terminal.
+Running a *recipe* is copy-paste: paste the recipe, paste the inputs it asks
+for, then paste the output back into your terminal. A recipe is a prompt, so
+this works in any chat window and needs nothing set up on the project's side.
+
+> **This page is about the recipes, not about teamctx as a whole.** teamctx also
+> runs over MCP, where the whole loop happens in conversation with nothing
+> pasted anywhere — see [Using the hosted connector
+> instead](#using-the-hosted-connector-instead) below.
 
 ## Recommended flow
 
@@ -40,5 +45,24 @@ Same pattern:
   note and the current context — no need to paste the recipe every time.
 - If your workstream markdown is large, ChatGPT may truncate. Split the cleanup
   into workstream-sized passes rather than one full-tree pass.
-- ChatGPT can't run `teamctx` for you — always copy the final output back into
-  your terminal to actually record the contribution.
+- A recipe only produces text. Nothing is recorded until you copy the final
+  output back into your terminal — the recipe flow has no way to write to your
+  project.
+
+## Using the hosted connector instead
+
+The recipes above are the route that works in any chat client at all, with no
+setup on the project's side. If yours supports custom MCP connectors, the whole
+loop runs in conversation instead — list your tasks, pull a compiled prompt, do
+the work, submit the contribution — with nothing pasted into a terminal.
+
+Ask the project's manager for the connector URL (`teamctx connect`), add it as
+a custom connector, and sign in.
+
+The loop itself is agent-agnostic — nothing in it is specific to one client.
+Whether a given client can add a custom MCP connector is that client's
+question, not teamctx's, so this page does not try to answer it. Try adding the
+connector: if the tools appear, use them; if they do not, the copy-paste flow
+above is unaffected and always works.
+
+See [docs/mcp-join.md](../../docs/mcp-join.md) for the joining member's steps.

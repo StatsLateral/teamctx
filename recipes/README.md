@@ -17,7 +17,7 @@ a short guide for how to invoke them.
 |---|---|
 | Claude Code | [`claude-code/`](claude-code/README.md) — `@`-reference the recipe + context files; Claude Code can run `teamctx contribute` for you. |
 | Cursor | [`cursor/`](cursor/README.md) — `@`-reference in the AI panel; use Composer mode when you want the AI to edit files directly. |
-| ChatGPT | [`chatgpt/`](chatgpt/README.md) — copy-paste the recipe and inputs, then paste output back into your terminal. |
+| ChatGPT | [`chatgpt/`](chatgpt/README.md) — copy-paste the recipe and inputs, then paste output back into your terminal. A client with MCP connector support can skip the paste entirely. |
 
 Working with a different tool (Windsurf, Zed, a local model, an agent SDK)?
 The two recipes are plain markdown with `<PASTE …>` placeholders — they
