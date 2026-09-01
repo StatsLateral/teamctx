@@ -6,6 +6,9 @@ import { kvGet, kvSet, kvTake, kvDelete, keys, TTL, isPersistent } from '../src/
 import { googleAuthorizeUrl } from '../src/oauth/google.js';
 import { primaryEmail } from '../src/oauth/github-identity.js';
 import { lendDecision } from '../src/oauth/lend-decision.js';
+import { GithubSession, listUserOrgs, createRepo, slugifyProjectName } from '../src/adapters/github.js';
+import { runWithSession } from '../src/session-context.js';
+import { initProject } from '../cli/commands/init.core.js';
 
 /**
  * Single Vercel function serving every OAuth surface. `vercel.json` rewrites
@@ -158,7 +161,7 @@ app.get('/oauth/github/callback', async (req, res) => {
       await kvSet(keys.session(sid), githubUser, { ttlSeconds: TTL.session });
       res.setHeader('Set-Cookie',
         `teamctx_sid=${sid}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${TTL.session}`);
-      return res.redirect(303, '/settings');
+      return res.redirect(303, settingsPending.returnTo || '/settings');
     } catch (e) {
       return res.status(400).send(errorPage(e.message));
     }
@@ -247,13 +250,93 @@ app.get('/settings', async (req, res) => {
 /** Starts the GitHub login. Only reached by clicking Sign in. */
 app.get('/settings/signin', async (req, res) => {
   const state = randomBytes(18).toString('base64url');
-  await kvSet(keys.pending(`settings:${state}`), { kind: 'settings' }, { ttlSeconds: TTL.pending });
+  // Allow-listed rather than trusted: this is the only place a client-
+  // supplied path could end up driving a redirect, so anything outside
+  // /settings/<word> is dropped rather than carried through.
+  const requestedReturnTo = String(req.query.returnTo || '');
+  const returnTo = /^\/settings\/[a-z-]+$/.test(requestedReturnTo) ? requestedReturnTo : null;
+  await kvSet(
+    keys.pending(`settings:${state}`),
+    returnTo ? { kind: 'settings', returnTo } : { kind: 'settings' },
+    { ttlSeconds: TTL.pending },
+  );
   const url = new URL('https://github.com/login/oauth/authorize');
   url.searchParams.set('client_id', process.env.GITHUB_OAUTH_CLIENT_ID || '');
   url.searchParams.set('redirect_uri', `${baseUrlFor(req)}/oauth/github/callback`);
   url.searchParams.set('scope', GITHUB_SCOPES);
   url.searchParams.set('state', state);
   res.redirect(url.toString());
+});
+
+/** Org listing is a nice-to-have on this form, not a hard dependency. */
+async function safeListOrgs(token) {
+  try { return await listUserOrgs(token); } catch { return []; }
+}
+
+/** Where a manager with no repo yet gets one, without touching GitHub directly. */
+app.get('/settings/new-project', async (req, res) => {
+  const user = await currentUser(req);
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  if (!user) return res.redirect(303, '/settings/signin?returnTo=/settings/new-project');
+  const orgs = await safeListOrgs(user.token);
+  res.send(newProjectPage({ user, orgs }));
+});
+
+app.post('/settings/new-project', async (req, res) => {
+  const user = await currentUser(req);
+  if (!user) return res.redirect(303, '/settings/signin?returnTo=/settings/new-project');
+
+  const projectName = String(req.body?.projectName || '').trim();
+  if (!projectName) {
+    const orgs = await safeListOrgs(user.token);
+    return res.status(400).send(newProjectPage({ user, orgs, error: 'Enter a project name.' }));
+  }
+
+  // Retry path: the repo already exists from a previous attempt whose
+  // init step failed. Task 8's error page posts back here with these two
+  // fields set, skipping straight to (re-)running init — no second
+  // createRepo call, so this can't create a duplicate repo.
+  const retryOwner = String(req.body?.repoOwner || '').trim();
+  const retryRepo = String(req.body?.repoRepo || '').trim();
+
+  let owner, repo;
+  if (retryOwner && retryRepo) {
+    owner = retryOwner;
+    repo = retryRepo;
+  } else {
+    const org = String(req.body?.orgLogin || '').trim() || null;
+    const name = slugifyProjectName(projectName);
+    try {
+      const created = await createRepo(user.token, { name, org, description: projectName });
+      owner = created.owner;
+      repo = created.repo;
+    } catch (e) {
+      const orgs = await safeListOrgs(user.token);
+      if (e.code === 'REPO_EXISTS' || e.code === 'REPO_FORBIDDEN') {
+        return res.status(e.code === 'REPO_EXISTS' ? 409 : 403).send(
+          newProjectPage({ user, orgs, projectName, orgLogin: org, error: e.message }),
+        );
+      }
+      return res.status(500).send(errorPage(e.message));
+    }
+  }
+
+  try {
+    const session = new GithubSession({ owner, repo, ghToken: user.token });
+    await session.prefetch();
+    await runWithSession(session, () => initProject({
+      project: projectName,
+      me: user.name || user.login,
+      source: 'web',
+    }));
+  } catch (e) {
+    // Repo exists but isn't initialized. Don't strand the manager here —
+    // give them a retry that skips straight back to this step, not a dead
+    // end. No second createRepo call: owner/repo travel as hidden fields.
+    return res.status(500).send(newProjectRetryPage({ owner, repo, projectName, error: e.message }));
+  }
+
+  res.send(newProjectSuccessPage({ owner, repo, baseUrl: baseUrlFor(req) }));
 });
 
 /**
@@ -527,6 +610,7 @@ const settingsPage = ({ user, hasKey, saved, error, shared = [], lent = [] }) =>
     <button type="submit" class="link">Sign out</button>
   </form>
 </p>
+<p><a href="/settings/new-project"><button type="button">Create a new project</button></a></p>
 ${saved ? '<div class="ok">Saved.</div>' : ''}
 ${error ? `<div class="bad">${esc(error)}</div>` : ''}
 <p class="muted">Used only by the tools that call a model. Stored against your
@@ -595,6 +679,44 @@ const choosePage = (state) => shell('Connect', `
   <button type="button">Continue with GitHub</button></a></p>
 <p class="muted">Use Google if someone invited you to a project by email — sign
 in with that same address. Use GitHub if you work on the repository directly.</p>`);
+
+const newProjectPage = ({ user, orgs, projectName = '', orgLogin = '', error = null }) => shell('New project', `
+<h1>Create a new teamctx project</h1>
+<p>Signed in as <strong>${esc(user.login)}</strong>. This creates a new private
+GitHub repository and sets it up for teamctx — nothing to install, nothing to
+type in a terminal.</p>
+${error ? `<div class="bad">${esc(error)}</div>` : ''}
+<form method="POST" action="/settings/new-project">
+  <label for="projectName">Project name</label>
+  <input id="projectName" name="projectName" placeholder="Q3 GTM Strategy" value="${esc(projectName)}" required>
+  <label for="orgLogin">Where should it live?</label>
+  <select id="orgLogin" name="orgLogin">
+    <option value="" ${orgLogin === '' ? 'selected' : ''}>Your personal account (${esc(user.login)})</option>
+    ${orgs.map(o => `<option value="${esc(o.login)}" ${o.login === orgLogin ? 'selected' : ''}>${esc(o.login)}</option>`).join('')}
+  </select>
+  <p class="muted">The repository is created private. You can change that later from GitHub if you want.</p>
+  <button type="submit">Create project</button>
+</form>`);
+
+const newProjectSuccessPage = ({ owner, repo, baseUrl }) => shell('Project created', `
+<h1>Your project is ready</h1>
+<p><code>${esc(owner)}/${esc(repo)}</code> was created on GitHub and initialized for teamctx.</p>
+<label>Paste this into Claude → Settings → Connectors → Add custom connector</label>
+<input readonly value="${esc(baseUrl)}/api/mcp/${esc(owner)}/${esc(repo)}" onclick="this.select()">
+<p class="muted">Then click Connect and approve the GitHub consent screen. Tools
+appear right away — you can start adding tasks immediately.</p>`);
+
+const newProjectRetryPage = ({ owner, repo, projectName, error }) => shell('Almost there', `
+<h1>The repository was created, but setup didn't finish</h1>
+<div class="bad">${esc(error)}</div>
+<p><code>${esc(owner)}/${esc(repo)}</code> exists on GitHub. Try again — this
+won't create a second repository.</p>
+<form method="POST" action="/settings/new-project">
+  <input type="hidden" name="repoOwner" value="${esc(owner)}">
+  <input type="hidden" name="repoRepo" value="${esc(repo)}">
+  <input type="hidden" name="projectName" value="${esc(projectName)}">
+  <button type="submit">Try again</button>
+</form>`);
 
 const signInPage = () => shell('Sign in', `
 <h1>teamctx settings</h1>

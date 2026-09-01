@@ -28,6 +28,67 @@ export function isGithubCtx(dir) {
   return typeof dir === 'object' && dir !== null && dir.__backend === 'github';
 }
 
+/**
+ * Turns a human-typed project name into a GitHub-valid repo name. Never
+ * empty — an all-punctuation or blank name still needs somewhere to land.
+ */
+export function slugifyProjectName(name) {
+  const slug = String(name || '')
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return slug || 'project';
+}
+
+/** Orgs the token's owner belongs to, for the "where should this repo live" picker. */
+export async function listUserOrgs(token) {
+  const res = await fetch(`${API}/user/orgs`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: 'application/vnd.github+json',
+      'X-GitHub-Api-Version': '2022-11-28',
+    },
+  });
+  if (!res.ok) throw new Error(`github: could not list orgs (${res.status})`);
+  const body = await res.json();
+  return body.map(o => ({ login: o.login }));
+}
+
+/**
+ * Creates a private repo with an initial commit — `auto_init` is required so
+ * the repo has a real default branch for GithubSession.commit() to build the
+ * .teamctx/ commit on top of; a zero-commit repo has no ref to resolve.
+ */
+export async function createRepo(token, { name, org, description = '' }) {
+  const url = org ? `${API}/orgs/${org}/repos` : `${API}/user/repos`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: 'application/vnd.github+json',
+      'X-GitHub-Api-Version': '2022-11-28',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ name, description, private: true, auto_init: true }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (res.status === 422) {
+    const err = new Error(body.message || `github: repo "${name}" already exists`);
+    err.code = 'REPO_EXISTS';
+    throw err;
+  }
+  if (res.status === 403) {
+    const err = new Error(body.message || `github: not allowed to create a repo in ${org || 'your account'}`);
+    err.code = 'REPO_FORBIDDEN';
+    throw err;
+  }
+  if (!res.ok) {
+    throw new Error(`github: repo creation failed (${res.status}): ${JSON.stringify(body).slice(0, 400)}`);
+  }
+  return { owner: body.owner.login, repo: body.name };
+}
+
 export class GithubSession {
   constructor({ owner, repo, ref, ghToken }) {
     if (!owner || !repo) throw new Error('GithubSession requires owner + repo');
