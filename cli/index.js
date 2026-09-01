@@ -27,6 +27,7 @@ import {
 import { setupCommand } from './commands/setup.js';
 import { memberAddCommand, memberListCommand, memberRmCommand } from './commands/member.js';
 import { mcpCommand } from './commands/mcp.js';
+import { connectCommand } from './commands/connect.js';
 import { workstreamSuggestCommand, workstreamListCommand, workstreamUseCommand, workstreamSplitCommand } from './commands/workstream.js';
 import {
   taskAddCommand, taskListCommand, taskShowCommand,
@@ -97,6 +98,10 @@ program.command('stats').description('Team metrics from your own history — no 
   .option('--waits', 'List every review wait, slowest first')
   .option('--json', 'Print the raw numbers instead of a table')
   .action(statsCommand);
+program.command('connect')
+  .description('Print the URL a team member pastes into their AI client')
+  .action(connectCommand);
+
 program.command('mcp').description('Start MCP server over stdio (for Claude Code, Claude Desktop, Cursor, etc.)')
   .option('-p, --project <path>', 'Absolute path to the teamctx project (defaults to $TEAMCTX_PROJECT_DIR or cwd)')
   .action(mcpCommand);

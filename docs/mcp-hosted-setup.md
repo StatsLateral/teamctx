@@ -49,6 +49,12 @@ teamctx stores a few hundred bytes per user, so this is ample.
 > either naming (`UPSTASH_REDIS_REST_*` or `KV_REST_API_*`), so if you are
 > already on a paid Vercel plan the Storage tab works too.
 
+## Adding your team
+
+Run `teamctx connect` to print the URL a member pastes into their client,
+and send them [mcp-join.md](mcp-join.md) — the same steps written from
+their side.
+
 ## 3. Set environment variables
 
 Vercel project → **Settings** → **Environment Variables**. Apply to

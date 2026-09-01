@@ -38,6 +38,7 @@ either manager-gated or explicitly flagged as structural.
 | `get_status` | Full project status payload as structured JSON. |
 | `get_config` | Public config (never returns API keys). |
 | `get_stats({since?, workstream?})` | Team metrics from the project's own history — cadence, approval flow, freshness, task flow. Approval numbers are `null` when git history is unreachable (hosted), never zero. |
+| `get_connect_url` | The URL a member pastes into their AI client to reach this project. |
 | `ask({question, role?})` | Answer a question grounded in shared context. |
 | `suggest_roles({workstream?})` | AI-suggest 3-5 roles (dry-run; does not create them). |
 | `suggest_workstream_splits` | AI-propose sub-workstream splits (dry-run). |

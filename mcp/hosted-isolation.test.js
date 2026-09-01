@@ -157,6 +157,71 @@ describe('two identities on the hosted server', () => {
 });
 
 
+describe('a config change made over the hosted server', () => {
+  // It reported success and vanished. A hosted write lands in the session's
+  // in-memory copy of the repo; without a commit the request ended and the
+  // change was gone, while the tool still said it had worked.
+  it('reaches the repository rather than only the session', async () => {
+    const session = fakeSession();
+    await asUser(session, ALICE, h => json(h.config_set({ key: 'deployUrl', value: 'https://x.vercel.app' })));
+    expect(session.configJson().deployUrl).toBe('https://x.vercel.app');
+    expect(session.commits.some(m => /config: deployUrl/.test(m))).toBe(true);
+  });
+
+  it('says whether it committed, so a caller cannot claim more than happened', async () => {
+    const session = fakeSession();
+    const r = await asUser(session, ALICE, h => json(h.config_set({ key: 'deployUrl', value: 'https://x.vercel.app' })));
+    expect(r.committed).toBe(true);
+  });
+
+  it('says in the sentence a client reads out whether it persisted', async () => {
+    // The tool description tells callers to report `reportBack` verbatim, so a
+    // success string that does not depend on the write is a false success said
+    // out loud — which is how the missing commit went unnoticed.
+    const session = fakeSession();
+    const r = await asUser(session, ALICE, h => json(h.config_set({ key: 'deployUrl', value: 'https://x.vercel.app' })));
+    expect(r.reportBack).toMatch(/Committed to the repo/);
+  });
+
+  it('reports the commit it actually made, not the one it attempted', async () => {
+    // Writing the value already stored leaves nothing to commit. Claiming
+    // otherwise hands back a success only a read-back could disprove.
+    const session = fakeSession();
+    session.commit = async () => ({ committed: false });
+    const r = await asUser(session, ALICE, h => json(h.config_set({ key: 'deployUrl', value: 'https://x.vercel.app' })));
+    expect(r.committed).toBe(false);
+    expect(r.reportBack).toMatch(/Nothing was committed/);
+  });
+
+  it('does not commit a personal setting, which never belonged in the repo', async () => {
+    // A display name is stored against the caller, not the project. Committing
+    // it would rename them for everyone.
+    const session = fakeSession();
+    const r = await asUser(session, ALICE, h => json(h.config_set({ key: 'name', value: 'Alice A.' })));
+    expect(r.committed).toBe(false);
+    expect(session.commits).toEqual([]);
+  });
+});
+
+describe('handing a member the connector URL', () => {
+  it('builds it from the repository the request is already for', async () => {
+    // The hosted server has no clone and no git remote to read; the owner and
+    // repo are in the request URL it was reached on.
+    const session = fakeSession();
+    await asUser(session, ALICE, h => json(h.config_set({ key: 'deployUrl', value: 'https://x.vercel.app/' })));
+    const r = await asUser(session, ALICE, h => json(h.get_connect_url()));
+    expect(r.url).toBe(`https://x.vercel.app/api/mcp/${OWNER}/${REPO}`);
+  });
+
+  it('says what to set when no deploy URL is recorded', async () => {
+    // The usual reason it is missing, and unanswerable without being told.
+    const session = fakeSession();
+    const r = await asUser(session, ALICE, h => json(h.get_connect_url()));
+    expect(r.url).toBeUndefined();
+    expect(r.reportBack).toMatch(/deployUrl/);
+  });
+});
+
 describe('the manager gate cannot be talked around', () => {
   it('lets the pinned manager approve', async () => {
     const session = fakeSession();
@@ -192,33 +257,6 @@ describe('the manager gate cannot be talked around', () => {
 
     await expect(asUser(session, BOB, h => h.review_approve({ id: 'q-1' })))
       .rejects.toThrow(/only the configured manager/);   // and it buys him nothing
-  });
-});
-
-describe('a config change made over the hosted server', () => {
-  // It reported success and vanished. Hosted writes land in the session's
-  // in-memory copy of the repo; without a commit the request ended and the
-  // change was gone, while the tool still said it had worked.
-  it('reaches the repository rather than only the session', async () => {
-    const session = fakeSession();
-    await asUser(session, ALICE, h => json(h.config_set({ key: 'managerEmail', value: 'ada@example.com' })));
-    expect(session.configJson().managerEmail).toBe('ada@example.com');
-    expect(session.commits.some(m => /config: managerEmail/.test(m))).toBe(true);
-  });
-
-  it('reports whether it committed, so a caller cannot claim more than happened', async () => {
-    const session = fakeSession();
-    const r = await asUser(session, ALICE, h => json(h.config_set({ key: 'managerEmail', value: 'ada@example.com' })));
-    expect(r.committed).toBe(true);
-  });
-
-  it('does not commit a personal setting, which never belonged in the repo', async () => {
-    // A display name is stored against the caller, not the project. Committing
-    // it would rename them for everyone.
-    const session = fakeSession();
-    const r = await asUser(session, ALICE, h => json(h.config_set({ key: 'name', value: 'Ada A.' })));
-    expect(r.committed).toBe(false);
-    expect(session.commits).toEqual([]);
   });
 });
 
