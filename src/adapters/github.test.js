@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { slugifyProjectName, listUserOrgs, createRepo } from './github.js';
+import { slugifyProjectName, listUserOrgs, createRepo, suggestAvailableName } from './github.js';
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -87,5 +87,52 @@ describe('createRepo', () => {
     expect(err).toBeInstanceOf(Error);
     expect(err.code).toBeUndefined();
     expect(err.message).toMatch(/500/);
+  });
+});
+
+describe('suggesting a project name that is free', () => {
+  // A name collision is the most reachable failure in new-project onboarding —
+  // retrying the same name after any error is what people do — and GitHub's
+  // wording leaves a non-technical manager with nothing to click.
+  const ok = (statuses) => {
+    let i = 0;
+    globalThis.fetch = vi.fn(async () => ({ status: statuses[i++], json: async () => ({}) }));
+  };
+
+  afterEach(() => { vi.restoreAllMocks(); });
+
+  it('offers the first name nobody has taken', async () => {
+    ok([200, 404]);                       // -2 taken, -3 free
+    expect(await suggestAvailableName('t', { name: 'gtm', owner: 'acme' })).toBe('gtm-3');
+  });
+
+  it('starts at -2, since -1 reads as a mistake', async () => {
+    ok([404]);
+    expect(await suggestAvailableName('t', { name: 'gtm', owner: 'acme' })).toBe('gtm-2');
+  });
+
+  it('gives up rather than hunting forever', async () => {
+    ok([200, 200, 200, 200, 200]);
+    expect(await suggestAvailableName('t', { name: 'gtm', owner: 'acme' })).toBe(null);
+  });
+
+  it('returns nothing when GitHub answers something it cannot read', async () => {
+    // A rate limit is not "this name is free". Suggesting one on a 403 would
+    // send the manager into the same failure again.
+    ok([403]);
+    expect(await suggestAvailableName('t', { name: 'gtm', owner: 'acme' })).toBe(null);
+    // And stops there. Retrying four more times against a rate limit makes the
+    // thing that caused it worse.
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('survives a network error, because it runs while handling one', async () => {
+    globalThis.fetch = vi.fn(async () => { throw new Error('offline'); });
+    expect(await suggestAvailableName('t', { name: 'gtm', owner: 'acme' })).toBe(null);
+  });
+
+  it('does nothing without a name or an owner', async () => {
+    expect(await suggestAvailableName('t', { name: '', owner: 'acme' })).toBe(null);
+    expect(await suggestAvailableName('t', { name: 'gtm', owner: '' })).toBe(null);
   });
 });

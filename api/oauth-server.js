@@ -6,7 +6,7 @@ import { kvGet, kvSet, kvTake, kvDelete, keys, TTL, isPersistent } from '../src/
 import { googleAuthorizeUrl } from '../src/oauth/google.js';
 import { primaryEmail } from '../src/oauth/github-identity.js';
 import { lendDecision } from '../src/oauth/lend-decision.js';
-import { GithubSession, listUserOrgs, createRepo, slugifyProjectName } from '../src/adapters/github.js';
+import { GithubSession, listUserOrgs, createRepo, slugifyProjectName, suggestAvailableName } from '../src/adapters/github.js';
 import { runWithSession } from '../src/session-context.js';
 import { initProject } from '../cli/commands/init.core.js';
 
@@ -312,10 +312,26 @@ app.post('/settings/new-project', async (req, res) => {
       repo = created.repo;
     } catch (e) {
       const orgs = await safeListOrgs(user.token);
-      if (e.code === 'REPO_EXISTS' || e.code === 'REPO_FORBIDDEN') {
-        return res.status(e.code === 'REPO_EXISTS' ? 409 : 403).send(
-          newProjectPage({ user, orgs, projectName, orgLogin: org, error: e.message }),
-        );
+      // GitHub's own wording here is accurate and useless to the person reading
+      // it: they asked for a project name, not a repository, and "name already
+      // exists on this account" is not something they can act on. Say what
+      // happened in their terms, and where we can, hand them a name that works.
+      if (e.code === 'REPO_EXISTS') {
+        const where = org || user.login;
+        const suggestion = await suggestAvailableName(user.token, { name, owner: where });
+        return res.status(409).send(newProjectPage({
+          user, orgs, projectName, orgLogin: org,
+          error: `${where} already has a project called "${name}". Pick a different name${suggestion ? '' : ', or somewhere else for it to live'}.`,
+          suggestion,
+        }));
+      }
+      if (e.code === 'REPO_FORBIDDEN') {
+        return res.status(403).send(newProjectPage({
+          user, orgs, projectName, orgLogin: org,
+          error: org
+            ? `You cannot create repositories in ${org}. Pick your personal account, or ask an owner of ${org} for access.`
+            : 'GitHub would not let this account create a repository.',
+        }));
       }
       return res.status(500).send(errorPage(e.message));
     }
@@ -680,12 +696,14 @@ const choosePage = (state) => shell('Connect', `
 <p class="muted">Use Google if someone invited you to a project by email — sign
 in with that same address. Use GitHub if you work on the repository directly.</p>`);
 
-const newProjectPage = ({ user, orgs, projectName = '', orgLogin = '', error = null }) => shell('New project', `
+const newProjectPage = ({ user, orgs, projectName = '', orgLogin = '', error = null, suggestion = null }) => shell('New project', `
 <h1>Create a new teamctx project</h1>
 <p>Signed in as <strong>${esc(user.login)}</strong>. This creates a new private
 GitHub repository and sets it up for teamctx — nothing to install, nothing to
 type in a terminal.</p>
 ${error ? `<div class="bad">${esc(error)}</div>` : ''}
+${suggestion ? `<p class="muted"><code>${esc(suggestion)}</code> is free — click to use it:
+  <button type="button" class="link" onclick="document.getElementById('projectName').value='${esc(suggestion)}'">use ${esc(suggestion)}</button></p>` : ''}
 <form method="POST" action="/settings/new-project">
   <label for="projectName">Project name</label>
   <input id="projectName" name="projectName" placeholder="Q3 GTM Strategy" value="${esc(projectName)}" required>

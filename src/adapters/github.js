@@ -60,6 +60,39 @@ export async function listUserOrgs(token) {
  * the repo has a real default branch for GithubSession.commit() to build the
  * .teamctx/ commit on top of; a zero-commit repo has no ref to resolve.
  */
+/**
+ * A repository name like the one asked for, that is actually free.
+ *
+ * A name collision is the most reachable failure in new-project onboarding —
+ * retrying the same name after any error is simply what people do — and
+ * relaying GitHub's API wording leaves a non-technical manager at a dead end
+ * with nothing to click. Offering a name that works turns it into a choice.
+ *
+ * Returns null rather than throwing: this runs while already handling an error,
+ * and a failed suggestion must not replace a bad message with a worse one.
+ */
+export async function suggestAvailableName(token, { name, owner, tries = 5 } = {}) {
+  if (!name || !owner) return null;
+  const headers = {
+    Authorization: `Bearer ${token}`,
+    Accept: 'application/vnd.github+json',
+    'X-GitHub-Api-Version': '2022-11-28',
+  };
+  for (let n = 2; n < 2 + tries; n++) {
+    const candidate = `${name}-${n}`;
+    try {
+      const res = await fetch(`${API}/repos/${owner}/${candidate}`, { headers });
+      // 404 is the answer we want: nothing there, so the name is free. Anything
+      // else — including a rate limit — means we cannot say it is, so move on.
+      if (res.status === 404) return candidate;
+      if (res.status !== 200) return null;
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
 export async function createRepo(token, { name, org, description = '' }) {
   const url = org ? `${API}/orgs/${org}/repos` : `${API}/user/repos`;
   const res = await fetch(url, {

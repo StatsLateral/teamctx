@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **Naming a project something that already exists dead-ended on GitHub's API
+  wording.** The manager asked for a project name, not a repository, and "name
+  already exists on this account" is not something they can act on — yet it is
+  the most reachable failure in new-project onboarding, because retrying the
+  same name after any error is what people do. The page now says which account
+  already has that project, and offers a name that is free for them to click.
+  Nothing is suggested unless GitHub actually confirmed it is available: a rate
+  limit is not a free name, and offering one would send the manager back into
+  the same failure. Being unable to create in an organisation says that, and
+  says to pick a personal account or ask an owner. Closes #58.
 - **The recipe guide asserted what a client can and cannot do.** "ChatGPT can't
   run `teamctx` for you" was scoped to the recipes, which are copy-paste by
   nature, but read as a blanket claim, and was never revisited when the hosted
