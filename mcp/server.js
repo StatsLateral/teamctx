@@ -40,6 +40,7 @@ import { reflectWorkstream } from '../cli/commands/reflect.core.js';
 import { getConfig, setConfig } from '../cli/commands/config.core.js';
 import { resolveActor } from '../src/actor.js';
 import { resolveActiveWorkstream, resolveIdentity, resolveDisplayName } from '../src/prefs.js';
+import { INSTRUCTIONS } from './instructions.js';
 
 export function resolveProjectDir(argv = process.argv.slice(2), env = process.env, cwd = process.cwd()) {
   const flagIdx = argv.findIndex(a => a === '--project' || a === '-p');
@@ -114,12 +115,12 @@ export const TOOLS = [
   },
   {
     name: 'get_status',
-    description: "Return the teamctx project status: project name, provider, model, manager identity, workstreams with why-counts, roles, contribution/decision totals. `me` and `activeWorkstream` are the calling user's, not the project defaults.",
+    description: "**Call this first when you do not know where you are.** Answers who is calling, which project, whether it is set up at all, and whether the caller is the manager — all in one read. Returns project name, provider, model, manager identity, workstreams with why-counts, roles, contribution/decision totals. `me` and `activeWorkstream` are the calling user's, not the project defaults. Read-only.",
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
   },
   {
     name: 'get_connect_url',
-    description: "The URL a team member pastes into their AI client to reach this project. Read-only. Give it to anyone added to the project — they add it as a custom connector and sign in. Fails with what to run when the project has no deploy URL recorded, which is the usual reason it is missing.",
+    description: "**Reach for this after adding someone to the project** — it is what you send them. The URL a team member pastes into their AI client; they add it as a custom connector and sign in. Read-only. Fails with what to run when the project has no deploy URL recorded, which is the usual reason it is missing.",
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
   },
   {
@@ -169,7 +170,7 @@ export const TOOLS = [
 
   {
     name: 'list_tasks',
-    description: "List tasks. Defaults to open tasks in the caller's active workstream, which is what \"what am I working on\" means; pass all:true for every status across every workstream, which is what \"did we finish X\" means. Read-only.",
+    description: "**Reach for this when somebody asks what they should be working on.** Pass mine:true for their own — never ask them what they are called, the server already knows who is calling. Defaults to open tasks in the caller's active workstream; pass all:true for every status across every workstream, which is what \"did we finish X\" means. Read-only.",
     inputSchema: {
       type: 'object',
       properties: {
@@ -201,7 +202,7 @@ export const TOOLS = [
   // Tier 1 — additive writes
   {
     name: 'contribute',
-    description: 'Add a contribution to a workstream. Defaults to enqueueing for manager approval; set apply:true to write immediately (requires the caller to be the manager if a manager gate is set). Optional decision:true tags it as a first-class decision. Returns { id, mode: "queued"|"applied"|"no-op", summary, operations, reportBack }.',
+    description: "**This is how anything gets into the shared context — there is no separate import step.** Reach for it both when a manager tells you what the project is about and when somebody sends finished work back. Defaults to enqueueing for the manager's review, so tell the user it was sent for review, not that it was added; set apply:true to write immediately (requires the caller to be the manager if a gate is set). Optional decision:true tags it as a first-class decision. Returns { id, mode: \"queued\"|\"applied\"|\"no-op\", summary, operations, reportBack }.",
     inputSchema: {
       type: 'object',
       properties: {
@@ -228,7 +229,7 @@ export const TOOLS = [
 
   {
     name: 'task_add',
-    description: 'Create a task in a workstream and commit it. Defaults to the caller as owner and their active workstream. Set compile:true to compile its prompt in the same call — that spends an AI call, so confirm the title with the user first; the result then carries the compiled markdown.',
+    description: '**Reach for this to turn what a manager wants into work somebody can pick up.** Creates a task and commits it; defaults to the caller as owner and their active workstream. Set compile:true to compile its prompt in the same call — the compiled prompt is the thing a person actually acts on, so this is usually what you want. It spends an AI call, so confirm the title with the user first; the result then carries the compiled markdown.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -462,7 +463,7 @@ export const TOOLS = [
   },
   {
     name: 'task_compile',
-    description: RISKY + "spends an AI call to build a prompt for one task from the workstream's Why/What/How tree, the role's responsibilities and recent decisions, then overwrites any existing prompt file and commits. Returns the markdown itself, not just a path — the caller usually cannot read the file. Skips the AI call and returns the cached prompt with alreadyCompiled:true when the workstream's Whys have not changed; pass force:true to regenerate anyway. Do not call in a loop." + REPORT,
+    description: RISKY + "**Reach for this when somebody is ready to start a task** — it is the brief they work from. Spends an AI call to build a prompt from the workstream's shared context, the role's responsibilities and recent decisions, then overwrites any existing prompt and commits. Returns the markdown itself, not just a path: hand it to them, the caller usually cannot read the file. Skips the AI call and returns the cached prompt with alreadyCompiled:true when nothing has changed; pass force:true to regenerate anyway. Do not call in a loop." + REPORT,
     inputSchema: {
       type: 'object',
       properties: {
@@ -981,7 +982,10 @@ export function buildServer(projectRoot) {
 
   const server = new Server(
     { name: 'teamctx', version: '0.2.0' },
-    { capabilities: { tools: {} } },
+    // `instructions` reaches the model once, before any tool call. Without it a
+    // host has the whole surface and no idea when to reach for any of it — see
+    // mcp/instructions.js.
+    { capabilities: { tools: {} }, instructions: INSTRUCTIONS },
   );
 
   server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: TOOLS }));

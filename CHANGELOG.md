@@ -76,6 +76,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   history was the only record of where the commit came from — and it did not say.
 
 ### Added
+- **The MCP server now tells a connected agent when to reach for what.** It
+  shipped 41 tools and an empty `instructions` field — the one place MCP gives a
+  server to speak to the model before any tool call. A host had the whole
+  surface and no way to sequence it, so walking a manager through setup it did
+  what an agent does when it cannot tell what to do next: explained teamctx's
+  data model — workstream, why-tree, compile — to somebody who had never asked
+  to learn it. The server now sends the two sequences that actually occur (a
+  manager setting a project up, somebody picking work up) and the rules that
+  stop the common wrong turns: act rather than explain, keep the internal
+  vocabulary out of the conversation, and say a contribution was *sent for
+  review* rather than added. The tool descriptions carry the same guidance
+  per-tool, because whether a host surfaces `instructions` to its model is that
+  host's business and varies. Closes #59.
 - **"What are my tasks?"** — `list_tasks` and `teamctx task list` take `mine`
   / `--mine`. The task loop shipped in #47 worked from the second step onward;
   the first one needed the caller to already know the exact display name this
