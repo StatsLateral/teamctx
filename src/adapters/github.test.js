@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { slugifyProjectName, listUserOrgs, createRepo, suggestAvailableName } from './github.js';
+import { slugifyProjectName, listUserOrgs, createRepo, suggestAvailableName, listPushableRepos } from './github.js';
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -134,5 +134,44 @@ describe('suggesting a project name that is free', () => {
   it('does nothing without a name or an owner', async () => {
     expect(await suggestAvailableName('t', { name: '', owner: 'acme' })).toBe(null);
     expect(await suggestAvailableName('t', { name: 'gtm', owner: '' })).toBe(null);
+  });
+});
+
+describe('listing projects to pick from', () => {
+  // The forms asked for owner/repo as free text, which means remembering the
+  // exact spelling of something already chosen once — and a typo stores a
+  // setting against a project that does not exist, failing silently later.
+  const repos = (list) => vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => list })));
+
+  it('offers what the token can push to', async () => {
+    repos([
+      { full_name: 'acme/ledger', private: true, permissions: { push: true } },
+      { full_name: 'acme/docs', private: false, permissions: { push: true } },
+    ]);
+    expect(await listPushableRepos('t')).toEqual([
+      { fullName: 'acme/ledger', private: true },
+      { fullName: 'acme/docs', private: false },
+    ]);
+  });
+
+  it('leaves out anything read-only', async () => {
+    // Offering a repo they cannot write to is a choice that gets refused a
+    // click later, which reads as a bug rather than a permission.
+    repos([
+      { full_name: 'acme/ledger', private: true, permissions: { push: true } },
+      { full_name: 'someone/else', private: false, permissions: { push: false } },
+    ]);
+    expect((await listPushableRepos('t')).map(r => r.fullName)).toEqual(['acme/ledger']);
+  });
+
+  it('returns nothing rather than throwing when GitHub refuses', async () => {
+    // This only fills a dropdown; a failed listing must leave the field usable.
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 403, json: async () => ({}) })));
+    expect(await listPushableRepos('t')).toEqual([]);
+  });
+
+  it('survives a network error the same way', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('offline'); }));
+    expect(await listPushableRepos('t')).toEqual([]);
   });
 });

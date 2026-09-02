@@ -18,6 +18,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   limit is not a free name, and offering one would send the manager back into
   the same failure. Being unable to create in an organisation says that, and
   says to pick a personal account or ask an owner. Closes #58.
+- **The settings page read as one long document.** Three sections, each a
+  top-level heading separated by a horizontal rule, in a column narrow enough
+  that they could only stack — and the first had no heading at all, so it looked
+  like a continuation of the header. "Create a new project" sat above the
+  settings, ahead of whatever you actually came to change. It is now one page
+  heading with three cards that lay out side by side when there is room, the
+  new-project link has moved into the header where the other navigation is, and
+  there is a way back to the home page. The GitHub login in the header is
+  escaped, which it was not.
+  Four things found by looking at it: the project dropdown rendered its list
+  white-on-white, because a transparent select opts out of the colour scheme and
+  the popup is painted by the OS — the options were there, invisible, findable
+  only by the scrollbar beside them. Three cards of different heights in a
+  two-column grid left a hole under the short one, so they pack in columns now.
+  The header spread its links across the full width. And the whole thing was
+  black and white, with no focus ring on any control.
+  The project field also lets you type to narrow it. A `select` only jumps to
+  the first letter, so finding one repository among dozens meant scrolling —
+  and it could not accept a name the capped listing had missed. Each picker
+  gets its own list, since two sharing an id leaves the second empty. In the
+  header, a link that goes somewhere, an action that makes something and the
+  account you are signed in as no longer look identical, and the account sits at
+  the edge of the column rather than in the middle of the actions.
+  The home page's call to action was a `<button>` inside an `<a>`, which is
+  invalid and renders as one stretched control with whatever follows jammed
+  against it. Both are styled links now.
+  All of which the pages now share: one navigation bar — Home, Settings, New
+  project — on every page, marking the one you are looking at. Each page carried
+  its own header before, so the links differed by page and none of them said
+  where you were. Signed out it offers only what is reachable: Settings and New
+  project both bounce to sign-in, and showing them is a dead end dressed as a
+  choice. The sign-in, error, project-created and retry pages carry it too —
+  each was a dead end with no way back to the page explaining what you were
+  signing into. Part of #66.
 - **The recipe guide asserted what a client can and cannot do.** "ChatGPT can't
   run `teamctx` for you" was scoped to the recipes, which are copy-paste by
   nature, but read as a blanket claim, and was never revisited when the hosted
@@ -99,6 +133,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   review* rather than added. The tool descriptions carry the same guidance
   per-tool, because whether a host surfaces `instructions` to its model is that
   host's business and varies. Closes #59.
+- **Pick a project instead of spelling one, and share the key you already
+  saved.** The share and lend forms asked for `owner/repo` as free text, so
+  setting either meant remembering the exact spelling of a repository you had
+  already chosen once — and a typo stored a setting against a project that does
+  not exist, which fails silently later rather than at the point of the mistake.
+  Both now offer the repositories your token can push to, read-only ones left
+  out because offering a choice that gets refused a click later reads as a bug.
+  Sharing also gained "share the key I already saved": a provider shows an API
+  key once, so asking for it a second time assumes you kept it. The two forms
+  stay separate on purpose — a personal key and a project key are how you tell
+  your own spend from the team's. Part of #66.
+- **Start from a repository you already have.** New-project onboarding could
+  only create one, so somebody who already had a repo was made to make a second.
+  It is the same path a failed-init retry already used — skip creation, run
+  `init` — so picking one from the list is all that was missing. A repo that is
+  already a teamctx project says so and names which, rather than reporting the
+  failure from inside `init`.
+- **The project-created page continues the flow instead of ending it.** It gave
+  the connector URL and stopped, which read as finished. It now says what to do
+  in that chat — describe the project, turn it into tasks, invite whoever is
+  doing it, review what comes back — and that the last pair is the loop rather
+  than the end of setup. Part of #66.
+- **A front door.** It describes the whole tree — why a team decided something,
+  what that requires, how it gets done — and the per-role slice, rather than
+  only the top level. There was no `/` route at all — every path started at
+  `/settings`, which assumes you already know what teamctx is and that you have
+  a repository, so a manager sent the deployment URL had nowhere to arrive. The
+  landing page says what teamctx is, lays out the five steps in order rather
+  than revealing them one click at a time, and makes clear the work does not
+  stop at setup: teams keep pulling context and sending work back, and the
+  manager keeps reviewing. Signed in, the button continues where they left off.
+  `vercel.json` routes `/` to the server, without which the route would have
+  404'd in production while working locally.
+  Signed in, it stops being an explainer and becomes a hallway: it lists the
+  projects you have configured, deduplicated across the ones you share a key
+  with and the ones you lend access to, and links to settings plainly rather
+  than behind a vague "continue". One account can hold many projects — the
+  per-project settings live as rows on the one settings page, so every project
+  links to the same place. Part of #66.
 - **"What are my tasks?"** — `list_tasks` and `teamctx task list` take `mine`
   / `--mine`. The task loop shipped in #47 worked from the second step onward;
   the first one needed the caller to already know the exact display name this

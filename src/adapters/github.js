@@ -93,6 +93,42 @@ export async function suggestAvailableName(token, { name, owner, tries = 5 } = {
   return null;
 }
 
+/**
+ * Repositories this token can push to, most recently active first.
+ *
+ * The share and lend forms asked for `owner/repo` as free text, which means
+ * remembering the exact spelling of something you already picked once — and
+ * getting it wrong stores a setting against a project that does not exist,
+ * which fails silently later rather than at the point of the mistake.
+ *
+ * Returns [] rather than throwing: this only ever fills a dropdown, and a
+ * failed listing should leave the field usable, not break the page.
+ */
+export async function listPushableRepos(token, { limit = 100 } = {}) {
+  try {
+    const res = await fetch(
+      `${API}/user/repos?per_page=${limit}&sort=pushed&affiliation=owner,collaborator,organization_member`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: 'application/vnd.github+json',
+          'X-GitHub-Api-Version': '2022-11-28',
+        },
+      },
+    );
+    if (!res.ok) return [];
+    const body = await res.json();
+    if (!Array.isArray(body)) return [];
+    // Only what they can actually write to. Listing a repo they can read and
+    // not push to offers a choice that will be refused a click later.
+    return body
+      .filter(r => r?.permissions?.push && r?.full_name)
+      .map(r => ({ fullName: r.full_name, private: !!r.private }));
+  } catch {
+    return [];
+  }
+}
+
 export async function createRepo(token, { name, org, description = '' }) {
   const url = org ? `${API}/orgs/${org}/repos` : `${API}/user/repos`;
   const res = await fetch(url, {
