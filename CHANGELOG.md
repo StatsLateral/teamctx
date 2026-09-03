@@ -137,6 +137,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   history was the only record of where the commit came from — and it did not say.
 
 ### Added
+- **A project no longer starts out knowing nothing.** A workstream is created
+  with no whys and nothing pushed it out of that state, so the rendered context
+  read "No context yet" until somebody contributed — a manager finished setup,
+  connected, and found a project that knew nothing about their work. The
+  guidance now names the founding contribution: when `get_status` reports
+  `totalWhys: 0`, the agent calls `contribute` with `apply: true` so the opening
+  message lands rather than queueing for the manager to approve their own words,
+  with nothing yet to review it against. Every later contribution still queues.
+  The condition rather than "just after `init`", so it covers a manager seeding
+  a project in the turn they made it and one returning to a project left empty.
+  No new tool and no schema change: `contribute` already took `apply: true`,
+  already gated it to the manager, and already distils free text into the tree.
+  `contribute`'s own description carries a short version, because this trigger
+  is a condition rather than a tool and so has no natural fallback in a client
+  that ignores the server's instructions. Closes #70.
 - **The MCP server now tells a connected agent when to reach for what.** It
   shipped 41 tools and an empty `instructions` field — the one place MCP gives a
   server to speak to the model before any tool call. A host had the whole

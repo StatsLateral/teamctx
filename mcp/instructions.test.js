@@ -40,6 +40,44 @@ describe('the instructions sent before any tool call', () => {
   });
 });
 
+describe('the founding contribution', () => {
+  // A project's workstream starts empty and nothing pushes it out of that
+  // state, so the context reads "No context yet" until somebody contributes.
+  // The manager finishes setup and finds a project that knows nothing.
+  it('names the condition, not "just after init"', () => {
+    // totalWhys covers a manager seeding in the same turn *and* one returning
+    // to a project left empty earlier.
+    expect(INSTRUCTIONS).toMatch(/totalWhys/);
+  });
+
+  it('says to apply the first one rather than queue it', () => {
+    // Queueing it means asking the manager to approve their own opening
+    // message, with nothing yet to review it against.
+    expect(INSTRUCTIONS).toMatch(/founding\s+contribution/i);
+    expect(INSTRUCTIONS).toMatch(/apply: true/);
+  });
+
+  it('keeps the queue rule for everything after it', () => {
+    // The carve-out must not read as "contributions land".
+    expect(INSTRUCTIONS).toMatch(/sent for review/i);
+    expect(INSTRUCTIONS).toMatch(/except the founding one/i);
+  });
+
+  it('says a refusal means the caller is not the manager', () => {
+    // apply:true is gated. Without this an agent retries a permission error.
+    expect(INSTRUCTIONS).toMatch(/not an error to retry|not actually the manager/i);
+  });
+
+  it('survives a client that ignores instructions', () => {
+    // The trigger is a condition rather than a tool, so unlike the rest of this
+    // file it has no natural tool-description half. contribute carries a short
+    // version so the guidance degrades instead of disappearing.
+    const contribute = TOOLS.find(t => t.name === 'contribute').description;
+    expect(contribute).toMatch(/totalWhys/);
+    expect(contribute).toMatch(/first contribution/i);
+  });
+});
+
 describe('the tools an agent has to pick between first', () => {
   const describeOf = (name) => TOOLS.find(t => t.name === name)?.description || '';
 

@@ -42,7 +42,13 @@ the team aligned on.
   2. \`workstream_use\` — if the work splits into strands. One is fine; most
      projects never need a second.
   3. \`contribute\` — put what they have told you into the shared context. This
-     is how context gets there; there is no separate import step.
+     is how context gets there; there is no separate import step. If
+     \`get_status\` shows \`totalWhys: 0\`, this is the project's founding
+     contribution — call it with \`apply: true\` so it lands immediately instead
+     of waiting on the manager to review their own first message. Whether that
+     content is a long conversation they already had or one sentence they just
+     gave you, the call is the same: summarize what you were told, do not ask
+     them to restate it in teamctx's terms.
   4. \`task_add\` (with \`compile: true\`) — turn intent into work someone can
      pick up. The compiled prompt is the thing a person actually acts on.
   5. \`member_add\` — bring someone in. \`get_connect_url\` gives you the link
@@ -58,8 +64,13 @@ the team aligned on.
 
 ## Things worth knowing before you are surprised by them
 
-- **A contribution does not land, it queues.** Say so. "Sent for review" is
-  true; "added to the project" is not.
+- **A contribution does not land, it queues — except the founding one.** Say
+  "sent for review", not "added", for every contribution but the first. The
+  first (\`totalWhys: 0\`) is the one case where \`apply: true\` is correct: the
+  caller is already the pinned manager, and there is nothing yet to review
+  against. If \`apply: true\` is refused, the caller is not actually the
+  manager — that is the same gate working as \`review_approve\`, not an error to
+  retry.
 - **Approving is the manager's alone.** If \`review_approve\` refuses, the
   caller is not the manager — that is the gate working, not an error to retry.
 - **\`get_status\` first, when you do not know where you are.** It answers who

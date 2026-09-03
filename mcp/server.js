@@ -202,7 +202,7 @@ export const TOOLS = [
   // Tier 1 — additive writes
   {
     name: 'contribute',
-    description: "**This is how anything gets into the shared context — there is no separate import step.** Reach for it both when a manager tells you what the project is about and when somebody sends finished work back. Defaults to enqueueing for the manager's review, so tell the user it was sent for review, not that it was added; set apply:true to write immediately (requires the caller to be the manager if a gate is set). Optional decision:true tags it as a first-class decision. Returns { id, mode: \"queued\"|\"applied\"|\"no-op\", summary, operations, reportBack }.",
+    description: "**This is how anything gets into the shared context — there is no separate import step.** Reach for it both when a manager tells you what the project is about and when somebody sends finished work back. Defaults to enqueueing for the manager's review, so tell the user it was sent for review, not that it was added. **The exception is a project's first contribution**: when get_status shows totalWhys:0, pass apply:true so it lands rather than waiting on the manager to approve their own opening message. apply:true writes immediately and requires the caller to be the manager. Optional decision:true tags it as a first-class decision. Returns { id, mode: \"queued\"|\"applied\"|\"no-op\", summary, operations, reportBack }.",
     inputSchema: {
       type: 'object',
       properties: {
