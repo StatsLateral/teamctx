@@ -310,8 +310,18 @@ describe('providerFromEnv', () => {
   });
 
   it('reports which settings are missing', () => {
-    expect(oauthConfigStatus({ GITHUB_OAUTH_CLIENT_ID: 'a' }))
-      .toEqual({ githubClientId: true, githubClientSecret: false, baseUrl: false });
+    expect(oauthConfigStatus({ GITHUB_OAUTH_CLIENT_ID: 'a' })).toEqual({
+      githubClientId: true, githubClientSecret: false, baseUrl: false,
+      googleClientId: false, googleClientSecret: false,
+    });
+  });
+
+  it('reports Google, whose absence is otherwise silent', () => {
+    // Without it `/authorize` skips the sign-in chooser and goes straight to
+    // GitHub, which looks like the chooser is broken rather than switched off.
+    const on = oauthConfigStatus({ GOOGLE_OAUTH_CLIENT_ID: 'g', GOOGLE_OAUTH_CLIENT_SECRET: 's' });
+    expect(on.googleClientId).toBe(true);
+    expect(on.googleClientSecret).toBe(true);
   });
 });
 

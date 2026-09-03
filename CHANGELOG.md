@@ -8,6 +8,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **A project created on the web was born with a gate its own creator could not
+  pass.** `init` ran inside a session but with no ambient actor, so the caller
+  resolved from `config.me` to `name:<display name>` — a key nobody can present
+  again, since the hosted server knows people as `github:<id>` and a Google
+  sign-in as `git:<email>`. Manager-gated commands were refused to the person
+  who created the project. The web flow now passes the identity explicitly, as
+  `git:<email>` so the same person is recognised whether they return through
+  GitHub or Google, and `init` refuses a display-name identity outright rather
+  than writing a gate that cannot be matched.
+- **`get_config` answered "no manager" for a project that had one.** `manager`
+  is the legacy display-name field and is usually empty; the identity lives in
+  `managerKey`. It now answers the question that was asked, with the display
+  name still available as `managerDisplayName`.
+- **`/oauth/status` says whether Google sign-in is configured.** Without
+  `GOOGLE_OAUTH_CLIENT_ID` the `/authorize` step skips the account chooser and
+  goes straight to GitHub — correct, but silent, so it reads as the chooser
+  being broken rather than switched off. Nothing reported it either way.
 - **Naming a project something that already exists dead-ended on GitHub's API
   wording.** The manager asked for a project name, not a repository, and "name
   already exists on this account" is not something they can act on — yet it is

@@ -61,6 +61,7 @@ export async function initProject({
   deployUrl = '',
   githubRawBase = '',
   managerEmail = '',
+  managerKey = null,
   source = 'cli',
 }) {
   // Hosted mode has no checkout: `projectDir` is the GitHub context object, and
@@ -107,7 +108,20 @@ export async function initProject({
   // `canApprove` returns true when nothing is pinned — so every new project had
   // a window in which anyone who could reach it could approve their own work.
   // Pinning it here means the window never exists.
-  const actor = await resolveActor({ config: { me }, cwd: hosted ? undefined : projectDir });
+  // `managerKey` decides who may approve for the life of the project, so it has
+  // to be an identity the caller will actually present again. Resolving it from
+  // `me` alone yields `name:<display name>`, which matches nothing: the hosted
+  // server knows people as `github:<id>` and a Google sign-in as `git:<email>`.
+  // A project created on the web was therefore born with a gate its own creator
+  // could not pass.
+  const actor = managerKey
+    ? { key: managerKey }
+    : await resolveActor({ config: { me }, cwd: hosted ? undefined : projectDir });
+  if (!actor.key || actor.key.startsWith('name:')) {
+    throw new Error(
+      'cannot set the manager gate: no stable identity for the caller. '
+      + 'Pass managerKey as git:<email> or github:<id>.');
+  }
   const config = {
     project, me, provider, model: resolvedModel, autoPush,
     managerKey: actor.key,

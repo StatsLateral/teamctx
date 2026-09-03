@@ -93,8 +93,14 @@ app.get('/oauth/status', async (req, res) => {
     kvConfigured: isPersistent(),
     kvReachable,
     ...(kvError ? { kvError } : {}),
+    // Google is optional, so its absence is a note rather than something
+    // missing — but it has to be visible, since without it the sign-in chooser
+    // silently never appears.
+    googleSignIn: cfg.googleClientId && cfg.googleClientSecret
+      ? 'enabled'
+      : 'not configured — sign-in goes straight to GitHub',
     missing: Object.entries({ ...cfg, kv: isPersistent() })
-      .filter(([, present]) => !present)
+      .filter(([name, present]) => !present && !name.startsWith('google'))
       .map(([name]) => name),
   });
 });
@@ -383,6 +389,10 @@ app.post('/settings/new-project', async (req, res) => {
       project: projectName,
       me: user.name || user.login,
       source: 'web',
+      // The email, not the GitHub id, so the same person is recognised whether
+      // they come back through GitHub or sign in with Google. Falls back to the
+      // id only when the token would not reveal an address.
+      managerKey: user.email ? `git:${user.email}` : `github:${user.id}`,
     }));
   } catch (e) {
     // Repo exists but isn't initialized. Don't strand the manager here —

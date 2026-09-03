@@ -361,5 +361,10 @@ export function oauthConfigStatus(env = process.env) {
     githubClientId: !!env.GITHUB_OAUTH_CLIENT_ID,
     githubClientSecret: !!env.GITHUB_OAUTH_CLIENT_SECRET,
     baseUrl: !!(env.TEAMCTX_BASE_URL || env.VERCEL_PROJECT_PRODUCTION_URL || env.VERCEL_URL),
+    // Reported because its absence is silent: without it `/authorize` skips the
+    // sign-in chooser and goes straight to GitHub, which looks like the chooser
+    // is broken rather than switched off.
+    googleClientId: !!env.GOOGLE_OAUTH_CLIENT_ID,
+    googleClientSecret: !!env.GOOGLE_OAUTH_CLIENT_SECRET,
   };
 }

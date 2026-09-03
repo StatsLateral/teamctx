@@ -51,7 +51,12 @@ export async function getConfig({ teamctxDir, projectDir } = {}) {
     activeWorkstream: await resolveActiveWorkstream({ actor, config: c, teamctxDir }),
     projectDefaults: { me: c.me, activeWorkstream: c.activeWorkstream || 'main' },
     project: c.project, provider: c.provider || 'anthropic', model: c.model,
-    manager: c.manager || null, managerKey: c.managerKey || null, managerKeys: managerKeys(c), managerEmail: c.managerEmail || '',
+    // `manager` is the legacy display-name field and is usually empty, so a
+    // caller reading it alone reports "no manager" for a project that has one.
+    // `manager` now answers the question that was asked.
+    manager: c.manager || managerKeys(c)[0] || null,
+    managerDisplayName: c.manager || null,
+    managerKey: c.managerKey || null, managerKeys: managerKeys(c), managerEmail: c.managerEmail || '',
     deployUrl: c.deployUrl || '', githubRawBase: c.githubRawBase || '',
     autoPush: !!c.autoPush,
     workstreams: c.workstreams || [], roles: c.roles || [],
