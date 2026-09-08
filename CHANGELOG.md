@@ -136,7 +136,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   bootstrapped from a chat client has no local checkout and no shell, so the
   history was the only record of where the commit came from — and it did not say.
 
+### Changed
+- **`reflect` is no longer available to every member.** It replaces the whole
+  shared context with whatever the model returns — no diff, no confirmation, no
+  queue — and had no manager gate at all, so any member from any client could
+  trigger an unreviewed full rewrite. It now follows the project's review
+  policy: manager-only under `all` and `additive`, and open to anyone under
+  `none`, which is what it did before. This is the one behaviour change on
+  upgrade for an existing project; choosing `none` restores it.
+
 ### Added
+- **The manager chooses how much of a contribution needs their approval.**
+  Review was all-or-nothing and unsettable: every contribution queued, so on a
+  small project one person approved every note anyone wrote before anyone else
+  could see it. A project-level `reviewPolicy` now offers `all` (queue
+  everything, the previous behaviour), `additive` (contributions that only add
+  land immediately; anything that edits or deletes an existing statement still
+  waits) and `none` (everything lands). The axis is what a contribution can
+  destroy rather than who sent it — a contribution is not an append, and the
+  distiller does return operations that delete statements other people wrote.
+  Set it with `teamctx config review-policy <value>` or the `set_review_policy`
+  tool. Like `managerKey`, it is deliberately off the `config_set` surface and
+  gated on the caller: anyone able to set it to `none` could then write
+  anything. A project with no policy recorded reads as `all`, so upgrading
+  changes nothing; new projects start `additive`.
+
 - **A project no longer starts out knowing nothing.** A workstream is created
   with no whys and nothing pushed it out of that state, so the rendered context
   read "No context yet" until somebody contributed — a manager finished setup,
