@@ -2,7 +2,8 @@ import { readConfig, writeConfig } from '../../src/storage.js';
 import { getModelsFor, getDefaultModelFor } from '../../src/ai.js';
 import { resolveActor } from '../../src/actor.js';
 import { managerKeys } from '../../src/review.js';
-import { setConfig } from './config.core.js';
+import { POLICIES, reviewPolicy } from '../../src/review-policy.js';
+import { setConfig, setReviewPolicy } from './config.core.js';
 import { writePrefs, resolveDisplayName, resolveIdentity } from '../../src/prefs.js';
 
 const ALIASES = {
@@ -122,6 +123,56 @@ export async function configManagerCommand() {
     console.log('until something does, anyone reaching this project can approve.');
   }
   console.log('');
+}
+
+const POLICY_HELP = {
+  all: 'every contribution waits for you',
+  additive: 'additions land; edits and deletes wait for you',
+  none: 'everything lands immediately',
+};
+
+/**
+ * How much of a contribution needs your approval.
+ *
+ * Read-only without a value, like `config manager` — showing it is how anyone
+ * finds out why their contribution did or did not wait.
+ */
+export async function configReviewPolicyCommand(value) {
+  const config = readConfig();
+  if (!value) {
+    const current = reviewPolicy(config);
+    console.log(`
+Review policy: ${current} — ${POLICY_HELP[current]}`);
+    console.log('
+Available:');
+    POLICIES.forEach(p => {
+      console.log(`  ${p.padEnd(9)} ${POLICY_HELP[p]}${p === current ? ' ←' : ''}`);
+    });
+    console.log('
+Usage: teamctx config review-policy <all|additive|none>   (manager only)
+');
+    return;
+  }
+  try {
+    const r = await setReviewPolicy(value);
+    if (r.from === r.to) {
+      console.log(`
+Review policy is already ${r.to} — ${POLICY_HELP[r.to]}.
+`);
+      return;
+    }
+    console.log(`
+✓ Review policy set to ${r.to} — ${POLICY_HELP[r.to]}.`);
+    console.log(`  was: ${r.from}`);
+    console.log('
+Commit and push .teamctx/config.json so everyone else sees it.
+');
+  } catch (err) {
+    console.error(`
+Error: ${err.message}
+`);
+    process.exit(1);
+  }
 }
 
 export async function configManagerEmailCommand(value) {
