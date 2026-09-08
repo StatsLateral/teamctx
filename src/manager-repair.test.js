@@ -102,14 +102,14 @@ describe('recognising the creator from the repository itself', () => {
     // The lockout a name check creates on its own: somebody whose git name is
     // "Ada" repairing a gate that reads "Ada Lovelace" is the same person.
     const r = repairDecision({
-      config: broken, actor: ADA, displayName: 'Ada', creatorEmail: 'ada@example.com',
+      config: broken, actor: ADA, displayName: 'Ada', creator: { email: 'ada@example.com', checked: true, hosted: false },
     });
     expect(r).toMatchObject({ ok: true, to: 'git:ada@example.com' });
   });
 
   it('refuses somebody who is not the creator', () => {
     const r = repairDecision({
-      config: broken, actor: BOB, displayName: 'Bob', creatorEmail: 'ada@example.com',
+      config: broken, actor: BOB, displayName: 'Bob', creator: { email: 'ada@example.com', checked: true, hosted: false },
     });
     expect(r.ok).toBe(false);
     expect(r.why).toMatch(/ada@example\.com created this project/);
@@ -119,7 +119,7 @@ describe('recognising the creator from the repository itself', () => {
     // The reason history is consulted first. A display name is settable, so if
     // it could override the stronger signal the stronger signal is decorative.
     const r = repairDecision({
-      config: broken, actor: BOB, displayName: 'Ada Lovelace', creatorEmail: 'ada@example.com',
+      config: broken, actor: BOB, displayName: 'Ada Lovelace', creator: { email: 'ada@example.com', checked: true, hosted: false },
     });
     expect(r.ok).toBe(false);
   });
@@ -130,7 +130,7 @@ describe('recognising the creator from the repository itself', () => {
     // whole — otherwise they fail to match a commit they themselves authored.
     const r = repairDecision({
       config: broken, actor: HOSTED, displayName: 'Ada',
-      creatorEmail: '1001+ada@users.noreply.github.com',
+      creator: { email: '1001+ada@users.noreply.github.com', checked: true, hosted: false },
     });
     expect(r).toMatchObject({ ok: true, to: 'github:1001' });
   });
@@ -139,14 +139,14 @@ describe('recognising the creator from the repository itself', () => {
     // A shallow clone, or a rewritten history. The weaker check is better than
     // refusing everybody.
     const r = repairDecision({
-      config: broken, actor: ADA, displayName: 'Ada Lovelace', creatorEmail: null,
+      config: broken, actor: ADA, displayName: 'Ada Lovelace', creator: { email: null, checked: true, hosted: false },
     });
     expect(r.ok).toBe(true);
   });
 
   it('says so when neither signal identifies anyone', () => {
     const r = repairDecision({
-      config: broken, actor: BOB, displayName: 'Bob', creatorEmail: null,
+      config: broken, actor: BOB, displayName: 'Bob', creator: { email: null, checked: true, hosted: false },
     });
     expect(r.ok).toBe(false);
     expect(r.why).toMatch(/history does not say/i);
@@ -166,7 +166,7 @@ describe('the manager coming back over a chat client', () => {
     // names the account outright — so a token with no email scope still matches.
     const r = repairDecision({
       config: broken, actor: NO_EMAIL, displayName: 'Satyagya Singh',
-      creatorEmail: '123818561+satyagyasingh@users.noreply.github.com',
+      creator: { email: '123818561+satyagyasingh@users.noreply.github.com', checked: true, hosted: false },
     });
     expect(r.ok).toBe(true);
   });
@@ -177,14 +177,14 @@ describe('the manager coming back over a chat client', () => {
     // project over the one surface where they cannot edit the file instead.
     const r = repairDecision({
       config: broken, actor: NO_EMAIL, displayName: 'Satyagya Singh',
-      creatorEmail: 'satyagyasingh@gmail.com',
+      creator: { email: 'satyagyasingh@gmail.com', checked: true, hosted: false },
     });
     expect(r.ok).toBe(true);
   });
 
   it('still refuses somebody the history positively rules out', () => {
     const r = repairDecision({
-      config: broken, actor: BOB, displayName: 'Bob', creatorEmail: 'satyagyasingh@gmail.com',
+      config: broken, actor: BOB, displayName: 'Bob', creator: { email: 'satyagyasingh@gmail.com', checked: true, hosted: false },
     });
     expect(r.ok).toBe(false);
   });
@@ -193,7 +193,7 @@ describe('the manager coming back over a chat client', () => {
     // "Cannot tell" falls back to the name — it does not wave everybody through.
     const stranger = { key: 'github:999', name: 'Bob', login: 'bob', email: null };
     const r = repairDecision({
-      config: broken, actor: stranger, displayName: 'Bob', creatorEmail: 'satyagyasingh@gmail.com',
+      config: broken, actor: stranger, displayName: 'Bob', creator: { email: 'satyagyasingh@gmail.com', checked: true, hosted: false },
     });
     expect(r.ok).toBe(false);
   });
@@ -201,7 +201,7 @@ describe('the manager coming back over a chat client', () => {
   it('uses the token email when it has one', () => {
     const r = repairDecision({
       config: broken, actor: WITH_EMAIL, displayName: 'anything at all',
-      creatorEmail: 'satyagyasingh@gmail.com',
+      creator: { email: 'satyagyasingh@gmail.com', checked: true, hosted: false },
     });
     expect(r.ok).toBe(true);
   });
@@ -220,7 +220,7 @@ describe('what the repaired gate is pinned to', () => {
   it('pins the email, not the numeric id, when the caller has one', () => {
     const r = repairDecision({
       config: broken, actor: hosted, displayName: 'Satyagya Singh',
-      creatorEmail: 'satyagyasingh@gmail.com',
+      creator: { email: 'satyagyasingh@gmail.com', checked: true, hosted: false },
     });
     expect(r.to).toBe('git:satyagyasingh@gmail.com');
     expect(r.to).not.toMatch(/^github:/);
@@ -230,7 +230,7 @@ describe('what the repaired gate is pinned to', () => {
     const noEmail = { ...hosted, email: null };
     const r = repairDecision({
       config: broken, actor: noEmail, displayName: 'Satyagya Singh',
-      creatorEmail: '123818561+satyagyasingh@users.noreply.github.com',
+      creator: { email: '123818561+satyagyasingh@users.noreply.github.com', checked: true, hosted: false },
     });
     expect(r.to).toBe('github:123818561');
   });
@@ -241,7 +241,7 @@ describe('what the repaired gate is pinned to', () => {
     const noEmail = { ...hosted, email: null };
     const r = repairDecision({
       config: broken, actor: noEmail, displayName: 'Satyagya Singh',
-      creatorEmail: '123818561+satyagyasingh@users.noreply.github.com',
+      creator: { email: '123818561+satyagyasingh@users.noreply.github.com', checked: true, hosted: false },
     });
     expect(r.warning).toMatch(/Google sign-in/);
   });
@@ -249,8 +249,129 @@ describe('what the repaired gate is pinned to', () => {
   it('says nothing extra when the email was pinned', () => {
     const r = repairDecision({
       config: broken, actor: hosted, displayName: 'Satyagya Singh',
-      creatorEmail: 'satyagyasingh@gmail.com',
+      creator: { email: 'satyagyasingh@gmail.com', checked: true, hosted: false },
     });
     expect(r.warning).toBeUndefined();
+  });
+});
+
+describe('the hosted surface admits the creator or nobody', () => {
+  // The reported escalation, and why it worked: `byHistory` fell through to a
+  // display-name comparison whenever the creator could not be read. The gate's
+  // name is public (`get_config` returns `managerDisplayName`) and anyone can
+  // set their own (`config_set name` is a personal key with no manager gate),
+  // so on a connector — where there is no `.teamctx/config.json` to edit and
+  // the caller may be anyone on the roster — the weaker check was the whole
+  // check, and it was free to pass.
+  const broken = { managerKey: 'name:Ada Lovelace' };
+  const attacker = { key: 'github:9999', name: 'Ada Lovelace', email: 'mallory@example.com', login: 'mallory' };
+
+  it('refuses a member who renamed themselves to the gate, when history is unreadable', () => {
+    const d = repairDecision({
+      config: broken, actor: attacker, displayName: 'Ada Lovelace',
+      creator: { email: null, checked: false, hosted: true },
+    });
+    expect(d.ok).toBe(false);
+  });
+
+  it('says a failed lookup is temporary rather than accusing anyone', () => {
+    // The same refusal reaches the real creator when GitHub rate-limits them.
+    // Telling them to try again is the difference between a delay and a lockout
+    // on the one surface with no file to fall back to.
+    const d = repairDecision({
+      config: broken, actor: { key: 'github:1001', name: 'Ada Lovelace', email: 'ada@example.com' },
+      displayName: 'Ada Lovelace',
+      creator: { email: null, checked: false, hosted: true },
+    });
+    expect(d.ok).toBe(false);
+    expect(d.why).toMatch(/try again/i);
+  });
+
+  it('refuses when history was read and simply names nobody', () => {
+    const d = repairDecision({
+      config: broken, actor: attacker, displayName: 'Ada Lovelace',
+      creator: { email: null, checked: true, hosted: true },
+    });
+    expect(d.ok).toBe(false);
+    expect(d.why).not.toMatch(/try again/i);
+  });
+
+  it('still lets the actual creator repair from a connector', () => {
+    // The point of the tool. Tightening must not close the case it exists for.
+    const d = repairDecision({
+      config: broken,
+      actor: { key: 'github:1001', name: 'Ada', email: 'ada@example.com', login: 'ada' },
+      displayName: 'Ada',
+      creator: { email: 'ada@example.com', checked: true, hosted: true },
+    });
+    expect(d.ok).toBe(true);
+    expect(d.to).toBe('git:ada@example.com');
+  });
+
+  it('recognises the creator through a noreply init commit from a connector', () => {
+    const d = repairDecision({
+      config: broken,
+      actor: { key: 'github:1001', name: 'Ada', email: null, login: 'ada' },
+      displayName: 'Ada',
+      creator: { email: '1001+ada@users.noreply.github.com', checked: true, hosted: true },
+    });
+    expect(d.ok).toBe(true);
+  });
+
+  it('keeps the name fallback on a clone, where it costs nothing', () => {
+    // Locally the caller already holds the repository and could rewrite
+    // config.json by hand, so refusing them here protects nothing.
+    const d = repairDecision({
+      config: broken, actor: { key: 'git:ada@example.com', name: 'Ada Lovelace', email: 'ada@example.com' },
+      displayName: 'Ada Lovelace',
+      creator: { email: null, checked: false, hosted: false },
+    });
+    expect(d.ok).toBe(true);
+  });
+
+  it('defaults to no creator at all when the argument is omitted', () => {
+    const d = repairDecision({ config: broken, actor: attacker, displayName: 'Not Ada' });
+    expect(d.ok).toBe(false);
+  });
+});
+
+describe('the older display-name gate is repairable too', () => {
+  // `review.core.js` sends this case to `--repair`, and repair used to answer
+  // "this project has no manager gate" — the guidance and the command
+  // disagreed, so a legacy project had nowhere to go.
+  const legacy = { manager: 'Ada Lovelace' };
+  const ada = { key: 'git:ada@example.com', name: 'Ada Lovelace', email: 'ada@example.com' };
+
+  it('counts a bare config.manager as broken', () => {
+    expect(isBrokenGate(legacy)).toBe(true);
+  });
+
+  it('repairs it to a real identity, naming the old value', () => {
+    const d = repairDecision({
+      config: legacy, actor: ada, displayName: 'Ada Lovelace',
+      creator: { email: 'ada@example.com', checked: true, hosted: false },
+    });
+    expect(d.ok).toBe(true);
+    expect(d.from).toBe('Ada Lovelace');
+    expect(d.to).toBe('git:ada@example.com');
+  });
+
+  it('still refuses somebody the history says is not the creator', () => {
+    const d = repairDecision({
+      config: legacy, actor: { key: 'git:bob@example.com', name: 'Ada Lovelace', email: 'bob@example.com' },
+      displayName: 'Ada Lovelace',
+      creator: { email: 'ada@example.com', checked: true, hosted: false },
+    });
+    expect(d.ok).toBe(false);
+  });
+
+  it('leaves a project with neither field alone', () => {
+    expect(isBrokenGate({})).toBe(false);
+    expect(repairDecision({ config: {}, actor: ada }).why).toMatch(/no manager gate/);
+  });
+
+  it('leaves a real key alone even when config.manager is also set', () => {
+    const both = { manager: 'Ada Lovelace', managerKey: 'git:ada@example.com' };
+    expect(isBrokenGate(both)).toBe(false);
   });
 });

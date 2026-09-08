@@ -53,6 +53,10 @@ function fakeSession() {
   return {
     owner: OWNER,
     repo: REPO,
+    // Without this, `creatorViaApi` bails before it ever calls fetch and the
+    // repair tests below pass on the display-name fallback instead of the
+    // history — which is the escalation they exist to rule out.
+    ghToken: 'gh-lent-token',
     commits,
     commitOpts,
     read: p => files.get(p) || null,
@@ -319,6 +323,47 @@ describe('repairing a manager gate over the hosted server', () => {
     });
     await expect(asUser(session, BOB, h => h.repair_manager_gate())).rejects.toThrow();
     expect(session.configJson().managerKey).toBe('name:Alice Example');
+  });
+
+
+  it('refuses a member who renamed themselves to the gate', async () => {
+    // The escalation as it would actually be run: Mallory reads the gate's
+    // display name from get_config, sets her own to match, and catches the
+    // commits API on a bad minute. Nothing here is privileged.
+    const session = brokenSession();
+    globalThis.fetch = async () => ({ ok: false, status: 403, json: async () => ({}) });
+    const mallory = { key: 'github:9999', name: 'Alice Example', login: 'mallory', source: 'github' };
+    await expect(asUser(session, mallory, h => h.repair_manager_gate())).rejects.toThrow();
+    expect(session.configJson().managerKey).toBe('name:Alice Example');
+  });
+
+  it('tells the real creator to try again when GitHub is unreachable', async () => {
+    // The same refusal, reaching the person the command is for. It has to read
+    // as temporary, because on a connector there is no config.json to edit and
+    // a permanent no would strand them.
+    const session = brokenSession();
+    globalThis.fetch = async () => { throw new Error('offline'); };
+    await expect(asUser(session, ALICE, h => h.repair_manager_gate())).rejects.toThrow(/try again/i);
+  });
+
+  it('walks past the first page to find the commit that created the file', async () => {
+    // A config.json touched more than a hundred times used to yield the
+    // hundredth-newest commit's author — a confidently wrong creator.
+    const session = brokenSession();
+    const page = (email, n) => Array.from({ length: n }, () => ({ commit: { author: { email } } }));
+    let call = 0;
+    globalThis.fetch = async () => {
+      call += 1;
+      return {
+        ok: true,
+        json: async () => (call === 1
+          ? page('someone-else@example.com', 100)
+          : page('1001+alice@users.noreply.github.com', 3)),
+      };
+    };
+    const r = await asUser(session, ALICE, h => json(h.repair_manager_gate()));
+    expect(call).toBe(2);
+    expect(r).toMatchObject({ to: ALICE.key });
   });
 
   it('refuses a gate that already works', async () => {

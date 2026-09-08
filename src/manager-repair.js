@@ -21,20 +21,46 @@ import { isCreator } from './project-creator.js';
  */
 export const BROKEN_PREFIX = 'name:';
 
-export function isBrokenGate(config) {
+/**
+ * The two shapes of gate that a name, rather than an identity, stands behind.
+ *
+ * `managerKey: "name:<x>"` is what the broken web flow wrote. `manager: "<x>"`
+ * is the older field, kept working for projects that predate the pinned gate.
+ * They arrive by different routes and are the same problem: the value is a
+ * display name, and a display name is something anyone can set as their own —
+ * so neither is a gate, and both are worth repairing to a real identity.
+ *
+ * Returning the name rather than a boolean keeps the two callers below from
+ * having to know which shape they are looking at.
+ */
+export function brokenGate(config) {
   const keys = managerKeys(config);
-  return keys.length > 0 && keys.every(k => k.startsWith(BROKEN_PREFIX));
+  if (keys.length > 0) {
+    return keys.every(k => k.startsWith(BROKEN_PREFIX))
+      ? { from: keys[0], name: keys[0].slice(BROKEN_PREFIX.length) }
+      : null;
+  }
+  const legacy = String(config?.manager || '').trim();
+  return legacy ? { from: legacy, name: legacy } : null;
 }
 
-export function repairDecision({ config, actor, displayName, creatorEmail = null } = {}) {
+export function isBrokenGate(config) {
+  return brokenGate(config) !== null;
+}
+
+const NO_CREATOR = { email: null, checked: false, hosted: false };
+
+export function repairDecision({ config, actor, displayName, creator = NO_CREATOR } = {}) {
+  const { email: creatorEmail, checked, hosted } = creator || NO_CREATOR;
   const keys = managerKeys(config);
 
-  if (keys.length === 0) {
-    // No gate at all is the bootstrap case — `canApprove` already lets anyone
-    // through and the first to pin it wins. Not this command's business.
-    return { ok: false, why: 'This project has no manager gate to repair.' };
-  }
-  if (!isBrokenGate(config)) {
+  const broken = brokenGate(config);
+  if (!broken) {
+    if (keys.length === 0) {
+      // No gate at all is the bootstrap case — `canApprove` already lets anyone
+      // through and the first to pin it wins. Not this command's business.
+      return { ok: false, why: 'This project has no manager gate to repair.' };
+    }
     return {
       ok: false,
       why: `The manager gate is ${keys.join(', ')}, which is a real identity. `
@@ -52,7 +78,7 @@ export function repairDecision({ config, actor, displayName, creatorEmail = null
   // anything in that file, history cannot be edited without the push access
   // repair already sits behind. The display name is the weaker fallback, for
   // when the history cannot be read at all.
-  const named = keys[0].slice(BROKEN_PREFIX.length);
+  const named = broken.name;
   const byHistory = creatorEmail ? isCreator(creatorEmail, actor) : null;
   const byName = String(displayName || actor?.name || '').trim().toLowerCase()
     === named.trim().toLowerCase();
@@ -69,6 +95,34 @@ export function repairDecision({ config, actor, displayName, creatorEmail = null
         + '`.teamctx/config.json` directly if you have agreed to take it over.',
     };
   }
+  // The display name is not a secret and never was: the gate's name is public
+  // through `get_config`, and `config_set name` is a personal key any member can
+  // write with no gate at all. So it is only ever a tiebreak for somebody who
+  // already holds the repository — where they could edit `.teamctx/config.json`
+  // by hand regardless, and the check costs nothing either way.
+  //
+  // Hosted, none of that holds. There is no file to edit, the caller may be
+  // anyone on the roster, and the two facts above make the name trivially
+  // presentable. So a hosted caller is admitted on the history or not at all.
+  if (hosted && byHistory !== true) {
+    return checked
+      ? {
+        ok: false,
+        why: 'This project\'s history does not show you as its creator, and repair re-pins '
+          + 'the gate to whoever runs it. Ask whoever set the project up to run this, or '
+          + 'edit `.teamctx/config.json` in the repository if you have agreed to take it over.',
+      }
+      : {
+        // Transient, and said as such. A rate limit is not an accusation, and
+        // treating it as a permanent refusal would strand the very person this
+        // command exists for — on the one surface with no file to fall back to.
+        ok: false,
+        why: 'Could not read this project\'s history just now, so there is no way to confirm '
+          + 'you created it — and on a connector that check is the only one there is. '
+          + 'This is usually temporary: try again in a minute.',
+      };
+  }
+
   if (byHistory === null && !byName) {
     // No history to consult, so the name is all there is.
     return {
@@ -96,7 +150,7 @@ export function repairDecision({ config, actor, displayName, creatorEmail = null
     };
   }
   return {
-    ok: true, from: keys[0], to: key,
+    ok: true, from: broken.from, to: key,
     // Honest about a half-fix: an id-shaped gate works where it was set and
     // nowhere else, so the caller should know to come back once their token can
     // say what their address is.

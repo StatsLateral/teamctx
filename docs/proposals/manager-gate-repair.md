@@ -5,12 +5,12 @@
 
 ## Problem
 
-[#71](https://github.com/StatsLateral/teamctx/issues/71) stopped web-created
+[#71](https://github.com/statslateralinc/teamctx/issues/71) stopped web-created
 projects pinning `managerKey` to `name:<display name>`. It did not migrate the
 projects already carrying one. Two of the three real projects created during
 onboarding testing had the broken key; both were hand-repaired, which is fine
 for someone who knows the field exists and has a clone open, and no help at all
-to anyone else ([#73](https://github.com/StatsLateral/teamctx/issues/73)).
+to anyone else ([#73](https://github.com/statslateralinc/teamctx/issues/73)).
 
 What such a person sees is worse than nothing:
 
@@ -25,7 +25,7 @@ gate is broken, and there is no path from that message to a fix.
 ## The security question, first
 
 Repairing a manager gate is granting manager rights, so this borders the
-privilege escalation [#49](https://github.com/StatsLateral/teamctx/issues/49)
+privilege escalation [#49](https://github.com/statslateralinc/teamctx/issues/49)
 closed. It is worth settling before designing anything.
 
 **A `name:` gate is already open.** `name:<x>` is the last resort of the actor
@@ -71,11 +71,28 @@ Two constraints follow, and they are the whole of the safety argument:
 - **It fires only on a `name:` gate.** Against a valid `git:` or `github:` gate
   it must refuse outright. Otherwise it is exactly the "become manager" backdoor
   #49 removed.
-- **It is not exposed over MCP.** A member signing in with Google acts on the
-  project's *lent* credential, which has push access while the member is
-  emphatically not the manager. Offering repair there would hand the gate to
-  anyone on the roster. Repairing from a clone requires a clone, which requires
-  the access the bar asks for.
+- **Over MCP, the repository's history is the only admissible proof.** This
+  started as "no MCP tool at all", for a good reason: a member signing in with
+  Google acts on the project's *lent* credential, which has push access while
+  the member is emphatically not the manager, so "can push" proves nothing
+  there. But refusing the surface outright also refuses the manager, and a
+  connector is where most managers now are — a project broken by the web flow
+  is one they may never have cloned.
+
+  So the tool exists, and the bar there is narrower than on a clone: the caller
+  is admitted if the commit that created `.teamctx/config.json` is theirs, and
+  otherwise not at all. In particular the display-name comparison below is
+  **not** available over MCP. The name on the gate is public (`get_config`
+  returns it) and any member can set their own to match (`config_set name` is a
+  personal key with no manager gate), so on the one surface with no
+  `.teamctx/config.json` to hand-edit it would be the whole check and free to
+  pass.
+
+  This makes the distinction between *"the history says someone else"* and
+  *"the history could not be read"* load-bearing rather than incidental. A rate
+  limit, a 5xx or a network failure must refuse **this attempt** and say to try
+  again — never fall through to something weaker, and never become a permanent
+  lockout for the person the command exists for.
 
 ## Design
 
@@ -101,7 +118,8 @@ whether or not the flag does.
   helps nobody.
 - Re-pins `managerKey` and reports both the old and new value, because a command
   that silently changes who may approve is the wrong kind of quiet.
-- CLI only. No MCP tool, for the reason above.
+- Offered on both surfaces, with different bars. From a clone, history first
+  and the display name as a fallback. Over MCP, history or nothing — see above.
 
 ### Deliberately not included
 

@@ -5,28 +5,63 @@ import { getCurrentSession } from './session-context.js';
 const execFileAsync = promisify(execFile);
 
 /**
+ * "We could not ask", as distinct from "we asked, and there is no answer".
+ *
+ * Collapsing the two is what made the display-name fallback reachable on the
+ * hosted surface: a rate limit looked identical to a project whose history says
+ * nothing, and the weaker check ran in a place where the caller has no file to
+ * hand-edit and every reason to be a stranger. `checked` is what keeps them
+ * apart, so a transient failure becomes "try again" rather than a way in.
+ */
+const UNCHECKED_HOSTED = { email: null, checked: false, hosted: true };
+
+/**
  * The same answer, over the API, for a hosted caller with no clone to read.
  *
  * Without this the hosted surface has no history to consult and falls back to
  * comparing display names — the weaker signal, in exactly the place where the
  * caller is most likely to be somebody other than the creator.
  */
+const PER_PAGE = 100;
+
+/**
+ * A page cap, not a page size.
+ *
+ * Walking to the oldest commit costs one request per hundred, and a config file
+ * with more than a thousand touching commits is not a real project — but the
+ * cap must not silently produce a wrong answer, so hitting it reports
+ * "unchecked" rather than the oldest commit seen so far.
+ */
+const MAX_PAGES = 10;
+
 async function creatorViaApi(session) {
   const { owner, repo, ghToken } = session;
-  if (!owner || !repo || !ghToken) return null;
+  if (!owner || !repo || !ghToken) return UNCHECKED_HOSTED;
   try {
-    const res = await fetch(
-      `https://api.github.com/repos/${owner}/${repo}/commits?path=.teamctx/config.json&per_page=100`,
-      { headers: { Authorization: `Bearer ${ghToken}`, Accept: 'application/vnd.github+json' } },
-    );
-    if (!res.ok) return null;
-    const list = await res.json();
-    if (!Array.isArray(list) || list.length === 0) return null;
-    // Newest first, so the last entry is the commit that created the file.
-    const email = list[list.length - 1]?.commit?.author?.email;
-    return email ? String(email).toLowerCase() : null;
+    let last = null;
+    for (let page = 1; page <= MAX_PAGES; page += 1) {
+      const res = await fetch(
+        `https://api.github.com/repos/${owner}/${repo}/commits`
+          + `?path=.teamctx/config.json&per_page=${PER_PAGE}&page=${page}`,
+        { headers: { Authorization: `Bearer ${ghToken}`, Accept: 'application/vnd.github+json' } },
+      );
+      // A rate limit or a 5xx is "ask again", not "there is no creator". The
+      // difference decides whether a caller is refused or offered a weaker
+      // check, so it must not collapse into one null.
+      if (!res.ok) return UNCHECKED_HOSTED;
+      const list = await res.json();
+      if (!Array.isArray(list)) return UNCHECKED_HOSTED;
+      if (list.length) last = list[list.length - 1];
+      // Short page means this was the last one, so `last` is now the oldest
+      // commit that touched the file — the one that created it.
+      if (list.length < PER_PAGE) {
+        const email = last?.commit?.author?.email;
+        return { email: email ? String(email).toLowerCase() : null, checked: true, hosted: true };
+      }
+    }
+    return UNCHECKED_HOSTED;
   } catch {
-    return null;
+    return UNCHECKED_HOSTED;
   }
 }
 
@@ -43,9 +78,11 @@ async function creatorViaApi(session) {
  * "Ada" repairing a gate that reads `name:Ada Lovelace`. The email is the same
  * either way.
  *
- * Returns null when the history cannot be read — a shallow clone, a hosted
- * session with no git binary, a repo whose history was rewritten. Callers fall
- * back rather than treating absence as a refusal.
+ * Returns `{ email, checked, hosted }`. `email` is null when the history names
+ * nobody; `checked` says whether the history could be consulted at all — a
+ * shallow clone, a rate-limited API, no git binary. The caller needs both,
+ * because "we asked and it says someone else" and "we could not ask" are
+ * different refusals, and only one of them may fall back to a weaker check.
  */
 export async function projectCreator(cwd) {
   const session = getCurrentSession();
@@ -56,9 +93,10 @@ export async function projectCreator(cwd) {
     ], cwd ? { cwd } : undefined);
     const lines = stdout.trim().split('\n').filter(Boolean);
     // The *last* line is the oldest commit — the one that created the file.
-    return lines.length ? lines[lines.length - 1].trim().toLowerCase() : null;
+    const email = lines.length ? lines[lines.length - 1].trim().toLowerCase() : null;
+    return { email, checked: true, hosted: false };
   } catch {
-    return null;
+    return { email: null, checked: false, hosted: false };
   }
 }
 

@@ -86,12 +86,18 @@ export async function repairManagerGate({ teamctxDir, projectDir } = {}) {
   const displayName = await resolveDisplayName({ actor, config, teamctxDir });
   const decision = repairDecision({
     config, actor, displayName,
-    creatorEmail: await projectCreator(projectDir),
+    creator: await projectCreator(projectDir),
   });
   if (!decision.ok) throw new InvalidConfigValueError(decision.why);
 
   writeConfig({ ...config, managerKey: decision.to, managerKeys: [], manager: '' }, teamctxDir);
-  return { from: decision.from, to: decision.to, name: actor.name };
+  // The warning travels. It was computed and then dropped here, so the one
+  // case where repair only half-works — a gate pinned to a GitHub id, which
+  // holds on GitHub and nowhere else — was silently reported as a clean fix.
+  return {
+    from: decision.from, to: decision.to, name: actor.name,
+    ...(decision.warning ? { warning: decision.warning } : {}),
+  };
 }
 
 export async function setConfig({ key, value, teamctxDir, projectDir } = {}) {
