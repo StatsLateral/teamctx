@@ -75,6 +75,18 @@ anyone who can read the repo can read every workstream, so per-workstream
 membership would be a label that enforces nothing. If a real need for scoping
 appears later it belongs with roles, which already bind to a workstream.
 
+> **Revisited 2026-09-08.** The argument above assumed every member holds a
+> clone. Since phase 3 shipped, a Google-signed-in member has no repository
+> access of their own — every read goes through the hosted server on the
+> project's lent credential — so for that member, per-workstream scoping is
+> enforceable at the server, not a label. Two field cases (a manager who
+> wanted an engineer to see one workstream and not the product one; a
+> successor who inherited a workstream with no approved context to hand
+> over) made the need concrete. It is now a roadmap item — see
+> [ROADMAP.md](../../ROADMAP.md) "Workstream-scoped membership" — with the
+> honest boundary that it stays advisory for a collaborator holding a clone.
+> This section is left as written so the original reasoning stays on record.
+
 ### Commands
 
 ```
