@@ -2,6 +2,7 @@ import { readConfig, writeConfig } from '../../src/storage.js';
 import { getModelsFor, getDefaultModelFor } from '../../src/ai.js';
 import { resolveActor } from '../../src/actor.js';
 import { managerKeys } from '../../src/review.js';
+import { POLICIES, reviewPolicy, InvalidReviewPolicyError } from '../../src/review-policy.js';
 import { assertManager } from './review.core.js';
 import { writePrefs, resolveDisplayName, resolveIdentity, resolveActiveWorkstream } from '../../src/prefs.js';
 
@@ -43,6 +44,31 @@ export class InvalidConfigValueError extends Error {
   constructor(msg) { super(msg); this.code = 'INVALID_CONFIG_VALUE'; }
 }
 
+/**
+ * Choose how much of a contribution needs the manager's approval.
+ *
+ * Deliberately not a `config_set` key. `reviewPolicy` decides whether writes
+ * are reviewed at all, so a caller able to set it to `none` can then write
+ * anything — the same escalation `managerKey` is kept off `WRITABLE` to
+ * prevent. It gets its own entry point, gated on who is asking, for the same
+ * reason the gate itself does.
+ */
+export async function setReviewPolicy(value, { teamctxDir, projectDir } = {}) {
+  const config = readConfig(teamctxDir);
+  const actor = await resolveActor({ config, cwd: projectDir });
+  assertManager(config, {
+    actor,
+    displayName: await resolveDisplayName({ actor, config, teamctxDir }),
+  });
+
+  const next = String(value ?? '').trim();
+  if (!POLICIES.includes(next)) throw new InvalidReviewPolicyError(next);
+
+  const from = reviewPolicy(config);
+  writeConfig({ ...config, reviewPolicy: next }, teamctxDir);
+  return { from, to: next };
+}
+
 export async function getConfig({ teamctxDir, projectDir } = {}) {
   const c = readConfig(teamctxDir);
   const actor = await resolveActor({ config: c, cwd: projectDir });
@@ -57,6 +83,7 @@ export async function getConfig({ teamctxDir, projectDir } = {}) {
     manager: c.manager || managerKeys(c)[0] || null,
     managerDisplayName: c.manager || null,
     managerKey: c.managerKey || null, managerKeys: managerKeys(c), managerEmail: c.managerEmail || '',
+    reviewPolicy: reviewPolicy(c),
     deployUrl: c.deployUrl || '', githubRawBase: c.githubRawBase || '',
     autoPush: !!c.autoPush,
     workstreams: c.workstreams || [], roles: c.roles || [],

@@ -3,6 +3,7 @@ import { updateShared, generateRoleFile, serializeToMd } from '../../src/context
 import { commitContext, pushContext } from '../../src/git.js';
 import { UnknownWorkstreamError } from './role.core.js';
 import { assertManager } from './review.core.js';
+import { needsReview } from '../../src/review-policy.js';
 import { resolveActor } from '../../src/actor.js';
 import { resolveActiveWorkstream, resolveDisplayName } from '../../src/prefs.js';
 
@@ -102,7 +103,12 @@ export async function contributeCore({
     };
   }
 
-  if (!apply) {
+  // Two different questions, deliberately kept apart. `apply` is a caller
+  // asking to bypass review, and stays manager-gated above. This asks whether
+  // the project requires review of these operations at all — a member whose
+  // contribution only adds is not acting as the manager by skipping a queue the
+  // project does not want.
+  if (!apply && needsReview(config, operations)) {
     writeQueueItem({
       id: contribution.id, status: 'pending', createdAt: contribution.ts,
       author: contribution.author, source, workstream: targetId,

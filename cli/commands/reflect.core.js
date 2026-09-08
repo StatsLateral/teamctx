@@ -5,7 +5,9 @@ import { commitContext, pushContext } from '../../src/git.js';
 import { UnknownWorkstreamError } from './role.core.js';
 
 import { resolveActor } from '../../src/actor.js';
-import { resolveActiveWorkstream } from '../../src/prefs.js';
+import { resolveActiveWorkstream, resolveDisplayName } from '../../src/prefs.js';
+import { reflectNeedsManager } from '../../src/review-policy.js';
+import { assertManager } from './review.core.js';
 
 /** The caller's active workstream — their own preference, then the project default. */
 async function activeId(config, teamctxDir, projectDir) {
@@ -16,6 +18,17 @@ async function activeId(config, teamctxDir, projectDir) {
 
 export async function reflectWorkstream({ workstreamId, teamctxDir, projectDir } = {}) {
   const config = readConfig(teamctxDir);
+  // Reflect replaces the whole tree with whatever the model returns — there is
+  // no smaller unit of it to queue, and no diff anyone is shown. So it follows
+  // the project's review policy rather than carrying a gate of its own: under
+  // `none` anyone may run it, which is what it did before this existed.
+  if (reflectNeedsManager(config)) {
+    const actor = await resolveActor({ config, cwd: projectDir });
+    assertManager(config, {
+      actor,
+      displayName: await resolveDisplayName({ actor, config, teamctxDir }),
+    });
+  }
   const targetId = workstreamId || await activeId(config, teamctxDir, projectDir);
   const knownIds = new Set([...(config.workstreams || []).map(w => w.id), ...listWorkstreamIds(teamctxDir)]);
   if (!knownIds.has(targetId)) throw new UnknownWorkstreamError(targetId);
