@@ -404,7 +404,7 @@ export const TOOLS = [
   },
   {
     name: 'reflect',
-    description: RISKY + 'runs an AI rewrite of the workstream tree — condenses, deduplicates, and reorganizes Why nodes. Can meaningfully change how context reads. Not gated; confirm scope with the user first.' + REPORT,
+    description: RISKY + 'runs an AI rewrite of the workstream tree — condenses, deduplicates, and reorganizes Why nodes. It replaces the whole tree with the model\'s output: there is no diff, no queue, and nothing smaller to review, so it can lose statements other people wrote. Manager-only unless the project\'s review policy is "none". Confirm the scope with the user first, and say plainly that this rewrites everything rather than adding to it.' + REPORT,
     inputSchema: {
       type: 'object',
       properties: { workstream: { type: 'string' } },

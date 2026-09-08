@@ -56,6 +56,11 @@ export function reviewPolicy(config) {
  */
 export function isAdditive(operations) {
   const ops = operations || [];
+  // Not the same call as the unknown-type one below, though it looks like it.
+  // An operation this file cannot describe might destroy something, so it fails
+  // closed. An empty list destroys nothing by definition, so there is nothing
+  // to hold for review. (`contributeCore` returns a no-op before reaching here
+  // anyway; this keeps the function answerable on its own terms.)
   if (ops.length === 0) return true;
   return ops.every(op => ADDITIVE_OPS.has(op?.type));
 }
@@ -84,5 +89,12 @@ export function needsReview(config, operations) {
  * in the product and there is no smaller unit of it to review.
  */
 export function reflectNeedsManager(config) {
+  // `managerKeys` is empty both for a project with no manager and for one still
+  // gated by a legacy display name, so reflect stays open on the latter while
+  // `contribute` keeps queueing its destructive operations. The asymmetry is
+  // deliberate: a display name is not a gate — anyone can set that name as
+  // their own — so asserting against it here would only look like protection.
+  // Such a project should re-pin to a real identity; until it does, this is the
+  // same footing every other manager-gated command is on there.
   return reviewPolicy(config) !== 'none' && managerKeys(config).length > 0;
 }
