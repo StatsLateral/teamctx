@@ -37,8 +37,12 @@ export class ManagerGateError extends Error {
     super(isBrokenGate(config)
       ? `this project's manager gate is "${manager}", a display name rather than an identity — `
         + 'nobody can match one, including you. Projects created on the web before this was fixed '
-        + 'all carry one. Run `teamctx config manager --repair` from a clone to re-pin it to your '
-        + `own identity${actor?.key ? ` (${actor.key})` : ''}.`
+        // Not "from a clone": repair is reachable from a chat client too, and
+        // a chat client is where somebody most often meets this — a project
+        // broken by the web flow is one its manager may never have cloned.
+        + 'all carry one. If you set this project up, repair it: ask your assistant to repair the '
+        + 'manager gate, or run `teamctx config manager --repair` in a clone. Either re-pins it to '
+        + `your own identity${actor?.key ? ` (${actor.key})` : ''}.`
       : `only the configured manager (${manager}) may approve or reject. You are ${you}${key}.`);
     this.code = 'MANAGER_GATE';
     this.manager = manager;

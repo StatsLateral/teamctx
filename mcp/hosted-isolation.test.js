@@ -556,3 +556,29 @@ describe('project members on the hosted server', () => {
     expect(r.reportBack).toMatch(/GitHub access is unchanged/);
   });
 });
+
+describe('a broken gate is visible before anything fails', () => {
+  // #73 asks for this by name: without it the only way to learn the gate is
+  // unmatchable is to be refused an approval, which is late and reads as a bug.
+  const brokenConfig = () => {
+    const s = fakeSession();
+    s.write('.teamctx/config.json', JSON.stringify({ ...CONFIG, managerKey: 'name:Alice Example', managerKeys: [] }));
+    return s;
+  };
+
+  it('get_status says so', async () => {
+    const r = await asUser(brokenConfig(), ALICE, h => json(h.get_status()));
+    expect(r.managerGateBroken).toBe(true);
+  });
+
+  it('get_config says so', async () => {
+    const r = await asUser(brokenConfig(), ALICE, h => json(h.get_config()));
+    expect(r.managerGateBroken).toBe(true);
+  });
+
+  it('stays false for a gate that works', async () => {
+    const s = fakeSession();
+    const r = await asUser(s, ALICE, h => json(h.get_status()));
+    expect(r.managerGateBroken).toBe(false);
+  });
+});

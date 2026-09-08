@@ -2,7 +2,7 @@ import { readConfig, writeConfig } from '../../src/storage.js';
 import { getModelsFor, getDefaultModelFor } from '../../src/ai.js';
 import { resolveActor } from '../../src/actor.js';
 import { managerKeys } from '../../src/review.js';
-import { repairDecision } from '../../src/manager-repair.js';
+import { repairDecision, isBrokenGate } from '../../src/manager-repair.js';
 import { projectCreator } from '../../src/project-creator.js';
 import { POLICIES, reviewPolicy, InvalidReviewPolicyError } from '../../src/review-policy.js';
 import { assertManager } from './review.core.js';
@@ -85,6 +85,9 @@ export async function getConfig({ teamctxDir, projectDir } = {}) {
     manager: c.manager || managerKeys(c)[0] || null,
     managerDisplayName: c.manager || null,
     managerKey: c.managerKey || null, managerKeys: managerKeys(c), managerEmail: c.managerEmail || '',
+    // A gate standing on a display name, which nobody can match. Reported so a
+    // caller finds out while orienting rather than when an approval fails.
+    managerGateBroken: isBrokenGate(c),
     reviewPolicy: reviewPolicy(c),
     deployUrl: c.deployUrl || '', githubRawBase: c.githubRawBase || '',
     autoPush: !!c.autoPush,

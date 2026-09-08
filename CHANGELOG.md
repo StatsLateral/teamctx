@@ -201,6 +201,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with no file to hand-edit it would be the entire check. A lookup that fails
   refuses that attempt and says to try again, rather than falling through to
   something weaker or stranding the manager it exists for.
+  A gate left on the older `manager` display-name field is repairable the same
+  way, since that is the same problem by a different route and `assertManager`
+  already pointed people at repair for it. And `get_status` and `get_config`
+  now report `managerGateBroken`, so the state is visible while orienting
+  rather than only at the moment an approval is refused.
   Closes #73.
 - **The manager chooses how much of a contribution needs their approval.**
   Review was all-or-nothing and unsettable: every contribution queued, so on a

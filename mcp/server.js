@@ -41,6 +41,7 @@ import { getConfig, setConfig, repairManagerGate, setReviewPolicy } from '../cli
 import { resolveActor } from '../src/actor.js';
 import { resolveActiveWorkstream, resolveIdentity, resolveDisplayName } from '../src/prefs.js';
 import { managerKeys } from '../src/review.js';
+import { isBrokenGate } from '../src/manager-repair.js';
 import { INSTRUCTIONS } from './instructions.js';
 
 export function resolveProjectDir(argv = process.argv.slice(2), env = process.env, cwd = process.cwd()) {
@@ -116,7 +117,7 @@ export const TOOLS = [
   },
   {
     name: 'get_status',
-    description: "**Call this first when you do not know where you are.** Answers who is calling, which project, whether it is set up at all, and whether the caller is the manager — all in one read. Returns project name, provider, model, manager identity, workstreams with why-counts, roles, contribution/decision totals. `me` and `activeWorkstream` are the calling user's, not the project defaults. Read-only.",
+    description: "**Call this first when you do not know where you are.** Answers who is calling, which project, whether it is set up at all, and whether the caller is the manager — all in one read. `managerGateBroken: true` means the gate is a display name nobody can match, so every approval on this project is already failing — tell the user plainly and offer repair_manager_gate if they set the project up. Returns project name, provider, model, manager identity, workstreams with why-counts, roles, contribution/decision totals. `me` and `activeWorkstream` are the calling user's, not the project defaults. Read-only.",
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
   },
   {
@@ -606,6 +607,10 @@ export function makeHandlers(projectRoot) {
         // field exists to answer.
         manager: managerKeys(config)[0] || config.manager || null,
         managerDisplayName: config.manager || null,
+        // Named here because this is where an agent orients, and a broken gate
+        // is otherwise only discovered at the moment an approval is refused —
+        // which is late, and reads as a bug rather than a fixable state.
+        managerGateBroken: isBrokenGate(config),
         // Who *this caller* is and where *they* are working — not the shared
         // config.me / config.activeWorkstream, which are only the defaults.
         me: me.name,
