@@ -18,7 +18,7 @@ import { contextCommand } from './commands/context.js';
 import { statusCommand } from './commands/status.js';
 import { statsCommand } from './commands/stats.js';
 import { DEFAULT_WINDOW_DAYS } from '../src/metrics.js';
-import { configManagerCommand, configModelCommand, configGithubRawBaseCommand, configManagerEmailCommand, configDeployUrlCommand, configProviderCommand, configNameCommand } from './commands/config.js';
+import { configManagerCommand, configModelCommand, configGithubRawBaseCommand, configManagerEmailCommand, configDeployUrlCommand, configProviderCommand, configNameCommand, configReviewPolicyCommand } from './commands/config.js';
 import { reviewListCommand, reviewApproveCommand, reviewRejectCommand } from './commands/review.js';
 import {
   snapshotCreateCommand, snapshotListCommand, snapshotShowCommand,
@@ -177,6 +177,8 @@ config.command('github-raw-base [value]').description('Get or set the GitHub raw
 config.command('manager').description('Show who may approve or reject (pinned at init, not settable)')
   .option('--repair', 'Re-pin a display-name gate that nobody can match to your own identity')
   .action(configManagerCommand);
+config.command('review-policy [value]').description('Show or set how much of a contribution needs manager approval (manager only)')
+  .action(configReviewPolicyCommand);
 config.command('manager-email [value]').description('Get or set the manager email for contribution notifications').action(configManagerEmailCommand);
 config.command('deploy-url [value]').description('Get or set the Vercel deploy URL').action(configDeployUrlCommand);
 

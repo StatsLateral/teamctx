@@ -15,6 +15,11 @@ decision and correction stays trapped in that person's thread. Teams don't
 diverge because people disagree; they diverge because their AIs never met.
 The manager inherits the gap as rework.
 
+The same failure shows up at handoff. What made one person's AI accurate —
+the corrections, the taste, the decisions — lives in their private thread,
+so when they roll off, it rolls off with them. The next person starts from
+zero, on the same tool, on the same plan.
+
 ## Vision
 
 Engineering teams already have the fix — accidentally. Their AI works because

@@ -7,6 +7,7 @@ import { getCurrentSession } from '../../src/session-context.js';
 import { serializeToMd } from '../../src/context.js';
 import { resolveActor } from '../../src/actor.js';
 import { writePrefs } from '../../src/prefs.js';
+import { NEW_PROJECT_POLICY } from '../../src/review-policy.js';
 
 const PROVIDERS = [
   { id: 'anthropic', label: 'Anthropic (Claude)', envVar: 'ANTHROPIC_API_KEY' },
@@ -125,6 +126,10 @@ export async function initProject({
   const config = {
     project, me, provider, model: resolvedModel, autoPush,
     managerKey: actor.key,
+    // Recorded rather than left to the default, because the default a missing
+    // field means is `all` — the older, stricter behaviour, kept so upgrading
+    // an existing project changes nothing. New projects start additive.
+    reviewPolicy: NEW_PROJECT_POLICY,
     deployUrl: deployUrl || '', githubRawBase: githubRawBase || '', managerEmail: managerEmail || '',
     roles: [],
     workstreams: [{ id: 'main', name: project, createdAt }],

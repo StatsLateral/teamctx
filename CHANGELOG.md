@@ -151,6 +151,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   bootstrapped from a chat client has no local checkout and no shell, so the
   history was the only record of where the commit came from — and it did not say.
 
+### Changed
+- **`reflect` is no longer available to every member.** It replaces the whole
+  shared context with whatever the model returns — no diff, no confirmation, no
+  queue — and had no manager gate at all, so any member from any client could
+  trigger an unreviewed full rewrite. It now follows the project's review
+  policy: manager-only under `all` and `additive`, and open to anyone under
+  `none`, which is what it did before. This is the one behaviour change on
+  upgrade for an existing project; choosing `none` restores it.
+
 ### Added
 - **`teamctx config manager --repair`**, for projects created on the web before
   #71 pinned their manager gate to `name:<display name>` — a value nobody can
@@ -183,11 +192,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   which is committed and shared, so anyone with the repository and no local git
   identity already presents that key and passes. Repair does not open a door;
   the door is open, and repair closes it.
-  CLI only, deliberately. Repairing needs a clone, which needs the push access
-  hand-editing would need anyway, so it grants nothing new — whereas over MCP it
-  would be reachable by a member acting on the project's *lent* credential,
-  which has push access while the member is emphatically not the manager.
+  Over a connector the bar is narrower than on a clone, because a member there
+  acts on the project's *lent* credential — which has push access while the
+  member is emphatically not the manager, so "can push" proves nothing. There
+  the caller is admitted on the repository's history or not at all, and the
+  display-name fallback is unavailable: the gate's name is public through
+  `get_config` and anyone can set their own to match, so on the one surface
+  with no file to hand-edit it would be the entire check. A lookup that fails
+  refuses that attempt and says to try again, rather than falling through to
+  something weaker or stranding the manager it exists for.
   Closes #73.
+- **The manager chooses how much of a contribution needs their approval.**
+  Review was all-or-nothing and unsettable: every contribution queued, so on a
+  small project one person approved every note anyone wrote before anyone else
+  could see it. A project-level `reviewPolicy` now offers `all` (queue
+  everything, the previous behaviour), `additive` (contributions that only add
+  land immediately; anything that edits or deletes an existing statement still
+  waits) and `none` (everything lands). The axis is what a contribution can
+  destroy rather than who sent it — a contribution is not an append, and the
+  distiller does return operations that delete statements other people wrote.
+  Set it with `teamctx config review-policy <value>` or the `set_review_policy`
+  tool. Like `managerKey`, it is deliberately off the `config_set` surface and
+  gated on the caller: anyone able to set it to `none` could then write
+  anything. A project with no policy recorded reads as `all`, so upgrading
+  changes nothing; new projects start `additive`.
+
 - **A project no longer starts out knowing nothing.** A workstream is created
   with no whys and nothing pushed it out of that state, so the rendered context
   read "No context yet" until somebody contributed — a manager finished setup,

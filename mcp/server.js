@@ -37,7 +37,7 @@ import {
 } from '../cli/commands/task.core.js';
 import { listMembers, addMember, removeMember } from '../cli/commands/member.core.js';
 import { reflectWorkstream } from '../cli/commands/reflect.core.js';
-import { getConfig, setConfig, repairManagerGate } from '../cli/commands/config.core.js';
+import { getConfig, setConfig, repairManagerGate, setReviewPolicy } from '../cli/commands/config.core.js';
 import { resolveActor } from '../src/actor.js';
 import { resolveActiveWorkstream, resolveIdentity, resolveDisplayName } from '../src/prefs.js';
 import { managerKeys } from '../src/review.js';
@@ -405,7 +405,7 @@ export const TOOLS = [
   },
   {
     name: 'reflect',
-    description: RISKY + 'runs an AI rewrite of the workstream tree — condenses, deduplicates, and reorganizes Why nodes. Can meaningfully change how context reads. Not gated; confirm scope with the user first.' + REPORT,
+    description: RISKY + 'runs an AI rewrite of the workstream tree — condenses, deduplicates, and reorganizes Why nodes. It replaces the whole tree with the model\'s output: there is no diff, no queue, and nothing smaller to review, so it can lose statements other people wrote. Manager-only unless the project\'s review policy is "none". Confirm the scope with the user first, and say plainly that this rewrites everything rather than adding to it.' + REPORT,
     inputSchema: {
       type: 'object',
       properties: { workstream: { type: 'string' } },
@@ -416,6 +416,15 @@ export const TOOLS = [
     name: 'repair_manager_gate',
     description: RISKY + "re-pins a manager gate that is a display name rather than an identity — projects created on the web before this was fixed carry one, and nobody can match it, so every approval fails. Refuses unless the gate is broken **and** the caller created the project, read from the commit that added .teamctx/config.json. Not a way to take over a project: against a working gate, or from anybody but the creator, it refuses." + REPORT,
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+  },
+  {
+    name: 'set_review_policy',
+    description: RISKY + "chooses how much of a contribution waits for the manager's approval. Manager-gated against the authenticated caller, and deliberately not reachable through config_set: a caller who can set this to \"none\" can then write anything. \"all\" queues every contribution. \"additive\" lets contributions that only add land immediately and queues anything that edits or deletes an existing statement. \"none\" applies everything and also lets any member run reflect, which rewrites the whole shared context. Say what changes in plain language and confirm before calling." + REPORT,
+    inputSchema: {
+      type: 'object',
+      properties: { policy: { type: 'string', enum: ['all', 'additive', 'none'] } },
+      required: ['policy'], additionalProperties: false,
+    },
   },
   {
     name: 'config_set',
@@ -965,6 +974,26 @@ export function makeHandlers(projectRoot) {
           + `It is now ${r.to}, so they can approve again.`
           + (r.warning ? ` Also tell them: ${r.warning}` : ''),
       });
+    },
+
+    async set_review_policy({ policy }) {
+      const r = await setReviewPolicy(policy, { teamctxDir: dir(), projectDir: gitCwd });
+      let committed = false;
+      if (r.from !== r.to) {
+        const c = await commitContext(
+          `config: review policy ${r.from} to ${r.to} by ${await who(dir(), readConfig(dir()))} (via mcp)`,
+          gitCwd ? { cwd: gitCwd } : undefined);
+        committed = c?.committed === true;
+      }
+      const said = {
+        all: 'every contribution now waits for the manager',
+        additive: 'contributions that only add now land immediately; edits and deletes wait for the manager',
+        none: 'contributions now land immediately, and any member can rewrite the shared context with reflect',
+      }[r.to];
+      const what = r.from === r.to
+        ? `Review policy was already ${r.to} — nothing changed.`
+        : `Review policy set to ${r.to}: ${said}.${committed ? ' Committed to the repo.' : ''}`;
+      return textResult({ ...r, committed, reportBack: `Tell the user: ${what}` });
     },
 
     async config_set({ key, value }) {
