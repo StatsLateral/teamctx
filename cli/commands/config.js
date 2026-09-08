@@ -141,36 +141,25 @@ export async function configReviewPolicyCommand(value) {
   const config = readConfig();
   if (!value) {
     const current = reviewPolicy(config);
-    console.log(`
-Review policy: ${current} — ${POLICY_HELP[current]}`);
-    console.log('
-Available:');
+    console.log(`\nReview policy: ${current} — ${POLICY_HELP[current]}`);
+    console.log('\nAvailable:');
     POLICIES.forEach(p => {
       console.log(`  ${p.padEnd(9)} ${POLICY_HELP[p]}${p === current ? ' ←' : ''}`);
     });
-    console.log('
-Usage: teamctx config review-policy <all|additive|none>   (manager only)
-');
+    console.log('\nUsage: teamctx config review-policy <all|additive|none>   (manager only)\n');
     return;
   }
   try {
     const r = await setReviewPolicy(value);
     if (r.from === r.to) {
-      console.log(`
-Review policy is already ${r.to} — ${POLICY_HELP[r.to]}.
-`);
+      console.log(`\nReview policy is already ${r.to} — ${POLICY_HELP[r.to]}.\n`);
       return;
     }
-    console.log(`
-✓ Review policy set to ${r.to} — ${POLICY_HELP[r.to]}.`);
+    console.log(`\n✓ Review policy set to ${r.to} — ${POLICY_HELP[r.to]}.`);
     console.log(`  was: ${r.from}`);
-    console.log('
-Commit and push .teamctx/config.json so everyone else sees it.
-');
+    console.log('\nCommit and push .teamctx/config.json so everyone else sees it.\n');
   } catch (err) {
-    console.error(`
-Error: ${err.message}
-`);
+    console.error(`\nError: ${err.message}\n`);
     process.exit(1);
   }
 }
