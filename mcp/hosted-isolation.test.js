@@ -458,13 +458,17 @@ describe('adding someone hands over the link that lets them in', () => {
     expect(r.reportBack).toContain(r.connectUrl);
   });
 
-  it('says there is no link rather than reporting a clean success', async () => {
-    // The failure the manager actually hit. "Added to the project" on its own
-    // is true and leaves them believing somebody was invited.
+  it('never claims there is no link, because the caller is holding one', async () => {
+    // "Added to the project" on its own is the failure the manager hit. But
+    // "there is no link" would be its own lie: whoever is calling reached this
+    // project through a connector, so a link demonstrably exists — the server
+    // just could not build it. So the guidance points at the one they have
+    // rather than reporting a dead end.
     const session = fakeSession();
     const r = await asUser(session, ALICE, h => json(h.member_add({ ref: 'ravi@example.com', name: 'Ravi' })));
     expect(r.connectUrl).toBe(null);
-    expect(r.reportBack).toMatch(/no link to send/i);
+    expect(r.reportBack).not.toMatch(/no link/i);
+    expect(r.reportBack).toMatch(/connector this conversation is using/i);
     expect(r.reportBack).toMatch(/deployUrl/);
   });
 

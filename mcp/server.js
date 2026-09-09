@@ -120,7 +120,7 @@ export const TOOLS = [
   },
   {
     name: 'get_connect_url',
-    description: "**Reach for this after adding someone to the project** — it is what you send them. The URL a team member pastes into their AI client; they add it as a custom connector and sign in. Read-only. Fails with what to run when the project has no deploy URL recorded, which is the usual reason it is missing.",
+    description: "**Reach for this after adding someone to the project** — it is what you send them. The URL a team member pastes into their AI client; they add it as a custom connector and sign in. Read-only. When the project has no deploy URL recorded the server cannot build the link — hand over the address of the connector this conversation is already using instead, which is the same project, rather than telling the user there is no link.",
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
   },
   {
@@ -623,13 +623,19 @@ export function makeHandlers(projectRoot) {
      */
     async connectUrl() {
       const config = readConfig(dir());
+      // A recorded `deployUrl` wins, because a project may be served from a
+      // different address than the one this request happened to arrive at. When
+      // there is none, the request's own host is a better answer than refusing:
+      // it is where the caller already is. A clone has no request, so there it
+      // stays a genuine prerequisite.
+      const deployUrl = config.deployUrl || (isHosted ? projectRoot.baseUrl : '') || '';
       // Hosted already knows the repository from the request URL; a clone has to
       // read its remote, which stays right through a rename.
       const where = isHosted
         ? { owner: projectRoot.owner, repo: projectRoot.repo }
         : { remote: await originRemote(gitCwd) };
       try {
-        return { ok: true, ...connectorUrl({ deployUrl: config.deployUrl, ...where }) };
+        return { ok: true, ...connectorUrl({ deployUrl, ...where }) };
       } catch (err) {
         return { ok: false, error: err.message, code: err.code };
       }
@@ -665,8 +671,10 @@ export function makeHandlers(projectRoot) {
       const next = link.ok
         ? ` Send them this link to join: ${link.url} — they add it as a custom connector and sign in.`
         : link.code === 'NO_DEPLOY_URL'
-          ? ' There is no link to send them yet: this project has no deploy URL recorded, so nothing has been handed out. '
-            + 'Set it with config_set key "deployUrl", then get_connect_url.'
+          ? ' This project has no deploy URL recorded, so the server could not build the link. '
+            + 'You already have it: give them the address of the connector this conversation is using, '
+            + 'which is the same project. Then have the manager set config_set key "deployUrl" to its '
+            + 'origin so the next invite does not need you to.'
           : ` The link could not be worked out: ${link.error}`;
 
       return textResult({
@@ -814,7 +822,9 @@ export function makeHandlers(projectRoot) {
       return textResult({
         error: link.error,
         reportBack: link.code === 'NO_DEPLOY_URL'
-          ? 'Tell the user: this project has no deploy URL recorded, so there is no connector to hand out. Set it with config_set key "deployUrl" if the project is deployed.'
+          ? 'Tell the user: this project has no deploy URL recorded, so the server could not build the link — '
+            + 'but you already have it. Give them the address of the connector this conversation is using; it is the '
+            + 'same project. Then suggest setting config_set key "deployUrl" to its origin so this stops needing you.'
           : `Tell the user: ${link.error}.`,
       });
     },
