@@ -39,6 +39,10 @@ import { listMembers, addMember, removeMember } from '../cli/commands/member.cor
 import { reflectWorkstream } from '../cli/commands/reflect.core.js';
 import { getConfig, setConfig, setReviewPolicy } from '../cli/commands/config.core.js';
 import { resolveActor } from '../src/actor.js';
+import { canApprove } from '../src/review.js';
+import {
+  scopeFor, assertInScope, visibleWorkstreams, defaultWorkstream,
+} from '../src/member-scope.js';
 import { resolveActiveWorkstream, resolveIdentity, resolveDisplayName } from '../src/prefs.js';
 import { INSTRUCTIONS } from './instructions.js';
 
@@ -136,6 +140,7 @@ export const TOOLS = [
       properties: {
         question: { type: 'string' },
         role: { type: 'string', description: 'Optional role slug to add role-specific context' },
+        workstream: { type: 'string', description: "Answer from one workstream. Omit for the caller's own — which is the whole project unless they are scoped to less." },
         audit: { type: 'boolean', description: 'When true, append a detailed source list; when false (default), append a one-line contributor summary' },
       },
       required: ['question'], additionalProperties: false,
@@ -536,6 +541,36 @@ export function makeHandlers(projectRoot) {
     };
   };
 
+  /**
+   * Which workstreams this caller may reach, or null for the whole project.
+   *
+   * Worked out per request rather than carried on the actor: the roster lives
+   * in the repo, so a scope changed by the manager takes effect on the next
+   * call rather than whenever a session happens to be rebuilt.
+   */
+  const scope = async (teamctxDir, config) => {
+    const actor = await resolveActor({ config, cwd: gitCwd });
+    const displayName = await resolveDisplayName({ actor, config, teamctxDir });
+    return scopeFor(config, actor, {
+      isManager: canApprove(config, { actor, displayName }),
+    });
+  };
+
+  /**
+   * The workstream a call should act on.
+   *
+   * An id the caller named is checked; one they did not is their own default,
+   * clamped to what they may reach. So an agent can pass a workstream when the
+   * user names one and leave it out when they do not, and neither choice is
+   * what decides the boundary — omitting it cannot widen anything.
+   */
+  const targetWorkstream = async (teamctxDir, config, named) => {
+    const allowed = await scope(teamctxDir, config);
+    if (named) return assertInScope(allowed, named);
+    const actor = await resolveActor({ config, cwd: gitCwd });
+    return defaultWorkstream(allowed, await resolveActiveWorkstream({ actor, config, teamctxDir }));
+  };
+
   return {
     async get_context() {
       const teamctxDir = dir();
@@ -545,22 +580,38 @@ export function makeHandlers(projectRoot) {
         ...listWorkstreamIds(teamctxDir),
       ]);
       if (ids.size === 0) ids.add('main');
-      const workstreams = [...ids].sort().map(id => ({ id, tree: readWorkstream(id, teamctxDir) }));
-      return textResult({ workstreams });
+      const allowed = await scope(teamctxDir, config);
+      const workstreams = visibleWorkstreams(allowed, [...ids].sort())
+        .map(id => ({ id, tree: readWorkstream(id, teamctxDir) }));
+      return textResult({ workstreams, ...(allowed ? { scopedTo: allowed } : {}) });
     },
 
     async list_workstreams() {
+      const teamctxDir = dir();
+      const allowed = await scope(teamctxDir, readConfig(teamctxDir));
+      const all = await listAllWorkstreams({ teamctxDir, projectDir: gitCwd });
+      const ids = visibleWorkstreams(allowed, all.map(w => w.id));
       return textResult({
-        workstreams: await listAllWorkstreams({ teamctxDir: dir(), projectDir: gitCwd }),
+        workstreams: all.filter(w => ids.includes(w.id)),
+        ...(allowed ? { scopedTo: allowed } : {}),
       });
     },
 
     async get_workstream({ id }) {
-      return textResult(readWorkstream(id, dir()));
+      const teamctxDir = dir();
+      assertInScope(await scope(teamctxDir, readConfig(teamctxDir)), id);
+      return textResult(readWorkstream(id, teamctxDir));
     },
 
     async get_role_context({ role }) {
-      return textResult(readRoleFile(role, dir()));
+      const teamctxDir = dir();
+      const config = readConfig(teamctxDir);
+      // A role is a compiled view of one workstream, so reading it is reading
+      // that workstream — a scope that stopped at get_workstream would be
+      // walked around by asking for the role instead.
+      const found = (config.roles || []).find(r => r.slug === role);
+      if (found) assertInScope(await scope(teamctxDir, config), found.workstream || 'main');
+      return textResult(readRoleFile(role, teamctxDir));
     },
 
     async list_roles() {
@@ -617,6 +668,7 @@ export function makeHandlers(projectRoot) {
       const r = await addMember({
         ref: args.ref,
         name: args.name,
+        workstreams: args.workstreams,
         invite: !!args.invite,
         permission: args.permission || 'push',
         // Hosted requests carry the repo they are scoped to, and the caller's
@@ -649,13 +701,21 @@ export function makeHandlers(projectRoot) {
       const teamctxDir = dir();
       const config = readConfig(teamctxDir);
       const actor = await resolveActor({ config, cwd: gitCwd });
-      const activeWorkstream = await resolveActiveWorkstream({ actor, config, teamctxDir });
+      const allowed = await scope(teamctxDir, config);
+      const activeWorkstream = await targetWorkstream(teamctxDir, config, args.workstream);
       // The server already knows who is calling, so "what are my tasks?" does
       // not need the caller to know what this project calls them.
       const me = await resolveDisplayName({ actor, config, teamctxDir });
-      return textResult(listTasksFiltered({
+      const r = listTasksFiltered({
         ...args, activeWorkstream, teamctxDir, me, myKey: actor.key,
-      }));
+      });
+      // Filtered after the fact as well as before: `all: true` asks across
+      // every workstream, and a scope has to survive that rather than be
+      // undone by an argument.
+      const tasks = allowed
+        ? (r.tasks || []).filter(t => allowed.includes(t.workstream || 'main'))
+        : r.tasks;
+      return textResult({ ...r, tasks, ...(allowed ? { scopedTo: allowed } : {}) });
     },
 
     async get_task(args = {}) {
@@ -790,7 +850,8 @@ export function makeHandlers(projectRoot) {
       return textResult(await getConfig({ teamctxDir: dir(), projectDir: gitCwd }));
     },
 
-    async ask({ question, role, audit }) {
+    async ask(args = {}) {
+      const { question, role, audit } = args;
       const teamctxDir = dir();
       const config = readConfig(teamctxDir);
       let roleMd = '';
@@ -803,7 +864,7 @@ export function makeHandlers(projectRoot) {
         roleMd = readRoleFile(role, teamctxDir);
       }
       const sharedMd = readSharedMd(teamctxDir);
-      const { workstream: activeWorkstreamId } = await who(teamctxDir, config);
+      const activeWorkstreamId = await targetWorkstream(teamctxDir, config, args.workstream);
       const workstream = readWorkstream(activeWorkstreamId, teamctxDir);
       const contributions = readContributions(teamctxDir);
       const answer = await answerQuestion({
@@ -828,14 +889,15 @@ export function makeHandlers(projectRoot) {
     },
 
     async contribute(args) {
+      const teamctxDir = dir();
       const r = await contributeCore({
         text: args.text,
         author: args.author,
-        workstreamId: args.workstream,
+        workstreamId: await targetWorkstream(teamctxDir, readConfig(teamctxDir), args.workstream),
         decision: !!args.decision,
         apply: !!args.apply,
         source: 'mcp',
-        teamctxDir: dir(),
+        teamctxDir,
         projectDir: gitCwd,
       });
       return textResult({ ...r, reportBack: reportBackContribute(r) });
@@ -909,6 +971,7 @@ export function makeHandlers(projectRoot) {
     },
 
     async workstream_use({ id }) {
+      assertInScope(await scope(dir(), readConfig(dir())), id);
       const r = await useWorkstream({ id, teamctxDir: dir(), projectDir: gitCwd });
       return textResult({
         ...r,

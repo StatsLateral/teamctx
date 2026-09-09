@@ -444,3 +444,78 @@ describe('project members on the hosted server', () => {
     expect(r.reportBack).toMatch(/GitHub access is unchanged/);
   });
 });
+
+describe('a member scoped to one workstream', () => {
+  // The claim this change rests on and the one that cannot be made from the
+  // CLI: Bob signs in with Google, has no repository access of his own, and
+  // every read he makes goes through this server. So for him the scope is a
+  // boundary rather than a label — which is exactly what has to be proven.
+  const RAVI = { key: 'git:ravi@example.com', name: 'Ravi', login: null, email: 'ravi@example.com', source: 'google' };
+
+  const scoped = (workstreams = ['engineering']) => {
+    const s = fakeSession();
+    s.write('.teamctx/config.json', JSON.stringify({
+      ...CONFIG,
+      workstreams: [{ id: 'main', name: 'Main' }, { id: 'engineering', name: 'Engineering' }],
+      members: [{ key: RAVI.key, name: 'Ravi', email: RAVI.email, login: null, workstreams }],
+    }));
+    s.write('.teamctx/workstreams/engineering.json', JSON.stringify({ id: 'engineering', name: 'Engineering', whys: [] }));
+    return s;
+  };
+
+  it('sees only their own workstream in the whole context', async () => {
+    const r = await asUser(scoped(), RAVI, h => json(h.get_context()));
+    expect(r.workstreams.map(w => w.id)).toEqual(['engineering']);
+    expect(r.scopedTo).toEqual(['engineering']);
+  });
+
+  it('sees only their own in the listing', async () => {
+    const r = await asUser(scoped(), RAVI, h => json(h.list_workstreams()));
+    expect(r.workstreams.map(w => w.id)).toEqual(['engineering']);
+  });
+
+  it('cannot read another workstream by naming it', async () => {
+    await expect(asUser(scoped(), RAVI, h => h.get_workstream({ id: 'main' })))
+      .rejects.toThrow(/no workstream "main"/);
+  });
+
+  it('cannot switch to one outside the scope', async () => {
+    await expect(asUser(scoped(), RAVI, h => h.workstream_use({ id: 'main' })))
+      .rejects.toThrow(/no workstream "main"/);
+  });
+
+  it('cannot reach one by asking about it', async () => {
+    // The decision worth writing down: omitting the argument must not widen
+    // anything, so the server clamps rather than trusting what was passed.
+    await expect(asUser(scoped(), RAVI, h => h.ask({ question: 'what?', workstream: 'main' })))
+      .rejects.toThrow(/no workstream "main"/);
+  });
+
+  it('still reads the one they are on', async () => {
+    const r = await asUser(scoped(), RAVI, h => json(h.get_workstream({ id: 'engineering' })));
+    expect(r.id).toBe('engineering');
+  });
+
+  it('leaves an unscoped member seeing everything', async () => {
+    const s = scoped();
+    const cfg = s.configJson();
+    delete cfg.members[0].workstreams;
+    s.write('.teamctx/config.json', JSON.stringify(cfg));
+    const r = await asUser(s, RAVI, h => json(h.get_context()));
+    expect(r.workstreams.map(w => w.id)).toContain('main');
+    expect(r.workstreams.map(w => w.id)).toContain('engineering');
+    expect(r.scopedTo).toBeUndefined();
+  });
+
+  it('never scopes the manager, even if the roster tries to', async () => {
+    // A manager who could not read half the project could not review
+    // contributions to that half, which is the one thing only they can do.
+    const s = scoped();
+    const cfg = s.configJson();
+    cfg.members.push({ key: ALICE.key, name: 'Alice Example', login: 'alice', workstreams: ['engineering'] });
+    s.write('.teamctx/config.json', JSON.stringify(cfg));
+    const r = await asUser(s, ALICE, h => json(h.get_context()));
+    expect(r.workstreams.map(w => w.id)).toContain('main');
+    expect(r.scopedTo).toBeUndefined();
+  });
+});

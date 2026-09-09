@@ -146,6 +146,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   upgrade for an existing project; choosing `none` restores it.
 
 ### Added
+- **A member can be put on named workstreams instead of the whole project.**
+  `workstreams` on the roster entry, set with `teamctx member add <ref>
+  --workstream <id>` or the `workstreams` parameter on `member_add`, and
+  changed later with `teamctx member scope`. Both are manager-gated: scope
+  decides what someone may read, so a member able to widen their own is not
+  scoped at all. A member with no list is project-wide, which is every member
+  that exists today — nothing changes on upgrade.
+  Enforced at the server for anyone who signs in with Google. Since #50 they
+  have no repository access of their own and every read runs on the project's
+  lent credential, so the server is their only path and the scope is a boundary
+  rather than a label: `get_context`, `list_workstreams`, `get_workstream`,
+  `get_role_context`, `ask`, `list_tasks`, `contribute` and `workstream_use`
+  all honour it, and a workstream outside the scope is refused with the words
+  an unknown one gets, since "you may not read X" teaches that X exists.
+  `ask` and `list_tasks` take a workstream argument so an agent can narrow when
+  the user names one — but the server clamps either way, so leaving it out
+  cannot widen anything and the boundary never depends on the agent choosing
+  well.
+  It stays advisory for a GitHub collaborator, who holds a clone and reads
+  every workstream in it. The CLI output and the `member_add` tool description
+  say which of the two a person is, rather than implying a wall that is not
+  there.
+
 - **The manager chooses how much of a contribution needs their approval.**
   Review was all-or-nothing and unsettable: every contribution queued, so on a
   small project one person approved every note anyone wrote before anyone else
