@@ -89,17 +89,21 @@ placed.
 - `contribute` / `ask` / `reflect` gain a project-level target (alongside the
   existing `--workstream <id>`), so the manager can add to project context
   without it landing in a workstream.
+- **`main` disappears.** The project tree *is* the base — there is no longer a
+  default `main` workstream doing double duty. A project has a project tree and
+  zero or more named workstreams; `activeWorkstream` may be unset (meaning
+  "operating at project level").
 - **Migration** (idempotent, same pattern as the existing workstreams
-  migration): today's `main` workstream content becomes the project tree.
-  Existing split workstreams keep their own nodes and now additionally inherit
-  the project tree. A project with only `main` ends up with a project tree and
-  no separate workstreams — unchanged in its compiled output.
+  migration): today's `main` workstream content becomes the project tree, and
+  `main` is removed from `workstreams[]`. Existing split workstreams keep their
+  own nodes and now additionally inherit the project tree. Roles currently bound
+  to `main` rebind to project level. A project with only `main` ends up with a
+  project tree and no separate workstreams — unchanged in its compiled output.
+  Any `--workstream main` / `activeWorkstream: main` reference resolves to
+  project level after migration.
 - **Inheritance is a filter at compile time, not a copy.** A workstream's stored
   JSON never contains project nodes; the compiler concatenates. Editing project
   context regenerates every workstream's compiled files.
-- Open sub-question for the issue: does `main` disappear entirely (project tree
-  replaces it) or remain as an ordinary empty-by-default workstream? Lean
-  toward **`main` disappears** — the model says the project tree *is* the base.
 
 ### 2. AI proposes the workstream + membership structure to the manager — #81
 
