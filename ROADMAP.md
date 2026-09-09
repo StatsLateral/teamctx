@@ -26,7 +26,7 @@ The previous roadmap is nearly all built (thank you, contributors!):
 - **MCP server, full surface** — every command callable from Claude Desktop/Code, Cursor, etc., with a tiered safety model and manager-identity gate
 - **Manager approval queue** — contributions wait as durable pending objects; `review list/approve/reject`
 - **Context snapshots** — freeze and approve known-good states of the whole workspace
-- **AI-suggested sub-workstreams** — `workstream suggest` / `split`, nested workstreams
+- **AI-suggested workstream splits** — `workstream suggest` / `split` carve one Why/What/How tree into peer workstreams (not nested — workstreams are peers)
 - **Tasks as first-class objects** — cheap local task CRUD + on-demand AI prompt compile per task
 - **Bring-your-own-agent recipes** — copy-paste prompts for Claude Code, Cursor, ChatGPT
 - **`ask` citations & audit** (#16) — every answer names the contributions it drew from; `ask --audit` expands the full source list
