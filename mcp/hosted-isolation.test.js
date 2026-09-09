@@ -519,3 +519,64 @@ describe('a member scoped to one workstream', () => {
     expect(r.scopedTo).toBeUndefined();
   });
 });
+
+describe('changing a scope from a chat client', () => {
+  // A manager scoping somebody is far likelier to be in a chat than a
+  // terminal, so leaving this CLI-only would have made the feature reachable
+  // mainly from the surface its users are not on.
+  const withTwo = () => {
+    const s = fakeSession();
+    s.write('.teamctx/config.json', JSON.stringify({
+      ...CONFIG,
+      workstreams: [{ id: 'main', name: 'Main' }, { id: 'engineering', name: 'Engineering' }],
+      members: [{ key: 'git:ravi@example.com', name: 'Ravi', email: 'ravi@example.com', login: null }],
+    }));
+    return s;
+  };
+
+  it('scopes a member and commits', async () => {
+    const s = withTwo();
+    const r = await asUser(s, ALICE, h => json(h.member_scope({ ref: 'ravi@example.com', workstreams: ['engineering'] })));
+    expect(r.member.workstreams).toEqual(['engineering']);
+    expect(s.configJson().members[0].workstreams).toEqual(['engineering']);
+    expect(r.reportBack).toMatch(/now on engineering/);
+  });
+
+  it('clears the scope when no workstreams are given', async () => {
+    const s = withTwo();
+    await asUser(s, ALICE, h => json(h.member_scope({ ref: 'ravi@example.com', workstreams: ['engineering'] })));
+    const r = await asUser(s, ALICE, h => json(h.member_scope({ ref: 'ravi@example.com' })));
+    expect('workstreams' in r.member).toBe(false);
+    expect(r.reportBack).toMatch(/whole project/);
+  });
+
+  it('refuses a member who is not the manager', async () => {
+    // Scope decides what a member may read, so one who can widen their own is
+    // not scoped at all.
+    const s = withTwo();
+    await expect(asUser(s, BOB, h => h.member_scope({ ref: 'ravi@example.com', workstreams: ['engineering'] })))
+      .rejects.toThrow(/only the configured manager/);
+    expect(s.configJson().members[0].workstreams).toBeUndefined();
+  });
+
+  it('refuses a workstream the project does not have', async () => {
+    const s = withTwo();
+    await expect(asUser(s, ALICE, h => h.member_scope({ ref: 'ravi@example.com', workstreams: ['nope'] })))
+      .rejects.toThrow(/no workstream "nope"/);
+  });
+
+  it('says the scope is advisory for a collaborator with a clone', async () => {
+    const s = withTwo();
+    const cfg = s.configJson();
+    cfg.members = [{ key: 'github:7', name: 'Priya', login: 'priyar', email: null }];
+    s.write('.teamctx/config.json', JSON.stringify(cfg));
+    const r = await asUser(s, ALICE, h => json(h.member_scope({ ref: 'priyar', workstreams: ['engineering'] })));
+    expect(r.reportBack).toMatch(/advisory/i);
+  });
+
+  it('does not call it advisory for somebody with no clone', async () => {
+    const s = withTwo();
+    const r = await asUser(s, ALICE, h => json(h.member_scope({ ref: 'ravi@example.com', workstreams: ['engineering'] })));
+    expect(r.reportBack).not.toMatch(/advisory/i);
+  });
+});

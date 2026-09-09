@@ -35,7 +35,7 @@ import { contributeCore } from '../cli/commands/contribute.core.js';
 import {
   listTasksFiltered, getTask, addTask, setTaskStatus, assignTask, removeTask, compileTask,
 } from '../cli/commands/task.core.js';
-import { listMembers, addMember, removeMember } from '../cli/commands/member.core.js';
+import { listMembers, addMember, removeMember, setMemberWorkstreams } from '../cli/commands/member.core.js';
 import { reflectWorkstream } from '../cli/commands/reflect.core.js';
 import { getConfig, setConfig, setReviewPolicy } from '../cli/commands/config.core.js';
 import { resolveActor } from '../src/actor.js';
@@ -456,6 +456,21 @@ export const TOOLS = [
     },
   },
   {
+    name: 'member_scope',
+    description: RISKY + "changes which workstreams an existing member may reach, and commits. Manager-gated against the authenticated caller. Pass `workstreams` to limit them; omit it to give them the whole project again, which is what every member has by default. Enforced for somebody who signs in with Google and reaches the project through this server; advisory for a GitHub collaborator, who holds a clone and reads every workstream in it — say which of the two they are rather than implying a wall that is not there. Confirm the person and the workstreams before calling." + REPORT,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ref: { type: 'string', description: 'GitHub username, email address, or the name they are on the roster under' },
+        workstreams: {
+          type: 'array', items: { type: 'string' },
+          description: 'Workstreams they may reach. Omit to clear the scope and return them to the whole project.',
+        },
+      },
+      required: ['ref'], additionalProperties: false,
+    },
+  },
+  {
     name: 'member_rm',
     description: RISKY + 'removes a person from the project roster and commits. Manager-gated. Does **not** revoke their GitHub access — that has to be done on GitHub, and saying otherwise would leave a manager believing access was withdrawn when it was not.' + REPORT,
     inputSchema: {
@@ -686,6 +701,24 @@ export function makeHandlers(projectRoot) {
         : r.member.login ? ' — not invited to the repository, so they cannot clone it yet'
         : '';
       return textResult({ ...r, reportBack: `${r.member.name} added to the project${access}.` });
+    },
+
+    async member_scope(args = {}) {
+      const r = await setMemberWorkstreams({
+        ref: args.ref,
+        workstreams: args.workstreams,
+        teamctxDir: dir(),
+        projectDir: gitCwd,
+      });
+      const where = r.workstreams
+        ? `now on ${r.workstreams.join(', ')}`
+        : 'now on the whole project';
+      // Said every time rather than only when scoping, because the manager is
+      // most likely to believe in the wall at the moment they put one up.
+      const honest = r.workstreams && r.member.login
+        ? ' Advisory for them: a GitHub collaborator holds a clone and reads every workstream in it.'
+        : '';
+      return textResult({ ...r, reportBack: `${r.member.name} is ${where}.${honest}` });
     },
 
     async member_rm(args = {}) {
