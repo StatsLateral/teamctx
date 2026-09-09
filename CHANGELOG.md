@@ -12,10 +12,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   roster entry and reported success; the link that person needs to reach the
   project took a second call, and on a real project that call was never made —
   two people were added, both told they were in, and neither was sent anything.
-  It now returns `connectUrl` with the member, and when there is no link to
-  give (the project has no `deployUrl`) it says so instead of reporting a clean
-  success. `get_connect_url` shares the same resolution, so the two cannot
-  disagree about the URL.
+  It now returns `connectUrl` with the member, and `get_connect_url` shares the
+  same resolution so the two cannot disagree about the URL.
+  The link was also failing for a second reason: it was built only from a
+  recorded `deployUrl`, and no project created through the web flow has one —
+  so every one of them refused to hand out its own connector. A hosted request
+  arrives at the address it would name, so the server now falls back to that
+  host when nothing is recorded. `deployUrl` remains an override, and remains a
+  genuine prerequisite on a clone, which has no request to read.
+  And nothing tells a caller there is no link any more. Whoever is asking
+  reached the project through a connector, so a link demonstrably exists; when
+  the server cannot build one it says to hand over the address of the connector
+  already in use rather than sending the manager off to configure something
+  before they can invite anyone.
 
 - **A project created on the web was born with a gate its own creator could not
   pass.** `init` ran inside a session but with no ambient actor, so the caller
