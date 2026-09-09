@@ -1,7 +1,7 @@
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import {
-  listMembers, addMember, removeMember,
+  listMembers, addMember, removeMember, setMemberWorkstreams,
   MemberNotFoundError, MemberExistsError, InviteNeedsLoginError,
 } from './member.core.js';
 import { ManagerGateError } from './review.core.js';
@@ -53,6 +53,7 @@ export async function memberAddCommand(ref, opts = {}) {
       name: opts.name,
       invite: !!opts.invite,
       permission: opts.permission || 'push',
+      workstreams: opts.workstream,
       owner,
       repo,
     });
@@ -73,6 +74,42 @@ export async function memberAddCommand(ref, opts = {}) {
     // The common mistake: a roster entry looks like access, and is not.
     console.log(`  Not invited to the repository. Re-run with --invite, or add them on GitHub.`);
   }
+  printScope(m);
+  console.log('');
+}
+
+/**
+ * Say what a scope does and does not do.
+ *
+ * A scope is enforced for someone reaching the project through the server —
+ * they have no repository access of their own, so it is their only path. It is
+ * advisory for anyone with a clone, who reads every workstream in the checkout
+ * regardless. Saying so costs a line and stops a manager believing they have
+ * partitioned something they have not.
+ */
+function printScope(member) {
+  if (!member.workstreams?.length) return;
+  console.log(`  Scoped to: ${member.workstreams.join(', ')}`);
+  if (member.login) {
+    console.log('  Advisory only for them: a GitHub collaborator holds a clone and reads');
+    console.log('  every workstream in it. The scope is enforced for members who sign in');
+    console.log('  with Google and reach the project through the server.');
+  }
+}
+
+export async function memberScopeCommand(ref, opts = {}) {
+  let result;
+  try {
+    result = await setMemberWorkstreams({ ref, workstreams: opts.workstream });
+  } catch (err) { reportAndExit(err); }
+
+  const m = result.member;
+  console.log(result.workstreams
+    ? `
+✓ ${m.name} is now scoped to ${result.workstreams.join(', ')}.`
+    : `
+✓ ${m.name} is now on the whole project.`);
+  printScope(m);
   console.log('');
 }
 

@@ -25,7 +25,7 @@ import {
   snapshotApproveCommand, snapshotRejectCommand, snapshotCurrentCommand,
 } from './commands/snapshot.js';
 import { setupCommand } from './commands/setup.js';
-import { memberAddCommand, memberListCommand, memberRmCommand } from './commands/member.js';
+import { memberAddCommand, memberListCommand, memberRmCommand, memberScopeCommand } from './commands/member.js';
 import { mcpCommand } from './commands/mcp.js';
 import { connectCommand } from './commands/connect.js';
 import { workstreamSuggestCommand, workstreamListCommand, workstreamUseCommand, workstreamSplitCommand } from './commands/workstream.js';
@@ -111,7 +111,11 @@ member.command('add <username-or-email>').description('Add someone to the projec
   .option('--name <name>', 'Display name, if different from the handle')
   .option('--invite', 'Also invite them to the GitHub repository')
   .option('--permission <level>', 'Repository permission when inviting (pull|triage|push|maintain|admin)', 'push')
+  .option('--workstream <id...>', 'Limit them to these workstreams (default: the whole project)')
   .action(memberAddCommand);
+member.command('scope <username-or-email>').description('Change which workstreams a member may reach (manager only)')
+  .option('--workstream <id...>', 'Workstreams they may reach; omit to give them the whole project')
+  .action(memberScopeCommand);
 member.command('list').description('List project members').action(memberListCommand);
 member.command('rm <username-or-email>').description('Remove someone from the project roster (does not revoke GitHub access)')
   .action(memberRmCommand);

@@ -16,9 +16,10 @@ vi.mock('../../src/prefs.js', () => ({
 }));
 
 import { readConfig, writeConfig } from '../../src/storage.js';
+import { resolveActor } from '../../src/actor.js';
 import { commitContext } from '../../src/git.js';
 import {
-  listMembers, addMember, removeMember, parseMemberRef, noreplyEmail,
+  listMembers, addMember, removeMember, setMemberWorkstreams, parseMemberRef, noreplyEmail,
   MemberNotFoundError, MemberExistsError, InviteNeedsLoginError,
 } from './member.core.js';
 import { ManagerGateError } from './review.core.js';
@@ -211,5 +212,107 @@ describe('listMembers', () => {
   it('is empty rather than undefined on a project that has none', () => {
     readConfig.mockReturnValue({ project: 'Ledger' });
     expect(listMembers({})).toEqual([]);
+  });
+});
+
+describe('scoping a member to workstreams', () => {
+  const withWorkstreams = (over = {}) => config({
+    workstreams: [{ id: 'main', name: 'Main' }, { id: 'engineering', name: 'Engineering' }],
+    ...over,
+  });
+
+  beforeEach(() => readConfig.mockReturnValue(withWorkstreams()));
+
+  it('records the scope on the roster entry', async () => {
+    const r = await addMember({ ref: 'ravi', workstreams: ['engineering'] });
+    expect(r.member.workstreams).toEqual(['engineering']);
+    expect(writeConfig.mock.calls[0][0].members[0].workstreams).toEqual(['engineering']);
+  });
+
+  it('leaves the field off entirely for a project-wide member', async () => {
+    // So a roster written before scopes existed and one written after are the
+    // same shape, and "no scope" never has to be told from "empty scope".
+    const r = await addMember({ ref: 'ravi' });
+    expect('workstreams' in r.member).toBe(false);
+  });
+
+  it('refuses a workstream the project does not have', async () => {
+    // Silent and expensive otherwise: a typo produces a member scoped to
+    // nothing, who can reach nothing, with no message saying why.
+    await expect(addMember({ ref: 'ravi', workstreams: ['enginering'] }))
+      .rejects.toThrow(/no workstream "enginering"/);
+    expect(writeConfig).not.toHaveBeenCalled();
+  });
+
+  it('names what the project does have when it refuses', async () => {
+    const err = await addMember({ ref: 'ravi', workstreams: ['nope'] }).catch(e => e);
+    expect(err.message).toContain('main');
+    expect(err.message).toContain('engineering');
+  });
+
+  it('treats an empty list as project-wide rather than as nothing', async () => {
+    const r = await addMember({ ref: 'ravi', workstreams: [] });
+    expect('workstreams' in r.member).toBe(false);
+  });
+
+  it('accepts a single id without an array', async () => {
+    const r = await addMember({ ref: 'ravi', workstreams: 'engineering' });
+    expect(r.member.workstreams).toEqual(['engineering']);
+  });
+});
+
+describe('changing a member\'s scope afterwards', () => {
+  const scoped = { key: 'github:ravi', name: 'Ravi', login: 'ravi', email: null, workstreams: ['engineering'] };
+  const withRoster = () => config({
+    workstreams: [{ id: 'main', name: 'Main' }, { id: 'engineering', name: 'Engineering' }],
+    members: [scoped],
+  });
+
+  beforeEach(() => {
+    // `clearAllMocks` clears calls but keeps implementations, so an earlier
+    // test's non-manager actor would otherwise leak into the rest of these.
+    resolveActor.mockResolvedValue(MANAGER);
+    readConfig.mockReturnValue(withRoster());
+  });
+
+  it('widens a scope', async () => {
+    const r = await setMemberWorkstreams({ ref: 'ravi', workstreams: ['main', 'engineering'] });
+    expect(r.member.workstreams).toEqual(['main', 'engineering']);
+  });
+
+  it('clears it back to project-wide when given nothing', async () => {
+    const r = await setMemberWorkstreams({ ref: 'ravi' });
+    expect('workstreams' in r.member).toBe(false);
+    expect(r.workstreams).toBe(null);
+  });
+
+  it('refuses somebody who is not the manager', async () => {
+    // Scope decides what a member can read, so a member who can widen their own
+    // is not scoped at all.
+    resolveActor.mockResolvedValue(OTHER);
+    await expect(setMemberWorkstreams({ ref: 'ravi', workstreams: ['main'] }))
+      .rejects.toThrow(ManagerGateError);
+    expect(writeConfig).not.toHaveBeenCalled();
+  });
+
+  it('refuses an unknown member', async () => {
+    await expect(setMemberWorkstreams({ ref: 'nobody', workstreams: ['main'] }))
+      .rejects.toThrow(MemberNotFoundError);
+  });
+
+  it('refuses an unknown workstream', async () => {
+    await expect(setMemberWorkstreams({ ref: 'ravi', workstreams: ['nope'] }))
+      .rejects.toThrow(/no workstream "nope"/);
+    expect(writeConfig).not.toHaveBeenCalled();
+  });
+
+  it('records what changed in the commit', async () => {
+    await setMemberWorkstreams({ ref: 'ravi', workstreams: ['main'] });
+    expect(commitContext.mock.calls[0][0]).toMatch(/scope Ravi to main/);
+  });
+
+  it('says so when the scope is cleared', async () => {
+    await setMemberWorkstreams({ ref: 'ravi' });
+    expect(commitContext.mock.calls[0][0]).toMatch(/the whole project/);
   });
 });
