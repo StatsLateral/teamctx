@@ -444,3 +444,43 @@ describe('project members on the hosted server', () => {
     expect(r.reportBack).toMatch(/GitHub access is unchanged/);
   });
 });
+
+describe('adding someone hands over the link that lets them in', () => {
+  // Observed on a real project: two people were added, the tool reported
+  // success twice, and neither was ever sent anything — the connector URL took
+  // a second call nobody made. Roster entry plus no link invites nobody.
+  it('returns the connect URL alongside the new member', async () => {
+    const session = fakeSession();
+    await asUser(session, ALICE, h => json(h.config_set({ key: 'deployUrl', value: 'https://x.vercel.app' })));
+    const r = await asUser(session, ALICE, h => json(h.member_add({ ref: 'ravi@example.com', name: 'Ravi' })));
+    expect(r.member.name).toBe('Ravi');
+    expect(r.connectUrl).toContain('x.vercel.app');
+    expect(r.reportBack).toContain(r.connectUrl);
+  });
+
+  it('says there is no link rather than reporting a clean success', async () => {
+    // The failure the manager actually hit. "Added to the project" on its own
+    // is true and leaves them believing somebody was invited.
+    const session = fakeSession();
+    const r = await asUser(session, ALICE, h => json(h.member_add({ ref: 'ravi@example.com', name: 'Ravi' })));
+    expect(r.connectUrl).toBe(null);
+    expect(r.reportBack).toMatch(/no link to send/i);
+    expect(r.reportBack).toMatch(/deployUrl/);
+  });
+
+  it('still reports the roster entry when there is no link', async () => {
+    const session = fakeSession();
+    const r = await asUser(session, ALICE, h => json(h.member_add({ ref: 'ravi@example.com', name: 'Ravi' })));
+    expect(r.reportBack).toMatch(/Ravi added to the project/);
+    expect(session.configJson().members.some(m => m.email === 'ravi@example.com')).toBe(true);
+  });
+
+  it('gives get_connect_url and member_add the same link', async () => {
+    // One resolution, so the two cannot drift into disagreeing about the URL.
+    const session = fakeSession();
+    await asUser(session, ALICE, h => json(h.config_set({ key: 'deployUrl', value: 'https://x.vercel.app' })));
+    const added = await asUser(session, ALICE, h => json(h.member_add({ ref: 'ravi@example.com', name: 'Ravi' })));
+    const direct = await asUser(session, ALICE, h => json(h.get_connect_url()));
+    expect(added.connectUrl).toBe(direct.url);
+  });
+});

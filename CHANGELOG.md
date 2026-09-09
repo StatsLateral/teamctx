@@ -8,6 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **Adding someone to a project handed over nothing.** `member_add` wrote the
+  roster entry and reported success; the link that person needs to reach the
+  project took a second call, and on a real project that call was never made —
+  two people were added, both told they were in, and neither was sent anything.
+  It now returns `connectUrl` with the member, and when there is no link to
+  give (the project has no `deployUrl`) it says so instead of reporting a clean
+  success. `get_connect_url` shares the same resolution, so the two cannot
+  disagree about the URL.
+
 - **A project created on the web was born with a gate its own creator could not
   pass.** `init` ran inside a session but with no ambient actor, so the caller
   resolved from `config.me` to `name:<display name>` — a key nobody can present
