@@ -146,6 +146,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   upgrade for an existing project; choosing `none` restores it.
 
 ### Added
+- **Project context is its own layer, and workstreams inherit it.** A workstream
+  used to be a standalone tree, and `workstream split` *moved* Whys out of
+  `main` — they partitioned, and nothing was shared. So a member scoped to one
+  workstream got a complete tree and an incoherent brief: the constraints every
+  node in it depended on lived in a sibling tree they could not see.
+  There is now a project Why/What/How tree in `.teamctx/project.json`, governed
+  by the same contribution → approval pipeline, and every compile path renders
+  it above the workstream's own, marked read-only. Inheritance is concatenation
+  at compile time — a workstream's stored JSON never holds project nodes, so
+  editing project context changes every compiled view without rewriting a
+  single workstream file.
+  `contribute`, `ask`, `reflect`, `get_workstream` and `workstream use` all take
+  the project as a target: naming no workstream means the project, and
+  `workstream use` with no id goes back to it, so picking a workstream is not a
+  one-way door out of the whole picture. A scoped member (#77) always sees the
+  project tree — it is the read-only background that makes their own branch
+  legible.
+
+### Changed
+- **`main` no longer exists.** It was created at `init` and did two jobs at
+  once: a workstream, and wherever "the project" had to live because nothing
+  else could. New projects start with a project tree and no workstreams;
+  existing ones are migrated on the next command, in either mode — the older
+  workstreams migration only ever ran on a clone, so hosted projects would
+  have sat unmigrated indefinitely.
+  The migration folds `main` into the project tree, drops it from
+  `workstreams[]`, rebinds `main`-bound roles to project level and unsets
+  `activeWorkstream`. A project whose only workstream was `main` ends up with
+  compiled output that is byte-for-byte what it was. `--workstream main` and a
+  stored `activeWorkstream: "main"` keep resolving, to project level.
+
+### Fixed
+- **The terminal ran a second copy of `contribute` and `reflect`.** Both CLI
+  commands were reimplementations rather than wrappers, and the copies had
+  drifted in both directions: `teamctx contribute` never learned about the
+  review policy, and only the terminal's `reflect` preserved provenance — so a
+  rewrite over MCP dropped every statement's source trail. Both now run the
+  same code the MCP server does.
+- **Approving a project-level contribution would have lost it.** The approve
+  path defaulted a missing workstream to `main`, so a contribution with no
+  workstream would have been written to a file that no longer exists — after
+  review, which is the worst place to lose one. `status` and `snapshot` had the
+  same fallback without the data loss.
+
 - **A member can be put on named workstreams instead of the whole project.**
   `workstreams` on the roster entry, set with `teamctx member add <ref>
   --workstream <id>` or the `workstreams` parameter on `member_add`, and
