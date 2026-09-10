@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **`ask` could not see the project's own context.** It read the caller's
+  target as a workstream, and at project level — where everyone stands unless
+  they choose otherwise — that found nothing, so a project full of context
+  answered "there is no Why/What/How here yet". All three surfaces read the
+  right tree now: the terminal, the `ask` tool, and the hosted ask page, which
+  had been reading a compatibility shim pointing at `main`. A question asked
+  inside a workstream is answered with the project above it, the same
+  inheritance every other compiled view already had. A role that sits at
+  project level is followed there rather than losing to whichever workstream
+  the caller happened to be in.
 - **Splitting the project could not be accepted.** The proposal read the
   project tree, but accepting it still read and wrote through
   `readWorkstream` — at project level that is a workstream whose id is the

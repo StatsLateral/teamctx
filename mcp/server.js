@@ -7,7 +7,7 @@ import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprot
 import {
   getTeamctxDir,
   readConfig, readWorkstream, readProject, listWorkstreamIds,
-  readSharedMd,
+  readTree, readTreeMd,
   readRoleFile,
   readContributions,
 } from '../src/storage.js';
@@ -590,9 +590,15 @@ export function makeHandlers(projectRoot) {
    */
   const targetWorkstream = async (teamctxDir, config, named) => {
     const allowed = await scope(teamctxDir, config);
-    if (named) return assertInScope(allowed, named);
+    // `main` still arrives from habit and from older clients; it means the
+    // project, which is not a workstream and is not scoped.
+    if (named) {
+      const target = resolveTarget(named);
+      return isProjectLevel(target) ? null : assertInScope(allowed, target);
+    }
     const actor = await resolveActor({ config, cwd: gitCwd });
-    return defaultWorkstream(allowed, await resolveActiveWorkstream({ actor, config, teamctxDir }));
+    const chosen = resolveTarget(await resolveActiveWorkstream({ actor, config, teamctxDir }));
+    return defaultWorkstream(allowed, chosen);
   };
 
   return {
@@ -927,13 +933,18 @@ export function makeHandlers(projectRoot) {
         }
         roleMd = readRoleFile(role, teamctxDir);
       }
-      const sharedMd = readSharedMd(teamctxDir);
       const activeWorkstreamId = await targetWorkstream(teamctxDir, config, args.workstream);
-      const workstream = readWorkstream(activeWorkstreamId, teamctxDir);
+      // The project has a tree of its own, and it is where a caller stands
+      // unless they chose otherwise. Reading it as a workstream found nothing,
+      // so a project full of context answered "there is nothing here yet".
+      const workstream = readTree(activeWorkstreamId, teamctxDir);
       const contributions = readContributions(teamctxDir);
       const answer = await answerQuestion({
-        sharedMd, roleMd, question, config,
+        sharedMd: readTreeMd(activeWorkstreamId, teamctxDir), roleMd, question, config,
         workstream, contributions, audit: !!audit,
+        // A workstream answers with the project above it; the project answers
+        // with itself, and passing it twice would repeat every Why.
+        project: isProjectLevel(activeWorkstreamId) ? null : readProject(teamctxDir),
       });
       return textResult(answer);
     },

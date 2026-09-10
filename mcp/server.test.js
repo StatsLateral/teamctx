@@ -11,7 +11,6 @@ vi.mock('../src/storage.js', () => ({
   writeConfig: vi.fn(),
   readWorkstream: vi.fn(),
   listWorkstreamIds: vi.fn(() => []),
-  readSharedMd: vi.fn(),
   readRoleFile: vi.fn(),
   writeRoleFile: vi.fn(),
   appendContribution: vi.fn(),
@@ -72,7 +71,7 @@ import { TOOLS, makeHandlers, buildServer, resolveProjectDir } from './server.js
 import {
   getTeamctxDir,
   readConfig, readWorkstream, writeTree, listWorkstreamIds,
-  readSharedMd, writeTreeMd,
+  readTreeMd, writeTreeMd, readProject,
   readRoleFile, writeRoleFile,
   appendContribution, readContributions, readTree,
 } from '../src/storage.js';
@@ -281,22 +280,47 @@ describe('get_role_context', () => {
 describe('ask', () => {
   it('answers with shared context only when role is omitted', async () => {
     readConfig.mockReturnValue({ ...baseConfig, roles: [] });
-    readSharedMd.mockReturnValue('# Shared');
+    readTreeMd.mockReturnValue('# Shared');
     answerQuestion.mockResolvedValue('The answer.');
 
     const handlers = makeHandlers(ROOT);
     const result = await handlers.ask({ question: 'What?' });
     expect(readConfig).toHaveBeenCalledWith(TDIR);
-    expect(readSharedMd).toHaveBeenCalledWith(TDIR);
+    expect(readTreeMd).toHaveBeenCalledWith(null, TDIR);
     expect(answerQuestion).toHaveBeenCalledWith(expect.objectContaining({
       sharedMd: '# Shared', roleMd: '', question: 'What?',
     }));
     expect(result.content[0].text).toBe('The answer.');
   });
 
+  it('reads the project tree when the caller is at project level', async () => {
+    // It used to read `main`, which no longer exists — so a project holding
+    // everything answered as though it held nothing.
+    readConfig.mockReturnValue({ ...baseConfig, roles: [] });
+    readTree.mockReturnValue({ name: 'Demo', whys: [{ id: 'p1' }] });
+    answerQuestion.mockResolvedValue('answer');
+
+    const handlers = makeHandlers(ROOT);
+    await handlers.ask({ question: 'q?' });
+    expect(readTree).toHaveBeenCalledWith(null, TDIR);
+    expect(answerQuestion).toHaveBeenCalledWith(expect.objectContaining({
+      workstream: expect.objectContaining({ whys: [{ id: 'p1' }] }),
+      project: null,
+    }));
+  });
+
+  it('treats an explicit "main" as the project', async () => {
+    readConfig.mockReturnValue({ ...baseConfig, roles: [] });
+    answerQuestion.mockResolvedValue('answer');
+
+    const handlers = makeHandlers(ROOT);
+    await handlers.ask({ question: 'q?', workstream: 'main' });
+    expect(readTree).toHaveBeenCalledWith(null, TDIR);
+  });
+
   it('includes role markdown when role is provided', async () => {
     readConfig.mockReturnValue({ ...baseConfig, roles: [{ slug: 'cpo' }] });
-    readSharedMd.mockReturnValue('# Shared');
+    readTreeMd.mockReturnValue('# Shared');
     readRoleFile.mockReturnValue('# CPO');
     answerQuestion.mockResolvedValue('answer');
 
@@ -308,14 +332,14 @@ describe('ask', () => {
 
   it('forwards audit:true and the workstream/contributions provenance inputs', async () => {
     readConfig.mockReturnValue({ ...baseConfig, roles: [], activeWorkstream: 'tech' });
-    readSharedMd.mockReturnValue('# Shared');
-    readWorkstream.mockReturnValue({ id: 'tech', name: 'Tech', whys: [] });
+    readTreeMd.mockReturnValue('# Shared');
+    readTree.mockReturnValue({ id: 'tech', name: 'Tech', whys: [] });
     readContributions.mockReturnValue([{ id: 'c1', author: 'alice' }]);
     answerQuestion.mockResolvedValue('answer');
 
     const handlers = makeHandlers(ROOT);
     await handlers.ask({ question: 'q?', audit: true });
-    expect(readWorkstream).toHaveBeenCalledWith('tech', TDIR);
+    expect(readTree).toHaveBeenCalledWith('tech', TDIR);
     expect(answerQuestion).toHaveBeenCalledWith(expect.objectContaining({
       audit: true,
       workstream: expect.objectContaining({ id: 'tech' }),
@@ -323,9 +347,22 @@ describe('ask', () => {
     }));
   });
 
+  it('gives a workstream answer the project tree above it', async () => {
+    readConfig.mockReturnValue({ ...baseConfig, roles: [], activeWorkstream: 'tech' });
+    readTree.mockReturnValue({ id: 'tech', name: 'Tech', whys: [] });
+    readProject.mockReturnValue({ name: 'Demo', whys: [{ id: 'p1' }] });
+    answerQuestion.mockResolvedValue('answer');
+
+    const handlers = makeHandlers(ROOT);
+    await handlers.ask({ question: 'q?' });
+    expect(answerQuestion).toHaveBeenCalledWith(expect.objectContaining({
+      project: expect.objectContaining({ whys: [{ id: 'p1' }] }),
+    }));
+  });
+
   it('defaults audit to false when the arg is omitted', async () => {
     readConfig.mockReturnValue({ ...baseConfig, roles: [] });
-    readSharedMd.mockReturnValue('# Shared');
+    readTreeMd.mockReturnValue('# Shared');
     readWorkstream.mockReturnValue({ id: 'main', name: 'Main', whys: [] });
     readContributions.mockReturnValue([]);
     answerQuestion.mockResolvedValue('answer');
