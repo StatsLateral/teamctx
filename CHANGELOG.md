@@ -17,7 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `suggest_roles` reads the project tree for the same reason — it had been
   suggesting roles for a project it could not see. A role on a workstream is
   compiled with the project above it, the way every other view of that
-  workstream already was.
+  workstream already was. `teamctx role add` in the terminal refused the same
+  case for the same reason, and no longer does.
 - **`get_config` reported `main` as the project's default workstream.** There is
   no such workstream any more; the default is the project itself.
 - **The migration deleted every task that was sitting on `main`.** Tasks live
