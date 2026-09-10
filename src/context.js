@@ -30,19 +30,8 @@ function sourceTag(node) {
 // prompt; `includeContributors` appends the `## Contributors` roll-up. The
 // roll-up belongs in the markdown we write to disk, not in prompts we send to
 // the AI, so prompt builders pass `includeContributors: false`.
-export function serializeToMd(workstream, projectName, lastUpdatedBy = '', contributions = [], { includeSourceTags = false, includeContributors = true } = {}) {
-  const now = new Date().toISOString().split('T')[0];
-  const byLine = lastUpdatedBy ? ` · Source: ${lastUpdatedBy} contribution` : '';
-  const header = `# Project Context — ${projectName}\n*Last updated: ${now}${byLine}*\n\n## Why / What / How\n\n`;
-
-  if (!workstream.whys || workstream.whys.length === 0) {
-    return header + '*No context yet. Run `teamctx contribute` to add the first contribution.*\n';
-  }
-
-  const contributionsById = new Map(contributions.map(c => [c.id, c]));
-  const tagFor = includeSourceTags ? sourceTag : () => '';
-
-  const tree = workstream.whys.map(why => {
+function renderTree(whys, contributionsById, tagFor) {
+  return (whys || []).map(why => {
     let out = `- **Why:** ${why.text}${decisionMarker(why, contributionsById)}${tagFor(why)}\n`;
     (why.whats || []).forEach(what => {
       out += `  - **What:** ${what.text}${decisionMarker(what, contributionsById)}${tagFor(what)}\n`;
@@ -52,6 +41,40 @@ export function serializeToMd(workstream, projectName, lastUpdatedBy = '', contr
     });
     return out;
   }).join('');
+}
+
+/** Render a workstream, with the project tree above it when one is passed. */
+export function serializeToMd(workstream, projectName, lastUpdatedBy = '', contributions = [], { includeSourceTags = false, includeContributors = true, project = null } = {}) {
+  const now = new Date().toISOString().split('T')[0];
+  const byLine = lastUpdatedBy ? ` · Source: ${lastUpdatedBy} contribution` : '';
+  const header = `# Project Context — ${projectName}\n*Last updated: ${now}${byLine}*\n\n## Why / What / How\n\n`;
+
+  const contributionsById = new Map(contributions.map(c => [c.id, c]));
+  const tagFor = includeSourceTags ? sourceTag : () => '';
+
+  const inheritedWhys = project?.whys || [];
+  const ownWhys = workstream.whys || [];
+
+  // Empty means empty on both halves. An inherited tree is still context, so a
+  // workstream with none of its own is not a project that knows nothing.
+  if (ownWhys.length === 0 && inheritedWhys.length === 0) {
+    return header + '*No context yet. Run `teamctx contribute` to add the first contribution.*\n';
+  }
+
+  // The inherited half is concatenated here and stored nowhere: a workstream's
+  // JSON never holds project nodes, so editing project context changes every
+  // compiled view without rewriting a single workstream file.
+  //
+  // Labelled read-only because a reader has to be able to tell what they may add
+  // to from what is settled above them. Without that line the first thing a
+  // member does is propose an edit to something that was never theirs.
+  const inherited = inheritedWhys.length
+    ? '### Project context\n*Inherited from the project — read-only here.*\n\n'
+      + renderTree(inheritedWhys, contributionsById, tagFor)
+      + `\n### ${workstream.name || 'This workstream'}\n\n`
+    : '';
+
+  const tree = inherited + renderTree(ownWhys, contributionsById, tagFor);
 
   if (includeSourceTags || !includeContributors) return header + tree;
   const contributorsSection = formatContributorsSection(collectContributorCounts(workstream, contributions));
