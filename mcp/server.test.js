@@ -10,10 +10,8 @@ vi.mock('../src/storage.js', () => ({
   readConfig: vi.fn(),
   writeConfig: vi.fn(),
   readWorkstream: vi.fn(),
-  writeWorkstream: vi.fn(),
   listWorkstreamIds: vi.fn(() => []),
   readSharedMd: vi.fn(),
-  writeWorkstreamMd: vi.fn(),
   readRoleFile: vi.fn(),
   writeRoleFile: vi.fn(),
   appendContribution: vi.fn(),
@@ -73,10 +71,10 @@ vi.mock('../src/prefs.js', () => ({
 import { TOOLS, makeHandlers, buildServer, resolveProjectDir } from './server.js';
 import {
   getTeamctxDir,
-  readConfig, readWorkstream, writeWorkstream, listWorkstreamIds,
-  readSharedMd, writeWorkstreamMd,
+  readConfig, readWorkstream, writeTree, listWorkstreamIds,
+  readSharedMd, writeTreeMd,
   readRoleFile, writeRoleFile,
-  appendContribution, readContributions, readTree, writeTree, writeTreeMd,
+  appendContribution, readContributions, readTree,
 } from '../src/storage.js';
 import { updateShared, generateRoleFile, answerQuestion } from '../src/context.js';
 import { migrateIfNeeded } from '../src/migrate.js';
@@ -385,7 +383,7 @@ describe('submit_contribution', () => {
     const handlers = makeHandlers(ROOT);
     await expect(handlers.submit_contribution({ text: 't', workstream: 'ghost' }))
       .rejects.toThrow(/no workstream "ghost"/);
-    expect(writeWorkstream).not.toHaveBeenCalled();
+    expect(writeTree).not.toHaveBeenCalled();
   });
 
   it('regenerates only role files bound to the target workstream', async () => {
@@ -420,8 +418,8 @@ describe('submit_contribution', () => {
 
     const handlers = makeHandlers(ROOT);
     const result = await handlers.submit_contribution({ text: 't' });
-    expect(writeWorkstream).not.toHaveBeenCalled();
-    expect(writeWorkstreamMd).not.toHaveBeenCalled();
+    expect(writeTree).not.toHaveBeenCalled();
+    expect(writeTreeMd).not.toHaveBeenCalled();
     expect(commitContext).not.toHaveBeenCalled();
     expect(JSON.parse(result.content[0].text).operations).toEqual([]);
   });
@@ -467,7 +465,7 @@ describe('contribute (new tool)', () => {
     const handlers = makeHandlers(ROOT);
     const result = await handlers.contribute({ text: 'note' });
     expect(writeQueueItem).toHaveBeenCalledTimes(1);
-    expect(writeWorkstream).not.toHaveBeenCalled();
+    expect(writeTree).not.toHaveBeenCalled();
     const payload = JSON.parse(result.content[0].text);
     expect(payload.mode).toBe('queued');
     expect(payload.reportBack).toMatch(/queued for manager approval/);
@@ -525,7 +523,7 @@ describe('review_approve (manager-gated)', () => {
     readWorkstream.mockReturnValue(baseWs);
     const handlers = makeHandlers(ROOT);
     const result = await handlers.review_approve({ id: 'q-1' });
-    expect(writeWorkstream).toHaveBeenCalled();
+    expect(writeTree).toHaveBeenCalled();
     expect(deleteQueueItem).toHaveBeenCalled();
     const payload = JSON.parse(result.content[0].text);
     expect(payload.approvedBy).toBe('alice');
@@ -538,7 +536,7 @@ describe('review_approve (manager-gated)', () => {
     readWorkstream.mockReturnValue(baseWs);
     const handlers = makeHandlers(ROOT);
     await handlers.review_approve({ id: 'q-2' });
-    expect(writeWorkstream).toHaveBeenCalled();
+    expect(writeTree).toHaveBeenCalled();
   });
 });
 
@@ -553,7 +551,9 @@ describe('snapshot_create + snapshot_approve', () => {
     const create = await handlers.snapshot_create({ message: 'pre-launch' });
     expect(writeSnapshot).toHaveBeenCalledTimes(1);
     const createdPayload = JSON.parse(create.content[0].text);
-    expect(createdPayload.snapshot.workstreams).toHaveLength(1);
+    // The project tree is always in a snapshot, plus whatever workstreams exist.
+    expect(createdPayload.snapshot.workstreams[0].id).toBe(null);
+    expect(createdPayload.snapshot.workstreams).toHaveLength(2);
     expect(createdPayload.reportBack).toMatch(/manager must approve/);
 
     readSnapshot.mockReturnValue({ id: 'snap-1', status: 'pending', workstreams: [{ id: 'main', tree: baseWs }] });

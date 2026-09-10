@@ -1,5 +1,5 @@
 import {
-  readProject, readConfig, readWorkstream, writeWorkstream, writeWorkstreamMd, writeRoleFile,
+  readProject, readConfig, readTree, writeTree, writeTreeMd, writeRoleFile,
   readQueueItem, deleteQueueItem, writeRejected, readContributions, listQueue,
 } from '../../src/storage.js';
 import { applyQueueItem, buildRejected, canApprove, isLegacyManagerRef } from '../../src/review.js';
@@ -8,8 +8,10 @@ import { commitContext, pushContext } from '../../src/git.js';
 import { resolveActor } from '../../src/actor.js';
 import { resolveDisplayName } from '../../src/prefs.js';
 import { sourceTrailer } from './contribute.core.js';
+import { resolveTarget, isProjectLevel } from '../../src/project-level.js';
 
 function workstreamDisplayName(id, workstream, config) {
+  if (isProjectLevel(id)) return config.project || workstream.name || 'project';
   return config.workstreams?.find(w => w.id === id)?.name || workstream.name || config.project;
 }
 
@@ -71,19 +73,21 @@ export async function approveReview({ id, teamctxDir, projectDir, actor } = {}) 
   try { item = readQueueItem(id, teamctxDir); }
   catch { throw new QueueItemNotFoundError(id); }
 
-  const targetId = item.workstream || 'main';
-  const workstream = readWorkstream(targetId, teamctxDir);
+  // `null` is the project itself. Defaulting to `main` here would have sent an
+  // approved project-level contribution to a workstream that no longer exists.
+  const targetId = resolveTarget(item.workstream);
+  const workstream = readTree(targetId, teamctxDir);
   const updated = applyQueueItem(workstream, item);
   const contributions = readContributions(teamctxDir);
 
-  writeWorkstream(targetId, updated, teamctxDir);
-  writeWorkstreamMd(
+  writeTree(targetId, updated, teamctxDir);
+  writeTreeMd(
     targetId,
     serializeToMd(updated, workstreamDisplayName(targetId, updated, config), item.author, contributions, { project: readProject(teamctxDir) }),
     teamctxDir,
   );
 
-  const rolesOnTarget = (config.roles || []).filter(r => (r.workstream || 'main') === targetId);
+  const rolesOnTarget = (config.roles || []).filter(r => resolveTarget(r.workstream) === targetId);
   const rolesRegenerated = [];
   for (const role of rolesOnTarget) {
     const md = await generateRoleFile(updated, role, config.project, config, contributions, { project: readProject(teamctxDir) });
@@ -94,7 +98,7 @@ export async function approveReview({ id, teamctxDir, projectDir, actor } = {}) 
   deleteQueueItem(item.id, teamctxDir);
 
   const note = item.tagged === 'decision' ? ' [decision]' : '';
-  const wsNote = targetId === 'main' ? '' : ` (${targetId})`;
+  const wsNote = isProjectLevel(targetId) ? '' : ` (${targetId})`;
   const approvedBy = who;
   await commitContext(
     // This is the commit that actually changes shared context, so it is the one

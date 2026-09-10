@@ -8,8 +8,8 @@ vi.mock('../../src/storage.js', () => ({
   readProject: vi.fn(() => ({ name: '', whys: [] })),
   readConfig: vi.fn(),
   readWorkstream: vi.fn(),
-  writeWorkstream: vi.fn(),
-  writeWorkstreamMd: vi.fn(),
+  writeTree: vi.fn(),
+  writeTreeMd: vi.fn(),
   writeRoleFile: vi.fn(),
   listQueue: vi.fn(),
   readQueueItem: vi.fn(),
@@ -30,8 +30,8 @@ vi.mock('../../src/git.js', () => ({
 
 import { reviewApproveCommand } from './review.js';
 import {
-  readConfig, readWorkstream, writeWorkstream, writeWorkstreamMd,
-  writeRoleFile, readQueueItem, deleteQueueItem, readContributions,
+  readConfig, readWorkstream, writeTree, writeTreeMd,
+  writeRoleFile, readQueueItem, deleteQueueItem, readContributions, readTree,
 } from '../../src/storage.js';
 import { generateRoleFile, serializeToMd } from '../../src/context.js';
 import { commitContext } from '../../src/git.js';
@@ -62,12 +62,12 @@ describe('reviewApproveCommand — workstream-aware', () => {
 
     await reviewApproveCommand('c-1');
 
-    expect(readWorkstream.mock.calls[0][0]).toBe('tech');
-    const [wsIdArg, wsObjArg] = writeWorkstream.mock.calls[0];
+    expect(readTree.mock.calls[0][0]).toBe('tech');
+    const [wsIdArg, wsObjArg] = writeTree.mock.calls[0];
     expect(wsIdArg).toBe('tech');
     expect(wsObjArg.whys).toHaveLength(1);
     expect(wsObjArg.whys[0].text).toBe('New tech Why');
-    expect(writeWorkstreamMd.mock.calls[0][0]).toBe('tech');
+    expect(writeTreeMd.mock.calls[0][0]).toBe('tech');
   });
 
   it('regenerates only role files bound to the target workstream', async () => {
@@ -105,18 +105,21 @@ describe('reviewApproveCommand — workstream-aware', () => {
       expect.anything(), expect.anything(), 'p', twoWsConfig, fakeContribs, expect.objectContaining({ project: expect.anything() }));
   });
 
-  it('defaults to main when queue item lacks workstream (legacy items)', async () => {
+  it('applies a queue item with no workstream to the project', async () => {
+    // Legacy items and project-level ones look the same on the queue: neither
+    // names a workstream. Defaulting to `main` would send both to a file that
+    // no longer exists, losing the contribution at the last step.
     readConfig.mockReturnValue(twoWsConfig);
     readQueueItem.mockReturnValue({
       id: 'c-legacy', author: 'satya', tagged: null,
       operations: [{ type: 'addWhy', text: 'legacy', summary: 's' }],
     });
-    readWorkstream.mockReturnValue({ id: 'main', name: 'p', whys: [] });
+    readTree.mockReturnValue({ name: 'p', whys: [] });
 
     await reviewApproveCommand('c-legacy');
 
-    expect(readWorkstream.mock.calls[0][0]).toBe('main');
-    expect(writeWorkstream.mock.calls[0][0]).toBe('main');
+    expect(readTree.mock.calls[0][0]).toBe(null);
+    expect(writeTree.mock.calls[0][0]).toBe(null);
   });
 
   it('deletes the queue item and commits with a workstream tag', async () => {
