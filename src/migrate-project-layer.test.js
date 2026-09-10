@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('./storage.js', () => ({
+  readProject: vi.fn(() => ({ name: '', whys: [] })),
+  readProjectMd: vi.fn(() => ''),
   readConfig: vi.fn(),
   writeConfig: vi.fn(),
   readWorkstream: vi.fn(),
@@ -13,7 +15,7 @@ vi.mock('./storage.js', () => ({
 
 const { migrateProjectLayer } = await import('./migrate-project-layer.js');
 const {
-  readConfig, writeConfig, readWorkstream, readWorkstreamMd,
+  readConfig, writeConfig, readWorkstream, readWorkstreamMd, readProject, readProjectMd,
   deleteWorkstream, writeProject, writeProjectMd, listWorkstreamIds,
 } = await import('./storage.js');
 
@@ -142,6 +144,42 @@ describe('projects that do not look like the common case', () => {
 
   it('skips the markdown when main had none compiled', () => {
     readWorkstreamMd.mockReturnValue('');
+    migrateProjectLayer('/x');
+    expect(writeProjectMd).not.toHaveBeenCalled();
+  });
+});
+
+describe('a project that already has a tree when this runs', () => {
+  // Should not happen — this migration is what creates one. But a build shipped
+  // where a contribution could land at project level before the migration ran,
+  // and overwriting would destroy exactly the writes made in that window.
+  const ORPHAN = { id: 'o1', text: 'nobody flies before the 3rd', whats: [] };
+
+  beforeEach(() => {
+    readProject.mockReturnValue({ name: 'Ledger', whys: [ORPHAN] });
+  });
+
+  it('keeps what was already there', () => {
+    migrateProjectLayer('/x');
+    const whys = writeProject.mock.calls[0][0].whys;
+    expect(whys.map(w => w.id)).toContain('o1');
+  });
+
+  it('appends main rather than replacing it', () => {
+    migrateProjectLayer('/x');
+    const whys = writeProject.mock.calls[0][0].whys;
+    expect(whys.map(w => w.id)).toEqual(['o1', 'w1']);
+  });
+
+  it('does not duplicate a why that is in both', () => {
+    readProject.mockReturnValue({ name: 'Ledger', whys: [{ id: 'w1', text: 'ship it', whats: [] }] });
+    migrateProjectLayer('/x');
+    expect(writeProject.mock.calls[0][0].whys.map(w => w.id)).toEqual(['w1']);
+  });
+
+  it('leaves a compiled project.md alone when one exists', () => {
+    // It was compiled from a tree that main's copy never saw.
+    readProjectMd.mockReturnValue('# Context — Ledger\n');
     migrateProjectLayer('/x');
     expect(writeProjectMd).not.toHaveBeenCalled();
   });

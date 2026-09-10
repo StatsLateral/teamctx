@@ -1,7 +1,7 @@
 import {
   readConfig, writeConfig,
   readWorkstream, readWorkstreamMd, deleteWorkstream,
-  writeProject, writeProjectMd, listWorkstreamIds,
+  readProject, readProjectMd, writeProject, writeProjectMd, listWorkstreamIds,
 } from './storage.js';
 import { LEGACY_MAIN } from './project-level.js';
 
@@ -34,15 +34,27 @@ export function migrateProjectLayer(teamctxDir) {
   const main = hadMain ? readWorkstream(LEGACY_MAIN, teamctxDir) : null;
   const mainMd = hadMain ? readWorkstreamMd(LEGACY_MAIN, teamctxDir) : '';
 
+  // A project tree can already exist before this runs. It should not — the
+  // migration is what creates one — but a build shipped where a contribution
+  // could land at project level on a project that had not migrated yet, and
+  // overwriting would destroy exactly the writes somebody made in that window.
+  // Merged rather than replaced, existing first, `main` appended by id.
+  const existing = readProject(teamctxDir);
+  const existingWhys = existing.whys || [];
+  const seen = new Set(existingWhys.map(w => w.id));
+  const merged = [...existingWhys, ...(main?.whys || []).filter(w => !seen.has(w.id))];
+
   writeProject({
     // The project's name, not the workstream's. `main` was usually named after
     // the project anyway, but where it was not, the project's own name is the
     // truthful one.
-    name: config.project || main?.name || '',
-    whys: main?.whys || [],
+    name: config.project || existing.name || main?.name || '',
+    whys: merged,
   }, teamctxDir);
 
-  if (mainMd) writeProjectMd(mainMd, teamctxDir);
+  // Same reasoning: a project.md already there was compiled from a tree that
+  // includes writes `main`'s copy never saw.
+  if (mainMd && !readProjectMd(teamctxDir)) writeProjectMd(mainMd, teamctxDir);
 
   writeConfig({
     ...config,
