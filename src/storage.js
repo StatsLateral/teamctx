@@ -509,14 +509,32 @@ export function deleteTaskFile(id, dir) {
   if (existsSync(p)) unlinkSync(p);
 }
 
-export function listTasks({ workstream } = {}, dir) {
-  const ids = workstream ? [workstream] : listWorkstreamIds(dir);
+/**
+ * Tasks live inside the tree they belong to, and the project is now one of
+ * those trees.
+ *
+ * `workstream` absent means every tree, including the project's. Passing it
+ * explicitly as `null` means the project alone — which is why the key has to be
+ * tested for presence rather than for truthiness: "the project" and "everywhere"
+ * are both falsy and are not the same request.
+ */
+export function listTasks(opts = {}, dir) {
+  const scoped = Object.prototype.hasOwnProperty.call(opts, 'workstream');
+  const targets = scoped ? [isProjectLevel(opts.workstream) ? null : opts.workstream]
+    : [null, ...listWorkstreamIds(dir)];
+  // Deduped by id, because a project part-way through the migration can have a
+  // project tree and a `main` workstream at once, and a task recorded in both
+  // would otherwise be counted twice — enough to make a prefix look ambiguous
+  // against itself.
+  const seen = new Set();
   const out = [];
-  for (const wsId of ids) {
-    const ws = readWorkstream(wsId, dir);
-    const tasks = Array.isArray(ws.tasks) ? ws.tasks : [];
+  for (const target of targets) {
+    const tree = readTree(target, dir);
+    const tasks = Array.isArray(tree.tasks) ? tree.tasks : [];
     for (const task of tasks) {
-      out.push({ ...task, workstream: task.workstream || wsId });
+      if (seen.has(task.id)) continue;
+      seen.add(task.id);
+      out.push({ ...task, workstream: isProjectLevel(task.workstream) ? null : (task.workstream || target) });
     }
   }
   return out;
@@ -544,23 +562,23 @@ export function readTask(idOrPrefix, dir) {
 
 export function writeTask(task, dir) {
   sanitizeTaskId(task?.id);
-  const wsId = task.workstream || 'main';
-  sanitizeWorkstreamId(wsId);
-  const ws = readWorkstream(wsId, dir);
+  const wsId = isProjectLevel(task.workstream) ? null : task.workstream;
+  if (wsId !== null) sanitizeWorkstreamId(wsId);
+  const ws = readTree(wsId, dir);
   const tasks = Array.isArray(ws.tasks) ? ws.tasks : [];
   const idx = tasks.findIndex(t => t.id === task.id);
   if (idx >= 0) tasks[idx] = task;
   else tasks.push(task);
   ws.tasks = tasks;
-  writeWorkstream(wsId, ws, dir);
+  writeTree(wsId, ws, dir);
 }
 
 export function deleteTask(idOrPrefix, dir) {
   const id = resolveTaskId(idOrPrefix, dir);
   const { workstream: wsId } = readTask(id, dir);
-  const ws = readWorkstream(wsId, dir);
+  const ws = readTree(wsId, dir);
   ws.tasks = (ws.tasks || []).filter(t => t.id !== id);
-  writeWorkstream(wsId, ws, dir);
+  writeTree(wsId, ws, dir);
   deleteTaskFile(id, dir);
   return { id, workstream: wsId };
 }

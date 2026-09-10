@@ -12,11 +12,15 @@ const MEMBER = { key: 'github:2002', name: 'Ravi', login: 'ravi', source: 'githu
 let caller = MANAGER;
 
 vi.mock('../../src/storage.js', () => ({
+  readTree: vi.fn(() => ({ id: 'main', name: 'M', whys: [] })),
+  writeTree: vi.fn(),
+  readTreeMd: vi.fn(() => ''),
+  writeTreeMd: vi.fn(),
   readProject: vi.fn(() => ({ name: '', whys: [] })),
   readConfig: vi.fn(),
   readWorkstream: vi.fn(() => ({ id: 'main', name: 'p', whys: [] })),
-  writeWorkstream: vi.fn(),
-  writeWorkstreamMd: vi.fn(),
+  writeTree: vi.fn(),
+  writeTreeMd: vi.fn(),
   readContributions: vi.fn(() => []),
   writeRoleFile: vi.fn(),
   listWorkstreamIds: vi.fn(() => ['main']),
@@ -38,7 +42,7 @@ vi.mock('../../src/prefs.js', () => ({
 }));
 
 const { reflectWorkstream } = await import('./reflect.core.js');
-const { readConfig, writeWorkstream } = await import('../../src/storage.js');
+const { readConfig, writeTree } = await import('../../src/storage.js');
 
 const project = (over = {}) => ({ project: 'p', me: 'Ada', managerKey: 'github:1001', ...over });
 
@@ -49,14 +53,14 @@ describe('who may rewrite the whole shared context', () => {
     caller = MEMBER;
     readConfig.mockReturnValue(project({ reviewPolicy: 'additive' }));
     await expect(reflectWorkstream({})).rejects.toThrow(/only the configured manager/);
-    expect(writeWorkstream).not.toHaveBeenCalled();
+    expect(writeTree).not.toHaveBeenCalled();
   });
 
   it('refuses a member under all', async () => {
     caller = MEMBER;
     readConfig.mockReturnValue(project({ reviewPolicy: 'all' }));
     await expect(reflectWorkstream({})).rejects.toThrow(/only the configured manager/);
-    expect(writeWorkstream).not.toHaveBeenCalled();
+    expect(writeTree).not.toHaveBeenCalled();
   });
 
   it('refuses a member on a project with no policy recorded', async () => {
@@ -71,7 +75,7 @@ describe('who may rewrite the whole shared context', () => {
     caller = MEMBER;
     readConfig.mockReturnValue(project({ reviewPolicy: 'none' }));
     await reflectWorkstream({});
-    expect(writeWorkstream).toHaveBeenCalled();
+    expect(writeTree).toHaveBeenCalled();
   });
 
   it('lets a member run it on a project with no manager pinned', async () => {
@@ -80,7 +84,7 @@ describe('who may rewrite the whole shared context', () => {
     caller = MEMBER;
     readConfig.mockReturnValue({ project: 'p', me: 'Ada', reviewPolicy: 'all' });
     await reflectWorkstream({});
-    expect(writeWorkstream).toHaveBeenCalled();
+    expect(writeTree).toHaveBeenCalled();
   });
 
   it('lets the manager run it under every policy', async () => {
@@ -88,7 +92,7 @@ describe('who may rewrite the whole shared context', () => {
       vi.clearAllMocks();
       readConfig.mockReturnValue(project({ reviewPolicy: p }));
       await reflectWorkstream({});
-      expect(writeWorkstream).toHaveBeenCalled();
+      expect(writeTree).toHaveBeenCalled();
     }
   });
 });

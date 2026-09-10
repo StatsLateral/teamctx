@@ -87,8 +87,9 @@ describe('two identities on the hosted server', () => {
 
     const alice = await asUser(session, ALICE, h => json(h.get_status()));
     const bob = await asUser(session, BOB, h => json(h.get_status()));
-    expect(alice.activeWorkstream).toBe('main');
-    expect(bob.activeWorkstream).toBe('main');
+    // Nobody has chosen a workstream, so both are at project level.
+    expect(alice.activeWorkstream).toBe(null);
+    expect(bob.activeWorkstream).toBe(null);
 
     // Alice switches.
     await asUser(session, ALICE, h => h.workstream_use({ id: 'engineering-hiring' }));
@@ -97,8 +98,9 @@ describe('two identities on the hosted server', () => {
     const bobAfter = await asUser(session, BOB, h => json(h.get_status()));
 
     expect(aliceAfter.activeWorkstream).toBe('engineering-hiring');
-    // The whole point of the change.
-    expect(bobAfter.activeWorkstream).toBe('main');
+    // The whole point of the change: Bob stays where he was, which is the
+    // project, because he never chose anything.
+    expect(bobAfter.activeWorkstream).toBe(null);
   });
 
   it('does not write the switch to the repo or make a commit', async () => {
@@ -150,9 +152,9 @@ describe('two identities on the hosted server', () => {
     ]);
 
     expect([a.me, a.activeWorkstream]).toEqual(['Alice Example', 'engineering-hiring']);
-    expect([b.me, b.activeWorkstream]).toEqual(['Bob Example', 'main']);
+    expect([b.me, b.activeWorkstream]).toEqual(['Bob Example', null]);
     expect([a2.me, a2.activeWorkstream]).toEqual(['Alice Example', 'engineering-hiring']);
-    expect([b2.me, b2.activeWorkstream]).toEqual(['Bob Example', 'main']);
+    expect([b2.me, b2.activeWorkstream]).toEqual(['Bob Example', null]);
   });
 });
 
@@ -300,13 +302,13 @@ describe('tasks on the hosted server', () => {
     const added = await asUser(session, ALICE, h => json(h.task_add({ title: 'Ship the ledger' })));
 
     // Simulate a previous compile: the prompt file plus the hash that says it
-    // is still current for this workstream.
+    // is still current. A task with no workstream lives in the project tree.
     session.write('.teamctx/context/tasks/t-ship-the-ledger.md', '# already compiled');
-    const ws = JSON.parse(session.read('.teamctx/workstreams/main.json').content);
+    const ws = JSON.parse(session.read('.teamctx/project.json').content);
     ws.tasks = ws.tasks.map(t => t.id === added.task.id
       ? { ...t, compiledAt: '2026-01-01T00:00:00.000Z', compiledFromHash: hashOf(ws) }
       : t);
-    session.write('.teamctx/workstreams/main.json', JSON.stringify(ws));
+    session.write('.teamctx/project.json', JSON.stringify(ws));
 
     const r = await asUser(session, ALICE, h => json(h.task_compile({ id: 't-ship-the-ledger' })));
     expect(r.alreadyCompiled).toBe(true);
@@ -333,8 +335,9 @@ describe('tasks on the hosted server', () => {
     expect(forAlice.scope).toBe('workstream engineering-hiring');
     expect(forAlice.tasks.map(t => t.id)).toEqual(['t-draft-the-hiring-rubric']);
 
-    // Bob never switched, so he is still on main and sees only what lives there.
-    expect(forBob.scope).toBe('workstream main');
+    // Bob never switched, so he is still at project level and sees only what
+    // lives there.
+    expect(forBob.scope).toBe('the project');
     expect(forBob.tasks.map(t => t.id)).toEqual(['t-reconcile-the-ledger']);
   });
 

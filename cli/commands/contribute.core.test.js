@@ -1,11 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('../../src/storage.js', () => ({
+  readTree: vi.fn(() => ({ id: 'main', name: 'M', whys: [] })),
+  writeTree: vi.fn(),
+  readTreeMd: vi.fn(() => ''),
+  writeTreeMd: vi.fn(),
   readProject: vi.fn(() => ({ name: '', whys: [] })),
   readConfig: vi.fn(),
   readWorkstream: vi.fn(() => ({ id: 'main', name: 'M', whys: [] })),
-  writeWorkstream: vi.fn(),
-  writeWorkstreamMd: vi.fn(),
+  writeTree: vi.fn(),
+  writeTreeMd: vi.fn(),
   appendContribution: vi.fn(),
   writeRoleFile: vi.fn(),
   writeQueueItem: vi.fn(),
@@ -41,7 +45,7 @@ vi.mock('../../src/prefs.js', () => ({
 
 import { contributeCore, sourceTrailer } from './contribute.core.js';
 import { ManagerGateError } from './review.core.js';
-import { readConfig, writeWorkstream, writeQueueItem, appendContribution } from '../../src/storage.js';
+import { readConfig, writeTree, writeQueueItem, appendContribution } from '../../src/storage.js';
 import { commitContext } from '../../src/git.js';
 import { resolveActor } from '../../src/actor.js';
 
@@ -53,7 +57,7 @@ describe('contributeCore — manager gate on apply', () => {
     await expect(contributeCore({
       text: 'note', author: 'satya', apply: true,
     })).rejects.toBeInstanceOf(ManagerGateError);
-    expect(writeWorkstream).not.toHaveBeenCalled();
+    expect(writeTree).not.toHaveBeenCalled();
     expect(commitContext).not.toHaveBeenCalled();
   });
 
@@ -63,7 +67,7 @@ describe('contributeCore — manager gate on apply', () => {
     readConfig.mockReturnValue({ project: 'p', me: 'someone', manager: 'Satya', autoPush: false, roles: [] });
     const result = await contributeCore({ text: 'note', apply: true });
     expect(result.mode).toBe('applied');
-    expect(writeWorkstream).toHaveBeenCalled();
+    expect(writeTree).toHaveBeenCalled();
     expect(commitContext).toHaveBeenCalled();
   });
 
@@ -73,7 +77,7 @@ describe('contributeCore — manager gate on apply', () => {
       text: 'note', author: 'satya', apply: true,
     });
     expect(result.mode).toBe('applied');
-    expect(writeWorkstream).toHaveBeenCalled();
+    expect(writeTree).toHaveBeenCalled();
   });
 
   it('does NOT gate the queued path — anyone can enqueue for approval', async () => {
@@ -83,7 +87,7 @@ describe('contributeCore — manager gate on apply', () => {
     });
     expect(result.mode).toBe('queued');
     expect(writeQueueItem).toHaveBeenCalled();
-    expect(writeWorkstream).not.toHaveBeenCalled();
+    expect(writeTree).not.toHaveBeenCalled();
   });
 });
 
@@ -127,7 +131,7 @@ describe('contributeCore — the apply gate ignores the claimed author', () => {
     readConfig.mockReturnValue({ project: 'p', me: 'someone', manager: 'priya', autoPush: false, roles: [] });
     await expect(contributeCore({ text: 'note', author: 'priya', apply: true }))
       .rejects.toBeInstanceOf(ManagerGateError);
-    expect(writeWorkstream).not.toHaveBeenCalled();
+    expect(writeTree).not.toHaveBeenCalled();
   });
 
   it('refuses apply=true on an identity gate the caller is not in', async () => {

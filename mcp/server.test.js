@@ -1,6 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('../src/storage.js', () => ({
+  readTree: vi.fn(() => ({ id: 'main', name: 'M', whys: [] })),
+  writeTree: vi.fn(),
+  readTreeMd: vi.fn(() => ''),
+  writeTreeMd: vi.fn(),
   readProject: vi.fn(() => ({ name: '', whys: [] })),
   getTeamctxDir: vi.fn((root) => `${root}/.teamctx`),
   readConfig: vi.fn(),
@@ -72,7 +76,7 @@ import {
   readConfig, readWorkstream, writeWorkstream, listWorkstreamIds,
   readSharedMd, writeWorkstreamMd,
   readRoleFile, writeRoleFile,
-  appendContribution, readContributions,
+  appendContribution, readContributions, readTree, writeTree, writeTreeMd,
 } from '../src/storage.js';
 import { updateShared, generateRoleFile, answerQuestion } from '../src/context.js';
 import { migrateIfNeeded } from '../src/migrate.js';
@@ -358,9 +362,10 @@ describe('submit_contribution', () => {
 
     const handlers = makeHandlers(ROOT);
     await handlers.submit_contribution({ text: 'note' });
-    expect(readWorkstream).toHaveBeenCalledWith('main', TDIR);
-    expect(writeWorkstream.mock.calls[0][0]).toBe('main');
-    expect(writeWorkstreamMd.mock.calls[0][0]).toBe('main');
+    // Project level: no workstream named, so the project tree is what is read.
+    expect(readTree).toHaveBeenCalledWith(null, TDIR);
+    expect(writeTree.mock.calls[0][0]).toBe(null);
+    expect(writeTreeMd.mock.calls[0][0]).toBe(null);
   });
 
   it('targets the workstream arg when provided', async () => {
@@ -370,8 +375,8 @@ describe('submit_contribution', () => {
 
     const handlers = makeHandlers(ROOT);
     const result = await handlers.submit_contribution({ text: 'note', workstream: 'tech' });
-    expect(readWorkstream).toHaveBeenCalledWith('tech', TDIR);
-    expect(writeWorkstream.mock.calls[0][0]).toBe('tech');
+    expect(readTree).toHaveBeenCalledWith('tech', TDIR);
+    expect(writeTree.mock.calls[0][0]).toBe('tech');
     expect(JSON.parse(result.content[0].text).workstream).toBe('tech');
   });
 
@@ -476,7 +481,7 @@ describe('contribute (new tool)', () => {
     const handlers = makeHandlers(ROOT);
     const result = await handlers.contribute({ text: 'note', apply: true });
     expect(writeQueueItem).not.toHaveBeenCalled();
-    expect(writeWorkstream).toHaveBeenCalledTimes(1);
+    expect(writeTree).toHaveBeenCalledTimes(1);
     expect(JSON.parse(result.content[0].text).mode).toBe('applied');
   });
 

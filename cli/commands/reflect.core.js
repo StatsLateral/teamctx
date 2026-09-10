@@ -1,4 +1,5 @@
-import { readProject, readConfig, readWorkstream, writeWorkstream, writeWorkstreamMd, readContributions, writeRoleFile, listWorkstreamIds } from '../../src/storage.js';
+import { readProject, readConfig, readTree, writeTree, writeTreeMd, readContributions, writeRoleFile, listWorkstreamIds } from '../../src/storage.js';
+import { resolveTarget, isProjectLevel } from '../../src/project-level.js';
 import { generateReflection, serializeToMd, generateRoleFile } from '../../src/context.js';
 import { extractJson } from '../../src/ai.js';
 import { commitContext, pushContext } from '../../src/git.js';
@@ -29,10 +30,12 @@ export async function reflectWorkstream({ workstreamId, teamctxDir, projectDir }
       displayName: await resolveDisplayName({ actor, config, teamctxDir }),
     });
   }
-  const targetId = workstreamId || await activeId(config, teamctxDir, projectDir);
-  const knownIds = new Set([...(config.workstreams || []).map(w => w.id), ...listWorkstreamIds(teamctxDir)]);
-  if (!knownIds.has(targetId)) throw new UnknownWorkstreamError(targetId);
-  const workstream = readWorkstream(targetId, teamctxDir);
+  const targetId = resolveTarget(workstreamId ?? await activeId(config, teamctxDir, projectDir));
+  if (!isProjectLevel(targetId)) {
+    const knownIds = new Set([...(config.workstreams || []).map(w => w.id), ...listWorkstreamIds(teamctxDir)]);
+    if (!knownIds.has(targetId)) throw new UnknownWorkstreamError(targetId);
+  }
+  const workstream = readTree(targetId, teamctxDir);
   const contributions = readContributions(teamctxDir);
 
   const raw = await generateReflection(workstream, contributions, config);
@@ -44,12 +47,14 @@ export async function reflectWorkstream({ workstreamId, teamctxDir, projectDir }
     throw new Error(`AI returned invalid JSON. Reflection aborted. ${err.message}`);
   }
 
-  const wsName = config.workstreams?.find(w => w.id === targetId)?.name || workstream.name || config.project;
-  writeWorkstream(targetId, updated, teamctxDir);
-  const project = readProject(teamctxDir);
-  writeWorkstreamMd(targetId, serializeToMd(updated, wsName, 'reflect', contributions, { project }), teamctxDir);
+  const wsName = isProjectLevel(targetId)
+    ? (config.project || workstream.name || 'project')
+    : (config.workstreams?.find(w => w.id === targetId)?.name || workstream.name || config.project);
+  writeTree(targetId, updated, teamctxDir);
+  const project = isProjectLevel(targetId) ? null : readProject(teamctxDir);
+  writeTreeMd(targetId, serializeToMd(updated, wsName, 'reflect', contributions, { project }), teamctxDir);
 
-  const rolesOnTarget = (config.roles || []).filter(r => (r.workstream || 'main') === targetId);
+  const rolesOnTarget = (config.roles || []).filter(r => resolveTarget(r.workstream) === targetId);
   const rolesRegenerated = [];
   for (const role of rolesOnTarget) {
     const md = await generateRoleFile(updated, role, config.project, config, contributions, { project });

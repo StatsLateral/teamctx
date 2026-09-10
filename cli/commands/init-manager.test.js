@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('../../src/storage.js', () => ({
+  writeProject: vi.fn(),
+  writeProjectMd: vi.fn(),
   readProject: vi.fn(() => ({ name: '', whys: [] })),
   getTeamctxDir: vi.fn(() => '/fake/.teamctx'),
   writeConfig: vi.fn(),

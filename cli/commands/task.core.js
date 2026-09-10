@@ -1,6 +1,6 @@
 import { createHash } from 'crypto';
 import {
-  readProject, readConfig, listTasks, readTask, writeTask, deleteTask,
+  readProject, readConfig, readTree, listTasks, readTask, writeTask, deleteTask,
   readWorkstream, readContributions,
   writeTaskFile, readTaskFile, taskFilePath, taskFileExists,
 } from '../../src/storage.js';
@@ -8,6 +8,7 @@ import { compileTaskPrompt } from '../../src/context.js';
 import { commitContext, pushContext } from '../../src/git.js';
 import { resolveActor } from '../../src/actor.js';
 import { resolveDisplayName, resolveActiveWorkstream } from '../../src/prefs.js';
+import { resolveTarget, isProjectLevel } from '../../src/project-level.js';
 
 /**
  * Task operations, with no terminal in them.
@@ -113,15 +114,19 @@ function findTask(idOrPrefix, teamctxDir) {
 }
 
 async function resolveTargetWorkstream(config, requested, { teamctxDir, projectDir, actor }) {
-  if (requested) {
-    const known = (config.workstreams || []).map(w => w.id);
-    if (known.length > 0 && !known.includes(requested)) {
-      throw new UnknownTaskWorkstreamError(requested, known);
-    }
-    return requested;
+  // `null` is the project itself — a task belonging to the whole thing rather
+  // than to one strand of it, which is where every task sits on a project that
+  // has not split anything out yet.
+  if (requested === undefined || requested === null) {
+    const resolved = actor || await resolveActor({ config, cwd: projectDir });
+    return resolveActiveWorkstream({ actor: resolved, config, teamctxDir });
   }
-  const resolved = actor || await resolveActor({ config, cwd: projectDir });
-  return resolveActiveWorkstream({ actor: resolved, config, teamctxDir });
+  if (isProjectLevel(requested)) return null;
+  const known = (config.workstreams || []).map(w => w.id);
+  if (known.length > 0 && !known.includes(requested)) {
+    throw new UnknownTaskWorkstreamError(requested, known);
+  }
+  return requested;
 }
 
 // ---- reads --------------------------------------------------------------
@@ -136,11 +141,12 @@ export class MineAndOwnerError extends Error {
 }
 
 export function listTasksFiltered({
-  status, owner, workstream, all = false, activeWorkstream = 'main', teamctxDir,
+  status, owner, workstream, all = false, activeWorkstream = null, teamctxDir,
   mine = false, me = null, myKey = null,
 } = {}) {
   if (mine && owner) throw new MineAndOwnerError();
-  const scope = all ? {} : { workstream: workstream || activeWorkstream };
+  const target = resolveTarget(workstream ?? activeWorkstream);
+  const scope = all ? {} : { workstream: target };
   let tasks = listTasks(scope, teamctxDir);
   if (status) tasks = tasks.filter(t => t.status === status);
   if (owner) tasks = tasks.filter(t => t.owner === owner);
@@ -149,12 +155,15 @@ export function listTasksFiltered({
   if (mine) {
     tasks = tasks.filter(t => (myKey && t.ownerKey === myKey) || (me && t.owner === me));
   }
-  if (workstream) tasks = tasks.filter(t => t.workstream === workstream);
+  if (workstream) tasks = tasks.filter(t => resolveTarget(t.workstream) === resolveTarget(workstream));
   // Matching the CLI: with no explicit status and no --all, open tasks are what
   // "my tasks" means. `all` is how a caller asks for the finished ones too.
   if (!status && !all) tasks = tasks.filter(t => t.status === 'open');
   tasks.sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''));
-  return { tasks, scope: all ? 'all workstreams' : `workstream ${scope.workstream}` };
+  return {
+    tasks,
+    scope: all ? 'all workstreams' : (isProjectLevel(target) ? 'the project' : `workstream ${target}`),
+  };
 }
 
 export function getTask({ id, teamctxDir } = {}) {
@@ -192,7 +201,7 @@ export async function addTask({
   };
   writeTask(task, teamctxDir);
 
-  const wsLabel = targetWorkstream === 'main' ? '' : ` [workstream: ${targetWorkstream}]`;
+  const wsLabel = isProjectLevel(targetWorkstream) ? '' : ` [workstream: ${targetWorkstream}]`;
   const git = await commitAndPush(config, `task: add ${id} by ${me}${wsLabel}`, projectDir);
   return { task, ...git };
 }
@@ -251,8 +260,8 @@ export async function compileTask({
 } = {}) {
   const config = readConfig(teamctxDir);
   const { task } = findTask(id, teamctxDir);
-  const wsId = task.workstream || 'main';
-  const workstream = readWorkstream(wsId, teamctxDir);
+  const wsId = resolveTarget(task.workstream);
+  const workstream = readTree(wsId, teamctxDir);
   const currentHash = whysHash(workstream);
 
   if (!force && taskFileExists(task.id, teamctxDir) && task.compiledFromHash === currentHash) {
