@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **The migration deleted every task that was sitting on `main`.** Tasks live
+  inside the tree file, and folding `main` into the project carried its Whys but
+  wrote nothing else before deleting it — so on a project that had never split,
+  which is most of them, every open task disappeared at the moment of upgrade.
+  They are carried across now, merged by id the way the Whys are, and they keep
+  the workstream they were recorded with, which already reads as project level.
 - **The project itself was outside every scoped member's reach.** A scope names
   the workstreams a member may read, and the project tree is not one of them —
   it is the base their own workstream inherits, so a member refused it was

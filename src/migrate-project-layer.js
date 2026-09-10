@@ -22,6 +22,14 @@ import { LEGACY_MAIN } from './project-level.js';
  * whose only workstream was `main` cannot tell this happened: same content, same
  * compiled output, one fewer concept.
  */
+
+/** What is already there, then what `main` adds — never a duplicate id. */
+function mergeById(existing, incoming) {
+  const kept = Array.isArray(existing) ? existing : [];
+  const seen = new Set(kept.map(x => x.id));
+  return [...kept, ...(Array.isArray(incoming) ? incoming : []).filter(x => !seen.has(x.id))];
+}
+
 export function migrateProjectLayer(teamctxDir) {
   let config;
   try { config = readConfig(teamctxDir); } catch { return false; }
@@ -40,9 +48,12 @@ export function migrateProjectLayer(teamctxDir) {
   // overwriting would destroy exactly the writes somebody made in that window.
   // Merged rather than replaced, existing first, `main` appended by id.
   const existing = readProject(teamctxDir);
-  const existingWhys = existing.whys || [];
-  const seen = new Set(existingWhys.map(w => w.id));
-  const merged = [...existingWhys, ...(main?.whys || []).filter(w => !seen.has(w.id))];
+  const merged = mergeById(existing.whys, main?.whys);
+  // Tasks live inside the tree file, so `main`'s went with it when it was
+  // deleted — every open task on a project that had never split, gone at the
+  // moment of upgrade. They keep their own `workstream: "main"`, which already
+  // reads as project level everywhere, so nothing about them is rewritten.
+  const tasks = mergeById(existing.tasks, main?.tasks);
 
   writeProject({
     // The project's name, not the workstream's. `main` was usually named after
@@ -50,6 +61,7 @@ export function migrateProjectLayer(teamctxDir) {
     // truthful one.
     name: config.project || existing.name || main?.name || '',
     whys: merged,
+    ...(tasks.length ? { tasks } : {}),
   }, teamctxDir);
 
   // Same reasoning: a project.md already there was compiled from a tree that

@@ -184,3 +184,38 @@ describe('a project that already has a tree when this runs', () => {
     expect(writeProjectMd).not.toHaveBeenCalled();
   });
 });
+
+describe('tasks that were sitting on main', () => {
+  // Tasks live inside the tree file, so deleting `main` deleted them — every
+  // open task on a project that had never split, gone at the moment of
+  // upgrade, and tasks are the thing people actually act on.
+  const TASK = { id: 't1', title: 'book the venue', status: 'open', workstream: 'main' };
+
+  beforeEach(() => {
+    readProject.mockReturnValue({ name: '', whys: [] });
+    readWorkstream.mockReturnValue({ ...MAIN_TREE, tasks: [TASK] });
+  });
+
+  it('carries them onto the project', () => {
+    migrateProjectLayer('/x');
+    expect(writeProject.mock.calls[0][0].tasks).toEqual([TASK]);
+  });
+
+  it('keeps any the project already had, and appends the rest', () => {
+    readProject.mockReturnValue({ name: 'Ledger', whys: [], tasks: [{ id: 't0', title: 'earlier' }] });
+    migrateProjectLayer('/x');
+    expect(writeProject.mock.calls[0][0].tasks.map(t => t.id)).toEqual(['t0', 't1']);
+  });
+
+  it('does not duplicate one recorded in both', () => {
+    readProject.mockReturnValue({ name: 'Ledger', whys: [], tasks: [TASK] });
+    migrateProjectLayer('/x');
+    expect(writeProject.mock.calls[0][0].tasks.map(t => t.id)).toEqual(['t1']);
+  });
+
+  it('leaves the key off entirely when there were none', () => {
+    readWorkstream.mockReturnValue(MAIN_TREE);
+    migrateProjectLayer('/x');
+    expect(writeProject.mock.calls[0][0]).not.toHaveProperty('tasks');
+  });
+});
