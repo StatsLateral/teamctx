@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('../../src/storage.js', () => ({
+  readProject: vi.fn(() => ({ name: '', whys: [] })),
   readConfig: vi.fn(),
   readWorkstream: vi.fn(),
   writeWorkstream: vi.fn(),
@@ -92,8 +93,12 @@ describe('reviewApproveCommand — workstream-aware', () => {
 
     await reviewApproveCommand('c-3');
 
-    expect(serializeToMd).toHaveBeenCalledWith(expect.anything(), expect.any(String), 'satya', fakeContribs);
-    expect(generateRoleFile).toHaveBeenCalledWith(expect.anything(), expect.anything(), 'p', twoWsConfig, fakeContribs);
+    // The trailing options carry the inherited project tree, so a role file
+    // regenerated on approval shows the project context above the workstream's.
+    expect(serializeToMd).toHaveBeenCalledWith(
+      expect.anything(), expect.any(String), 'satya', fakeContribs, expect.objectContaining({ project: expect.anything() }));
+    expect(generateRoleFile).toHaveBeenCalledWith(
+      expect.anything(), expect.anything(), 'p', twoWsConfig, fakeContribs, expect.objectContaining({ project: expect.anything() }));
   });
 
   it('defaults to main when queue item lacks workstream (legacy items)', async () => {

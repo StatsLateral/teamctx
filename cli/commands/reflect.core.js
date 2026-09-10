@@ -1,4 +1,4 @@
-import { readConfig, readWorkstream, writeWorkstream, writeWorkstreamMd, readContributions, writeRoleFile, listWorkstreamIds } from '../../src/storage.js';
+import { readProject, readConfig, readWorkstream, writeWorkstream, writeWorkstreamMd, readContributions, writeRoleFile, listWorkstreamIds } from '../../src/storage.js';
 import { generateReflection, serializeToMd, generateRoleFile } from '../../src/context.js';
 import { extractJson } from '../../src/ai.js';
 import { commitContext, pushContext } from '../../src/git.js';
@@ -46,12 +46,13 @@ export async function reflectWorkstream({ workstreamId, teamctxDir, projectDir }
 
   const wsName = config.workstreams?.find(w => w.id === targetId)?.name || workstream.name || config.project;
   writeWorkstream(targetId, updated, teamctxDir);
-  writeWorkstreamMd(targetId, serializeToMd(updated, wsName, 'reflect', contributions), teamctxDir);
+  const project = readProject(teamctxDir);
+  writeWorkstreamMd(targetId, serializeToMd(updated, wsName, 'reflect', contributions, { project }), teamctxDir);
 
   const rolesOnTarget = (config.roles || []).filter(r => (r.workstream || 'main') === targetId);
   const rolesRegenerated = [];
   for (const role of rolesOnTarget) {
-    const md = await generateRoleFile(updated, role, config.project, config, contributions);
+    const md = await generateRoleFile(updated, role, config.project, config, contributions, { project });
     writeRoleFile(role.slug, md, teamctxDir);
     rolesRegenerated.push(role.slug);
   }

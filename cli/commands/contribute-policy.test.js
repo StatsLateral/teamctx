@@ -14,6 +14,7 @@ let caller = MEMBER;
 let operations = [];
 
 vi.mock('../../src/storage.js', () => ({
+  readProject: vi.fn(() => ({ name: '', whys: [] })),
   readConfig: vi.fn(),
   readWorkstream: vi.fn(() => ({ id: 'main', name: 'p', whys: [] })),
   writeWorkstream: vi.fn(),

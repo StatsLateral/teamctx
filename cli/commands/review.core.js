@@ -1,5 +1,5 @@
 import {
-  readConfig, readWorkstream, writeWorkstream, writeWorkstreamMd, writeRoleFile,
+  readProject, readConfig, readWorkstream, writeWorkstream, writeWorkstreamMd, writeRoleFile,
   readQueueItem, deleteQueueItem, writeRejected, readContributions, listQueue,
 } from '../../src/storage.js';
 import { applyQueueItem, buildRejected, canApprove, isLegacyManagerRef } from '../../src/review.js';
@@ -79,14 +79,14 @@ export async function approveReview({ id, teamctxDir, projectDir, actor } = {}) 
   writeWorkstream(targetId, updated, teamctxDir);
   writeWorkstreamMd(
     targetId,
-    serializeToMd(updated, workstreamDisplayName(targetId, updated, config), item.author, contributions),
+    serializeToMd(updated, workstreamDisplayName(targetId, updated, config), item.author, contributions, { project: readProject(teamctxDir) }),
     teamctxDir,
   );
 
   const rolesOnTarget = (config.roles || []).filter(r => (r.workstream || 'main') === targetId);
   const rolesRegenerated = [];
   for (const role of rolesOnTarget) {
-    const md = await generateRoleFile(updated, role, config.project, config, contributions);
+    const md = await generateRoleFile(updated, role, config.project, config, contributions, { project: readProject(teamctxDir) });
     writeRoleFile(role.slug, md, teamctxDir);
     rolesRegenerated.push(role.slug);
   }

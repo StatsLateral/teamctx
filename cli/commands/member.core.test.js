@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('../../src/storage.js', () => ({
+  readProject: vi.fn(() => ({ name: '', whys: [] })),
   readConfig: vi.fn(),
   writeConfig: vi.fn(),
 }));

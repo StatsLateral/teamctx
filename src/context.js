@@ -100,8 +100,8 @@ export async function updateShared(workstream, contribution, config, { intent, a
   return { workstream: updated, summary, operations };
 }
 
-export async function generateRoleFile(workstream, role, projectName, config, contributions = []) {
-  const tree = serializeToMd(workstream, projectName, '', contributions, { includeContributors: false });
+export async function generateRoleFile(workstream, role, projectName, config, contributions = [], { project = null } = {}) {
+  const tree = serializeToMd(workstream, projectName, '', contributions, { includeContributors: false, project });
   const now = new Date().toISOString().split('T')[0];
 
   const prompt = [
@@ -140,9 +140,9 @@ export async function generateRoleFile(workstream, role, projectName, config, co
   return callClaude({ prompt, model: config.model, config });
 }
 
-export async function compileTaskPrompt({ task, workstream, role, contributions, config }) {
+export async function compileTaskPrompt({ task, workstream, role, contributions, config, project = null }) {
   const projectName = config?.project || workstream?.name || 'project';
-  const tree = serializeToMd(workstream, projectName, '', contributions, { includeContributors: false });
+  const tree = serializeToMd(workstream, projectName, '', contributions, { includeContributors: false, project });
   const now = new Date().toISOString().split('T')[0];
   const roleLine = role ? `Framed for role: ${role.name} — ${role.responsibilities || ''}` : 'No role filter — write for a general team member.';
   const decisionsList = (contributions || [])
@@ -300,11 +300,11 @@ function parseCitations(answer) {
   return { body, citedIds };
 }
 
-export async function answerQuestion({ sharedMd, roleMd, question, config, openTasks, workstream, contributions, audit }) {
+export async function answerQuestion({ sharedMd, roleMd, question, config, openTasks, workstream, contributions, audit, project = null }) {
   const contribs = contributions || [];
   const useCitedTags = !!workstream;
   const shared = useCitedTags
-    ? serializeToMd(workstream, workstream.name || config?.project || 'project', '', contribs, { includeSourceTags: true })
+    ? serializeToMd(workstream, workstream.name || config?.project || 'project', '', contribs, { includeSourceTags: true, project })
     : sharedMd;
   const tasksMd = (openTasks && openTasks.length)
     ? `## Open Tasks\n\n${openTasks.map(t => `- ${t.id} — ${t.title} (owner: ${t.owner || '?'})`).join('\n')}`

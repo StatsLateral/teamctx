@@ -1,6 +1,6 @@
 import { createHash } from 'crypto';
 import {
-  readConfig, listTasks, readTask, writeTask, deleteTask,
+  readProject, readConfig, listTasks, readTask, writeTask, deleteTask,
   readWorkstream, readContributions,
   writeTaskFile, readTaskFile, taskFilePath, taskFileExists,
 } from '../../src/storage.js';
@@ -274,7 +274,7 @@ export async function compileTask({
   }
 
   const contributions = readContributions(teamctxDir);
-  const markdown = await compileTaskPrompt({ task, workstream, role, contributions, config });
+  const markdown = await compileTaskPrompt({ task, workstream, role, contributions, config, project: readProject(teamctxDir) });
   writeTaskFile(task.id, markdown, teamctxDir);
 
   const updated = { ...task, compiledAt: new Date().toISOString(), compiledFromHash: currentHash };

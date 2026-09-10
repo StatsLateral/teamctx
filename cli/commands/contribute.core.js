@@ -1,4 +1,4 @@
-import { readConfig, readWorkstream, writeWorkstream, writeWorkstreamMd, appendContribution, writeRoleFile, writeQueueItem, readContributions, listWorkstreamIds } from '../../src/storage.js';
+import { readProject, readConfig, readWorkstream, writeWorkstream, writeWorkstreamMd, appendContribution, writeRoleFile, writeQueueItem, readContributions, listWorkstreamIds } from '../../src/storage.js';
 import { updateShared, generateRoleFile, serializeToMd } from '../../src/context.js';
 import { commitContext, pushContext } from '../../src/git.js';
 import { UnknownWorkstreamError } from './role.core.js';
@@ -127,16 +127,17 @@ export async function contributeCore({
 
   writeWorkstream(targetId, updated, teamctxDir);
   const contributions = readContributions(teamctxDir);
+  const project = readProject(teamctxDir);
   writeWorkstreamMd(
     targetId,
-    serializeToMd(updated, workstreamDisplayName(targetId, updated, config), actor, contributions),
+    serializeToMd(updated, workstreamDisplayName(targetId, updated, config), actor, contributions, { project }),
     teamctxDir,
   );
 
   const rolesOnTarget = (config.roles || []).filter(r => (r.workstream || 'main') === targetId);
   const rolesRegenerated = [];
   for (const role of rolesOnTarget) {
-    const md = await generateRoleFile(updated, role, config.project, config, contributions);
+    const md = await generateRoleFile(updated, role, config.project, config, contributions, { project });
     writeRoleFile(role.slug, md, teamctxDir);
     rolesRegenerated.push(role.slug);
   }
