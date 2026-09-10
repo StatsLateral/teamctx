@@ -159,7 +159,7 @@ export const TOOLS = [
   },
   {
     name: 'propose_structure',
-    description: "Proposes how this project is organised: which parts of its context become workstreams, and for each, how a person's part in it is best expressed — as the tasks assigned to them, as a named role, or as owning the whole thread. Read-only: it writes nothing, and workstream_split is still what creates a workstream. Reach for it when a manager asks how to divide the work or where to put people. Present each proposal in plain language with its reason and let them accept, rename or skip one at a time; never apply the set wholesale. On a project with no context yet it says so instead of guessing." + REPORT,
+    description: "Proposes how this project is organised: which parts of its context become workstreams, and for each, how a person's part in it is best expressed — as the tasks assigned to them, as a named role, or as owning the whole thread. Read-only: it writes nothing, and workstream_split is still what creates a workstream. Reach for it when a manager asks how to divide the work or where to put people. Present each proposal in plain language with its reason and let them accept, rename or skip one at a time; never apply the set wholesale. Each proposal also carries the roles that thread could use, which nothing creates until the workstream exists — role_add is still what creates one. On a project with no context yet it says so instead of guessing." + REPORT,
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
   },
   {
@@ -1151,7 +1151,10 @@ export function makeHandlers(projectRoot) {
         });
       }
       const lines = r.workstreams
-        .map(w => `${w.name} (${w.whys.length} ${w.whys.length === 1 ? 'goal' : 'goals'}) — ${w.rationale}; ${w.membership.means}`)
+        .map(w => {
+          const roles = w.roles.length ? `; roles it could use: ${w.roles.map(x => x.name).join(', ')}` : '';
+          return `${w.name} (${w.whys.length} ${w.whys.length === 1 ? 'goal' : 'goals'}) — ${w.rationale}; ${w.membership.means}${roles}`;
+        })
         .join(' | ');
       return textResult({
         ...r,

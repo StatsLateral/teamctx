@@ -124,6 +124,13 @@ export async function proposeStructure({ teamctxDir, projectDir } = {}) {
         model: membershipModel(s.membership?.model),
         means: describeMembership(s.membership?.model),
       },
+      // Suggested, not created. `role_add` is still what creates a role, and it
+      // cannot run until the workstream it binds to exists.
+      //
+      // Nameless entries are dropped here as well as upstream, for the same
+      // reason the membership model is normalised twice: this is the boundary a
+      // caller reads, and it should not depend on what happened before it.
+      roles: (s.roles || []).filter(x => String(x?.name || '').trim()),
     })),
     leftover: leftover.map(id => whys.find(w => w.id === id)).filter(Boolean),
   };

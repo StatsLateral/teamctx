@@ -260,7 +260,10 @@ export async function proposeSubworkstreams(workstream, config, roles = []) {
       "membership": {
         "model": "assigned-tasks | named-role | workstream-position",
         "rationale": "one sentence on why this thread suits that way of working"
-      }
+      },
+      "roles": [
+        { "name": "...", "responsibilities": "...", "excludes": "..." }
+      ]
     }
   ],
   "leftover": ["<why id that fits neither cluster>"]
@@ -307,7 +310,18 @@ export function normalizeSubworkstreamProposal(parsed, whys) {
       rationale: String(raw.membership?.rationale || '').trim(),
       ...(proposed !== undefined && !isKnownMembership(proposed) ? { recognised: false } : {}),
     };
-    if (name && whyIds.length > 0) splits.push({ name, rationale, whyIds, membership });
+    // Roles arrive as suggestions attached to a workstream that does not exist
+    // yet, so they are shaped here and created by nothing — `role_add` is still
+    // what creates one, after somebody has agreed to the workstream itself.
+    const roles = (Array.isArray(raw.roles) ? raw.roles : [])
+      .map(r => ({
+        name: String(r?.name || '').trim(),
+        responsibilities: String(r?.responsibilities || '').trim(),
+        excludes: String(r?.excludes || '').trim(),
+      }))
+      .filter(r => r.name);
+
+    if (name && whyIds.length > 0) splits.push({ name, rationale, whyIds, membership, roles });
   }
 
   const claimed = new Set(splits.flatMap(s => s.whyIds));

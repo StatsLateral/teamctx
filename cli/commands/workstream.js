@@ -160,6 +160,9 @@ How ${r.project} might be organised — suggestions only, nothing has changed.
     if (w.rationale) console.log(`   Why together: ${w.rationale}`);
     console.log(`   People: ${w.membership.means}${w.membership.rationale ? ` — ${w.membership.rationale}` : ''}`);
     w.whys.forEach(why => console.log(`   - ${why.text}`));
+    if (w.roles.length) {
+      console.log(`   Roles it could use: ${w.roles.map(x => x.name).join(', ')}`);
+    }
     console.log('');
   });
 

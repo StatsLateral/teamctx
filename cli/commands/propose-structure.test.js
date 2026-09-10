@@ -117,3 +117,51 @@ describe('a membership model the AI invented', () => {
     expect(r.workstreams[0].membership.model).toBe('assigned-tasks');
   });
 });
+
+describe('roles come back in the same call', () => {
+  // The issue asks for one "propose how this project is structured" call rather
+  // than a third suggest surface. Two round trips would also mean the roles were
+  // proposed against a workstream the split had not yet made.
+  beforeEach(() => {
+    proposeSubworkstreams.mockResolvedValue({
+      splits: [{
+        name: 'Delivery', rationale: 'customer commitments', whyIds: ['w1'],
+        membership: { model: 'named-role', rationale: 'ongoing ownership' },
+        roles: [
+          { name: 'Delivery Lead', responsibilities: 'owns the rollout', excludes: 'infrastructure cost' },
+          { name: '', responsibilities: 'nameless', excludes: '' },
+        ],
+      }],
+      leftover: [],
+    });
+  });
+
+  it('attaches the suggested roles to the workstream they belong to', async () => {
+    const r = await proposeStructure({ teamctxDir: '/x' });
+    expect(r.workstreams[0].roles.map(x => x.name)).toEqual(['Delivery Lead']);
+  });
+
+  it('keeps what makes a role useful, not just its name', async () => {
+    const r = await proposeStructure({ teamctxDir: '/x' });
+    expect(r.workstreams[0].roles[0]).toMatchObject({
+      responsibilities: 'owns the rollout',
+      excludes: 'infrastructure cost',
+    });
+  });
+
+  it('creates none of them', async () => {
+    // `role_add` is still what creates a role, and it cannot run until the
+    // workstream a role binds to exists.
+    await proposeStructure({ teamctxDir: '/x' });
+    expect(writeConfig).not.toHaveBeenCalled();
+  });
+
+  it('gives a workstream with no suggested roles an empty list, not undefined', async () => {
+    proposeSubworkstreams.mockResolvedValue({
+      splits: [{ name: 'Delivery', rationale: '', whyIds: ['w1'], membership: { model: 'assigned-tasks' } }],
+      leftover: [],
+    });
+    const r = await proposeStructure({ teamctxDir: '/x' });
+    expect(r.workstreams[0].roles).toEqual([]);
+  });
+});

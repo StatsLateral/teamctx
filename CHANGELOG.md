@@ -348,6 +348,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   project with no context yet it says so in plain words rather than guessing.
   A model the AI invents falls back to the narrowest of the three, which claims
   the least about how somebody works.
+  Roles come back in the same call rather than through `suggest_roles` — one
+  round trip, and the roles are proposed against the workstream they would
+  belong to rather than against one that does not exist yet. Nothing creates
+  them; `role_add` still does, once the workstream it binds to is real.
 
 - **Project context is its own layer, and workstreams inherit it.** A workstream
   used to be a standalone tree, and `workstream split` *moved* Whys out of
