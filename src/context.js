@@ -47,12 +47,17 @@ function renderTree(whys, contributionsById, tagFor) {
 export function serializeToMd(workstream, projectName, lastUpdatedBy = '', contributions = [], { includeSourceTags = false, includeContributors = true, project = null } = {}) {
   const now = new Date().toISOString().split('T')[0];
   const byLine = lastUpdatedBy ? ` · Source: ${lastUpdatedBy} contribution` : '';
-  const header = `# Project Context — ${projectName}\n*Last updated: ${now}${byLine}*\n\n## Why / What / How\n\n`;
-
   const contributionsById = new Map(contributions.map(c => [c.id, c]));
   const tagFor = includeSourceTags ? sourceTag : () => '';
 
   const inheritedWhys = project?.whys || [];
+  // "Project Context — Engineering" above a section called "Project context"
+  // uses the same word for two different things in one document. When there is
+  // an inherited half to distinguish it from, the title stops claiming to be
+  // the project.
+  const title = inheritedWhys.length ? 'Context' : 'Project Context';
+  const header = `# ${title} — ${projectName}\n*Last updated: ${now}${byLine}*\n\n## Why / What / How\n\n`;
+
   const ownWhys = workstream.whys || [];
 
   // Empty means empty on both halves. An inherited tree is still context, so a

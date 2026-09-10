@@ -58,3 +58,17 @@ describe('what does not change', () => {
     expect(out).toContain('### This workstream');
   });
 });
+
+describe('the document does not use one word for two things', () => {
+  it('drops "Project" from the title when a project section is inside it', () => {
+    // "# Project Context — Engineering" above "### Project context" reads as a
+    // contradiction. Only surfaced by compiling a real file and looking at it.
+    const out = md(WORKSTREAM, { project: PROJECT });
+    expect(out).toContain('# Context — Ledger');
+    expect(out).not.toContain('# Project Context —');
+  });
+
+  it('keeps the old title when nothing is inherited', () => {
+    expect(md(WORKSTREAM)).toContain('# Project Context — Ledger');
+  });
+});
