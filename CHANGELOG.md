@@ -8,6 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **Splitting the project could not be accepted.** The proposal read the
+  project tree, but accepting it still read and wrote through
+  `readWorkstream` — at project level that is a workstream whose id is the
+  string "null", so a valid proposal died on "has fewer than 2 Why nodes". The
+  first split of a new project is now the ordinary path it was meant to be: the
+  source is read and written as the project, its compiled page is `project.md`,
+  and the workstream that comes out of it is born with the project above it —
+  the project as it stands once those Whys have moved out, so nothing is both
+  inherited and owned.
 - **A project created on the web was born with a gate its own creator could not
   pass.** `init` ran inside a session but with no ambient actor, so the caller
   resolved from `config.me` to `name:<display name>` — a key nobody can present

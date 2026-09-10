@@ -1,5 +1,6 @@
 import {
   readConfig, writeConfig, readWorkstream, writeWorkstream, writeWorkstreamMd,
+  readTree, writeTree, writeTreeMd, readProject,
   listWorkstreamIds, writeRoleFile, readContributions,
 } from '../../src/storage.js';
 import { proposeSubworkstreams, serializeToMd, generateRoleFile } from '../../src/context.js';
@@ -8,7 +9,7 @@ import { slugify } from '../../src/roles.js';
 import { UnknownWorkstreamError } from './role.core.js';
 import { resolveActor } from '../../src/actor.js';
 import { resolveActiveWorkstream, writePrefs } from '../../src/prefs.js';
-import { resolveTarget } from '../../src/project-level.js';
+import { resolveTarget, isProjectLevel, targetLabel } from '../../src/project-level.js';
 
 /** The caller's active workstream — their own preference, then the project default. */
 async function activeId(config, teamctxDir, projectDir) {
@@ -54,7 +55,10 @@ export async function listAllWorkstreams({ teamctxDir, projectDir } = {}) {
 export async function suggestWorkstreamSplits({ teamctxDir, projectDir } = {}) {
   const config = readConfig(teamctxDir);
   const active = await activeId(config, teamctxDir, projectDir);
-  const workstream = readWorkstream(active, teamctxDir);
+  // `readTree`, not `readWorkstream`: after the project layer the caller is at
+  // project level unless they chose otherwise, and that is the tree with
+  // everything in it — the one most worth splitting.
+  const workstream = readTree(active, teamctxDir);
   const { splits, leftover } = await proposeSubworkstreams(workstream, config, config.roles || []);
   const enriched = splits.map(s => ({
     name: s.name,
@@ -78,11 +82,22 @@ async function applySplit({ source, sourceId, split, moveRoleSlugs, config, team
   const newWs = { id: newId, name: split.name, whys: movingWhys };
   const updatedSource = { ...source, whys: remainingWhys };
 
+  // Splitting the project is the ordinary case now, and the project is not a
+  // workstream: it has its own file and its own compiled page. Writing the
+  // source back through `writeTree` is what keeps a split from creating a
+  // workstream named after nothing.
+  const fromProject = isProjectLevel(sourceId);
+  // What the new workstream inherits: the project as it stands once these Whys
+  // have moved out of it, so a Why is not both inherited and owned.
+  const project = fromProject ? updatedSource : readProject(teamctxDir);
+
   writeWorkstream(newId, newWs, teamctxDir);
-  writeWorkstreamMd(newId, serializeToMd(newWs, split.name), teamctxDir);
-  writeWorkstream(sourceId, updatedSource, teamctxDir);
-  const sourceName = config.workstreams?.find(w => w.id === sourceId)?.name || source.name || sourceId;
-  writeWorkstreamMd(sourceId, serializeToMd(updatedSource, sourceName), teamctxDir);
+  writeWorkstreamMd(newId, serializeToMd(newWs, split.name, '', [], { project }), teamctxDir);
+  writeTree(sourceId, updatedSource, teamctxDir);
+  const sourceName = fromProject
+    ? (config.project || source.name || 'project')
+    : (config.workstreams?.find(w => w.id === sourceId)?.name || source.name || sourceId);
+  writeTreeMd(sourceId, serializeToMd(updatedSource, sourceName), teamctxDir);
 
   const rolesOnSource = (config.roles || []).filter(r => resolveTarget(r.workstream) === resolveTarget(sourceId));
   const validMoveSlugs = (moveRoleSlugs || []).filter(s => rolesOnSource.some(r => r.slug === s));
@@ -98,12 +113,15 @@ async function applySplit({ source, sourceId, split, moveRoleSlugs, config, team
   const contributions = readContributions(teamctxDir);
   for (const slug of validMoveSlugs) {
     const role = updatedConfig.roles.find(r => r.slug === slug);
-    const md = await generateRoleFile(newWs, role, updatedConfig.project, updatedConfig, contributions);
+    const md = await generateRoleFile(newWs, role, updatedConfig.project, updatedConfig, contributions, { project });
     writeRoleFile(slug, md, teamctxDir);
   }
   const stillOnSource = (updatedConfig.roles || []).filter(r => resolveTarget(r.workstream) === resolveTarget(sourceId));
   for (const role of stillOnSource) {
-    const md = await generateRoleFile(updatedSource, role, updatedConfig.project, updatedConfig, contributions);
+    // A role left on the project reads the project tree itself — passing it
+    // again as the inherited half would print every Why twice.
+    const md = await generateRoleFile(updatedSource, role, updatedConfig.project, updatedConfig, contributions,
+      fromProject ? {} : { project });
     writeRoleFile(role.slug, md, teamctxDir);
   }
 
@@ -116,15 +134,15 @@ export async function splitWorkstreams({ accepted, teamctxDir, projectDir } = {}
   }
   const config = readConfig(teamctxDir);
   const active = await activeId(config, teamctxDir, projectDir);
-  const source = readWorkstream(active, teamctxDir);
+  const source = readTree(active, teamctxDir);
   if ((source.whys || []).length < 2) {
-    throw new WorkstreamSplitError(`workstream "${active}" has fewer than 2 Why nodes — nothing to split.`);
+    throw new WorkstreamSplitError(`${targetLabel(active, config.project)} has fewer than 2 Why nodes — nothing to split.`);
   }
 
   const results = [];
   for (const split of accepted) {
     const fresh = readConfig(teamctxDir);
-    const src = readWorkstream(active, teamctxDir);
+    const src = readTree(active, teamctxDir);
     const r = await applySplit({
       source: src, sourceId: active, split,
       moveRoleSlugs: split.moveRoles || [],
@@ -132,7 +150,7 @@ export async function splitWorkstreams({ accepted, teamctxDir, projectDir } = {}
     });
     const finalConfig = readConfig(teamctxDir);
     const { pushed, pushError } = await commitAndOptionallyPush(
-      finalConfig, `workstream: split "${split.name}" from ${active}`, projectDir,
+      finalConfig, `workstream: split "${split.name}" from ${targetLabel(active, finalConfig.project)}`, projectDir,
     );
     results.push({ ...r, splitName: split.name, pushed, pushError });
   }
