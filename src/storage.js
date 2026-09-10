@@ -342,6 +342,55 @@ export function writeCurrentSnapshotPointer(pointer, dir) {
   writeFileSync(join(d, 'current.json'), JSON.stringify(pointer, null, 2));
 }
 
+// ---- Project context ----
+
+/**
+ * The project's own Why/What/How tree.
+ *
+ * One level above workstreams, and the base every workstream inherits at compile
+ * time. Its own file rather than a reserved workstream id, because that is what
+ * `main` was — a workstream doing double duty with nothing in the data to tell
+ * the two roles apart.
+ *
+ * Missing reads as an empty tree, the same way a workstream does, so a project
+ * can be read before it has been migrated.
+ */
+export function readProject(dir) {
+  const s = sessionRead(ctxPath('project.json'));
+  if (s !== undefined) return s === null ? emptyProject() : JSON.parse(s);
+  const p = resolve(dir, 'project.json');
+  if (!existsSync(p)) return emptyProject();
+  return JSON.parse(readFileSync(p, 'utf-8'));
+}
+
+function emptyProject() {
+  return { name: '', whys: [] };
+}
+
+export function writeProject(project, dir) {
+  // `id` is dropped on the way in: a project is not a workstream, and leaving
+  // one there invites code to treat it as an id it can pass around.
+  const { id, ...rest } = project || {};
+  const body = JSON.stringify({ name: '', whys: [], ...rest }, null, 2);
+  if (sessionWrite(ctxPath('project.json'), body)) return;
+  writeFileSync(resolve(dir, 'project.json'), body);
+}
+
+export function readProjectMd(dir) {
+  const s = sessionRead(ctxPath('context', 'project.md'));
+  if (s !== undefined) return s === null ? '' : s;
+  const p = resolve(dir, 'context', 'project.md');
+  if (!existsSync(p)) return '';
+  return readFileSync(p, 'utf-8');
+}
+
+export function writeProjectMd(content, dir) {
+  if (sessionWrite(ctxPath('context', 'project.md'), content)) return;
+  const mdDir = resolve(dir, 'context');
+  mkdirSync(mdDir, { recursive: true });
+  writeFileSync(join(mdDir, 'project.md'), content);
+}
+
 // ---- Workstreams ----
 
 function sanitizeWorkstreamId(id) {
