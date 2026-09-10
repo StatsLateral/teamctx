@@ -8,6 +8,7 @@ import { slugify } from '../../src/roles.js';
 import { UnknownWorkstreamError } from './role.core.js';
 import { resolveActor } from '../../src/actor.js';
 import { resolveActiveWorkstream, writePrefs } from '../../src/prefs.js';
+import { resolveTarget } from '../../src/project-level.js';
 
 /** The caller's active workstream — their own preference, then the project default. */
 async function activeId(config, teamctxDir, projectDir) {
@@ -39,7 +40,7 @@ export async function listAllWorkstreams({ teamctxDir, projectDir } = {}) {
   return ids.map(id => {
     const meta = declared.find(w => w.id === id);
     const ws = readWorkstream(id, teamctxDir);
-    const roles = (config.roles || []).filter(r => (r.workstream || 'main') === id).map(r => r.slug);
+    const roles = (config.roles || []).filter(r => resolveTarget(r.workstream) === resolveTarget(id)).map(r => r.slug);
     return {
       id,
       name: meta?.name || ws.name || id,
@@ -83,7 +84,7 @@ async function applySplit({ source, sourceId, split, moveRoleSlugs, config, team
   const sourceName = config.workstreams?.find(w => w.id === sourceId)?.name || source.name || sourceId;
   writeWorkstreamMd(sourceId, serializeToMd(updatedSource, sourceName), teamctxDir);
 
-  const rolesOnSource = (config.roles || []).filter(r => (r.workstream || 'main') === sourceId);
+  const rolesOnSource = (config.roles || []).filter(r => resolveTarget(r.workstream) === resolveTarget(sourceId));
   const validMoveSlugs = (moveRoleSlugs || []).filter(s => rolesOnSource.some(r => r.slug === s));
   const unknownRequested = (moveRoleSlugs || []).filter(s => !rolesOnSource.some(r => r.slug === s));
 
@@ -100,7 +101,7 @@ async function applySplit({ source, sourceId, split, moveRoleSlugs, config, team
     const md = await generateRoleFile(newWs, role, updatedConfig.project, updatedConfig, contributions);
     writeRoleFile(slug, md, teamctxDir);
   }
-  const stillOnSource = (updatedConfig.roles || []).filter(r => (r.workstream || 'main') === sourceId);
+  const stillOnSource = (updatedConfig.roles || []).filter(r => resolveTarget(r.workstream) === resolveTarget(sourceId));
   for (const role of stillOnSource) {
     const md = await generateRoleFile(updatedSource, role, updatedConfig.project, updatedConfig, contributions);
     writeRoleFile(role.slug, md, teamctxDir);
@@ -144,10 +145,21 @@ export async function splitWorkstreams({ accepted, teamctxDir, projectDir } = {}
  * effect on anyone else. `config.activeWorkstream` stays as the project default
  * for people who have never switched.
  */
+/**
+ * Move this caller to a workstream, or back to the project.
+ *
+ * Project level has to be reachable on purpose, not only by never having chosen
+ * anything: once somebody switches into a workstream there would otherwise be no
+ * way back to the whole picture. `null` — and `main`, from habit — mean the
+ * project, and clearing the preference is what returns them there.
+ */
 export async function useWorkstream({ id, teamctxDir, projectDir } = {}) {
   const config = readConfig(teamctxDir);
-  if (!knownWorkstreams(config, teamctxDir).has(id)) throw new UnknownWorkstreamError(id);
+  const target = resolveTarget(id);
+  if (target !== null && !knownWorkstreams(config, teamctxDir).has(target)) {
+    throw new UnknownWorkstreamError(target);
+  }
   const actor = await resolveActor({ config, cwd: projectDir });
-  await writePrefs(actor, { activeWorkstream: id }, teamctxDir);
-  return { activeWorkstream: id, actor: actor.name };
+  await writePrefs(actor, { activeWorkstream: target }, teamctxDir);
+  return { activeWorkstream: target, actor: actor.name };
 }

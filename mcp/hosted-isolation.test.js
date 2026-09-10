@@ -459,10 +459,13 @@ describe('a member scoped to one workstream', () => {
     const s = fakeSession();
     s.write('.teamctx/config.json', JSON.stringify({
       ...CONFIG,
-      workstreams: [{ id: 'main', name: 'Main' }, { id: 'engineering', name: 'Engineering' }],
+      // Two real workstreams: `main` is project level now, so it would always
+      // be in scope and could not stand in for one that is not.
+      workstreams: [{ id: 'product', name: 'Product' }, { id: 'engineering', name: 'Engineering' }],
       members: [{ key: RAVI.key, name: 'Ravi', email: RAVI.email, login: null, workstreams }],
     }));
     s.write('.teamctx/workstreams/engineering.json', JSON.stringify({ id: 'engineering', name: 'Engineering', whys: [] }));
+    s.write('.teamctx/workstreams/product.json', JSON.stringify({ id: 'product', name: 'Product', whys: [] }));
     return s;
   };
 
@@ -478,20 +481,20 @@ describe('a member scoped to one workstream', () => {
   });
 
   it('cannot read another workstream by naming it', async () => {
-    await expect(asUser(scoped(), RAVI, h => h.get_workstream({ id: 'main' })))
-      .rejects.toThrow(/no workstream "main"/);
+    await expect(asUser(scoped(), RAVI, h => h.get_workstream({ id: 'product' })))
+      .rejects.toThrow(/no workstream "product"/);
   });
 
   it('cannot switch to one outside the scope', async () => {
-    await expect(asUser(scoped(), RAVI, h => h.workstream_use({ id: 'main' })))
-      .rejects.toThrow(/no workstream "main"/);
+    await expect(asUser(scoped(), RAVI, h => h.workstream_use({ id: 'product' })))
+      .rejects.toThrow(/no workstream "product"/);
   });
 
   it('cannot reach one by asking about it', async () => {
     // The decision worth writing down: omitting the argument must not widen
     // anything, so the server clamps rather than trusting what was passed.
-    await expect(asUser(scoped(), RAVI, h => h.ask({ question: 'what?', workstream: 'main' })))
-      .rejects.toThrow(/no workstream "main"/);
+    await expect(asUser(scoped(), RAVI, h => h.ask({ question: 'what?', workstream: 'product' })))
+      .rejects.toThrow(/no workstream "product"/);
   });
 
   it('still reads the one they are on', async () => {
@@ -505,7 +508,7 @@ describe('a member scoped to one workstream', () => {
     delete cfg.members[0].workstreams;
     s.write('.teamctx/config.json', JSON.stringify(cfg));
     const r = await asUser(s, RAVI, h => json(h.get_context()));
-    expect(r.workstreams.map(w => w.id)).toContain('main');
+    expect(r.workstreams.map(w => w.id)).toContain('product');
     expect(r.workstreams.map(w => w.id)).toContain('engineering');
     expect(r.scopedTo).toBeUndefined();
   });
@@ -518,7 +521,7 @@ describe('a member scoped to one workstream', () => {
     cfg.members.push({ key: ALICE.key, name: 'Alice Example', login: 'alice', workstreams: ['engineering'] });
     s.write('.teamctx/config.json', JSON.stringify(cfg));
     const r = await asUser(s, ALICE, h => json(h.get_context()));
-    expect(r.workstreams.map(w => w.id)).toContain('main');
+    expect(r.workstreams.map(w => w.id)).toContain('product');
     expect(r.scopedTo).toBeUndefined();
   });
 });
@@ -581,5 +584,48 @@ describe('changing a scope from a chat client', () => {
     const s = withTwo();
     const r = await asUser(s, ALICE, h => json(h.member_scope({ ref: 'ravi@example.com', workstreams: ['engineering'] })));
     expect(r.reportBack).not.toMatch(/advisory/i);
+  });
+});
+
+describe('the project itself is always reachable', () => {
+  // Inherited, read-only background. A scoped member whose brief omits it is
+  // reading a branch with no idea what it hangs off — the incoherent brief this
+  // whole layer exists to remove.
+  const RAVI = { key: 'git:ravi@example.com', name: 'Ravi', login: null, email: 'ravi@example.com', source: 'google' };
+
+  const scoped = () => {
+    const s = fakeSession();
+    s.write('.teamctx/config.json', JSON.stringify({
+      ...CONFIG,
+      workstreams: [{ id: 'product', name: 'Product' }, { id: 'engineering', name: 'Engineering' }],
+      members: [{ key: RAVI.key, name: 'Ravi', email: RAVI.email, login: null, workstreams: ['engineering'] }],
+    }));
+    s.write('.teamctx/project.json', JSON.stringify({ name: 'Ledger', whys: [{ id: 'p1', text: 'ship it', whats: [] }] }));
+    s.write('.teamctx/workstreams/engineering.json', JSON.stringify({ id: 'engineering', name: 'Engineering', whys: [] }));
+    s.write('.teamctx/workstreams/product.json', JSON.stringify({ id: 'product', name: 'Product', whys: [] }));
+    return s;
+  };
+
+  it('lets a scoped member read the project tree', async () => {
+    const r = await asUser(scoped(), RAVI, h => json(h.get_workstream({})));
+    expect(r.whys[0].text).toBe('ship it');
+  });
+
+  it('lets them read it by the name it used to have', async () => {
+    const r = await asUser(scoped(), RAVI, h => json(h.get_workstream({ id: 'main' })));
+    expect(r.whys[0].text).toBe('ship it');
+  });
+
+  it('lets them move back to it after switching', async () => {
+    // Otherwise picking a workstream is a one-way door out of the whole picture.
+    const s = scoped();
+    await asUser(s, RAVI, h => h.workstream_use({ id: 'engineering' }));
+    const back = await asUser(s, RAVI, h => json(h.workstream_use({})));
+    expect(back.activeWorkstream).toBe(null);
+  });
+
+  it('still refuses a workstream they are not on', async () => {
+    await expect(asUser(scoped(), RAVI, h => h.workstream_use({ id: 'product' })))
+      .rejects.toThrow(/no workstream "product"/);
   });
 });

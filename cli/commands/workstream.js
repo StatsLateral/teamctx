@@ -123,7 +123,10 @@ export async function workstreamSplitCommand(opts = {}) {
 }
 
 export async function workstreamUseCommand(id) {
-  try { await useWorkstream({ id }); }
+  let result;
+  try { result = await useWorkstream({ id }); }
   catch (err) { cliError(err); return; }
-  console.log(`✓ Your active workstream is now "${id}". (Personal setting — not committed.)`);
+  console.log(result.activeWorkstream
+    ? `✓ Your active workstream is now "${result.activeWorkstream}". (Personal setting — not committed.)`
+    : '✓ You are working on the project itself, not on one workstream. (Personal setting — not committed.)');
 }

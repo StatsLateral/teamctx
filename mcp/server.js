@@ -6,7 +6,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import {
   getTeamctxDir,
-  readConfig, readWorkstream, listWorkstreamIds,
+  readConfig, readWorkstream, readProject, listWorkstreamIds,
   readSharedMd,
   readRoleFile,
   readContributions,
@@ -43,6 +43,7 @@ import { canApprove } from '../src/review.js';
 import {
   scopeFor, assertInScope, visibleWorkstreams, defaultWorkstream,
 } from '../src/member-scope.js';
+import { isProjectLevel, resolveTarget } from '../src/project-level.js';
 import { resolveActiveWorkstream, resolveIdentity, resolveDisplayName } from '../src/prefs.js';
 import { INSTRUCTIONS } from './instructions.js';
 
@@ -72,11 +73,11 @@ export const TOOLS = [
   },
   {
     name: 'get_workstream',
-    description: 'Fetch a single workstream tree by id.',
+    description: "Fetch a single workstream tree by id. Omit the id for the project's own tree — the base every workstream inherits, and where a project with no workstreams keeps everything.",
     inputSchema: {
       type: 'object',
       properties: { id: { type: 'string' } },
-      required: ['id'], additionalProperties: false,
+      additionalProperties: false,
     },
   },
   {
@@ -349,8 +350,13 @@ export const TOOLS = [
     description: 'Changes the calling user\'s active workstream. All their subsequent contribute/ask/reflect calls without an explicit workstream target this one. Personal setting — it is not written to the repo and does not affect other users.' + REPORT,
     inputSchema: {
       type: 'object',
-      properties: { id: { type: 'string' } },
-      required: ['id'], additionalProperties: false,
+      properties: {
+        id: {
+          type: 'string',
+          description: 'Workstream to move to. Omit to go back to the project itself, which is where somebody works before they pick a strand.',
+        },
+      },
+      additionalProperties: false,
     },
   },
   {
@@ -612,8 +618,9 @@ export function makeHandlers(projectRoot) {
       });
     },
 
-    async get_workstream({ id }) {
+    async get_workstream({ id } = {}) {
       const teamctxDir = dir();
+      if (isProjectLevel(id)) return textResult(readProject(teamctxDir));
       assertInScope(await scope(teamctxDir, readConfig(teamctxDir)), id);
       return textResult(readWorkstream(id, teamctxDir));
     },
@@ -1003,8 +1010,10 @@ export function makeHandlers(projectRoot) {
       return textResult({ ...r, reportBack });
     },
 
-    async workstream_use({ id }) {
-      assertInScope(await scope(dir(), readConfig(dir())), id);
+    async workstream_use({ id } = {}) {
+      // Project level is always in scope: it is inherited, read-only background
+      // that a scoped member needs in order to make sense of their own branch.
+      if (!isProjectLevel(id)) assertInScope(await scope(dir(), readConfig(dir())), id);
       const r = await useWorkstream({ id, teamctxDir: dir(), projectDir: gitCwd });
       return textResult({
         ...r,
