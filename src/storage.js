@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync, mkdirSync, existsSync, appendFileSync, readdirSync, unlinkSync } from 'fs';
 import { join, dirname } from 'path';
 import { getCurrentSession } from './session-context.js';
-import { isProjectLevel } from './project-level.js';
+import { isProjectLevel, resolveTarget } from './project-level.js';
 
 /**
  * Storage layer.
@@ -534,7 +534,11 @@ export function listTasks(opts = {}, dir) {
     for (const task of tasks) {
       if (seen.has(task.id)) continue;
       seen.add(task.id);
-      out.push({ ...task, workstream: isProjectLevel(task.workstream) ? null : (task.workstream || target) });
+      // The tree it was found in decides where it lives when the task does
+      // not say — checking the task's own field first made an old task with no
+      // workstream on it read as project-level, which for a scoped member is a
+      // sibling's task appearing in their list.
+      out.push({ ...task, workstream: resolveTarget(task.workstream ?? target) });
     }
   }
   return out;

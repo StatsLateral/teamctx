@@ -41,7 +41,7 @@ import { getConfig, setConfig, setReviewPolicy } from '../cli/commands/config.co
 import { resolveActor } from '../src/actor.js';
 import { canApprove, managerKeys } from '../src/review.js';
 import {
-  scopeFor, assertInScope, visibleWorkstreams, defaultWorkstream,
+  scopeFor, assertInScope, inScope, visibleWorkstreams, defaultWorkstream,
 } from '../src/member-scope.js';
 import { isProjectLevel, resolveTarget } from '../src/project-level.js';
 import { resolveActiveWorkstream, resolveIdentity, resolveDisplayName } from '../src/prefs.js';
@@ -647,7 +647,7 @@ export function makeHandlers(projectRoot) {
       // that workstream — a scope that stopped at get_workstream would be
       // walked around by asking for the role instead.
       const found = (config.roles || []).find(r => r.slug === role);
-      if (found) assertInScope(await scope(teamctxDir, config), found.workstream || 'main');
+      if (found) assertInScope(await scope(teamctxDir, config), resolveTarget(found.workstream));
       return textResult(readRoleFile(role, teamctxDir));
     },
 
@@ -783,7 +783,7 @@ export function makeHandlers(projectRoot) {
       // every workstream, and a scope has to survive that rather than be
       // undone by an argument.
       const tasks = allowed
-        ? (r.tasks || []).filter(t => allowed.includes(t.workstream || 'main'))
+        ? (r.tasks || []).filter(t => inScope(allowed, t.workstream))
         : r.tasks;
       return textResult({ ...r, tasks, ...(allowed ? { scopedTo: allowed } : {}) });
     },

@@ -16,6 +16,8 @@
  * quietly doesn't hold.
  */
 
+import { isProjectLevel } from './project-level.js';
+
 export class WorkstreamOutOfScopeError extends Error {
   constructor(id, allowed) {
     super(`no workstream "${id}" on this project`);
@@ -68,8 +70,17 @@ export function scopeFor(config, actor, { isManager = false } = {}) {
   return memberWorkstreams(rosterEntry(config, actor));
 }
 
+/**
+ * Project level is in everybody's scope.
+ *
+ * A scope narrows which workstreams a member reaches, and the project tree is
+ * not one of them — it is the base every workstream inherits, so a member who
+ * could not read it would be reading half of their own workstream's context.
+ * Scoping starts below the project, not at it.
+ */
 export function inScope(scope, id) {
   if (!scope) return true;
+  if (isProjectLevel(id)) return true;
   return scope.includes(String(id ?? '').trim());
 }
 
@@ -104,5 +115,9 @@ export function visibleWorkstreams(scope, ids) {
  */
 export function defaultWorkstream(scope, preferred) {
   if (!scope) return preferred;
-  return inScope(scope, preferred) ? preferred : scope[0];
+  // A scoped member may *read* the project, but it is not where they should
+  // land when they have said nothing — their own workstream is, and that is
+  // what `contribute` and `ask` would otherwise silently aim at.
+  if (isProjectLevel(preferred)) return scope[0];
+  return scope.includes(String(preferred).trim()) ? preferred : scope[0];
 }

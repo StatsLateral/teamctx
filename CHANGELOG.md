@@ -8,6 +8,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **The project itself was outside every scoped member's reach.** A scope names
+  the workstreams a member may read, and the project tree is not one of them —
+  it is the base their own workstream inherits, so a member refused it was
+  reading half of their own context. Scoping now starts below the project: its
+  tree, a role that sits at it, and a task recorded on it are readable by
+  everyone on the roster, while a sibling workstream stays refused in the same
+  words as before. Where a scoped member *lands* is unchanged — their own
+  workstream, not the project.
+- **A task could be reported as project-level when it was not.** A task carries
+  the workstream it belongs to, but an older one may not, and the fallback read
+  the task's own empty field as "the project" before falling back to the tree it
+  came from. For a scoped member that put a sibling's task in their list.
 - **`ask` could not see the project's own context.** It read the caller's
   target as a workstream, and at project level — where everyone stands unless
   they choose otherwise — that found nothing, so a project full of context

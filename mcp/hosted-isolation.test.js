@@ -515,6 +515,49 @@ describe('a member scoped to one workstream', () => {
     expect(r.scopedTo).toBeUndefined();
   });
 
+  it('reads the project itself, which is not a workstream to be scoped out of', async () => {
+    // Their own workstream inherits the project tree, so a member refused it
+    // would be reading half of their own context.
+    const r = await asUser(scoped(), RAVI, h => json(h.get_workstream({})));
+    expect(r).toBeTruthy();
+  });
+
+  it('reads a role that sits at project level', async () => {
+    const s = scoped();
+    const cfg = s.configJson();
+    cfg.roles = [{ slug: 'ops', name: 'Ops', workstream: null }];
+    s.write('.teamctx/config.json', JSON.stringify(cfg));
+    s.write('.teamctx/context/roles/ops.md', '# Ops');
+    const r = await asUser(s, RAVI, h => h.get_role_context({ role: 'ops' }));
+    expect(r.content[0].text).toMatch(/# Ops/);
+  });
+
+  it('still cannot read a role bound to a workstream outside the scope', async () => {
+    const s = scoped();
+    const cfg = s.configJson();
+    cfg.roles = [{ slug: 'pm', name: 'PM', workstream: 'product' }];
+    s.write('.teamctx/config.json', JSON.stringify(cfg));
+    s.write('.teamctx/context/roles/pm.md', '# PM');
+    await expect(asUser(s, RAVI, h => h.get_role_context({ role: 'pm' })))
+      .rejects.toThrow(/no workstream "product"/);
+  });
+
+  it('keeps project-level tasks in their list and drops a sibling one', async () => {
+    const s = scoped();
+    s.write('.teamctx/project.json', JSON.stringify({
+      name: 'Demo', whys: [],
+      tasks: [{ id: 't-proj', title: 'book the venue', status: 'open' }],
+    }));
+    s.write('.teamctx/workstreams/product.json', JSON.stringify({
+      id: 'product', name: 'Product', whys: [],
+      tasks: [{ id: 't-prod', title: 'pricing page', status: 'open' }],
+    }));
+    const r = await asUser(s, RAVI, h => json(h.list_tasks({ all: true })));
+    const ids = r.tasks.map(t => t.id);
+    expect(ids).toContain('t-proj');
+    expect(ids).not.toContain('t-prod');
+  });
+
   it('never scopes the manager, even if the roster tries to', async () => {
     // A manager who could not read half the project could not review
     // contributions to that half, which is the one thing only they can do.
