@@ -8,6 +8,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **The first role on a new project was refused.** `role_add` checked its target
+  against the workstream list, and the project is not in that list and never will
+  be — so on a project that had not split, which is every project on the day it
+  is created, creating a role failed as an unknown workstream. Roles now sit at
+  project level properly: created there, recorded as project level rather than
+  as a workstream called `main`, and movable back there from a workstream.
+  `suggest_roles` reads the project tree for the same reason — it had been
+  suggesting roles for a project it could not see. A role on a workstream is
+  compiled with the project above it, the way every other view of that
+  workstream already was.
+- **`get_config` reported `main` as the project's default workstream.** There is
+  no such workstream any more; the default is the project itself.
 - **The migration deleted every task that was sitting on `main`.** Tasks live
   inside the tree file, and folding `main` into the project carried its Whys but
   wrote nothing else before deleting it — so on a project that had never split,

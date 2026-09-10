@@ -1,3 +1,4 @@
+import { resolveTarget } from '../../src/project-level.js';
 import { readConfig, writeConfig } from '../../src/storage.js';
 import { getModelsFor, getDefaultModelFor } from '../../src/ai.js';
 import { resolveActor } from '../../src/actor.js';
@@ -75,7 +76,7 @@ export async function getConfig({ teamctxDir, projectDir } = {}) {
   return {
     me: await resolveDisplayName({ actor, config: c, teamctxDir }),
     activeWorkstream: await resolveActiveWorkstream({ actor, config: c, teamctxDir }),
-    projectDefaults: { me: c.me, activeWorkstream: c.activeWorkstream || 'main' },
+    projectDefaults: { me: c.me, activeWorkstream: resolveTarget(c.activeWorkstream) },
     project: c.project, provider: c.provider || 'anthropic', model: c.model,
     // `manager` is the legacy display-name field and is usually empty, so a
     // caller reading it alone reports "no manager" for a project that has one.
