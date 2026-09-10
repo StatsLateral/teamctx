@@ -1,13 +1,16 @@
 import { existsSync, readFileSync, unlinkSync } from 'fs';
 import { join } from 'path';
 import { readConfig, writeConfig, writeWorkstream, writeWorkstreamMd } from './storage.js';
+import { migrateProjectLayer } from './migrate-project-layer.js';
 
 export function migrateIfNeeded(teamctxDir) {
   const configPath = join(teamctxDir, 'config.json');
   if (!existsSync(configPath)) return false;
 
   const config = readConfig(teamctxDir);
-  if (config.workstreamsMigrated) return false;
+  // Runs after the workstreams migration on a project that needs both, because
+  // it folds `main` away and the older one is what creates `main`.
+  if (config.workstreamsMigrated) return migrateProjectLayer(teamctxDir);
 
   const sharedPath = join(teamctxDir, 'shared.json');
   let workstream;
@@ -35,5 +38,6 @@ export function migrateIfNeeded(teamctxDir) {
   writeConfig(updated, teamctxDir);
 
   if (existsSync(sharedPath)) unlinkSync(sharedPath);
+  migrateProjectLayer(teamctxDir);
   return true;
 }

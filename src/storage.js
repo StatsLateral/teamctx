@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync, mkdirSync, existsSync, appendFileSync, readdirSync, unlinkSync } from 'fs';
 import { join, dirname } from 'path';
 import { getCurrentSession } from './session-context.js';
+import { isProjectLevel } from './project-level.js';
 
 /**
  * Storage layer.
@@ -564,3 +565,53 @@ export function deleteTask(idOrPrefix, dir) {
   return { id, workstream: wsId };
 }
 
+
+// ---- Targets: the project, or one workstream ----
+
+/**
+ * Read whichever tree a caller is pointed at.
+ *
+ * Contribute, ask and reflect all do the same thing to either level, and the
+ * only difference is which file it lands in. Dispatching here keeps that
+ * difference in one place rather than putting the same `if` at the top of every
+ * command — which is how `main` came to mean two things to begin with.
+ */
+export function readTree(target, dir) {
+  return isProjectLevel(target) ? readProject(dir) : readWorkstream(target, dir);
+}
+
+export function writeTree(target, tree, dir) {
+  if (isProjectLevel(target)) return writeProject(tree, dir);
+  return writeWorkstream(target, tree, dir);
+}
+
+export function readTreeMd(target, dir) {
+  return isProjectLevel(target) ? readProjectMd(dir) : readWorkstreamMd(target, dir);
+}
+
+export function writeTreeMd(target, content, dir) {
+  if (isProjectLevel(target)) return writeProjectMd(content, dir);
+  return writeWorkstreamMd(target, content, dir);
+}
+
+/**
+ * Remove a workstream and its compiled file.
+ *
+ * Only the project-layer migration needs this, and it needs it in both modes —
+ * a hosted project has no filesystem to unlink from, and it is the one place
+ * `main` has to actually stop existing rather than merely stop being referenced.
+ */
+export function deleteWorkstream(id, dir) {
+  sanitizeWorkstreamId(id);
+  const jsonPath = ctxPath('workstreams', `${id}.json`);
+  const mdPath = ctxPath('context', 'workstreams', `${id}.md`);
+  if (getCurrentSession()) {
+    sessionDelete(jsonPath);
+    sessionDelete(mdPath);
+    return;
+  }
+  const json = resolve(dir, 'workstreams', `${id}.json`);
+  if (existsSync(json)) unlinkSync(json);
+  const md = resolve(dir, 'context', 'workstreams', `${id}.md`);
+  if (existsSync(md)) unlinkSync(md);
+}

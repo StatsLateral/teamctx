@@ -1,0 +1,148 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+vi.mock('./storage.js', () => ({
+  readConfig: vi.fn(),
+  writeConfig: vi.fn(),
+  readWorkstream: vi.fn(),
+  readWorkstreamMd: vi.fn(() => ''),
+  deleteWorkstream: vi.fn(),
+  writeProject: vi.fn(),
+  writeProjectMd: vi.fn(),
+  listWorkstreamIds: vi.fn(() => []),
+}));
+
+const { migrateProjectLayer } = await import('./migrate-project-layer.js');
+const {
+  readConfig, writeConfig, readWorkstream, readWorkstreamMd,
+  deleteWorkstream, writeProject, writeProjectMd, listWorkstreamIds,
+} = await import('./storage.js');
+
+const MAIN_TREE = { id: 'main', name: 'Ledger', whys: [{ id: 'w1', text: 'ship it', whats: [] }] };
+
+const config = (over = {}) => ({
+  project: 'Ledger',
+  workstreams: [{ id: 'main', name: 'Ledger' }, { id: 'engineering', name: 'Engineering' }],
+  activeWorkstream: 'main',
+  roles: [{ slug: 'eng', workstream: 'main' }, { slug: 'ops', workstream: 'engineering' }],
+  ...over,
+});
+
+const written = () => writeConfig.mock.calls[0][0];
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  readConfig.mockReturnValue(config());
+  readWorkstream.mockReturnValue(MAIN_TREE);
+  listWorkstreamIds.mockReturnValue(['main', 'engineering']);
+  readWorkstreamMd.mockReturnValue('# Project Context — Ledger\n');
+});
+
+describe('folding main into the project tree', () => {
+  it('moves main\'s whys to the project', () => {
+    migrateProjectLayer('/x');
+    expect(writeProject).toHaveBeenCalledWith(
+      expect.objectContaining({ whys: MAIN_TREE.whys }), '/x');
+  });
+
+  it('names the project after the project, not after main', () => {
+    // `main` was usually named after the project; where it was not, the
+    // project's own name is the truthful one.
+    readWorkstream.mockReturnValue({ ...MAIN_TREE, name: 'main' });
+    migrateProjectLayer('/x');
+    expect(writeProject.mock.calls[0][0].name).toBe('Ledger');
+  });
+
+  it('carries main\'s compiled markdown across', () => {
+    migrateProjectLayer('/x');
+    expect(writeProjectMd).toHaveBeenCalledWith('# Project Context — Ledger\n', '/x');
+  });
+
+  it('removes main from the workstream list and leaves the others', () => {
+    migrateProjectLayer('/x');
+    expect(written().workstreams.map(w => w.id)).toEqual(['engineering']);
+  });
+
+  it('unsets the active workstream rather than picking another', () => {
+    // Choosing a survivor would silently move where somebody works.
+    migrateProjectLayer('/x');
+    expect(written().activeWorkstream).toBe(null);
+  });
+
+  it('rebinds main-bound roles to project level, leaving others alone', () => {
+    migrateProjectLayer('/x');
+    expect(written().roles).toEqual([
+      { slug: 'eng', workstream: null },
+      { slug: 'ops', workstream: 'engineering' },
+    ]);
+  });
+
+  it('deletes main only after everything else is written', () => {
+    migrateProjectLayer('/x');
+    const order = [
+      writeProject.mock.invocationCallOrder[0],
+      writeConfig.mock.invocationCallOrder[0],
+      deleteWorkstream.mock.invocationCallOrder[0],
+    ];
+    expect(order).toEqual([...order].sort((a, b) => a - b));
+    expect(deleteWorkstream).toHaveBeenCalledWith('main', '/x');
+  });
+
+  it('records that it ran', () => {
+    migrateProjectLayer('/x');
+    expect(written().projectLayerMigrated).toBe(true);
+  });
+});
+
+describe('running it more than once', () => {
+  it('does nothing on a project already migrated', () => {
+    readConfig.mockReturnValue(config({ projectLayerMigrated: true }));
+    expect(migrateProjectLayer('/x')).toBe(false);
+    expect(writeProject).not.toHaveBeenCalled();
+    expect(writeConfig).not.toHaveBeenCalled();
+    expect(deleteWorkstream).not.toHaveBeenCalled();
+  });
+
+  it('reports whether it did anything', () => {
+    expect(migrateProjectLayer('/x')).toBe(true);
+  });
+});
+
+describe('projects that do not look like the common case', () => {
+  it('still creates a project tree when there is no main at all', () => {
+    // A project split before this shipped may have no `main` left.
+    listWorkstreamIds.mockReturnValue(['engineering']);
+    readConfig.mockReturnValue(config({ workstreams: [{ id: 'engineering', name: 'Engineering' }] }));
+    migrateProjectLayer('/x');
+    expect(writeProject).toHaveBeenCalledWith({ name: 'Ledger', whys: [] }, '/x');
+    expect(deleteWorkstream).not.toHaveBeenCalled();
+  });
+
+  it('leaves a project with only main holding no workstreams', () => {
+    // The case that must be invisible: same content, one fewer concept.
+    listWorkstreamIds.mockReturnValue(['main']);
+    readConfig.mockReturnValue(config({ workstreams: [{ id: 'main', name: 'Ledger' }] }));
+    migrateProjectLayer('/x');
+    expect(written().workstreams).toEqual([]);
+    expect(writeProject.mock.calls[0][0].whys).toEqual(MAIN_TREE.whys);
+  });
+
+  it('survives a config with no workstreams or roles recorded', () => {
+    readConfig.mockReturnValue({ project: 'Ledger' });
+    listWorkstreamIds.mockReturnValue([]);
+    expect(() => migrateProjectLayer('/x')).not.toThrow();
+    expect(written().workstreams).toEqual([]);
+    expect(written().roles).toEqual([]);
+  });
+
+  it('does nothing where there is no project to read', () => {
+    readConfig.mockImplementation(() => { throw new Error('Not in a teamctx project.'); });
+    expect(migrateProjectLayer('/x')).toBe(false);
+    expect(writeProject).not.toHaveBeenCalled();
+  });
+
+  it('skips the markdown when main had none compiled', () => {
+    readWorkstreamMd.mockReturnValue('');
+    migrateProjectLayer('/x');
+    expect(writeProjectMd).not.toHaveBeenCalled();
+  });
+});
