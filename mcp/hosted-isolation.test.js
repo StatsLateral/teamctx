@@ -469,9 +469,11 @@ describe('a member scoped to one workstream', () => {
     return s;
   };
 
-  it('sees only their own workstream in the whole context', async () => {
+  it('sees the project tree and their own workstream, and nothing else', async () => {
+    // Both halves matter: without the project tree their brief is incoherent,
+    // and with a sibling workstream it is a leak.
     const r = await asUser(scoped(), RAVI, h => json(h.get_context()));
-    expect(r.workstreams.map(w => w.id)).toEqual(['engineering']);
+    expect(r.workstreams.map(w => w.id)).toEqual([null, 'engineering']);
     expect(r.scopedTo).toEqual(['engineering']);
   });
 
@@ -627,5 +629,68 @@ describe('the project itself is always reachable', () => {
   it('still refuses a workstream they are not on', async () => {
     await expect(asUser(scoped(), RAVI, h => h.workstream_use({ id: 'product' })))
       .rejects.toThrow(/no workstream "product"/);
+  });
+});
+
+describe('what a hosted read must not miss', () => {
+  // Each of these was live on a real project at once, and together they made it
+  // look corrupted: contributions landed correctly and then read as lost, a
+  // scoped member saw a workstream they could not open, and every agent was
+  // told the project had no manager.
+  const RAVI = { key: 'git:ravi@example.com', name: 'Ravi', login: null, email: 'ravi@example.com', source: 'google' };
+
+  const withProject = (members = []) => {
+    const s = fakeSession();
+    s.write('.teamctx/config.json', JSON.stringify({
+      ...CONFIG,
+      workstreams: [{ id: 'product', name: 'Product' }, { id: 'engineering', name: 'Engineering' }],
+      members,
+    }));
+    s.write('.teamctx/project.json', JSON.stringify({
+      name: 'Ledger', whys: [{ id: 'p1', text: 'nobody ships before Q3', whats: [] }],
+    }));
+    s.write('.teamctx/workstreams/engineering.json', JSON.stringify({ id: 'engineering', name: 'Engineering', whys: [] }));
+    s.write('.teamctx/workstreams/product.json', JSON.stringify({ id: 'product', name: 'Product', whys: [] }));
+    return s;
+  };
+
+  it('counts the project tree in totalWhys', async () => {
+    // It did not, so a contribution to the project moved nothing on screen and
+    // read as an orphaned write.
+    const r = await asUser(withProject(), ALICE, h => json(h.get_status()));
+    expect(r.projectWhys).toBe(1);
+    expect(r.totalWhys).toBe(1);
+  });
+
+  it('returns the project tree from get_context', async () => {
+    const r = await asUser(withProject(), ALICE, h => json(h.get_context()));
+    expect(r.workstreams[0].id).toBe(null);
+    expect(r.workstreams[0].tree.whys[0].text).toBe('nobody ships before Q3');
+  });
+
+  it('does not list a workstream in status that the caller cannot open', async () => {
+    // Listing one and then refusing it is what made a member's agent conclude
+    // the data was corrupt rather than that they were scoped.
+    const s = withProject([{ key: RAVI.key, name: 'Ravi', email: RAVI.email, login: null, workstreams: ['engineering'] }]);
+    const r = await asUser(s, RAVI, h => json(h.get_status()));
+    expect(r.workstreams.map(w => w.id)).toEqual(['engineering']);
+    expect(r.scopedTo).toEqual(['engineering']);
+  });
+
+  it('still shows the manager everything', async () => {
+    const s = withProject([{ key: RAVI.key, name: 'Ravi', email: RAVI.email, login: null, workstreams: ['engineering'] }]);
+    const r = await asUser(s, ALICE, h => json(h.get_status()));
+    const ids = r.workstreams.map(w => w.id);
+    expect(ids).toContain('engineering');
+    expect(ids).toContain('product');
+    expect(r.scopedTo).toBeUndefined();
+  });
+
+  it('reports the gate, not the empty legacy field', async () => {
+    // Reading `config.manager` alone said "no manager" on every project created
+    // since it stopped being written — and an agent told that says the gate is
+    // open, which is both alarming and false.
+    const r = await asUser(withProject(), ALICE, h => json(h.get_status()));
+    expect(r.manager).toBe(CONFIG.managerKey);
   });
 });

@@ -223,11 +223,14 @@ describe('get_context', () => {
     const handlers = makeHandlers(ROOT);
     const result = await handlers.get_context({});
     const payload = JSON.parse(result.content[0].text);
-    expect(payload.workstreams.map(w => w.id).sort()).toEqual(['main', 'tech']);
+    // The project tree comes first, as `id: null`, then the workstreams.
+    expect(payload.workstreams[0].id).toBe(null);
+    expect(payload.workstreams.slice(1).map(w => w.id).sort()).toEqual(['main', 'tech']);
     expect(payload.workstreams[0].tree).toBeTruthy();
   });
 
-  it('defaults to a single main workstream when config has none', async () => {
+  it('returns the project tree alone when there are no workstreams', async () => {
+    // The ordinary shape now: a project tree and nothing split out of it.
     readConfig.mockReturnValue({ ...baseConfig, workstreams: [] });
     listWorkstreamIds.mockReturnValue([]);
     readWorkstream.mockReturnValue(baseWs);
@@ -236,7 +239,7 @@ describe('get_context', () => {
     const result = await handlers.get_context({});
     const payload = JSON.parse(result.content[0].text);
     expect(payload.workstreams).toHaveLength(1);
-    expect(payload.workstreams[0].id).toBe('main');
+    expect(payload.workstreams[0].id).toBe(null);
   });
 });
 

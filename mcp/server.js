@@ -39,7 +39,7 @@ import { listMembers, addMember, removeMember, setMemberWorkstreams } from '../c
 import { reflectWorkstream } from '../cli/commands/reflect.core.js';
 import { getConfig, setConfig, setReviewPolicy } from '../cli/commands/config.core.js';
 import { resolveActor } from '../src/actor.js';
-import { canApprove } from '../src/review.js';
+import { canApprove, managerKeys } from '../src/review.js';
 import {
   scopeFor, assertInScope, visibleWorkstreams, defaultWorkstream,
 } from '../src/member-scope.js';
@@ -63,7 +63,7 @@ export const TOOLS = [
   // Tier 0 — read-only
   {
     name: 'get_context',
-    description: 'Fetch all workstreams (Why/What/How trees) for the current teamctx project. Returns { workstreams: [{id, tree}, ...] }.',
+    description: "Fetch the whole project: its own Why/What/How tree first, as `id: null`, then each workstream the caller may see. The project tree is the base every workstream inherits — a workstream's own entry holds only what is specific to it, so read both. Returns { workstreams: [{id, tree}, ...] }.",
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
   },
   {
@@ -533,8 +533,11 @@ export function makeHandlers(projectRoot) {
   // migrateIfNeeded touches the filesystem directly, so it only runs locally.
   let migrated = false;
   const dir = () => {
-    if (isHosted) return projectRoot;
-    const teamctxDir = getTeamctxDir(projectRoot);
+    // Hosted used to return before this, because the migration touched the
+    // filesystem directly. It goes through the storage layer now, and skipping
+    // it left every hosted project half-migrated — `main` alive beside a project
+    // tree, which is the one state nothing is written to expect.
+    const teamctxDir = isHosted ? projectRoot : getTeamctxDir(projectRoot);
     if (!migrated) {
       try { migrateIfNeeded(teamctxDir); } catch { /* best-effort */ }
       migrated = true;
@@ -600,10 +603,16 @@ export function makeHandlers(projectRoot) {
         ...(config.workstreams || []).map(w => w.id),
         ...listWorkstreamIds(teamctxDir),
       ]);
-      if (ids.size === 0) ids.add('main');
       const allowed = await scope(teamctxDir, config);
-      const workstreams = visibleWorkstreams(allowed, [...ids].sort())
-        .map(id => ({ id, tree: readWorkstream(id, teamctxDir) }));
+      // The project tree first, always. It is what every workstream inherits,
+      // and leaving it out meant a contribution to the project landed correctly
+      // and then read as lost — nothing returned it, so the same question gave
+      // a different answer each time as writes piled up unseen.
+      const workstreams = [
+        { id: null, tree: readProject(teamctxDir) },
+        ...visibleWorkstreams(allowed, [...ids].sort())
+          .map(id => ({ id, tree: readWorkstream(id, teamctxDir) })),
+      ];
       return textResult({ workstreams, ...(allowed ? { scopedTo: allowed } : {}) });
     },
 
@@ -659,7 +668,14 @@ export function makeHandlers(projectRoot) {
     async get_status() {
       const teamctxDir = dir();
       const config = readConfig(teamctxDir);
-      const workstreams = await listAllWorkstreams({ teamctxDir, projectDir: gitCwd });
+      const all = await listAllWorkstreams({ teamctxDir, projectDir: gitCwd });
+      // Scoped here as well as everywhere else. Listing a workstream a caller
+      // cannot open is worse than hiding it: they see a name, ask for it, are
+      // told it does not exist, and conclude the project is broken.
+      const allowed = await scope(teamctxDir, config);
+      const visible = visibleWorkstreams(allowed, all.map(w => w.id));
+      const workstreams = all.filter(w => visible.includes(w.id));
+      const project = readProject(teamctxDir);
       const contributions = readContributions(teamctxDir);
       const decisions = contributions.filter(c => c.tagged === 'decision');
       const me = await who(teamctxDir, config);
@@ -667,18 +683,26 @@ export function makeHandlers(projectRoot) {
         project: config.project,
         provider: config.provider || 'anthropic',
         model: config.model,
-        manager: config.manager || null,
+        // The gate, not the legacy display-name field, which is empty on every
+        // project created since — reading it alone reported "no manager" for a
+        // project that had one, and an agent told so says the gate is open.
+        manager: managerKeys(config)[0] || config.manager || null,
         // Who *this caller* is and where *they* are working — not the shared
         // config.me / config.activeWorkstream, which are only the defaults.
         me: me.name,
         meSource: me.nameSource,
         actorSource: me.actor.source,
         activeWorkstream: me.workstream,
-        projectDefaults: { me: config.me, activeWorkstream: config.activeWorkstream || 'main' },
-        totalWhys: workstreams.reduce((n, w) => n + w.whyCount, 0),
+        projectDefaults: { me: config.me, activeWorkstream: config.activeWorkstream || null },
+        // The project tree counts. Without it a contribution to the project
+        // lands correctly and then reads as lost: totalWhys does not move and no
+        // workstream shows it.
+        projectWhys: (project.whys || []).length,
+        totalWhys: (project.whys || []).length + workstreams.reduce((n, w) => n + w.whyCount, 0),
         workstreams,
+        ...(allowed ? { scopedTo: allowed } : {}),
         contributions: { total: contributions.length, decisions: decisions.length },
-        roles: (config.roles || []).map(r => ({ slug: r.slug, name: r.name, workstream: r.workstream || 'main' })),
+        roles: (config.roles || []).map(r => ({ slug: r.slug, name: r.name, workstream: resolveTarget(r.workstream) })),
       });
     },
 
