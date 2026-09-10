@@ -1,6 +1,7 @@
 import { readProject, readConfig, readTree, writeTree, writeTreeMd, readContributions, writeRoleFile, listWorkstreamIds } from '../../src/storage.js';
 import { resolveTarget, isProjectLevel } from '../../src/project-level.js';
 import { generateReflection, serializeToMd, generateRoleFile } from '../../src/context.js';
+import { preserveSourcesThroughReflect } from '../../src/provenance.js';
 import { extractJson } from '../../src/ai.js';
 import { commitContext, pushContext } from '../../src/git.js';
 import { UnknownWorkstreamError } from './role.core.js';
@@ -17,7 +18,7 @@ async function activeId(config, teamctxDir, projectDir) {
 }
 
 
-export async function reflectWorkstream({ workstreamId, teamctxDir, projectDir } = {}) {
+export async function reflectWorkstream({ workstreamId, teamctxDir, projectDir, onProposed } = {}) {
   const config = readConfig(teamctxDir);
   // Reflect replaces the whole tree with whatever the model returns — there is
   // no smaller unit of it to queue, and no diff anyone is shown. So it follows
@@ -42,9 +43,17 @@ export async function reflectWorkstream({ workstreamId, teamctxDir, projectDir }
   let updated;
   try {
     const parsed = extractJson(raw);
-    updated = { ...workstream, whys: Array.isArray(parsed.whys) ? parsed.whys : workstream.whys };
+    const next = { ...workstream, whys: Array.isArray(parsed.whys) ? parsed.whys : workstream.whys };
+    // Without this a reflection silently drops every statement's provenance —
+    // the CLI has always done it and this path never did, so a rewrite over MCP
+    // cost the project its "where did this come from" trail.
+    updated = preserveSourcesThroughReflect(workstream, next);
   } catch (err) {
     throw new Error(`AI returned invalid JSON. Reflection aborted. ${err.message}`);
+  }
+
+  if (onProposed && (await onProposed({ workstream, updated, targetId })) === false) {
+    return { workstreamId: targetId, applied: false, updatedTree: null, rolesRegenerated: [], pushed: false, pushError: null };
   }
 
   const wsName = isProjectLevel(targetId)
@@ -69,5 +78,5 @@ export async function reflectWorkstream({ workstreamId, teamctxDir, projectDir }
     catch (err) { pushError = err.message?.split('\n')[0] || err.stderr?.trim() || 'no remote?'; }
   }
 
-  return { workstreamId: targetId, updatedTree: updated, rolesRegenerated, pushed, pushError };
+  return { workstreamId: targetId, applied: true, updatedTree: updated, rolesRegenerated, pushed, pushError };
 }

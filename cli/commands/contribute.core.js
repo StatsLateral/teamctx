@@ -67,6 +67,13 @@ export async function contributeCore({
   // Forwarded to the distiller. `import` sets intent:'document' so prose is
   // read for durable context rather than treated as a deliberate update.
   intent, avoid,
+  // Called with what the distiller proposed, before any of it is written.
+  // Returning false abandons the write; the contribution stays logged either
+  // way, exactly as it did when the terminal asked this question itself.
+  // It exists so the CLI can show a diff and still share this code path —
+  // duplicating the path is what let the terminal drift out of step with the
+  // review policy and the project layer without anybody noticing.
+  onProposed,
 } = {}) {
   if (!text) throw new Error('contribution text is required');
   const config = readConfig(teamctxDir);
@@ -107,6 +114,13 @@ export async function contributeCore({
       id: contribution.id, workstream: targetId, author: actor, source,
       mode: 'no-op', summary: 'No changes to context tree (contribution logged).',
       operations: [], pushed: false, pushError: null,
+    };
+  }
+
+  if (onProposed && (await onProposed({ summary, operations })) === false) {
+    return {
+      id: contribution.id, workstream: targetId, author: actor, source,
+      mode: 'discarded', summary, operations, pushed: false, pushError: null,
     };
   }
 
