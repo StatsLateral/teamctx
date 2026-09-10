@@ -4,7 +4,7 @@ import { resolveTarget, targetLabel } from '../../src/project-level.js';
 import { UnknownWorkstreamError } from './role.core.js';
 import {
   listAllWorkstreams, suggestWorkstreamSplits, splitWorkstreams, useWorkstream,
-  WorkstreamSplitError,
+  WorkstreamSplitError, proposeStructure,
 } from './workstream.core.js';
 
 function cliError(err) {
@@ -131,4 +131,42 @@ export async function workstreamUseCommand(id) {
   console.log(result.activeWorkstream
     ? `✓ Your active workstream is now "${result.activeWorkstream}". (Personal setting — not committed.)`
     : '✓ You are working on the project itself, not on one workstream. (Personal setting — not committed.)');
+}
+
+/**
+ * `teamctx workstream propose` — how this project might be organised.
+ *
+ * Prints and stops. Accepting a proposal is `workstream split`, which is a
+ * separate act on purpose: this one implies who works where, and applying a
+ * wrong guess quietly is worse than making the manager say yes.
+ */
+export async function workstreamProposeCommand() {
+  let r;
+  try { r = await proposeStructure(); }
+  catch (err) { cliError(err); return; }
+
+  if (!r.workstreams.length) {
+    console.log(`
+${r.why || 'This project does not split cleanly yet — one thread is a fine shape for it.'}
+`);
+    return;
+  }
+
+  console.log(`
+How ${r.project} might be organised — suggestions only, nothing has changed.
+`);
+  r.workstreams.forEach((w, i) => {
+    console.log(`${i + 1}. ${w.name}`);
+    if (w.rationale) console.log(`   Why together: ${w.rationale}`);
+    console.log(`   People: ${w.membership.means}${w.membership.rationale ? ` — ${w.membership.rationale}` : ''}`);
+    w.whys.forEach(why => console.log(`   - ${why.text}`));
+    console.log('');
+  });
+
+  if (r.leftover.length) {
+    console.log('Staying at project level:');
+    r.leftover.forEach(w => console.log(`   - ${w.text}`));
+    console.log('');
+  }
+  console.log('Accept any of these with `teamctx workstream split`.\n');
 }

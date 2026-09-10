@@ -1,5 +1,6 @@
 import { proposeDiff, callClaude, extractJson } from './ai.js';
 import { resolveTarget, targetLabel } from './project-level.js';
+import { membershipModel, isKnownMembership } from './membership-model.js';
 import { applyOps } from './ops.js';
 import {
   collectContributorCounts, collectSourceRefs,
@@ -252,7 +253,15 @@ export async function proposeSubworkstreams(workstream, config, roles = []) {
     'Return STRICT JSON with this exact shape:',
     `{
   "splits": [
-    { "name": "Short 2-4 word name", "rationale": "one-sentence why these belong together", "whyIds": ["<id>", "<id>"] }
+    {
+      "name": "Short 2-4 word name",
+      "rationale": "one-sentence why these belong together",
+      "whyIds": ["<id>", "<id>"],
+      "membership": {
+        "model": "assigned-tasks | named-role | workstream-position",
+        "rationale": "one sentence on why this thread suits that way of working"
+      }
+    }
   ],
   "leftover": ["<why id that fits neither cluster>"]
 }`,
@@ -263,6 +272,13 @@ export async function proposeSubworkstreams(workstream, config, roles = []) {
     '- Only use ids that exist in the tree above.',
     '- A single cluster with all whys is NOT a useful split — omit it.',
     '- Names are 2-4 words, capitalized (e.g. "Product Strategy", "Tech Migration").',
+    '',
+    'For "membership", say how a person\'s part in that thread is best expressed:',
+    '- "assigned-tasks" — their part is the tasks given to them, and nothing wider.',
+    '- "named-role" — they hold a named role with responsibilities, and pick up tasks within it.',
+    '- "workstream-position" — they own the thread and decide what the work in it is.',
+    'Choose from the split\'s own character, not from a house style: a thread of',
+    'discrete, orderable jobs suits the first; open-ended judgement suits the last.',
     'JSON only, no markdown fences.',
   ].join('\n');
 
@@ -281,7 +297,17 @@ export function normalizeSubworkstreamProposal(parsed, whys) {
     const whyIds = (Array.isArray(raw.whyIds) ? raw.whyIds : [])
       .filter(id => knownIds.has(id) && !seen.has(id));
     whyIds.forEach(id => seen.add(id));
-    if (name && whyIds.length > 0) splits.push({ name, rationale, whyIds });
+    // The model is normalised rather than trusted: an invented one falls back
+    // to the narrowest of the three, which claims the least about how somebody
+    // runs their team. `membershipRecognised` keeps the fact that it was
+    // invented, so a caller can say so instead of quietly presenting a guess.
+    const proposed = raw.membership?.model;
+    const membership = {
+      model: membershipModel(proposed),
+      rationale: String(raw.membership?.rationale || '').trim(),
+      ...(proposed !== undefined && !isKnownMembership(proposed) ? { recognised: false } : {}),
+    };
+    if (name && whyIds.length > 0) splits.push({ name, rationale, whyIds, membership });
   }
 
   const claimed = new Set(splits.flatMap(s => s.whyIds));
