@@ -122,7 +122,7 @@ export const TOOLS = [
   },
   {
     name: 'my_brief',
-    description: "**A member's first call.** What this person is working on and the context behind it, in one read: their open tasks grouped by where the work sits, the compiled context for the part of the project they are on (the project's own goals with their workstream's beneath them), and their role if they have one. Read it before contributing, marking anything done, or proposing changes — it is what stops an assistant acting on a project it has not read. Knows who is calling; takes no arguments. Read-only, and spends no AI call.",
+    description: "**Call this first, and answer \"what should I work on?\", \"what are my tasks?\", \"where am I?\" or \"how do I get started?\" with this one call.** A member's status, their tasks and the context behind them, together: their open tasks grouped by where the work sits, the compiled context for the part of the project they are on (the project's goals with their workstream's beneath them), and their role. Prefer it over list_tasks and get_status when somebody is asking about their own work — those answer a narrower question and leave out the context. Read it before contributing, marking anything done, or proposing changes; it is what stops an assistant acting on a project it has not read. Knows who is calling, so never ask them their name; takes no arguments. Read-only, and spends no AI call.",
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
   },
   {
@@ -188,7 +188,7 @@ export const TOOLS = [
 
   {
     name: 'list_tasks',
-    description: "**Reach for this when somebody asks what they should be working on.** Pass mine:true for their own — never ask them what they are called, the server already knows who is calling. Defaults to open tasks in the caller's active workstream; pass all:true for every status across every workstream, which is what \"did we finish X\" means. Read-only.",
+    description: "The task list on its own. Reach for this when somebody wants the list and nothing more, or asks \"did we finish X\". When they ask what they should be working on, my_brief answers that better — it carries these same tasks *and* the context behind them. Pass mine:true for their own — never ask them what they are called, the server already knows who is calling. Defaults to open tasks in the caller's active workstream; pass all:true for every status across every workstream, which is what \"did we finish X\" means. Read-only.",
     inputSchema: {
       type: 'object',
       properties: {

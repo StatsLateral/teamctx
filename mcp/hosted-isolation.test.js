@@ -1315,4 +1315,20 @@ describe('the brief a member opens first', () => {
   it('is offered to the client as the first thing a member does', async () => {
     expect(TOOLS.find(t => t.name === 'my_brief')).toBeTruthy();
   });
+
+  it('can be found by the words somebody actually asks', () => {
+    // Observed live: an assistant asked "what should I be working on", searched
+    // for "status my tasks", and got `list_tasks` — which claimed that exact
+    // trigger — while this tool used none of those words and never surfaced.
+    // A description a client cannot match is a tool that does not exist.
+    const description = TOOLS.find(t => t.name === 'my_brief').description.toLowerCase();
+    ['what should i work on', 'my tasks', 'status', 'where am i', 'get started']
+      .forEach(phrase => expect(description).toContain(phrase));
+  });
+
+  it('does not leave list_tasks claiming the same trigger', () => {
+    const tasks = TOOLS.find(t => t.name === 'list_tasks').description;
+    expect(tasks).toMatch(/my_brief/);
+    expect(tasks).not.toMatch(/Reach for this when somebody asks what they should be working on/);
+  });
 });

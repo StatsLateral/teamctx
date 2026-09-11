@@ -41,7 +41,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   what it is. It spends no AI
   call, deliberately: a member's assistant opens this first, every time. It is
   now the first step in the member sequence the agent guidance describes, ahead
-  of contributing or marking anything done. Closes #83.
+  of contributing or marking anything done. Its description answers in the words
+  people actually use — "what should I work on", "what are my tasks", "where am
+  I" — because a client that searches for those and finds only `list_tasks` has
+  a tool it cannot reach; `list_tasks` no longer claims that trigger for itself
+  and points here instead. Closes #83.
 
 ### Fixed
 - **Adding someone to a project handed over nothing.** `member_add` wrote the
