@@ -8,6 +8,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **Adding someone to a project handed over nothing.** `member_add` wrote the
+  roster entry and reported success; the link that person needs to reach the
+  project took a second call, and on a real project that call was never made —
+  two people were added, both told they were in, and neither was sent anything.
+  It now returns `connectUrl` with the member, and `get_connect_url` shares the
+  same resolution so the two cannot disagree about the URL.
+  The link was also failing for a second reason: it was built only from a
+  recorded `deployUrl`, and no project created through the web flow has one —
+  so every one of them refused to hand out its own connector. A hosted request
+  arrives at the address it would name, so the server now falls back to that
+  host when nothing is recorded. `deployUrl` remains an override, and remains a
+  genuine prerequisite on a clone, which has no request to read.
+  And nothing tells a caller there is no link any more. Whoever is asking
+  reached the project through a connector, so a link demonstrably exists; when
+  the server cannot build one it says to hand over the address of the connector
+  already in use rather than sending the manager off to configure something
+  before they can invite anyone.
+
 - **Snapshots handed a scoped member every tree.** `list_snapshots` returns
   whole snapshots, trees included, and `snapshot_create` — which is not
   manager-gated — returns the one it just built over every workstream. Both were
@@ -33,7 +51,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   immediately. Restored, and now covered by a test so it cannot revert quietly.
 
 ### Fixed
-<<<<<<< HEAD
 - **A change to the project never reached pages that were already compiled.**
   Inheritance is concatenation at compile time, but a compiled page is written
   once and does not re-read anything — so a contribution at project level landed
@@ -164,7 +181,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and the workstream that comes out of it is born with the project above it —
   the project as it stands once those Whys have moved out, so nothing is both
   inherited and owned.
-=======
 - **Asking who the manager is answered "nobody" for projects that had one.**
   `get_status` and `get_config` both read `config.manager`, the legacy
   display-name field, which is empty on every project created since the gate
@@ -180,7 +196,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with the project. It now says the gate is a display name, that nobody can
   match one, and what to run. `teamctx config manager` says it unprompted too,
   since every approval on such a project is already failing.
->>>>>>> feat/workstream-scoped-membership
 - **A project created on the web was born with a gate its own creator could not
   pass.** `init` ran inside a session but with no ambient actor, so the caller
   resolved from `config.me` to `name:<display name>` — a key nobody can present

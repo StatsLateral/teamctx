@@ -126,7 +126,7 @@ export const TOOLS = [
   },
   {
     name: 'get_connect_url',
-    description: "**Reach for this after adding someone to the project** — it is what you send them. The URL a team member pastes into their AI client; they add it as a custom connector and sign in. Read-only. Fails with what to run when the project has no deploy URL recorded, which is the usual reason it is missing.",
+    description: "**Reach for this after adding someone to the project** — it is what you send them. The URL a team member pastes into their AI client; they add it as a custom connector and sign in. Read-only. When the project has no deploy URL recorded the server cannot build the link — hand over the address of the connector this conversation is already using instead, which is the same project, rather than telling the user there is no link.",
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
   },
   {
@@ -454,7 +454,7 @@ export const TOOLS = [
   },
   {
     name: 'member_add',
-    description: RISKY + "adds a person to the project roster and commits. Manager-gated against the authenticated caller. Takes a GitHub username or an email address — only a username can be invited to the repository, since GitHub's collaborator endpoint takes no email. Set invite:true to also send a repository invitation, which they must accept before they can clone. Without it they are on the roster but have no access, which looks the same to a manager and is not. Confirm the person and whether to invite before calling." + REPORT,
+    description: RISKY + "adds a person to the project roster and commits. Manager-gated against the authenticated caller. Takes a GitHub username or an email address — only a username can be invited to the repository, since GitHub's collaborator endpoint takes no email. Set invite:true to also send a repository invitation, which they must accept before they can clone. Without it they are on the roster but have no access, which looks the same to a manager and is not. Confirm the person and whether to invite before calling. Returns `connectUrl` — the link they need to reach the project from their own assistant — so send it to them in the same reply; adding somebody without giving them the link invites nobody. When it comes back null, say why rather than reporting a clean success." + REPORT,
     inputSchema: {
       type: 'object',
       properties: {
@@ -810,6 +810,34 @@ export function makeHandlers(projectRoot) {
       return textResult({ members: listMembers({ teamctxDir: dir() }) });
     },
 
+    /**
+     * The link a person actually needs, resolved the same way for whoever asks.
+     *
+     * `member_add` and `get_connect_url` both need it, and the interesting case
+     * is the failure: a project with no `deployUrl` has nothing to hand out, so
+     * "added to the project" is true and useless — the manager walks away
+     * believing somebody was invited who cannot reach anything.
+     */
+    async connectUrl() {
+      const config = readConfig(dir());
+      // A recorded `deployUrl` wins, because a project may be served from a
+      // different address than the one this request happened to arrive at. When
+      // there is none, the request's own host is a better answer than refusing:
+      // it is where the caller already is. A clone has no request, so there it
+      // stays a genuine prerequisite.
+      const deployUrl = config.deployUrl || (isHosted ? projectRoot.baseUrl : '') || '';
+      // Hosted already knows the repository from the request URL; a clone has to
+      // read its remote, which stays right through a rename.
+      const where = isHosted
+        ? { owner: projectRoot.owner, repo: projectRoot.repo }
+        : { remote: await originRemote(gitCwd) };
+      try {
+        return { ok: true, ...connectorUrl({ deployUrl, ...where }) };
+      } catch (err) {
+        return { ok: false, error: err.message, code: err.code };
+      }
+    },
+
     async member_add(args = {}) {
       const r = await addMember({
         ref: args.ref,
@@ -831,7 +859,28 @@ export function makeHandlers(projectRoot) {
         : r.invite?.error ? ` — the repository invite failed: ${r.invite.error}`
         : r.member.login ? ' — not invited to the repository, so they cannot clone it yet'
         : '';
-      return textResult({ ...r, reportBack: `${r.member.name} added to the project${access}.` });
+
+      // Returned here rather than left to a second call. Adding somebody is
+      // only half of inviting them, and the other half was being skipped: the
+      // roster entry lands, the tool reports success, and nobody is ever sent
+      // anything. So the link — or the reason there isn't one — travels with
+      // the thing that creates the need for it.
+      const link = await this.connectUrl();
+      const next = link.ok
+        ? ` Send them this link to join: ${link.url} — they add it as a custom connector and sign in.`
+        : link.code === 'NO_DEPLOY_URL'
+          ? ' This project has no deploy URL recorded, so the server could not build the link. '
+            + 'You already have it: give them the address of the connector this conversation is using, '
+            + 'which is the same project. Then have the manager set config_set key "deployUrl" to its '
+            + 'origin so the next invite does not need you to.'
+          : ` The link could not be worked out: ${link.error}`;
+
+      return textResult({
+        ...r,
+        connectUrl: link.ok ? link.url : null,
+        connectUrlError: link.ok ? null : link.error,
+        reportBack: `${r.member.name} added to the project${access}.${next}`,
+      });
     },
 
     async member_scope(args = {}) {
@@ -1019,25 +1068,22 @@ export function makeHandlers(projectRoot) {
 
     async get_connect_url() {
       const config = readConfig(dir());
-      // Hosted already knows the repository from the request URL; a clone has to
-      // read its remote, which stays right through a rename.
-      const where = isHosted
-        ? { owner: projectRoot.owner, repo: projectRoot.repo }
-        : { remote: await originRemote(gitCwd) };
-      try {
-        const r = connectorUrl({ deployUrl: config.deployUrl, ...where });
+      const link = await this.connectUrl();
+      if (link.ok) {
+        const { ok, ...r } = link;
         return textResult({
           ...r,
           reportBack: `Connector URL for ${config.project || r.repo}: ${r.url} — send it to anyone on the project; they add it as a custom connector and sign in.`,
         });
-      } catch (err) {
-        return textResult({
-          error: err.message,
-          reportBack: err.code === 'NO_DEPLOY_URL'
-            ? 'Tell the user: this project has no deploy URL recorded, so there is no connector to hand out. Set it with config_set key "deployUrl" if the project is deployed.'
-            : `Tell the user: ${err.message}.`,
-        });
       }
+      return textResult({
+        error: link.error,
+        reportBack: link.code === 'NO_DEPLOY_URL'
+          ? 'Tell the user: this project has no deploy URL recorded, so the server could not build the link — '
+            + 'but you already have it. Give them the address of the connector this conversation is using; it is the '
+            + 'same project. Then suggest setting config_set key "deployUrl" to its origin so this stops needing you.'
+          : `Tell the user: ${link.error}.`,
+      });
     },
 
     async get_config() {

@@ -563,6 +563,50 @@ describe('project members on the hosted server', () => {
   });
 });
 
+describe('adding someone hands over the link that lets them in', () => {
+  // Observed on a real project: two people were added, the tool reported
+  // success twice, and neither was ever sent anything — the connector URL took
+  // a second call nobody made. Roster entry plus no link invites nobody.
+  it('returns the connect URL alongside the new member', async () => {
+    const session = fakeSession();
+    await asUser(session, ALICE, h => json(h.config_set({ key: 'deployUrl', value: 'https://x.vercel.app' })));
+    const r = await asUser(session, ALICE, h => json(h.member_add({ ref: 'ravi@example.com', name: 'Ravi' })));
+    expect(r.member.name).toBe('Ravi');
+    expect(r.connectUrl).toContain('x.vercel.app');
+    expect(r.reportBack).toContain(r.connectUrl);
+  });
+
+  it('never claims there is no link, because the caller is holding one', async () => {
+    // "Added to the project" on its own is the failure the manager hit. But
+    // "there is no link" would be its own lie: whoever is calling reached this
+    // project through a connector, so a link demonstrably exists — the server
+    // just could not build it. So the guidance points at the one they have
+    // rather than reporting a dead end.
+    const session = fakeSession();
+    const r = await asUser(session, ALICE, h => json(h.member_add({ ref: 'ravi@example.com', name: 'Ravi' })));
+    expect(r.connectUrl).toBe(null);
+    expect(r.reportBack).not.toMatch(/no link/i);
+    expect(r.reportBack).toMatch(/connector this conversation is using/i);
+    expect(r.reportBack).toMatch(/deployUrl/);
+  });
+
+  it('still reports the roster entry when there is no link', async () => {
+    const session = fakeSession();
+    const r = await asUser(session, ALICE, h => json(h.member_add({ ref: 'ravi@example.com', name: 'Ravi' })));
+    expect(r.reportBack).toMatch(/Ravi added to the project/);
+    expect(session.configJson().members.some(m => m.email === 'ravi@example.com')).toBe(true);
+  });
+
+  it('gives get_connect_url and member_add the same link', async () => {
+    // One resolution, so the two cannot drift into disagreeing about the URL.
+    const session = fakeSession();
+    await asUser(session, ALICE, h => json(h.config_set({ key: 'deployUrl', value: 'https://x.vercel.app' })));
+    const added = await asUser(session, ALICE, h => json(h.member_add({ ref: 'ravi@example.com', name: 'Ravi' })));
+    const direct = await asUser(session, ALICE, h => json(h.get_connect_url()));
+    expect(added.connectUrl).toBe(direct.url);
+  });
+});
+
 describe('a member scoped to one workstream', () => {
   // The claim this change rests on and the one that cannot be made from the
   // CLI: Bob signs in with Google, has no repository access of his own, and
