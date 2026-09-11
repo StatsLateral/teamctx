@@ -8,6 +8,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **The migration never ran on a hosted project.** `migrateIfNeeded` opened by
+  joining a filesystem path, and hosted has no filesystem — `teamctxDir` there
+  is the repository the session is scoped to, not a path — so the first line
+  threw on every hosted call and the caller's best-effort catch made it look
+  like a project that needed nothing. Every hosted project was left on the old
+  shape while the code read as though it had been converted. It now takes the
+  session path, where the only migration a hosted project can need is the
+  project layer: `init` has written both flags since hosted projects were first
+  creatable, so nothing hosted predates workstreams. Covered by a hosted-session
+  test, since every other migration test runs against a real filesystem.
+
+### Fixed
 - **A task on the project compiled its context twice.** `task compile` passed
   the project tree as the inherited half of a tree that already was the project,
   so the prompt carried every Why, What and How twice — the second copy under an

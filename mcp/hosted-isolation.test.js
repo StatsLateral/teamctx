@@ -38,6 +38,9 @@ const CONFIG = {
   ],
   activeWorkstream: 'main',
   workstreamsMigrated: true,
+  // Already migrated, so the tests below exercise the server rather than the
+  // migration. The legacy shape is a fixture of its own, at the end of the file.
+  projectLayerMigrated: true,
 };
 
 /** Stands in for a prefetched GithubSession — same surface storage.js uses. */
@@ -828,5 +831,101 @@ describe('what a hosted read must not miss', () => {
     // open, which is both alarming and false.
     const r = await asUser(withProject(), ALICE, h => json(h.get_status()));
     expect(r.manager).toBe(CONFIG.managerKey);
+  });
+});
+
+describe('the project layer migration, run through a hosted session', () => {
+  /**
+   * Every other migration test runs against a real filesystem. Hosted projects
+   * are where most projects now are, and they reach storage through the session
+   * buffer instead — a path that was skipped entirely until this branch, so a
+   * hosted project would have sat unmigrated forever.
+   */
+  const legacy = () => {
+    const files = new Map([
+      ['.teamctx/config.json', { content: JSON.stringify({
+        ...CONFIG,
+        workstreams: [{ id: 'main', name: 'Ledger' }, { id: 'engineering', name: 'Engineering' }],
+        activeWorkstream: 'main',
+        roles: [{ slug: 'cpo', name: 'CPO', workstream: 'main' }],
+        workstreamsMigrated: true,
+        // The point of this fixture: a project from before the project layer.
+        projectLayerMigrated: undefined,
+      }), sha: 'a' }],
+      ['.teamctx/contributions.jsonl', { content: '', sha: 'b' }],
+      ['.teamctx/workstreams/main.json', { content: JSON.stringify({
+        id: 'main', name: 'Ledger',
+        whys: [{ id: 'w1', text: 'ship the ledger', whats: [] }],
+        tasks: [{ id: 't-old', title: 'book the venue', status: 'open', workstream: 'main' }],
+      }), sha: 'c' }],
+      ['.teamctx/workstreams/engineering.json', { content: JSON.stringify({
+        id: 'engineering', name: 'Engineering', whys: [{ id: 'e1', text: 'hire two' }],
+      }), sha: 'd' }],
+      ['.teamctx/context/workstreams/main.md', { content: '# Project Context — Ledger\n', sha: 'e' }],
+    ]);
+    const s = fakeSession();
+    s.read = p => files.get(p) || null;
+    s.write = (p, c) => files.set(p, { content: String(c), sha: null });
+    s.del = p => files.delete(p);
+    s.listDir = dirPath => {
+      const prefix = dirPath.endsWith('/') ? dirPath : `${dirPath}/`;
+      return [...files.keys()]
+        .filter(k => k.startsWith(prefix) && !k.slice(prefix.length).includes('/'))
+        .map(k => k.slice(prefix.length)).sort();
+    };
+    s.configJson = () => JSON.parse(files.get('.teamctx/config.json').content);
+    s.projectJson = () => JSON.parse(files.get('.teamctx/project.json').content);
+    s.has = p => files.has(p);
+    return s;
+  };
+
+  it('runs on the first tool call rather than leaving the project half-migrated', async () => {
+    const s = legacy();
+    await asUser(s, ALICE, h => json(h.get_status()));
+    expect(s.has('.teamctx/project.json')).toBe(true);
+    expect(s.configJson().projectLayerMigrated).toBe(true);
+  });
+
+  it('moves the context off main onto the project, and deletes main', async () => {
+    const s = legacy();
+    await asUser(s, ALICE, h => json(h.get_status()));
+    expect(s.projectJson().whys.map(w => w.id)).toEqual(['w1']);
+    expect(s.has('.teamctx/workstreams/main.json')).toBe(false);
+    expect(s.configJson().workstreams.map(w => w.id)).toEqual(['engineering']);
+  });
+
+  it('carries the tasks main was holding', async () => {
+    const s = legacy();
+    await asUser(s, ALICE, h => json(h.get_status()));
+    expect(s.projectJson().tasks.map(t => t.id)).toEqual(['t-old']);
+  });
+
+  it('rebinds a main-bound role and unsets the active workstream', async () => {
+    const s = legacy();
+    await asUser(s, ALICE, h => json(h.get_status()));
+    expect(s.configJson().roles[0].workstream).toBe(null);
+    expect(s.configJson().activeWorkstream).toBe(null);
+  });
+
+  it('leaves the caller reading the same context afterwards', async () => {
+    const s = legacy();
+    const r = await asUser(s, ALICE, h => json(h.get_context()));
+    expect(r.workstreams[0].id).toBe(null);
+    expect(r.workstreams[0].tree.whys[0].text).toBe('ship the ledger');
+    expect(r.workstreams.map(w => w.id)).not.toContain('main');
+  });
+
+  it('leaves the task reachable, not stranded in a file that is gone', async () => {
+    const s = legacy();
+    const r = await asUser(s, ALICE, h => json(h.get_task({ id: 't-old' })));
+    expect(r.title).toBe('book the venue');
+  });
+
+  it('does nothing the second time', async () => {
+    const s = legacy();
+    await asUser(s, ALICE, h => json(h.get_status()));
+    const after = JSON.stringify(s.projectJson());
+    await asUser(s, BOB, h => json(h.get_status()));
+    expect(JSON.stringify(s.projectJson())).toBe(after);
   });
 });
