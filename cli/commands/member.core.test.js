@@ -1,7 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('../../src/storage.js', () => ({
-  readProject: vi.fn(() => ({ name: '', whys: [] })),
+  // Non-empty by default: nobody can be added to a project with nothing in it,
+  // so every other test here would be testing the gate instead of itself.
+  readProject: vi.fn(() => ({ name: 'Ledger', whys: [{ id: 'w1', text: 'ship it' }] })),
+  readWorkstream: vi.fn(() => ({ id: 'w', name: 'W', whys: [{ id: 'x1', text: 'do it' }] })),
   readConfig: vi.fn(),
   writeConfig: vi.fn(),
 }));
@@ -16,7 +19,7 @@ vi.mock('../../src/prefs.js', () => ({
   resolveDisplayName: vi.fn(async ({ actor }) => actor?.name || 'unknown'),
 }));
 
-import { readConfig, writeConfig } from '../../src/storage.js';
+import { readConfig, writeConfig, readProject, readWorkstream } from '../../src/storage.js';
 import { resolveActor } from '../../src/actor.js';
 import { commitContext } from '../../src/git.js';
 import {
@@ -24,6 +27,7 @@ import {
   MemberNotFoundError, MemberExistsError, InviteNeedsLoginError,
 } from './member.core.js';
 import { ManagerGateError } from './review.core.js';
+import { EmptyContextError } from '../../src/context-gate.js';
 
 const MANAGER = { key: 'github:44', name: 'Maya', login: 'mayab', source: 'github' };
 const OTHER = { key: 'github:99', name: 'Sam', login: 'samq', source: 'github' };
@@ -315,5 +319,78 @@ describe('changing a member\'s scope afterwards', () => {
   it('says so when the scope is cleared', async () => {
     await setMemberWorkstreams({ ref: 'ravi' });
     expect(commitContext.mock.calls[0][0]).toMatch(/the whole project/);
+  });
+});
+
+describe('nobody is brought onto an empty project', () => {
+  const EMPTY = { name: 'Ledger', whys: [] };
+  const FULL = { name: 'Ledger', whys: [{ id: 'w1', text: 'ship it' }] };
+
+  it('refuses `member add` while the project has nothing in it', async () => {
+    readProject.mockReturnValue(EMPTY);
+    await expect(addMember({ ref: 'priyar', actor: MANAGER })).rejects.toThrow(EmptyContextError);
+    expect(writeConfig).not.toHaveBeenCalled();
+  });
+
+  it('refuses before the repository invite is attempted', async () => {
+    // Inviting somebody to a repo and then refusing to put them on the roster
+    // is worse than either succeeding or failing cleanly.
+    readProject.mockReturnValue(EMPTY);
+    globalThis.fetch = vi.fn();
+    await expect(addMember({
+      ref: 'priyar', invite: true, owner: 'o', repo: 'r', ghToken: 'gho_x', actor: MANAGER,
+    })).rejects.toThrow(EmptyContextError);
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
+  it('refuses when the workstream they would join has nothing of its own', async () => {
+    readConfig.mockReturnValue(config({ workstreams: [{ id: 'docs', name: 'Documentation' }] }));
+    readProject.mockReturnValue(FULL);
+    readWorkstream.mockReturnValue({ id: 'docs', name: 'Documentation', whys: [] });
+    await expect(addMember({ ref: 'priyar', workstreams: ['docs'], actor: MANAGER }))
+      .rejects.toThrow(/"Documentation" has nothing written down/);
+  });
+
+  it('allows a project-wide member once the project has something', async () => {
+    readProject.mockReturnValue(FULL);
+    const r = await addMember({ ref: 'priyar', actor: MANAGER });
+    expect(r.member.name).toBe('priyar');
+  });
+
+  it('gates `member scope` the same way', async () => {
+    readConfig.mockReturnValue(config({
+      members: [{ key: 'github:7', name: 'Ravi', login: 'ravi' }],
+      workstreams: [{ id: 'docs', name: 'Documentation' }],
+    }));
+    readWorkstream.mockReturnValue({ id: 'docs', name: 'Documentation', whys: [] });
+    await expect(setMemberWorkstreams({ ref: 'ravi', workstreams: ['docs'], actor: MANAGER }))
+      .rejects.toThrow(/"Documentation" has nothing written down/);
+    expect(writeConfig).not.toHaveBeenCalled();
+  });
+
+  it('lets a scope be cleared back to the whole project', async () => {
+    // Widening reaches only the project tree, which is already checked.
+    readConfig.mockReturnValue(config({
+      members: [{ key: 'github:7', name: 'Ravi', login: 'ravi', workstreams: ['docs'] }],
+      workstreams: [{ id: 'docs', name: 'Documentation' }],
+    }));
+    readWorkstream.mockReturnValue({ id: 'docs', name: 'Documentation', whys: [] });
+    const r = await setMemberWorkstreams({ ref: 'ravi', actor: MANAGER });
+    expect(r.workstreams).toBe(null);
+  });
+
+  it('names the person being added, not the manager', async () => {
+    readProject.mockReturnValue(EMPTY);
+    await expect(addMember({ ref: 'priyar', name: 'Priya R', actor: MANAGER }))
+      .rejects.toThrow(/bring Priya R on/);
+  });
+
+  it('still refuses an unknown workstream before mentioning context', async () => {
+    // A typo is the likelier mistake, and sending the manager to write context
+    // for a workstream that does not exist would be a worse answer.
+    readConfig.mockReturnValue(config({ workstreams: [{ id: 'docs', name: 'Documentation' }] }));
+    readProject.mockReturnValue(EMPTY);
+    await expect(addMember({ ref: 'priyar', workstreams: ['finance'], actor: MANAGER }))
+      .rejects.toThrow(/no workstream "finance"/);
   });
 });

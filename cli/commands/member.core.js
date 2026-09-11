@@ -5,6 +5,7 @@ import { commitContext, pushContext } from '../../src/git.js';
 import { resolveActor } from '../../src/actor.js';
 import { resolveDisplayName } from '../../src/prefs.js';
 import { assertManager } from './review.core.js';
+import { assertJoinableContext } from '../../src/context-gate.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -217,6 +218,11 @@ export async function setMemberWorkstreams({
   if (!existing) throw new MemberNotFoundError(ref);
 
   const scope = normaliseScope(workstreams, config);
+  // Moving somebody onto a workstream is bringing them onto it for the first
+  // time, so it is gated exactly as `member add` is. Clearing a scope widens
+  // what they can reach and is checked against the project alone.
+  assertJoinableContext({ config, scope, who: existing.name, teamctxDir });
+
   const updated = { ...existing };
   if (scope) updated.workstreams = scope;
   else delete updated.workstreams;
@@ -249,6 +255,11 @@ export async function addMember({
   // silent and expensive: it produces a member scoped to a workstream that does
   // not exist, which is a member who can reach nothing and no message saying so.
   const scope = normaliseScope(workstreams, config);
+
+  // Before the invite below, not after. Inviting somebody to a repository and
+  // then refusing to put them on the roster is a worse outcome than either
+  // succeeding or failing cleanly.
+  assertJoinableContext({ config, scope, who: name || login || email, teamctxDir });
 
   const member = {
     // Without a GitHub id the login is still stable enough to group by; it is
