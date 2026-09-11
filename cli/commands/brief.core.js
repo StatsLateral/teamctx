@@ -2,6 +2,7 @@ import {
   readConfig, readTreeMd, readRoleFile, listTasks, listWorkstreamIds,
 } from '../../src/storage.js';
 import { resolveTarget, isProjectLevel, targetLabel } from '../../src/project-level.js';
+import { inScope } from '../../src/member-scope.js';
 import { resolveActor } from '../../src/actor.js';
 import { resolveDisplayName } from '../../src/prefs.js';
 
@@ -73,7 +74,11 @@ export async function buildBrief({
   // name covers every task that existed before keys did.
   const mine = listTasks({}, teamctxDir)
     .filter(t => (resolved.key && t.ownerKey === resolved.key) || (me && t.owner === me))
-    .filter(t => (scope && scope.length ? scope.includes(resolveTarget(t.workstream)) : true));
+    // `inScope`, not `scope.includes`: a task at project level resolves to
+    // `null`, which is in no scope array and in everybody's scope. Testing the
+    // array directly dropped a scoped member's own project-level tasks out of
+    // the one view meant to tell them what they are doing.
+    .filter(t => inScope(scope && scope.length ? scope : null, t.workstream));
 
   const open = mine.filter(t => t.status === 'open');
   const done = mine.filter(t => t.status !== 'open');
