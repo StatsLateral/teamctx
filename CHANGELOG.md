@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+<<<<<<< HEAD
 - **A change to the project never reached pages that were already compiled.**
   Inheritance is concatenation at compile time, but a compiled page is written
   once and does not re-read anything — so a contribution at project level landed
@@ -138,6 +139,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and the workstream that comes out of it is born with the project above it —
   the project as it stands once those Whys have moved out, so nothing is both
   inherited and owned.
+=======
+- **Asking who the manager is answered "nobody" for projects that had one.**
+  `get_status` and `get_config` both read `config.manager`, the legacy
+  display-name field, which is empty on every project created since the gate
+  moved to `managerKey` — so an assistant asked "who can approve here?" reported
+  `manager: null` while the gate was set and working. Both now report the gate,
+  with the display name kept as `managerDisplayName`. They are fixed and tested
+  together, because fixing one and not the other is how this survived being
+  found twice.
+- **A broken manager gate now says so.** The refusal named the caller and
+  refused them in the same sentence — "only the configured manager
+  (name:Ada Lovelace) may approve or reject. You are Ada Lovelace
+  (github:123818561)" — which reads as a contradiction rather than a problem
+  with the project. It now says the gate is a display name, that nobody can
+  match one, and what to run. `teamctx config manager` says it unprompted too,
+  since every approval on such a project is already failing.
+>>>>>>> feat/workstream-scoped-membership
 - **A project created on the web was born with a gate its own creator could not
   pass.** `init` ran inside a session but with no ambient actor, so the caller
   resolved from `config.me` to `name:<display name>` — a key nobody can present
@@ -347,6 +365,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   say which of the two a person is, rather than implying a wall that is not
   there.
 
+- **`teamctx config manager --repair`**, for projects created on the web before
+  #71 pinned their manager gate to `name:<display name>` — a value nobody can
+  match, so the creator was locked out of their own project with no way back
+  short of knowing to hand-edit `.teamctx/config.json`. Two of the three real
+  projects from onboarding testing carried one.
+  It re-pins the gate to the caller's own identity, and refuses unless two things
+  hold: the gate is a display name, and the caller is the project's creator. The
+  second matters because "the gate is already open" justifies passing it, not
+  taking it — repair turns "anyone may approve" into "only this person may", so
+  unguarded the first to run it takes the project and locks out the one it was
+  for. The creator is read from the repository rather than the config: the
+  author of the commit that added `.teamctx/config.json` ran `init`, and
+  history cannot be rewritten without the push access repair already needs. A
+  display name is the fallback when that history cannot be read.
+  Available from a chat client as well as the CLI, which is where it matters
+  most — there is no clone there to fall back on and no file to edit by hand.
+  Hosted callers read the creator from the commits API rather than `git log`.
+  A token that cannot reveal its owner's email is treated as *unknown* rather
+  than as a mismatch, since calling it one would refuse the creator on the one
+  surface where they have no other way in.
+  The repaired gate is pinned to the caller's **email**, not to whatever key
+  their surface happens to use — a hosted GitHub caller resolves to
+  `github:<id>`, and pinning that would rebuild the single-surface gate #71
+  existed to remove, locking the same person out the moment they signed in with
+  Google. Where only an id could be pinned, it says so rather than leaving a
+  half-fix looking like a whole one. That refusal is the whole safety argument: against
+  a working gate this would be the privilege escalation #49 removed. It is safe
+  because a `name:` gate is *already* open — the value comes from `config.me`,
+  which is committed and shared, so anyone with the repository and no local git
+  identity already presents that key and passes. Repair does not open a door;
+  the door is open, and repair closes it.
+  Over a connector the bar is narrower than on a clone, because a member there
+  acts on the project's *lent* credential — which has push access while the
+  member is emphatically not the manager, so "can push" proves nothing. There
+  the caller is admitted on the repository's history or not at all, and the
+  display-name fallback is unavailable: the gate's name is public through
+  `get_config` and anyone can set their own to match, so on the one surface
+  with no file to hand-edit it would be the entire check. A lookup that fails
+  refuses that attempt and says to try again, rather than falling through to
+  something weaker or stranding the manager it exists for.
+  A gate left on the older `manager` display-name field is repairable the same
+  way, since that is the same problem by a different route and `assertManager`
+  already pointed people at repair for it. And `get_status` and `get_config`
+  now report `managerGateBroken`, so the state is visible while orienting
+  rather than only at the moment an approval is refused.
+  Closes #73.
 - **The manager chooses how much of a contribution needs their approval.**
   Review was all-or-nothing and unsettable: every contribution queued, so on a
   small project one person approved every note anyone wrote before anyone else
