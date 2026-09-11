@@ -8,6 +8,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **A task on the project compiled its context twice.** `task compile` passed
+  the project tree as the inherited half of a tree that already was the project,
+  so the prompt carried every Why, What and How twice — the second copy under an
+  "inherited from the project, read-only here" heading that means nothing on the
+  thing it came from. This was the default case, since the migration folds every
+  task on a project that never split to project level, and the compiled prompt
+  is what a person actually acts on.
+- **A member's workstream scope had a set of doors left open.** It was enforced
+  on the workstream and context tools, but a scoped member could still name a
+  task id and get a sibling workstream's task back — including its compiled
+  prompt, which carries that workstream's whole tree. `get_task`,
+  `task_compile`, `task_add`, `task_assign`, `task_done`, `task_reopen` and
+  `task_rm` now check the workstream the task lives in, and `reflect`,
+  `suggest_roles` and `get_stats` check the workstream they are handed, which
+  closes a path to rewriting a tree the caller could not read. `list_roles` and
+  `get_snapshot` are filtered rather than refused, since both are listings. A
+  refusal reads exactly as an unknown workstream does, so probing learns nothing.
+
+### Fixed
 - **The first role on a new project was refused.** `role_add` checked its target
   against the workstream list, and the project is not in that list and never will
   be — so on a project that had not split, which is every project on the day it
@@ -233,7 +252,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   drifted in both directions: `teamctx contribute` never learned about the
   review policy, and only the terminal's `reflect` preserved provenance — so a
   rewrite over MCP dropped every statement's source trail. Both now run the
-  same code the MCP server does.
+  same code the MCP server does. One behaviour changes with it: `teamctx
+  reflect` from a clone is manager-gated under the `additive` and `all` review
+  policies, where it used to run for anybody. That is the gate the tool already
+  applied, and a rewrite of a whole tree is the last thing that should have
+  been the exception to it.
 - **Approving a project-level contribution would have lost it.** The approve
   path defaulted a missing workstream to `main`, so a contribution with no
   workstream would have been written to a file that no longer exists — after

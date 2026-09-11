@@ -601,6 +601,25 @@ export function makeHandlers(projectRoot) {
     return defaultWorkstream(allowed, chosen);
   };
 
+  /**
+   * The workstream a task lives in, checked against the caller's scope.
+   *
+   * A scope that stopped at the workstream tools would be walked around by
+   * naming a task instead — and a task's compiled prompt carries its whole
+   * workstream's tree, so that is the widest door of the lot.
+   *
+   * An id that matches nothing falls through deliberately: the core's own "no
+   * task matches" is a better answer than a scope error, and says no more.
+   */
+  const assertTaskInScope = async (teamctxDir, id) => {
+    const allowed = await scope(teamctxDir, readConfig(teamctxDir));
+    if (!allowed) return;
+    let target;
+    try { target = resolveTarget(getTask({ id, teamctxDir }).workstream); }
+    catch { return; }
+    assertInScope(allowed, target);
+  };
+
   return {
     async get_context() {
       const teamctxDir = dir();
@@ -652,7 +671,14 @@ export function makeHandlers(projectRoot) {
     },
 
     async list_roles() {
-      return textResult({ roles: coreListRoles({ teamctxDir: dir() }) });
+      const teamctxDir = dir();
+      const allowed = await scope(teamctxDir, readConfig(teamctxDir));
+      // A role name and the workstream it belongs to are two of the things a
+      // scope is meant to keep back — `get_role_context` already refuses the
+      // file, and listing it is how the caller learns what to ask for.
+      const roles = coreListRoles({ teamctxDir })
+        .filter(r => inScope(allowed, resolveTarget(r.workstream)));
+      return textResult({ roles, ...(allowed ? { scopedTo: allowed } : {}) });
     },
 
     async list_snapshots() {
@@ -660,7 +686,17 @@ export function makeHandlers(projectRoot) {
     },
 
     async get_snapshot({ id }) {
-      return textResult(getSnapshot({ prefix: id, teamctxDir: dir() }));
+      const teamctxDir = dir();
+      const allowed = await scope(teamctxDir, readConfig(teamctxDir));
+      const r = getSnapshot({ prefix: id, teamctxDir });
+      if (!allowed) return textResult(r);
+      // A snapshot is every tree at one moment, so handing one over whole is
+      // the same leak as `get_context` without a filter.
+      return textResult({
+        ...r,
+        workstreams: (r.workstreams || []).filter(w => inScope(allowed, resolveTarget(w.id))),
+        scopedTo: allowed,
+      });
     },
 
     async get_current_snapshot() {
@@ -789,7 +825,9 @@ export function makeHandlers(projectRoot) {
     },
 
     async get_task(args = {}) {
-      return textResult(getTask({ id: args.id, teamctxDir: dir() }));
+      const teamctxDir = dir();
+      await assertTaskInScope(teamctxDir, args.id);
+      return textResult(getTask({ id: args.id, teamctxDir }));
     },
 
     async task_add(args = {}) {
@@ -797,7 +835,10 @@ export function makeHandlers(projectRoot) {
       const added = await addTask({
         title: args.title,
         owner: args.owner,
-        workstream: args.workstream,
+        // Through the scope check rather than straight through: writing a task
+        // into a workstream the caller cannot read is the same boundary in the
+        // other direction.
+        workstream: await targetWorkstream(teamctxDir, readConfig(teamctxDir), args.workstream),
         teamctxDir,
         projectDir: gitCwd,
       });
@@ -826,8 +867,10 @@ export function makeHandlers(projectRoot) {
     },
 
     async task_done(args = {}) {
+      const teamctxDir = dir();
+      await assertTaskInScope(teamctxDir, args.id);
       const r = await setTaskStatus({
-        id: args.id, status: 'done', teamctxDir: dir(), projectDir: gitCwd,
+        id: args.id, status: 'done', teamctxDir, projectDir: gitCwd,
       });
       return textResult({
         ...r,
@@ -838,8 +881,10 @@ export function makeHandlers(projectRoot) {
     },
 
     async task_reopen(args = {}) {
+      const teamctxDir = dir();
+      await assertTaskInScope(teamctxDir, args.id);
       const r = await setTaskStatus({
-        id: args.id, status: 'open', teamctxDir: dir(), projectDir: gitCwd,
+        id: args.id, status: 'open', teamctxDir, projectDir: gitCwd,
       });
       return textResult({
         ...r,
@@ -850,14 +895,18 @@ export function makeHandlers(projectRoot) {
     },
 
     async task_assign(args = {}) {
+      const teamctxDir = dir();
+      await assertTaskInScope(teamctxDir, args.id);
       const r = await assignTask({
-        id: args.id, owner: args.owner, teamctxDir: dir(), projectDir: gitCwd,
+        id: args.id, owner: args.owner, teamctxDir, projectDir: gitCwd,
       });
       return textResult({ ...r, reportBack: `Task ${r.task.id} assigned to ${r.task.owner}.` });
     },
 
     async task_rm(args = {}) {
-      const r = await removeTask({ id: args.id, teamctxDir: dir(), projectDir: gitCwd });
+      const teamctxDir = dir();
+      await assertTaskInScope(teamctxDir, args.id);
+      const r = await removeTask({ id: args.id, teamctxDir, projectDir: gitCwd });
       return textResult({
         ...r,
         reportBack: `Task ${r.id} ("${r.title}") permanently removed from workstream ${r.workstream}.`,
@@ -865,9 +914,13 @@ export function makeHandlers(projectRoot) {
     },
 
     async task_compile(args = {}) {
+      const teamctxDir = dir();
+      // The compiled prompt embeds the task's whole workstream tree, so this is
+      // the same bypass `get_role_context` had, and a wider one.
+      await assertTaskInScope(teamctxDir, args.id);
       const r = await compileTask({
         id: args.id, role: args.role, force: !!args.force,
-        teamctxDir: dir(), projectDir: gitCwd,
+        teamctxDir, projectDir: gitCwd,
       });
       return textResult({
         ...r,
@@ -882,12 +935,25 @@ export function makeHandlers(projectRoot) {
       // so `queueTimeline` finds no git binary and the approval numbers come
       // back null. The tool description tells the client to say so rather than
       // report a zero.
-      return textResult(await computeStats({
-        cwd: gitCwd,
-        teamctxDir: dir(),
-        since: args.since,
-        workstream: args.workstream,
-      }));
+      const teamctxDir = dir();
+      const config = readConfig(teamctxDir);
+      const allowed = await scope(teamctxDir, config);
+      // A named workstream goes through the same check every other tool makes.
+      // Unnamed, the numbers are project-wide, so the per-workstream breakdown
+      // is filtered rather than the whole answer refused — a scoped member is
+      // entitled to the project's own figures.
+      const named = args.workstream
+        ? assertInScope(allowed, resolveTarget(args.workstream))
+        : null;
+      const stats = await computeStats({
+        cwd: gitCwd, teamctxDir, since: args.since, workstream: named || args.workstream,
+      });
+      if (!allowed) return textResult(stats);
+      return textResult({
+        ...stats,
+        freshness: (stats.freshness || []).filter(row => inScope(allowed, row.workstream)),
+        scopedTo: allowed,
+      });
     },
 
     async get_connect_url() {
@@ -950,7 +1016,11 @@ export function makeHandlers(projectRoot) {
     },
 
     async suggest_roles({ workstream } = {}) {
-      const result = await coreSuggestRoles({ workstreamId: workstream, teamctxDir: dir(), projectDir: gitCwd });
+      const teamctxDir = dir();
+      const result = await coreSuggestRoles({
+        workstreamId: await targetWorkstream(teamctxDir, readConfig(teamctxDir), workstream),
+        teamctxDir, projectDir: gitCwd,
+      });
       return textResult(result);
     },
 
@@ -1088,7 +1158,13 @@ export function makeHandlers(projectRoot) {
     },
 
     async reflect({ workstream } = {}) {
-      const r = await reflectWorkstream({ workstreamId: workstream, teamctxDir: dir(), projectDir: gitCwd });
+      const teamctxDir = dir();
+      // Reflect rewrites a tree wholesale. Under `reviewPolicy: none` nothing
+      // else stands between a scoped member and a workstream they cannot read.
+      const r = await reflectWorkstream({
+        workstreamId: await targetWorkstream(teamctxDir, readConfig(teamctxDir), workstream),
+        teamctxDir, projectDir: gitCwd,
+      });
       const reportBack = `Tell the user: reflected workstream "${r.workstreamId}"${r.rolesRegenerated.length ? `; regenerated roles: ${r.rolesRegenerated.join(', ')}` : ''}${r.pushed ? '; pushed' : ''}.`;
       return textResult({ workstreamId: r.workstreamId, rolesRegenerated: r.rolesRegenerated, pushed: r.pushed, pushError: r.pushError, reportBack });
     },

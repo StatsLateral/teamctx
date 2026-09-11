@@ -558,6 +558,99 @@ describe('a member scoped to one workstream', () => {
     expect(ids).not.toContain('t-prod');
   });
 
+  /** Two tasks, one either side of the boundary. */
+  const withTasks = () => {
+    const s = scoped();
+    s.write('.teamctx/workstreams/engineering.json', JSON.stringify({
+      id: 'engineering', name: 'Engineering', whys: [{ id: 'e1', text: 'hire two' }],
+      tasks: [{ id: 't-eng', title: 'write the ad', status: 'open', workstream: 'engineering' }],
+    }));
+    s.write('.teamctx/workstreams/product.json', JSON.stringify({
+      id: 'product', name: 'Product', whys: [{ id: 'pr1', text: 'pricing' }],
+      tasks: [{ id: 't-prod', title: 'pricing page', status: 'open', workstream: 'product' }],
+    }));
+    return s;
+  };
+
+  const refused = (fn) => expect(asUser(withTasks(), RAVI, fn)).rejects.toThrow(/no workstream "product"/);
+
+  it('cannot read a sibling task by naming its id', async () => {
+    await refused(h => h.get_task({ id: 't-prod' }));
+  });
+
+  it('cannot compile a sibling task, which would hand over its whole tree', async () => {
+    // The same bypass `get_role_context` had, and the widest one: a compiled
+    // prompt carries the workstream's entire why/what/how.
+    await refused(h => h.task_compile({ id: 't-prod' }));
+  });
+
+  it('cannot mark a sibling task done, reopen it, reassign it or delete it', async () => {
+    await refused(h => h.task_done({ id: 't-prod' }));
+    await refused(h => h.task_reopen({ id: 't-prod' }));
+    await refused(h => h.task_assign({ id: 't-prod', owner: 'Ravi' }));
+    await refused(h => h.task_rm({ id: 't-prod' }));
+  });
+
+  it('cannot write a new task into a workstream it cannot read', async () => {
+    await refused(h => h.task_add({ title: 'sneak', workstream: 'product' }));
+  });
+
+  it('cannot rewrite a sibling workstream through reflect', async () => {
+    await refused(h => h.reflect({ workstream: 'product' }));
+  });
+
+  it('cannot read a sibling through suggest_roles or get_stats', async () => {
+    await refused(h => h.suggest_roles({ workstream: 'product' }));
+    await refused(h => h.get_stats({ workstream: 'product' }));
+  });
+
+  it('still reaches its own tasks', async () => {
+    const r = await asUser(withTasks(), RAVI, h => json(h.get_task({ id: 't-eng' })));
+    expect(r.id).toBe('t-eng');
+  });
+
+  it('still reaches a task on the project, which it inherits', async () => {
+    const s = withTasks();
+    s.write('.teamctx/project.json', JSON.stringify({
+      name: 'Ledger', whys: [{ id: 'p1', text: 'ship it' }],
+      tasks: [{ id: 't-proj', title: 'book the venue', status: 'open' }],
+    }));
+    const r = await asUser(s, RAVI, h => json(h.get_task({ id: 't-proj' })));
+    expect(r.id).toBe('t-proj');
+  });
+
+  it('is not told a sibling task exists, only that the workstream does not', async () => {
+    // The same wording an unknown workstream gets, so probing learns nothing.
+    let message = '';
+    try { await asUser(withTasks(), RAVI, h => h.get_task({ id: 't-prod' })); }
+    catch (err) { message = err.message; }
+    expect(message).not.toMatch(/pricing page|t-prod/);
+  });
+
+  it('does not see the roles of a sibling workstream in the listing', async () => {
+    const s = withTasks();
+    const cfg = s.configJson();
+    cfg.roles = [
+      { slug: 'pm', name: 'PM', workstream: 'product' },
+      { slug: 'recruiter', name: 'Recruiter', workstream: 'engineering' },
+      { slug: 'ops', name: 'Ops', workstream: null },
+    ];
+    s.write('.teamctx/config.json', JSON.stringify(cfg));
+    const r = await asUser(s, RAVI, h => json(h.list_roles()));
+    expect(r.roles.map(x => x.slug).sort()).toEqual(['ops', 'recruiter']);
+  });
+
+  it('gets a snapshot with the siblings filtered out of it', async () => {
+    const s = withTasks();
+    await asUser(s, ALICE, h => json(h.snapshot_create({ message: 'before the split' })));
+    const list = await asUser(s, ALICE, h => json(h.list_snapshots()));
+    const id = list.snapshots[0].id;
+    const r = await asUser(s, RAVI, h => json(h.get_snapshot({ id })));
+    const ids = r.workstreams.map(w => w.id);
+    expect(ids).not.toContain('product');
+    expect(ids).toContain('engineering');
+  });
+
   it('never scopes the manager, even if the roster tries to', async () => {
     // A manager who could not read half the project could not review
     // contributions to that half, which is the one thing only they can do.
