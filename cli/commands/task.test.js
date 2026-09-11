@@ -54,6 +54,7 @@ import {
   writeTaskFile, taskFileExists, readWorkstream, readTree,
 } from '../../src/storage.js';
 import { compileTaskPrompt } from '../../src/context.js';
+import { readProject } from '../../src/storage.js';
 import { commitContext } from '../../src/git.js';
 
 beforeEach(() => {
@@ -266,6 +267,25 @@ describe('taskCompileCommand', () => {
   };
   const wsA = { id: 'main', name: 'M', whys: [{ id: 'w1', text: 'a', whats: [] }] };
   const wsB = { id: 'main', name: 'M', whys: [{ id: 'w1', text: 'b', whats: [] }] };
+
+  it('gives a project-level task no inherited half, since it is the project', async () => {
+    // Passing the project as both the tree and the thing above it printed every
+    // Why twice. This is the default case: the migration folds every task on a
+    // project that never split to project level.
+    readTask.mockReturnValue({ task: { ...openTask, workstream: null }, workstream: null });
+    readTree.mockReturnValue({ name: 'Ledger', whys: [{ id: 'w1', text: 'a', whats: [] }] });
+    await taskCompileCommand('t-plan', {});
+    expect(compileTaskPrompt.mock.calls[0][0].project).toBe(null);
+  });
+
+  it('gives a task inside a workstream the project tree above it', async () => {
+    // A real workstream id: `main` resolves to project level now.
+    readTask.mockReturnValue({ task: { ...openTask, workstream: 'delivery' }, workstream: 'delivery' });
+    readTree.mockReturnValue(wsA);
+    readProject.mockReturnValue({ name: 'Ledger', whys: [{ id: 'p1', text: 'p', whats: [] }] });
+    await taskCompileCommand('t-plan', {});
+    expect(compileTaskPrompt.mock.calls[0][0].project.whys[0].id).toBe('p1');
+  });
 
   it('calls compileTaskPrompt, writes the file, records compiledAt + compiledFromHash, and commits', async () => {
     readTask.mockReturnValue({ task: openTask, workstream: 'main' });

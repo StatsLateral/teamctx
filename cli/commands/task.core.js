@@ -283,7 +283,13 @@ export async function compileTask({
   }
 
   const contributions = readContributions(teamctxDir);
-  const markdown = await compileTaskPrompt({ task, workstream, role, contributions, config, project: readProject(teamctxDir) });
+  // A task on the project is compiled from the project tree, so passing that
+  // same tree again as the inherited half printed every Why twice — once under
+  // a "read-only here" heading that makes no sense on the thing it came from.
+  const markdown = await compileTaskPrompt({
+    task, workstream, role, contributions, config,
+    project: isProjectLevel(wsId) ? null : readProject(teamctxDir),
+  });
   writeTaskFile(task.id, markdown, teamctxDir);
 
   const updated = { ...task, compiledAt: new Date().toISOString(), compiledFromHash: currentHash };
