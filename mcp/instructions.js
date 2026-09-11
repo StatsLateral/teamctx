@@ -52,7 +52,11 @@ the team aligned on.
   4. \`task_add\` (with \`compile: true\`) — turn intent into work someone can
      pick up. The compiled prompt is the thing a person actually acts on.
   5. \`member_add\` — bring someone in. \`get_connect_url\` gives you the link
-     to send them.
+     to send them. This is refused while there is nothing for that person to
+     read: the project needs context, and so does any part of the work you put
+     them on specifically. \`get_status\` tells you both before you try —
+     \`projectWhys\`, and a count on each workstream. If either is zero, ask
+     the manager what it is about and \`contribute\` that first.
 
 **Somebody picking up work.** They were invited and want to know what to do.
 

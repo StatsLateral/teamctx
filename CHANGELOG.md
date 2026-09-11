@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Nobody is brought onto a project with nothing in it.** A manager could
+  invite somebody the moment a project existed; that person connected, their
+  assistant pulled their brief, and the brief said "No context yet" — the worst
+  first impression the product can make, and one sentence of work away from not
+  happening. `member add` and `member scope` now refuse while the project has
+  no context, and while any workstream the person is being put on has none of
+  its own, since a member reads both. A project-wide member is checked against
+  the project alone. The refusal says what to add in the manager's own words
+  and names the person waiting, so the assistant can fix it in the same breath.
+  It runs before the GitHub invite, because inviting somebody and then refusing
+  to add them is worse than either outcome. Enforced on every path the product
+  offers; somebody holding a clone can still write a roster entry by hand, and
+  this says so rather than implying a wall that is not there. Closes #82.
+- **`member_add` can scope somebody as they join.** Its handler always passed
+  `workstreams` through, but the tool never declared the argument, so no client
+  could send one — scoping meant adding the person project-wide first and
+  narrowing them afterwards. `member_scope` is in the tool reference now too.
+
 ### Fixed
 - **Adding someone to a project handed over nothing.** `member_add` wrote the
   roster entry and reported success; the link that person needs to reach the

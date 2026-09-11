@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { createHash } from 'crypto';
-import { makeHandlers } from './server.js';
+import { makeHandlers, TOOLS } from './server.js';
 import { runWithSession } from '../src/session-context.js';
 import { runWithActor } from '../src/actor.js';
 import { __resetMemory } from '../src/oauth/kv.js';
@@ -48,6 +48,9 @@ function fakeSession() {
   const files = new Map([
     ['.teamctx/config.json', { content: JSON.stringify(CONFIG), sha: 'a' }],
     ['.teamctx/contributions.jsonl', { content: '', sha: 'b' }],
+    // Non-empty: nobody can be brought onto a project with nothing in it, so a
+    // fixture with an empty tree would be testing that gate in every test here.
+    ['.teamctx/project.json', { content: JSON.stringify({ name: 'Ledger', whys: [{ id: 'p1', text: 'ship the ledger' }] }), sha: 'p' }],
     ['.teamctx/workstreams/main.json', { content: JSON.stringify({ id: 'main', name: 'Ledger', whys: [] }), sha: 'c' }],
     ['.teamctx/workstreams/engineering-hiring.json', { content: JSON.stringify({ id: 'engineering-hiring', name: 'Engineering Hiring', whys: [] }), sha: 'd' }],
   ]);
@@ -883,6 +886,10 @@ describe('changing a scope from a chat client', () => {
       workstreams: [{ id: 'main', name: 'Main' }, { id: 'engineering', name: 'Engineering' }],
       members: [{ key: 'git:ravi@example.com', name: 'Ravi', email: 'ravi@example.com', login: null }],
     }));
+    // Somebody can only be put on a workstream that has something to read.
+    s.write('.teamctx/workstreams/engineering.json', JSON.stringify({
+      id: 'engineering', name: 'Engineering', whys: [{ id: 'e1', text: 'hire two engineers' }],
+    }));
     return s;
   };
 
@@ -990,6 +997,8 @@ describe('what a hosted read must not miss', () => {
       workstreams: [{ id: 'product', name: 'Product' }, { id: 'engineering', name: 'Engineering' }],
       members,
     }));
+    // Replaces the fixture's project tree rather than adding to it, so the
+    // counts below are this test's own.
     s.write('.teamctx/project.json', JSON.stringify({
       name: 'Ledger', whys: [{ id: 'p1', text: 'nobody ships before Q3', whats: [] }],
     }));
@@ -1158,5 +1167,65 @@ describe('a broken gate is visible before anything fails', () => {
     const s = fakeSession();
     const r = await asUser(s, ALICE, h => json(h.get_status()));
     expect(r.managerGateBroken).toBe(false);
+  });
+});
+
+describe('nobody is brought onto an empty project, over the server', () => {
+  // The hosted path is where this has to hold: the manager is in a chat
+  // client, the person they are adding will open their brief in another one,
+  // and neither of them will ever see a terminal.
+  const emptyProject = () => {
+    const s = fakeSession();
+    s.write('.teamctx/project.json', JSON.stringify({ name: 'Ledger', whys: [] }));
+    return s;
+  };
+
+  it('refuses member_add while there is nothing to read', async () => {
+    await expect(asUser(emptyProject(), ALICE, h => h.member_add({ ref: 'priyar' })))
+      .rejects.toThrow(/This project has nothing written down yet/);
+  });
+
+  it('writes no roster entry when it refuses', async () => {
+    const s = emptyProject();
+    await expect(asUser(s, ALICE, h => h.member_add({ ref: 'priyar' }))).rejects.toThrow();
+    expect(s.configJson().members || []).toEqual([]);
+    expect(s.commits).toEqual([]);
+  });
+
+  it('tells the manager what to do, in words with no teamctx in them', async () => {
+    let message = '';
+    try {
+      await asUser(emptyProject(), ALICE, h => h.member_add({ ref: 'priyar' }));
+    } catch (err) { message = err.message; }
+    expect(message).toMatch(/Tell me what it's about and I'll add it/);
+    expect(message).not.toMatch(/workstream|why|context tree|contribution/i);
+  });
+
+  it('allows it once the project has something in it', async () => {
+    const r = await asUser(fakeSession(), ALICE, h => json(h.member_add({ ref: 'priyar' })));
+    expect(r.member.name).toBe('priyar');
+  });
+
+  it('refuses when the workstream they would join is the empty half', async () => {
+    // The project is fine here; `engineering-hiring` is the one with nothing.
+    await expect(asUser(fakeSession(), ALICE,
+      h => h.member_add({ ref: 'priyar', workstreams: ['engineering-hiring'] })))
+      .rejects.toThrow(/"Engineering Hiring" has nothing written down yet/);
+  });
+
+  it('lets member_add scope somebody at the moment they join', async () => {
+    // The handler always passed `workstreams` through; the tool schema never
+    // declared it, so no client could send one.
+    const s = fakeSession();
+    s.write('.teamctx/workstreams/engineering-hiring.json', JSON.stringify({
+      id: 'engineering-hiring', name: 'Engineering Hiring', whys: [{ id: 'e1', text: 'hire two engineers' }],
+    }));
+    const r = await asUser(s, ALICE, h => json(h.member_add({ ref: 'priyar', workstreams: ['engineering-hiring'] })));
+    expect(r.member.workstreams).toEqual(['engineering-hiring']);
+  });
+
+  it('declares workstreams on the tool, so a client knows it can send them', () => {
+    const tool = TOOLS.find(t => t.name === 'member_add');
+    expect(tool.inputSchema.properties.workstreams).toBeTruthy();
   });
 });
