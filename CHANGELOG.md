@@ -8,6 +8,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **A change to the project never reached pages that were already compiled.**
+  Inheritance is concatenation at compile time, but a compiled page is written
+  once and does not re-read anything — so a contribution at project level landed
+  correctly and every workstream's page went on showing the project as it was
+  before, which is the version a member actually reads. A project-level
+  contribution, reflection or approval now rewrites every workstream's page.
+  Role files are not in that pass, because each one is an AI call and a project
+  with eight roles would spend eight of them on every sentence the manager adds;
+  a role file catches up when its own workstream is next written to.
+- **Splitting a workstream stripped the inherited section from its own page.**
+  The source's page was rewritten without the project above it, and stayed that
+  way until something else happened to touch it.
+- **A snapshot handed a scoped member every tree anyway.** The filter applied to
+  one of the two places the workstreams appear in the response, and they were
+  the same array.
+- **`get_status` listed every role and the workstream behind it**, including the
+  workstreams the same response hides from a scoped member.
+- **`get_stats` threw on any migrated project when asked about `main`.** The
+  name resolves to project level, which is `null`, and the fallback handed the
+  raw `main` to a function that no longer knows any such workstream. Statistics
+  also stop filing project-level activity under `main`; the project is its own
+  row, listed first.
+- **Tools reported work landing on `workstream "null"`.** At project level there
+  is no id, and the client is told to read these strings back word for word —
+  so on an unsplit project, which is most of them, `contribute`, `reflect`,
+  `role_add`, `role_assign`, `review_approve`, `task_rm` and `workstream_use`
+  all named a workstream called null. The terminal's `task add` printed the same
+  thing, and a compiled task prompt told the agent it belonged to `main`.
+- **An explicit request for project level was read as "wherever you are".**
+  `task_add` resolves `main` to `null` before calling the core, and the core
+  treated that `null` as "nobody said", creating the task in the caller's active
+  workstream instead of on the project.
+- **The terminal offered a contribution to a manager who was never going to see
+  it.** It asked "submit for manager approval?" before working out whether the
+  policy required review; under the default `additive` policy an add-only
+  contribution is written straight to shared context.
+- **Two config commits were attributed to `[object Object]`.**
+
+### Fixed
 - **The migration never ran on a hosted project.** `migrateIfNeeded` opened by
   joining a filesystem path, and hosted has no filesystem — `teamctxDir` there
   is the repository the session is scoped to, not a path — so the first line
