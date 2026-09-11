@@ -11,6 +11,7 @@ import { resolveActor } from '../../src/actor.js';
 import { resolveActiveWorkstream, writePrefs } from '../../src/prefs.js';
 import { resolveTarget, isProjectLevel, targetLabel } from '../../src/project-level.js';
 import { recompileInheritors } from '../../src/recompile.js';
+import { describeMembership, membershipModel } from '../../src/membership-model.js';
 
 /** The caller's active workstream — their own preference, then the project default. */
 async function activeId(config, teamctxDir, projectDir) {
@@ -64,16 +65,75 @@ export async function suggestWorkstreamSplits({ workstreamId, teamctxDir, projec
   // `readTree`, not `readWorkstream`: after the project layer the caller is at
   // project level unless they chose otherwise, and that is the tree with
   // everything in it — the one most worth splitting.
-  const workstream = readTree(active, teamctxDir);
-  const { splits, leftover } = await proposeSubworkstreams(workstream, config, config.roles || []);
+  const source = readTree(active, teamctxDir);
+  const { splits, leftover } = await proposeSubworkstreams(source, config, config.roles || []);
   const enriched = splits.map(s => ({
     name: s.name,
     rationale: s.rationale || '',
     whyIds: s.whyIds,
-    whys: s.whyIds.map(id => workstream.whys.find(w => w.id === id)).filter(Boolean),
+    whys: s.whyIds.map(id => source.whys.find(w => w.id === id)).filter(Boolean),
+    // How a person's part in this thread is best expressed. A proposal, not a
+    // setting: it is returned for the manager to accept or ignore, and nothing
+    // stores it until they do.
+    membership: s.membership,
   }));
-  const leftoverWhys = leftover.map(id => workstream.whys.find(w => w.id === id)).filter(Boolean);
-  return { activeId: active, workstream, splits: enriched, leftover: leftoverWhys };
+  const leftoverWhys = leftover.map(id => source.whys.find(w => w.id === id)).filter(Boolean);
+  return { activeId: active, workstream: source, splits: enriched, leftover: leftoverWhys };
+}
+
+/**
+ * How this project is structured, proposed in one pass.
+ *
+ * Which Whys become workstreams and how people are placed in each are one
+ * decision, and asking them separately handed the manager two disconnected
+ * lists to reconcile in their head. Reading from the project tree rather than
+ * the active workstream is the other half: after the project layer, "a project
+ * tree and no workstreams" is the ordinary state and the one where a proposal
+ * is most useful.
+ *
+ * Writes nothing. `workstream_split` remains what writes.
+ */
+export async function proposeStructure({ teamctxDir, projectDir } = {}) {
+  const config = readConfig(teamctxDir);
+  const project = readProject(teamctxDir);
+  const whys = project.whys || [];
+
+  if (whys.length === 0) {
+    return {
+      project: config.project || project.name || 'project',
+      workstreams: [],
+      leftover: [],
+      why: 'This project has no context yet, so there is nothing to organise. '
+        + 'Tell me what it is about first.',
+    };
+  }
+
+  const { splits, leftover } = await proposeSubworkstreams(project, config, config.roles || []);
+  return {
+    project: config.project || project.name || 'project',
+    workstreams: splits.map(s => ({
+      name: s.name,
+      rationale: s.rationale || '',
+      whyIds: s.whyIds,
+      whys: s.whyIds.map(id => whys.find(w => w.id === id)).filter(Boolean),
+      membership: {
+        ...s.membership,
+        // Normalised here as well as upstream, so `model` and `means` cannot
+        // disagree: describing one model while naming another would be worse
+        // than either on its own.
+        model: membershipModel(s.membership?.model),
+        means: describeMembership(s.membership?.model),
+      },
+      // Suggested, not created. `role_add` is still what creates a role, and it
+      // cannot run until the workstream it binds to exists.
+      //
+      // Nameless entries are dropped here as well as upstream, for the same
+      // reason the membership model is normalised twice: this is the boundary a
+      // caller reads, and it should not depend on what happened before it.
+      roles: (s.roles || []).filter(x => String(x?.name || '').trim()),
+    })),
+    leftover: leftover.map(id => whys.find(w => w.id === id)).filter(Boolean),
+  };
 }
 
 async function applySplit({ source, sourceId, split, moveRoleSlugs, config, teamctxDir }) {

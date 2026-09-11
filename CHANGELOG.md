@@ -353,6 +353,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   upgrade for an existing project; choosing `none` restores it.
 
 ### Added
+- **The AI proposes how a project is organised, in one pass.** Which parts of
+  the project tree become workstreams, and — per workstream — how a person's
+  part in it is best expressed: as the tasks assigned to them, as a named role,
+  or as owning the whole thread. Those were two questions before, answered by
+  two tools, leaving a manager to reconcile two disconnected lists themselves.
+  The membership model is proposed rather than fixed by the product, because one
+  manager runs a project as a task list where somebody's role *is* what is
+  assigned to them, and another gives a person a workstream to own. Choosing one
+  for everybody would be the product overruling the person running the team.
+  `teamctx workstream propose` and the `propose_structure` tool. It writes
+  nothing — `workstream split` is still what creates a workstream — and on a
+  project with no context yet it says so in plain words rather than guessing.
+  A model the AI invents falls back to the narrowest of the three, which claims
+  the least about how somebody works.
+  Roles come back in the same call rather than through `suggest_roles` — one
+  round trip, and the roles are proposed against the workstream they would
+  belong to rather than against one that does not exist yet. Nothing creates
+  them; `role_add` still does, once the workstream it binds to is real.
+
 - **Project context is its own layer, and workstreams inherit it.** A workstream
   used to be a standalone tree, and `workstream split` *moved* Whys out of
   `main` — they partitioned, and nothing was shared. So a member scoped to one
