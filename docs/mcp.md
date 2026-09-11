@@ -35,6 +35,7 @@ either manager-gated or explicitly flagged as structural.
 | `get_snapshot({id})` | Fetch a snapshot by id or unique prefix. |
 | `get_current_snapshot` | Fetch the current-approved snapshot pointer. |
 | `list_pending_reviews` | List queued contributions awaiting manager review. |
+| `my_brief()` | **Call this first.** Answers "what should I work on", "what are my tasks", "where am I". Their open tasks grouped by where the work sits, the compiled context for the part of the project they are on (the project's goals with their workstream's beneath them), and their role if they have one. Knows who is calling; takes no arguments. Read-only, spends no AI call. |
 | `get_status` | Full project status payload as structured JSON. |
 | `get_config` | Public config (never returns API keys). |
 | `get_stats({since?, workstream?})` | Team metrics from the project's own history — cadence, approval flow, freshness, task flow. Approval numbers are `null` when git history is unreachable (hosted), never zero. |

@@ -32,6 +32,7 @@ import {
   listAllWorkstreams, suggestWorkstreamSplits, splitWorkstreams, useWorkstream, proposeStructure,
 } from '../cli/commands/workstream.core.js';
 import { contributeCore } from '../cli/commands/contribute.core.js';
+import { buildBrief } from '../cli/commands/brief.core.js';
 import {
   listTasksFiltered, getTask, addTask, setTaskStatus, assignTask, removeTask, compileTask,
 } from '../cli/commands/task.core.js';
@@ -120,6 +121,11 @@ export const TOOLS = [
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
   },
   {
+    name: 'my_brief',
+    description: "**Call this first, and answer \"what should I work on?\", \"what are my tasks?\", \"where am I?\" or \"how do I get started?\" with this one call.** A member's status, their tasks and the context behind them, together: their open tasks grouped by where the work sits, the compiled context for the part of the project they are on (the project's goals with their workstream's beneath them), and their role. Prefer it over list_tasks and get_status when somebody is asking about their own work — those answer a narrower question and leave out the context. Read it before contributing, marking anything done, or proposing changes; it is what stops an assistant acting on a project it has not read. Knows who is calling, so never ask them their name; takes no arguments. Read-only, and spends no AI call.",
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+  },
+  {
     name: 'get_status',
     description: "**Call this first when you do not know where you are.** Answers who is calling, which project, whether it is set up at all, and whether the caller is the manager — all in one read. `managerGateBroken: true` means the gate is a display name nobody can match, so every approval on this project is already failing — tell the user plainly and offer repair_manager_gate if they set the project up. Returns project name, provider, model, manager identity, workstreams with why-counts, roles, contribution/decision totals. `me` and `activeWorkstream` are the calling user's, not the project defaults. Read-only.",
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
@@ -182,7 +188,7 @@ export const TOOLS = [
 
   {
     name: 'list_tasks',
-    description: "**Reach for this when somebody asks what they should be working on.** Pass mine:true for their own — never ask them what they are called, the server already knows who is calling. Defaults to open tasks in the caller's active workstream; pass all:true for every status across every workstream, which is what \"did we finish X\" means. Read-only.",
+    description: "The task list on its own. Reach for this when somebody wants the list and nothing more, or asks \"did we finish X\". When they ask what they should be working on, my_brief answers that better — it carries these same tasks *and* the context behind them. Pass mine:true for their own — never ask them what they are called, the server already knows who is calling. Defaults to open tasks in the caller's active workstream; pass all:true for every status across every workstream, which is what \"did we finish X\" means. Read-only.",
     inputSchema: {
       type: 'object',
       properties: {
@@ -761,6 +767,20 @@ export function makeHandlers(projectRoot) {
       const pending = (await listPendingReviews({ teamctxDir }))
         .filter(item => inScope(allowed, resolveTarget(item.workstream)));
       return textResult({ pending, ...(allowed ? { scopedTo: allowed } : {}) });
+    },
+
+    async my_brief() {
+      const teamctxDir = dir();
+      const config = readConfig(teamctxDir);
+      const actor = await resolveActor({ config, cwd: gitCwd });
+      const brief = await buildBrief({
+        // Their scope decides what they read, and a scoped member reads their
+        // own workstreams rather than the project default.
+        scope: await scope(teamctxDir, config),
+        activeWorkstream: await targetWorkstream(teamctxDir, config, undefined),
+        teamctxDir, projectDir: gitCwd, actor,
+      });
+      return textResult({ ...brief, reportBack: `Tell the user: ${brief.frame}` });
     },
 
     async get_status() {

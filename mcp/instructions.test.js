@@ -81,7 +81,7 @@ describe('the founding contribution', () => {
 describe('the tools an agent has to pick between first', () => {
   const describeOf = (name) => TOOLS.find(t => t.name === name)?.description || '';
 
-  it.each(['get_status', 'list_tasks', 'contribute', 'task_add', 'task_compile', 'get_connect_url'])(
+  it.each(['my_brief', 'get_status', 'list_tasks', 'contribute', 'task_add', 'task_compile', 'get_connect_url'])(
     '%s says when to reach for it, not only what it does',
     (name) => {
       // Tool descriptions are the half that still works in a client that

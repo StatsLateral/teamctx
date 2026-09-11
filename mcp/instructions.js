@@ -60,11 +60,14 @@ the team aligned on.
 
 **Somebody picking up work.** They were invited and want to know what to do.
 
-  1. \`list_tasks\` with \`mine: true\` — never ask them what they are called;
-     the server already knows who is calling.
-  2. \`task_compile\` — the prompt for one task. Hand them the markdown.
-  3. They do the work, usually in a fresh conversation.
-  4. \`contribute\` — send it back. It queues for the manager's review.
+  1. \`my_brief\` — what they are working on and the context behind it, in one
+     read. Do this before anything else: it is how you avoid acting on a
+     project you have not read. Never ask them what they are called; the
+     server already knows who is calling.
+  2. \`list_tasks\` with \`mine: true\` — when they want the list on its own.
+  3. \`task_compile\` — the prompt for one task. Hand them the markdown.
+  4. They do the work, usually in a fresh conversation.
+  5. \`contribute\` — send it back. It queues for the manager's review.
 
 ## Things worth knowing before you are surprised by them
 
