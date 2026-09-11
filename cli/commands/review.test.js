@@ -29,8 +29,9 @@ vi.mock('../../src/git.js', () => ({
 }));
 
 import { reviewApproveCommand } from './review.js';
+import { approveReview } from './review.core.js';
 import {
-  readConfig, readWorkstream, writeTree, writeTreeMd,
+  readConfig, readWorkstream, writeTree, writeTreeMd, readProject,
   writeRoleFile, readQueueItem, deleteQueueItem, readContributions, readTree,
 } from '../../src/storage.js';
 import { generateRoleFile, serializeToMd } from '../../src/context.js';
@@ -136,5 +137,51 @@ describe('reviewApproveCommand — workstream-aware', () => {
     const commitMsg = commitContext.mock.calls[0][0];
     expect(commitMsg).toContain('[decision]');
     expect(commitMsg).toContain('(tech)');
+  });
+});
+
+describe('approving at project level', () => {
+  // Same class as the task-prompt bug: the approve path passed the project as
+  // the inherited half of a tree that already was the project, so `project.md`
+  // would have carried every node twice — under a heading claiming it was
+  // inherited from somewhere else.
+  beforeEach(() => {
+    readQueueItem.mockReturnValue({
+      id: 'q1', author: 'Priya', workstream: null, summary: 's',
+      operations: [{ op: 'add_why', text: 'no new vendors' }],
+    });
+    readConfig.mockReturnValue({ project: 'Ledger', roles: [{ slug: 'ops', workstream: null }] });
+    readProject.mockReturnValue({ name: 'Ledger', whys: [] });
+  });
+
+  it('renders the project without an inherited half', async () => {
+    await approveReview({ id: 'q1', actor: 'Maya' });
+    expect(serializeToMd.mock.calls[0][4].project).toBe(null);
+  });
+
+  it('regenerates a project-level role the same way', async () => {
+    await approveReview({ id: 'q1', actor: 'Maya' });
+    expect(generateRoleFile.mock.calls[0][5].project).toBe(null);
+  });
+});
+
+describe('approving inside a workstream', () => {
+  beforeEach(() => {
+    readQueueItem.mockReturnValue({
+      id: 'q2', author: 'Priya', workstream: 'delivery', summary: 's',
+      operations: [{ op: 'add_why', text: 'ship it' }],
+    });
+    readConfig.mockReturnValue({
+      project: 'Ledger',
+      workstreams: [{ id: 'delivery', name: 'Delivery' }],
+      roles: [{ slug: 'lead', workstream: 'delivery' }],
+    });
+    readProject.mockReturnValue({ name: 'Ledger', whys: [{ id: 'p1', text: 'no new vendors' }] });
+  });
+
+  it('still puts the project above it', async () => {
+    await approveReview({ id: 'q2', actor: 'Maya' });
+    expect(serializeToMd.mock.calls[0][4].project.whys[0].id).toBe('p1');
+    expect(generateRoleFile.mock.calls[0][5].project.whys[0].id).toBe('p1');
   });
 });

@@ -80,17 +80,23 @@ export async function approveReview({ id, teamctxDir, projectDir, actor } = {}) 
   const updated = applyQueueItem(workstream, item);
   const contributions = readContributions(teamctxDir);
 
+  // The inherited half, or nothing when the target *is* the project: rendering
+  // the project above itself prints every node twice, under a heading that says
+  // it came from somewhere else. Every sibling write path resolves it the same
+  // way — see `contribute.core.js` and `reflect.core.js`.
+  const project = isProjectLevel(targetId) ? null : readProject(teamctxDir);
+
   writeTree(targetId, updated, teamctxDir);
   writeTreeMd(
     targetId,
-    serializeToMd(updated, workstreamDisplayName(targetId, updated, config), item.author, contributions, { project: readProject(teamctxDir) }),
+    serializeToMd(updated, workstreamDisplayName(targetId, updated, config), item.author, contributions, { project }),
     teamctxDir,
   );
 
   const rolesOnTarget = (config.roles || []).filter(r => resolveTarget(r.workstream) === targetId);
   const rolesRegenerated = [];
   for (const role of rolesOnTarget) {
-    const md = await generateRoleFile(updated, role, config.project, config, contributions, { project: readProject(teamctxDir) });
+    const md = await generateRoleFile(updated, role, config.project, config, contributions, { project });
     writeRoleFile(role.slug, md, teamctxDir);
     rolesRegenerated.push(role.slug);
   }
