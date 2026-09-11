@@ -129,7 +129,12 @@ export default async function handler(req, res) {
   }
 
   const ref = readParam(req, 'ref') || null;
-  const projectContext = { __backend: 'github', owner, repo, ref, ghToken };
+  // The deployment's own address, carried through so the handlers can hand out
+  // a connector URL for a project that never recorded one. Every hosted request
+  // arrives at the host it would name, so asking the config for it was asking
+  // the wrong place — and a project created through the web flow has nothing
+  // there, which made "invite someone" fail on every one of them.
+  const projectContext = { __backend: 'github', owner, repo, ref, ghToken, baseUrl: baseUrl(req) };
 
   // Header-token mode (local dev, `static_headers`) carries no identity, so it
   // is resolved lazily: a GitHub round trip that most tool calls never need, run
