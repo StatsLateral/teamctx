@@ -1229,3 +1229,82 @@ describe('nobody is brought onto an empty project, over the server', () => {
     expect(tool.inputSchema.properties.workstreams).toBeTruthy();
   });
 });
+
+describe('the brief a member opens first', () => {
+  // The pair to the context gate: that one guarantees there is something to
+  // read, this is the reading. It has to hold over the server, because the
+  // member is in a chat client and will never see a terminal.
+  const RAVI = { key: 'git:ravi@example.com', name: 'Ravi', login: null, email: 'ravi@example.com', source: 'google' };
+
+  const project = () => {
+    const s = fakeSession();
+    s.write('.teamctx/config.json', JSON.stringify({
+      ...CONFIG,
+      workstreams: [{ id: 'product', name: 'Product' }, { id: 'engineering', name: 'Engineering' }],
+      roles: [{ slug: 'recruiter', name: 'Recruiter', workstream: 'engineering' }],
+      members: [{ key: RAVI.key, name: 'Ravi', email: RAVI.email, login: null, workstreams: ['engineering'] }],
+    }));
+    s.write('.teamctx/project.json', JSON.stringify({
+      name: 'Ledger', whys: [{ id: 'p1', text: 'no new vendors' }],
+      tasks: [{ id: 't-proj', title: 'book the venue', status: 'open', owner: 'Ravi' }],
+    }));
+    s.write('.teamctx/workstreams/engineering.json', JSON.stringify({
+      id: 'engineering', name: 'Engineering', whys: [{ id: 'e1', text: 'hire two' }],
+      tasks: [{ id: 't-eng', title: 'write the ad', status: 'open', owner: 'Ravi' }],
+    }));
+    s.write('.teamctx/workstreams/product.json', JSON.stringify({
+      id: 'product', name: 'Product', whys: [{ id: 'pr1', text: 'pricing' }],
+      tasks: [{ id: 't-prod', title: 'pricing page', status: 'open', owner: 'Ravi' }],
+    }));
+    s.write('.teamctx/context/workstreams/engineering.md',
+      ['# Context — Ledger', '### Project context', 'no new vendors', '### Engineering', 'hire two'].join(String.fromCharCode(10)));
+    s.write('.teamctx/context/workstreams/product.md',
+      ['# Context — Ledger', '### Product', 'pricing'].join(String.fromCharCode(10)));
+    s.write('.teamctx/context/roles/recruiter.md', '# Recruiter');
+    return s;
+  };
+
+  it('answers without being told who is asking', async () => {
+    const r = await asUser(project(), RAVI, h => json(h.my_brief()));
+    expect(r.me).toBe('Ravi');
+  });
+
+  it('carries the compiled page for the part of the work they are on', async () => {
+    const r = await asUser(project(), RAVI, h => json(h.my_brief()));
+    expect(r.context.map(c => c.workstream)).toEqual(['engineering']);
+    expect(r.context[0].markdown).toContain('no new vendors');
+    expect(r.context[0].markdown).toContain('hire two');
+  });
+
+  it('does not hand a scoped member a sibling thread', async () => {
+    const r = await asUser(project(), RAVI, h => json(h.my_brief()));
+    const everything = JSON.stringify(r);
+    expect(everything).not.toContain('pricing');
+    expect(everything).not.toContain('t-prod');
+  });
+
+  it('gives them their own tasks, grouped by where the work sits', async () => {
+    const r = await asUser(project(), RAVI, h => json(h.my_brief()));
+    expect(r.tasks.open.flatMap(g => g.tasks.map(t => t.id))).toEqual(['t-eng']);
+  });
+
+  it('names their role when one sits on their thread', async () => {
+    const r = await asUser(project(), RAVI, h => json(h.my_brief()));
+    expect(r.role.name).toBe('Recruiter');
+  });
+
+  it('tells the client what to say, in words with no teamctx in them', async () => {
+    const r = await asUser(project(), RAVI, h => json(h.my_brief()));
+    expect(r.reportBack).toMatch(/You are on/);
+    expect(r.reportBack).not.toMatch(/why-tree|contribution queue|compile/i);
+  });
+
+  it('gives the manager the whole project', async () => {
+    const r = await asUser(project(), ALICE, h => json(h.my_brief()));
+    expect(r.context.map(c => c.workstream)).toEqual([null]);
+  });
+
+  it('is offered to the client as the first thing a member does', async () => {
+    expect(TOOLS.find(t => t.name === 'my_brief')).toBeTruthy();
+  });
+});

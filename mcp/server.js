@@ -32,6 +32,7 @@ import {
   listAllWorkstreams, suggestWorkstreamSplits, splitWorkstreams, useWorkstream, proposeStructure,
 } from '../cli/commands/workstream.core.js';
 import { contributeCore } from '../cli/commands/contribute.core.js';
+import { buildBrief } from '../cli/commands/brief.core.js';
 import {
   listTasksFiltered, getTask, addTask, setTaskStatus, assignTask, removeTask, compileTask,
 } from '../cli/commands/task.core.js';
@@ -117,6 +118,11 @@ export const TOOLS = [
   {
     name: 'list_pending_reviews',
     description: 'List all queued contributions awaiting manager review (id, author, workstream, summary, operations).',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+  },
+  {
+    name: 'my_brief',
+    description: "**A member's first call.** What this person is working on and the context behind it, in one read: their open tasks grouped by where the work sits, the compiled context for the part of the project they are on (the project's own goals with their workstream's beneath them), and their role if they have one. Read it before contributing, marking anything done, or proposing changes — it is what stops an assistant acting on a project it has not read. Knows who is calling; takes no arguments. Read-only, and spends no AI call.",
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
   },
   {
@@ -761,6 +767,20 @@ export function makeHandlers(projectRoot) {
       const pending = (await listPendingReviews({ teamctxDir }))
         .filter(item => inScope(allowed, resolveTarget(item.workstream)));
       return textResult({ pending, ...(allowed ? { scopedTo: allowed } : {}) });
+    },
+
+    async my_brief() {
+      const teamctxDir = dir();
+      const config = readConfig(teamctxDir);
+      const actor = await resolveActor({ config, cwd: gitCwd });
+      const brief = await buildBrief({
+        // Their scope decides what they read, and a scoped member reads their
+        // own workstreams rather than the project default.
+        scope: await scope(teamctxDir, config),
+        activeWorkstream: await targetWorkstream(teamctxDir, config, undefined),
+        teamctxDir, projectDir: gitCwd, actor,
+      });
+      return textResult({ ...brief, reportBack: `Tell the user: ${brief.frame}` });
     },
 
     async get_status() {

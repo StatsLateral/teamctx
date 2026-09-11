@@ -25,6 +25,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `workstreams` through, but the tool never declared the argument, so no client
   could send one — scoping meant adding the person project-wide first and
   narrowing them afterwards. `member_scope` is in the tool reference now too.
+- **One thing a member reads before they start.** `teamctx brief`, and the
+  `my_brief` tool. Somebody joins a project, asks their assistant what they
+  should be doing, and the best answer available was a bare list of task titles
+  — so the assistant started contributing to a project it had never read. The
+  brief answers in one read: their open tasks grouped by where the work sits,
+  the compiled context for the part of the project they are on (the project's
+  own goals with their workstream's beneath them), their role if they have one,
+  and a line saying where they are and to read it before picking anything up.
+  It knows who is calling, so nobody is asked their own name. A scoped member
+  gets their thread and the project above it, never a sibling. It spends no AI
+  call, deliberately: a member's assistant opens this first, every time. It is
+  now the first step in the member sequence the agent guidance describes, ahead
+  of contributing or marking anything done. Closes #83.
 
 ### Fixed
 - **Adding someone to a project handed over nothing.** `member_add` wrote the
