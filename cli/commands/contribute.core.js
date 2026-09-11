@@ -1,4 +1,6 @@
-import { readConfig, readWorkstream, writeWorkstream, writeWorkstreamMd, appendContribution, writeRoleFile, writeQueueItem, readContributions, listWorkstreamIds } from '../../src/storage.js';
+import { readProject, readConfig, readTree, writeTree, writeTreeMd, appendContribution, writeRoleFile, writeQueueItem, readContributions, listWorkstreamIds } from '../../src/storage.js';
+import { resolveTarget, isProjectLevel } from '../../src/project-level.js';
+import { recompileInheritors } from '../../src/recompile.js';
 import { updateShared, generateRoleFile, serializeToMd } from '../../src/context.js';
 import { commitContext, pushContext } from '../../src/git.js';
 import { UnknownWorkstreamError } from './role.core.js';
@@ -21,7 +23,7 @@ function newContribution({ text, author, authorKey, tagged, source, workstream }
     text,
     tagged: tagged || null,
     source: source || 'cli',
-    workstream: workstream || 'main',
+    workstream: workstream ?? null,
     status: 'logged',
   };
 }
@@ -49,6 +51,7 @@ Source: ${source}`;
 }
 
 function workstreamDisplayName(id, workstream, config) {
+  if (isProjectLevel(id)) return config.project || workstream.name || 'project';
   return config.workstreams?.find(w => w.id === id)?.name || workstream.name || config.project;
 }
 
@@ -65,6 +68,13 @@ export async function contributeCore({
   // Forwarded to the distiller. `import` sets intent:'document' so prose is
   // read for durable context rather than treated as a deliberate update.
   intent, avoid,
+  // Called with what the distiller proposed, before any of it is written.
+  // Returning false abandons the write; the contribution stays logged either
+  // way, exactly as it did when the terminal asked this question itself.
+  // It exists so the CLI can show a diff and still share this code path —
+  // duplicating the path is what let the terminal drift out of step with the
+  // review policy and the project layer without anybody noticing.
+  onProposed,
 } = {}) {
   if (!text) throw new Error('contribution text is required');
   const config = readConfig(teamctxDir);
@@ -80,15 +90,20 @@ export async function contributeCore({
   // the legacy name gate, passing the caller's claimed name here would let
   // `contribute({ apply: true, author: "<manager>" })` walk straight through.
   if (apply) assertManager(config, { actor: resolved, displayName: resolvedName });
-  const targetId = workstreamId
-    || await resolveActiveWorkstream({ actor: resolved, config, teamctxDir });
-  const known = new Set([
-    ...(config.workstreams || []).map(w => w.id),
-    ...listWorkstreamIds(teamctxDir),
-  ]);
-  if (known.size > 0 && !known.has(targetId)) throw new UnknownWorkstreamError(targetId);
+  // `null` is the project itself, which is where a contribution goes when
+  // nobody named a workstream — the base everything else inherits from.
+  const targetId = resolveTarget(
+    workstreamId ?? await resolveActiveWorkstream({ actor: resolved, config, teamctxDir }),
+  );
+  if (!isProjectLevel(targetId)) {
+    const known = new Set([
+      ...(config.workstreams || []).map(w => w.id),
+      ...listWorkstreamIds(teamctxDir),
+    ]);
+    if (known.size > 0 && !known.has(targetId)) throw new UnknownWorkstreamError(targetId);
+  }
 
-  const workstream = readWorkstream(targetId, teamctxDir);
+  const workstream = readTree(targetId, teamctxDir);
   const tagged = decision ? 'decision' : null;
   const contribution = newContribution({ text, author: actor, authorKey, tagged, source, workstream: targetId });
   appendContribution(contribution, teamctxDir);
@@ -100,6 +115,19 @@ export async function contributeCore({
       id: contribution.id, workstream: targetId, author: actor, source,
       mode: 'no-op', summary: 'No changes to context tree (contribution logged).',
       operations: [], pushed: false, pushError: null,
+    };
+  }
+
+  // The caller is told what will actually happen, not what usually happens.
+  // Under the `additive` policy an add-only contribution is written straight to
+  // shared context, and the terminal was asking "submit for manager approval?"
+  // before it knew that — so somebody answering yes was told their work had
+  // gone to a queue it never entered.
+  const willQueue = !apply && needsReview(config, operations);
+  if (onProposed && (await onProposed({ summary, operations, willQueue })) === false) {
+    return {
+      id: contribution.id, workstream: targetId, author: actor, source,
+      mode: 'discarded', summary, operations, pushed: false, pushError: null,
     };
   }
 
@@ -125,24 +153,33 @@ export async function contributeCore({
     };
   }
 
-  writeWorkstream(targetId, updated, teamctxDir);
+  writeTree(targetId, updated, teamctxDir);
   const contributions = readContributions(teamctxDir);
-  writeWorkstreamMd(
+  // A contribution to the project itself is not inheriting from anything, so it
+  // renders alone; a workstream renders under the project tree it inherits.
+  const project = isProjectLevel(targetId) ? null : readProject(teamctxDir);
+  writeTreeMd(
     targetId,
-    serializeToMd(updated, workstreamDisplayName(targetId, updated, config), actor, contributions),
+    serializeToMd(updated, workstreamDisplayName(targetId, updated, config), actor, contributions, { project }),
     teamctxDir,
   );
 
-  const rolesOnTarget = (config.roles || []).filter(r => (r.workstream || 'main') === targetId);
+  // A change to the project changes what every workstream inherits, and a
+  // compiled page does not re-read the project on its own.
+  if (isProjectLevel(targetId)) {
+    recompileInheritors({ project: updated, config, contributions, teamctxDir });
+  }
+
+  const rolesOnTarget = (config.roles || []).filter(r => resolveTarget(r.workstream) === targetId);
   const rolesRegenerated = [];
   for (const role of rolesOnTarget) {
-    const md = await generateRoleFile(updated, role, config.project, config, contributions);
+    const md = await generateRoleFile(updated, role, config.project, config, contributions, { project });
     writeRoleFile(role.slug, md, teamctxDir);
     rolesRegenerated.push(role.slug);
   }
 
   const note = tagged === 'decision' ? ' [decision]' : '';
-  const wsNote = targetId === 'main' ? '' : ` (${targetId})`;
+  const wsNote = isProjectLevel(targetId) ? '' : ` (${targetId})`;
   const { pushed, pushError } = await commitAndOptionallyPush(
     config,
     `context: ${actor} contribution${note}${wsNote}${sourceTrailer(source)}`,

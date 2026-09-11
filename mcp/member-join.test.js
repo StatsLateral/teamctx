@@ -109,9 +109,13 @@ describe('an invited member joining a project that already exists', () => {
     // The property that makes a shared context worth trusting: a member can
     // propose anything and change nothing.
     const session = fakeSession();
-    const before = session.read('.teamctx/workstreams/main.json').content;
+    // Read after one call, so the project-layer migration has already folded
+    // `main` away: the shared tree is the project's, and that is what must not
+    // move.
+    await asUser(session, MEMBER, h => json(h.get_status()));
+    const before = session.read('.teamctx/project.json').content;
     await asUser(session, MEMBER, h => json(h.contribute({ text: 'Pricing has to survive a renewal' })));
-    expect(session.read('.teamctx/workstreams/main.json').content).toBe(before);
+    expect(session.read('.teamctx/project.json').content).toBe(before);
   });
 
   it("shows the manager the submission, under the member's name", async () => {

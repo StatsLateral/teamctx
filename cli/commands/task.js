@@ -1,3 +1,4 @@
+import { isProjectLevel } from '../../src/project-level.js';
 import { readConfig } from '../../src/storage.js';
 import { currentIdentity } from '../identity.js';
 import {
@@ -46,7 +47,10 @@ export async function taskAddCommand(title, opts = {}) {
   } catch (err) { reportAndExit(err); }
 
   const { task } = result;
-  const wsLabel = task.workstream === 'main' ? '' : ` [workstream: ${task.workstream}]`;
+  // Bare, not `=== 'main'`: project level is `null` now, and the old test let
+  // it through to print "[workstream: null]" on every task of an unsplit
+  // project — which is every task, on most projects.
+  const wsLabel = isProjectLevel(task.workstream) ? '' : ` [workstream: ${task.workstream}]`;
   reportGit(result, `✓ Task ${task.id} added${wsLabel}`);
   console.log(`  Owner: ${task.owner}`);
   console.log(`  Compile a prompt for it with: teamctx task compile ${task.id}`);

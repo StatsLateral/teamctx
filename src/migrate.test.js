@@ -5,6 +5,14 @@ import { join } from 'path';
 import { writeConfig, readConfig } from './storage.js';
 import { migrateIfNeeded } from './migrate.js';
 
+/**
+ * The whole migration chain, against a real filesystem.
+ *
+ * A project old enough to have `shared.json` now travels two steps in one call:
+ * shared → `main` → the project tree. These assert where it ends up, not where
+ * it passes through, because the intermediate `main` no longer survives.
+ */
+
 let dir;
 
 beforeEach(() => {
@@ -25,65 +33,100 @@ describe('migrateIfNeeded', () => {
     expect(migrateIfNeeded(dir)).toBe(false);
   });
 
-  it('returns false when config is already migrated', () => {
-    writeConfig({ project: 'X', workstreamsMigrated: true, roles: [] }, dir);
+  it('returns false when a project has already been through both steps', () => {
+    writeConfig({ project: 'X', workstreamsMigrated: true, projectLayerMigrated: true, roles: [] }, dir);
     expect(migrateIfNeeded(dir)).toBe(false);
   });
 
-  it('moves shared.json → workstreams/main.json', () => {
+  it('takes a project already on workstreams through the remaining step', () => {
+    // The common case now: migrated to workstreams long ago, `main` still there.
+    writeConfig({
+      project: 'X', workstreamsMigrated: true, roles: [],
+      workstreams: [{ id: 'main', name: 'X' }], activeWorkstream: 'main',
+    }, dir);
+    mkdirSync(join(dir, 'workstreams'), { recursive: true });
+    writeFileSync(join(dir, 'workstreams', 'main.json'), JSON.stringify({ id: 'main', name: 'X', whys: [{ id: 'w9', text: 'carried' }] }));
+
+    expect(migrateIfNeeded(dir)).toBe(true);
+    expect(JSON.parse(readFileSync(join(dir, 'project.json'), 'utf-8')).whys[0].text).toBe('carried');
+    expect(existsSync(join(dir, 'workstreams', 'main.json'))).toBe(false);
+  });
+
+  it('carries shared.json all the way to the project tree', () => {
     seedPreMigrationProject();
     expect(migrateIfNeeded(dir)).toBe(true);
 
     expect(existsSync(join(dir, 'shared.json'))).toBe(false);
-    const moved = JSON.parse(readFileSync(join(dir, 'workstreams', 'main.json'), 'utf-8'));
-    expect(moved.id).toBe('main');
-    expect(moved.whys[0].text).toBe('launch');
+    expect(existsSync(join(dir, 'workstreams', 'main.json'))).toBe(false);
+    const project = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf-8'));
+    expect(project.whys[0].text).toBe('launch');
+    expect(project.name).toBe('Demo');
+    // Not a workstream, so it carries no id to be passed around as one.
+    expect(project.id).toBeUndefined();
   });
 
-  it('moves context/shared.md → context/workstreams/main.md', () => {
+  it('ends with one compiled page, written from the tree rather than copied', () => {
+    // The old markdown was carried across verbatim, which let the page and the
+    // tree disagree wherever both existed. It is rendered now, so it cannot.
     seedPreMigrationProject();
     migrateIfNeeded(dir);
 
     expect(existsSync(join(dir, 'context', 'shared.md'))).toBe(false);
-    expect(readFileSync(join(dir, 'context', 'workstreams', 'main.md'), 'utf-8')).toBe('# Demo\n\nHello.\n');
+    expect(existsSync(join(dir, 'context', 'workstreams', 'main.md'))).toBe(false);
+    const md = readFileSync(join(dir, 'context', 'project.md'), 'utf-8');
+    const project = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf-8'));
+    expect(md).toContain(project.name);
+    project.whys.forEach(why => expect(md).toContain(why.text));
   });
 
-  it('adds workstreams, activeWorkstream, and the migrated flag to config', () => {
+  it('leaves no workstreams and no active one', () => {
     seedPreMigrationProject();
     migrateIfNeeded(dir);
 
-    const cfg = readConfig(dir);
-    expect(cfg.workstreams).toHaveLength(1);
-    expect(cfg.workstreams[0]).toMatchObject({ id: 'main', name: 'Demo' });
-    expect(cfg.workstreams[0].createdAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
-    expect(cfg.activeWorkstream).toBe('main');
-    expect(cfg.workstreamsMigrated).toBe(true);
+    const config = readConfig(dir);
+    expect(config.workstreams).toEqual([]);
+    expect(config.activeWorkstream).toBe(null);
+    expect(config.workstreamsMigrated).toBe(true);
+    expect(config.projectLayerMigrated).toBe(true);
   });
 
-  it('defaults every existing role to workstream "main"', () => {
-    seedPreMigrationProject({ roles: [
-      { slug: 'cpo', name: 'CPO' },
-      { slug: 'cto', name: 'CTO', workstream: 'tech' },
-    ]});
+  it('binds existing roles to project level', () => {
+    seedPreMigrationProject({ roles: [{ slug: 'eng', name: 'Eng' }, { slug: 'ops', name: 'Ops' }] });
     migrateIfNeeded(dir);
 
-    const cfg = readConfig(dir);
-    expect(cfg.roles.find(r => r.slug === 'cpo').workstream).toBe('main');
-    // pre-existing workstream assignment must be preserved
-    expect(cfg.roles.find(r => r.slug === 'cto').workstream).toBe('tech');
+    expect(readConfig(dir).roles.every(r => r.workstream === null)).toBe(true);
   });
 
-  it('is idempotent: second run is a no-op', () => {
+  it('is idempotent: a second run changes nothing', () => {
     seedPreMigrationProject();
-    expect(migrateIfNeeded(dir)).toBe(true);
+    migrateIfNeeded(dir);
+    const after = readFileSync(join(dir, 'project.json'), 'utf-8');
+    const config = JSON.stringify(readConfig(dir));
+
     expect(migrateIfNeeded(dir)).toBe(false);
+    expect(readFileSync(join(dir, 'project.json'), 'utf-8')).toBe(after);
+    expect(JSON.stringify(readConfig(dir))).toBe(config);
   });
 
-  it('handles a project without shared.json (fresh config) by synthesizing an empty main workstream', () => {
-    writeConfig({ project: 'Empty', me: 'a', model: 'x', autoPush: false, roles: [] }, dir);
+  it('gives a project with nothing in it an empty project tree', () => {
+    writeConfig({ project: 'Fresh', me: 'alice', roles: [] }, dir);
     expect(migrateIfNeeded(dir)).toBe(true);
 
-    const ws = JSON.parse(readFileSync(join(dir, 'workstreams', 'main.json'), 'utf-8'));
-    expect(ws).toEqual({ id: 'main', name: 'Empty', whys: [] });
+    const project = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf-8'));
+    expect(project).toEqual({ name: 'Fresh', whys: [] });
+  });
+
+  it('leaves a split-out workstream untouched', () => {
+    // The thing that must survive: work someone split out before this shipped.
+    seedPreMigrationProject();
+    mkdirSync(join(dir, 'workstreams'), { recursive: true });
+    writeFileSync(join(dir, 'workstreams', 'engineering.json'),
+      JSON.stringify({ id: 'engineering', name: 'Engineering', whys: [{ id: 'e1', text: 'build it' }] }));
+    writeConfig({ ...readConfig(dir), workstreams: [{ id: 'engineering', name: 'Engineering' }] }, dir);
+
+    migrateIfNeeded(dir);
+
+    const eng = JSON.parse(readFileSync(join(dir, 'workstreams', 'engineering.json'), 'utf-8'));
+    expect(eng.whys[0].text).toBe('build it');
   });
 });

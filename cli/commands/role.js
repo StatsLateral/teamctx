@@ -1,5 +1,6 @@
 import { ask, askChoice } from '../prompt.js';
-import { readConfig, readWorkstream, listWorkstreamIds } from '../../src/storage.js';
+import { readConfig, readTree, listWorkstreamIds } from '../../src/storage.js';
+import { resolveTarget, isProjectLevel } from '../../src/project-level.js';
 import {
   listRoles as coreListRoles, suggestRoles as coreSuggestRoles,
   suggestRoleDetails, addRoleFull, assignRole,
@@ -55,9 +56,11 @@ async function listRolesCli() {
 
 async function addRoleInteractive(prefill = {}, opts = {}) {
   const config = readConfig();
-  const workstreamId = opts.workstream || (await currentIdentity(config)).activeWorkstream;
+  const workstreamId = resolveTarget(opts.workstream || (await currentIdentity(config)).activeWorkstream);
   const known = new Set([...(config.workstreams || []).map(w => w.id), ...listWorkstreamIds()]);
-  if (config.workstreams && !known.has(workstreamId)) {
+  // The project is never in that set, and creating a role on it is the normal
+  // thing to do before anything has been split off.
+  if (!isProjectLevel(workstreamId) && config.workstreams && !known.has(workstreamId)) {
     console.error(`Error: no workstream "${workstreamId}". Run \`teamctx workstream list\`.`);
     process.exit(1);
   }
@@ -72,7 +75,7 @@ async function addRoleInteractive(prefill = {}, opts = {}) {
   if (!prefill.responsibilities) {
     process.stdout.write('  → Asking Haiku to suggest...');
     try {
-      const workstream = readWorkstream(workstreamId);
+      const workstream = readTree(workstreamId);
       const suggestion = await suggestRoleDetails({ name, workstream, config });
       defaultResponsibilities = suggestion.responsibilities;
       defaultExcludes = suggestion.excludes;
