@@ -189,17 +189,30 @@ describe('approvals', () => {
 });
 
 describe('freshness', () => {
-  it('reports days since the last contribution per workstream', () => {
+  it('reports days since the last contribution, the project first', () => {
+    // The project leads because it is what every workstream inherits, and
+    // because a contribution to it used to be filed under `main` — a
+    // workstream that no longer exists and cannot be opened.
     const r = stats({
-      workstreams: ['main', 'billing'],
+      workstreams: ['billing'],
       contributions: [
-        contribution({ id: 'a', workstream: 'main', ts: '2026-08-27T00:00:00.000Z' }),
+        contribution({ id: 'a', workstream: null, ts: '2026-08-27T00:00:00.000Z' }),
         contribution({ id: 'b', workstream: 'billing', ts: '2026-08-01T00:00:00.000Z' }),
       ],
     });
     expect(r.freshness).toEqual([
+      { workstream: null, lastContributionAt: '2026-08-27T00:00:00.000Z', daysSince: 2, pending: 0 },
       { workstream: 'billing', lastContributionAt: '2026-08-01T00:00:00.000Z', daysSince: 28, pending: 0 },
-      { workstream: 'main', lastContributionAt: '2026-08-27T00:00:00.000Z', daysSince: 2, pending: 0 },
+    ]);
+  });
+
+  it('files an older contribution recorded as main against the project', () => {
+    const r = stats({
+      workstreams: [],
+      contributions: [contribution({ workstream: 'main', ts: '2026-08-27T00:00:00.000Z' })],
+    });
+    expect(r.freshness).toEqual([
+      { workstream: null, lastContributionAt: '2026-08-27T00:00:00.000Z', daysSince: 2, pending: 0 },
     ]);
   });
 
@@ -210,20 +223,21 @@ describe('freshness', () => {
       workstreams: ['stale'],
       contributions: [contribution({ workstream: 'stale', ts: '2026-05-01T00:00:00.000Z' })],
     });
-    expect(r.freshness[0].daysSince).toBe(120);
+    expect(r.freshness.find(f => f.workstream === 'stale').daysSince).toBe(120);
   });
 
   it('says nothing has ever landed rather than reporting zero days', () => {
     const r = stats({ workstreams: ['empty'] });
-    expect(r.freshness[0]).toMatchObject({ lastContributionAt: null, daysSince: null });
+    expect(r.freshness.find(f => f.workstream === 'empty'))
+      .toMatchObject({ lastContributionAt: null, daysSince: null });
   });
 
   it('counts pending items per workstream', () => {
     const r = stats({
       workstreams: ['main'],
-      queue: [{ id: 'q1', workstream: 'main' }, { id: 'q2', workstream: 'main' }],
+      queue: [{ id: 'q1', workstream: null }, { id: 'q2', workstream: null }],
     });
-    expect(r.freshness[0].pending).toBe(2);
+    expect(r.freshness.find(f => f.workstream === null).pending).toBe(2);
   });
 });
 

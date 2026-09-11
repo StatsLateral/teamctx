@@ -9,7 +9,10 @@ import { listTasksFiltered, MineAndOwnerError } from './task.core.js';
  * reading a repo.
  */
 import { vi } from 'vitest';
-vi.mock('../../src/storage.js', () => ({ listTasks: vi.fn() }));
+vi.mock('../../src/storage.js', () => ({
+  writeWorkstreamMd: vi.fn(),
+  readWorkstream: vi.fn(() => ({ id: 'w', name: 'W', whys: [] })),
+  listWorkstreamIds: vi.fn(() => []), listTasks: vi.fn() }));
 const { listTasks } = await import('../../src/storage.js');
 
 const ADA_KEY = 'git:ada@example.com';

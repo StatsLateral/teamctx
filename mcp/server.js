@@ -6,8 +6,8 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import {
   getTeamctxDir,
-  readConfig, readWorkstream, listWorkstreamIds,
-  readSharedMd,
+  readConfig, readWorkstream, readProject, listWorkstreamIds,
+  readTree, readTreeMd,
   readRoleFile,
   readContributions,
 } from '../src/storage.js';
@@ -39,12 +39,12 @@ import { listMembers, addMember, removeMember, setMemberWorkstreams } from '../c
 import { reflectWorkstream } from '../cli/commands/reflect.core.js';
 import { getConfig, setConfig, repairManagerGate, setReviewPolicy } from '../cli/commands/config.core.js';
 import { resolveActor } from '../src/actor.js';
-import { canApprove } from '../src/review.js';
+import { canApprove, managerKeys } from '../src/review.js';
 import {
-  scopeFor, assertInScope, visibleWorkstreams, defaultWorkstream,
+  scopeFor, assertInScope, inScope, visibleWorkstreams, defaultWorkstream,
 } from '../src/member-scope.js';
+import { isProjectLevel, resolveTarget, targetLabel } from '../src/project-level.js';
 import { resolveActiveWorkstream, resolveIdentity, resolveDisplayName } from '../src/prefs.js';
-import { managerKeys } from '../src/review.js';
 import { isBrokenGate } from '../src/manager-repair.js';
 import { INSTRUCTIONS } from './instructions.js';
 
@@ -64,7 +64,7 @@ export const TOOLS = [
   // Tier 0 — read-only
   {
     name: 'get_context',
-    description: 'Fetch all workstreams (Why/What/How trees) for the current teamctx project. Returns { workstreams: [{id, tree}, ...] }.',
+    description: "Fetch the whole project: its own Why/What/How tree first, as `id: null`, then each workstream the caller may see. The project tree is the base every workstream inherits — a workstream's own entry holds only what is specific to it, so read both. Returns { workstreams: [{id, tree}, ...] }.",
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
   },
   {
@@ -74,11 +74,11 @@ export const TOOLS = [
   },
   {
     name: 'get_workstream',
-    description: 'Fetch a single workstream tree by id.',
+    description: "Fetch a single workstream tree by id. Omit the id for the project's own tree — the base every workstream inherits, and where a project with no workstreams keeps everything.",
     inputSchema: {
       type: 'object',
       properties: { id: { type: 'string' } },
-      required: ['id'], additionalProperties: false,
+      additionalProperties: false,
     },
   },
   {
@@ -126,7 +126,7 @@ export const TOOLS = [
   },
   {
     name: 'get_connect_url',
-    description: "**Reach for this after adding someone to the project** — it is what you send them. The URL a team member pastes into their AI client; they add it as a custom connector and sign in. Read-only. Fails with what to run when the project has no deploy URL recorded, which is the usual reason it is missing.",
+    description: "**Reach for this after adding someone to the project** — it is what you send them. The URL a team member pastes into their AI client; they add it as a custom connector and sign in. Read-only. When the project has no deploy URL recorded the server cannot build the link — hand over the address of the connector this conversation is already using instead, which is the same project, rather than telling the user there is no link.",
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
   },
   {
@@ -351,8 +351,13 @@ export const TOOLS = [
     description: 'Changes the calling user\'s active workstream. All their subsequent contribute/ask/reflect calls without an explicit workstream target this one. Personal setting — it is not written to the repo and does not affect other users.' + REPORT,
     inputSchema: {
       type: 'object',
-      properties: { id: { type: 'string' } },
-      required: ['id'], additionalProperties: false,
+      properties: {
+        id: {
+          type: 'string',
+          description: 'Workstream to move to. Omit to go back to the project itself, which is where somebody works before they pick a strand.',
+        },
+      },
+      additionalProperties: false,
     },
   },
   {
@@ -449,7 +454,7 @@ export const TOOLS = [
   },
   {
     name: 'member_add',
-    description: RISKY + "adds a person to the project roster and commits. Manager-gated against the authenticated caller. Takes a GitHub username or an email address — only a username can be invited to the repository, since GitHub's collaborator endpoint takes no email. Set invite:true to also send a repository invitation, which they must accept before they can clone. Without it they are on the roster but have no access, which looks the same to a manager and is not. Confirm the person and whether to invite before calling." + REPORT,
+    description: RISKY + "adds a person to the project roster and commits. Manager-gated against the authenticated caller. Takes a GitHub username or an email address — only a username can be invited to the repository, since GitHub's collaborator endpoint takes no email. Set invite:true to also send a repository invitation, which they must accept before they can clone. Without it they are on the roster but have no access, which looks the same to a manager and is not. Confirm the person and whether to invite before calling. Returns `connectUrl` — the link they need to reach the project from their own assistant — so send it to them in the same reply; adding somebody without giving them the link invites nobody. When it comes back null, say why rather than reporting a clean success." + REPORT,
     inputSchema: {
       type: 'object',
       properties: {
@@ -519,9 +524,13 @@ function textResult(value) {
 }
 
 function reportBackContribute(r) {
-  if (r.mode === 'no-op') return `Tell the user: contribution logged for workstream "${r.workstream}" but the AI proposed no changes to the tree.`;
-  if (r.mode === 'queued') return `Tell the user: contribution ${r.id} queued for manager approval on workstream "${r.workstream}" (${r.operations.length} op${r.operations.length === 1 ? '' : 's'}). Manager must run \`teamctx review approve ${r.id}\` or call the review_approve tool.`;
-  return `Tell the user: contribution ${r.id} applied to workstream "${r.workstream}" (${r.operations.length} op${r.operations.length === 1 ? '' : 's'})${r.rolesRegenerated?.length ? `, regenerated roles: ${r.rolesRegenerated.join(', ')}` : ''}${r.pushed ? ', committed and pushed' : ', committed'}.`;
+  // `where`, not the raw id. At project level the id is `null`, and the client
+  // is told to read this string back word for word — so an unsplit project,
+  // which is most of them, reported work landing on workstream "null".
+  const where = r.workstream === null ? 'the project' : `workstream "${r.workstream}"`;
+  if (r.mode === 'no-op') return `Tell the user: contribution logged for ${where} but the AI proposed no changes to the tree.`;
+  if (r.mode === 'queued') return `Tell the user: contribution ${r.id} queued for manager approval on ${where} (${r.operations.length} op${r.operations.length === 1 ? '' : 's'}). Manager must run \`teamctx review approve ${r.id}\` or call the review_approve tool.`;
+  return `Tell the user: contribution ${r.id} applied to ${where} (${r.operations.length} op${r.operations.length === 1 ? '' : 's'})${r.rolesRegenerated?.length ? `, regenerated roles: ${r.rolesRegenerated.join(', ')}` : ''}${r.pushed ? ', committed and pushed' : ', committed'}.`;
 }
 
 export function makeHandlers(projectRoot) {
@@ -534,8 +543,11 @@ export function makeHandlers(projectRoot) {
   // migrateIfNeeded touches the filesystem directly, so it only runs locally.
   let migrated = false;
   const dir = () => {
-    if (isHosted) return projectRoot;
-    const teamctxDir = getTeamctxDir(projectRoot);
+    // Hosted used to return before this, because the migration touched the
+    // filesystem directly. It goes through the storage layer now, and skipping
+    // it left every hosted project half-migrated — `main` alive beside a project
+    // tree, which is the one state nothing is written to expect.
+    const teamctxDir = isHosted ? projectRoot : getTeamctxDir(projectRoot);
     if (!migrated) {
       try { migrateIfNeeded(teamctxDir); } catch { /* best-effort */ }
       migrated = true;
@@ -588,9 +600,50 @@ export function makeHandlers(projectRoot) {
    */
   const targetWorkstream = async (teamctxDir, config, named) => {
     const allowed = await scope(teamctxDir, config);
-    if (named) return assertInScope(allowed, named);
+    // `main` still arrives from habit and from older clients; it means the
+    // project, which is not a workstream and is not scoped.
+    if (named) {
+      const target = resolveTarget(named);
+      return isProjectLevel(target) ? null : assertInScope(allowed, target);
+    }
     const actor = await resolveActor({ config, cwd: gitCwd });
-    return defaultWorkstream(allowed, await resolveActiveWorkstream({ actor, config, teamctxDir }));
+    const chosen = resolveTarget(await resolveActiveWorkstream({ actor, config, teamctxDir }));
+    return defaultWorkstream(allowed, chosen);
+  };
+
+  /**
+   * A snapshot carries every tree at one moment, so handing one over whole is
+   * the same leak as an unfiltered `get_context` — and it reaches further,
+   * because a snapshot is history the caller was never meant to browse.
+   *
+   * The legacy `shared` key is `main`'s tree, which is project level and in
+   * everybody's scope, so it stays.
+   */
+  const visibleSnapshot = (snapshot, allowed) => {
+    if (!allowed || !snapshot) return snapshot;
+    return {
+      ...snapshot,
+      workstreams: (snapshot.workstreams || []).filter(w => inScope(allowed, resolveTarget(w.id))),
+    };
+  };
+
+  /**
+   * The workstream a task lives in, checked against the caller's scope.
+   *
+   * A scope that stopped at the workstream tools would be walked around by
+   * naming a task instead — and a task's compiled prompt carries its whole
+   * workstream's tree, so that is the widest door of the lot.
+   *
+   * An id that matches nothing falls through deliberately: the core's own "no
+   * task matches" is a better answer than a scope error, and says no more.
+   */
+  const assertTaskInScope = async (teamctxDir, id) => {
+    const allowed = await scope(teamctxDir, readConfig(teamctxDir));
+    if (!allowed) return;
+    let target;
+    try { target = resolveTarget(getTask({ id, teamctxDir }).workstream); }
+    catch { return; }
+    assertInScope(allowed, target);
   };
 
   return {
@@ -601,10 +654,16 @@ export function makeHandlers(projectRoot) {
         ...(config.workstreams || []).map(w => w.id),
         ...listWorkstreamIds(teamctxDir),
       ]);
-      if (ids.size === 0) ids.add('main');
       const allowed = await scope(teamctxDir, config);
-      const workstreams = visibleWorkstreams(allowed, [...ids].sort())
-        .map(id => ({ id, tree: readWorkstream(id, teamctxDir) }));
+      // The project tree first, always. It is what every workstream inherits,
+      // and leaving it out meant a contribution to the project landed correctly
+      // and then read as lost — nothing returned it, so the same question gave
+      // a different answer each time as writes piled up unseen.
+      const workstreams = [
+        { id: null, tree: readProject(teamctxDir) },
+        ...visibleWorkstreams(allowed, [...ids].sort())
+          .map(id => ({ id, tree: readWorkstream(id, teamctxDir) })),
+      ];
       return textResult({ workstreams, ...(allowed ? { scopedTo: allowed } : {}) });
     },
 
@@ -619,8 +678,9 @@ export function makeHandlers(projectRoot) {
       });
     },
 
-    async get_workstream({ id }) {
+    async get_workstream({ id } = {}) {
       const teamctxDir = dir();
+      if (isProjectLevel(id)) return textResult(readProject(teamctxDir));
       assertInScope(await scope(teamctxDir, readConfig(teamctxDir)), id);
       return textResult(readWorkstream(id, teamctxDir));
     },
@@ -632,20 +692,51 @@ export function makeHandlers(projectRoot) {
       // that workstream — a scope that stopped at get_workstream would be
       // walked around by asking for the role instead.
       const found = (config.roles || []).find(r => r.slug === role);
-      if (found) assertInScope(await scope(teamctxDir, config), found.workstream || 'main');
+      if (found) assertInScope(await scope(teamctxDir, config), resolveTarget(found.workstream));
       return textResult(readRoleFile(role, teamctxDir));
     },
 
     async list_roles() {
-      return textResult({ roles: coreListRoles({ teamctxDir: dir() }) });
+      const teamctxDir = dir();
+      const allowed = await scope(teamctxDir, readConfig(teamctxDir));
+      // A role name and the workstream it belongs to are two of the things a
+      // scope is meant to keep back — `get_role_context` already refuses the
+      // file, and listing it is how the caller learns what to ask for.
+      const roles = coreListRoles({ teamctxDir })
+        .filter(r => inScope(allowed, resolveTarget(r.workstream)));
+      return textResult({ roles, ...(allowed ? { scopedTo: allowed } : {}) });
     },
 
     async list_snapshots() {
-      return textResult(listAllSnapshots({ teamctxDir: dir() }));
+      const teamctxDir = dir();
+      const allowed = await scope(teamctxDir, readConfig(teamctxDir));
+      const r = listAllSnapshots({ teamctxDir });
+      // Every entry here is a whole snapshot, trees included — this listing was
+      // a wider door than `get_snapshot`, which had already been closed.
+      return textResult({
+        ...r,
+        snapshots: (r.snapshots || []).map(sn => visibleSnapshot(sn, allowed)),
+        ...(allowed ? { scopedTo: allowed } : {}),
+      });
     },
 
     async get_snapshot({ id }) {
-      return textResult(getSnapshot({ prefix: id, teamctxDir: dir() }));
+      const teamctxDir = dir();
+      const allowed = await scope(teamctxDir, readConfig(teamctxDir));
+      const r = getSnapshot({ prefix: id, teamctxDir });
+      if (!allowed) return textResult(r);
+      // A snapshot is every tree at one moment, so handing one over whole is
+      // the same leak as `get_context` without a filter.
+      // Both halves: `snapshot.workstreams` and the top-level `workstreams` are
+      // the same array, so filtering one and spreading the other handed over
+      // every tree anyway.
+      const filtered = visibleSnapshot(r.snapshot, allowed);
+      return textResult({
+        ...r,
+        snapshot: filtered,
+        workstreams: filtered.workstreams || [],
+        scopedTo: allowed,
+      });
     },
 
     async get_current_snapshot() {
@@ -653,13 +744,27 @@ export function makeHandlers(projectRoot) {
     },
 
     async list_pending_reviews() {
-      return textResult({ pending: await listPendingReviews({ teamctxDir: dir() }) });
+      const teamctxDir = dir();
+      const allowed = await scope(teamctxDir, readConfig(teamctxDir));
+      // A queued item carries its summary and its operations — the content of a
+      // sibling workstream, waiting to be approved into it. Only the manager
+      // acts on these, and a manager is never scoped.
+      const pending = (await listPendingReviews({ teamctxDir }))
+        .filter(item => inScope(allowed, resolveTarget(item.workstream)));
+      return textResult({ pending, ...(allowed ? { scopedTo: allowed } : {}) });
     },
 
     async get_status() {
       const teamctxDir = dir();
       const config = readConfig(teamctxDir);
-      const workstreams = await listAllWorkstreams({ teamctxDir, projectDir: gitCwd });
+      const all = await listAllWorkstreams({ teamctxDir, projectDir: gitCwd });
+      // Scoped here as well as everywhere else. Listing a workstream a caller
+      // cannot open is worse than hiding it: they see a name, ask for it, are
+      // told it does not exist, and conclude the project is broken.
+      const allowed = await scope(teamctxDir, config);
+      const visible = visibleWorkstreams(allowed, all.map(w => w.id));
+      const workstreams = all.filter(w => visible.includes(w.id));
+      const project = readProject(teamctxDir);
       const contributions = readContributions(teamctxDir);
       const decisions = contributions.filter(c => c.tagged === 'decision');
       const me = await who(teamctxDir, config);
@@ -683,16 +788,54 @@ export function makeHandlers(projectRoot) {
         meSource: me.nameSource,
         actorSource: me.actor.source,
         activeWorkstream: me.workstream,
-        projectDefaults: { me: config.me, activeWorkstream: config.activeWorkstream || 'main' },
-        totalWhys: workstreams.reduce((n, w) => n + w.whyCount, 0),
+        projectDefaults: { me: config.me, activeWorkstream: config.activeWorkstream || null },
+        // The project tree counts. Without it a contribution to the project
+        // lands correctly and then reads as lost: totalWhys does not move and no
+        // workstream shows it.
+        projectWhys: (project.whys || []).length,
+        totalWhys: (project.whys || []).length + workstreams.reduce((n, w) => n + w.whyCount, 0),
         workstreams,
+        ...(allowed ? { scopedTo: allowed } : {}),
         contributions: { total: contributions.length, decisions: decisions.length },
-        roles: (config.roles || []).map(r => ({ slug: r.slug, name: r.name, workstream: r.workstream || 'main' })),
+        // Filtered for the same reason `list_roles` is: a role name and the
+        // workstream behind it are two of the things a scope keeps back, and
+        // this response hides those workstream ids three lines above.
+        roles: (config.roles || [])
+          .map(r => ({ slug: r.slug, name: r.name, workstream: resolveTarget(r.workstream) }))
+          .filter(r => inScope(allowed, r.workstream)),
       });
     },
 
     async list_members() {
       return textResult({ members: listMembers({ teamctxDir: dir() }) });
+    },
+
+    /**
+     * The link a person actually needs, resolved the same way for whoever asks.
+     *
+     * `member_add` and `get_connect_url` both need it, and the interesting case
+     * is the failure: a project with no `deployUrl` has nothing to hand out, so
+     * "added to the project" is true and useless — the manager walks away
+     * believing somebody was invited who cannot reach anything.
+     */
+    async connectUrl() {
+      const config = readConfig(dir());
+      // A recorded `deployUrl` wins, because a project may be served from a
+      // different address than the one this request happened to arrive at. When
+      // there is none, the request's own host is a better answer than refusing:
+      // it is where the caller already is. A clone has no request, so there it
+      // stays a genuine prerequisite.
+      const deployUrl = config.deployUrl || (isHosted ? projectRoot.baseUrl : '') || '';
+      // Hosted already knows the repository from the request URL; a clone has to
+      // read its remote, which stays right through a rename.
+      const where = isHosted
+        ? { owner: projectRoot.owner, repo: projectRoot.repo }
+        : { remote: await originRemote(gitCwd) };
+      try {
+        return { ok: true, ...connectorUrl({ deployUrl, ...where }) };
+      } catch (err) {
+        return { ok: false, error: err.message, code: err.code };
+      }
     },
 
     async member_add(args = {}) {
@@ -716,7 +859,28 @@ export function makeHandlers(projectRoot) {
         : r.invite?.error ? ` — the repository invite failed: ${r.invite.error}`
         : r.member.login ? ' — not invited to the repository, so they cannot clone it yet'
         : '';
-      return textResult({ ...r, reportBack: `${r.member.name} added to the project${access}.` });
+
+      // Returned here rather than left to a second call. Adding somebody is
+      // only half of inviting them, and the other half was being skipped: the
+      // roster entry lands, the tool reports success, and nobody is ever sent
+      // anything. So the link — or the reason there isn't one — travels with
+      // the thing that creates the need for it.
+      const link = await this.connectUrl();
+      const next = link.ok
+        ? ` Send them this link to join: ${link.url} — they add it as a custom connector and sign in.`
+        : link.code === 'NO_DEPLOY_URL'
+          ? ' This project has no deploy URL recorded, so the server could not build the link. '
+            + 'You already have it: give them the address of the connector this conversation is using, '
+            + 'which is the same project. Then have the manager set config_set key "deployUrl" to its '
+            + 'origin so the next invite does not need you to.'
+          : ` The link could not be worked out: ${link.error}`;
+
+      return textResult({
+        ...r,
+        connectUrl: link.ok ? link.url : null,
+        connectUrlError: link.ok ? null : link.error,
+        reportBack: `${r.member.name} added to the project${access}.${next}`,
+      });
     },
 
     async member_scope(args = {}) {
@@ -762,13 +926,15 @@ export function makeHandlers(projectRoot) {
       // every workstream, and a scope has to survive that rather than be
       // undone by an argument.
       const tasks = allowed
-        ? (r.tasks || []).filter(t => allowed.includes(t.workstream || 'main'))
+        ? (r.tasks || []).filter(t => inScope(allowed, t.workstream))
         : r.tasks;
       return textResult({ ...r, tasks, ...(allowed ? { scopedTo: allowed } : {}) });
     },
 
     async get_task(args = {}) {
-      return textResult(getTask({ id: args.id, teamctxDir: dir() }));
+      const teamctxDir = dir();
+      await assertTaskInScope(teamctxDir, args.id);
+      return textResult(getTask({ id: args.id, teamctxDir }));
     },
 
     async task_add(args = {}) {
@@ -776,7 +942,10 @@ export function makeHandlers(projectRoot) {
       const added = await addTask({
         title: args.title,
         owner: args.owner,
-        workstream: args.workstream,
+        // Through the scope check rather than straight through: writing a task
+        // into a workstream the caller cannot read is the same boundary in the
+        // other direction.
+        workstream: await targetWorkstream(teamctxDir, readConfig(teamctxDir), args.workstream),
         teamctxDir,
         projectDir: gitCwd,
       });
@@ -805,8 +974,10 @@ export function makeHandlers(projectRoot) {
     },
 
     async task_done(args = {}) {
+      const teamctxDir = dir();
+      await assertTaskInScope(teamctxDir, args.id);
       const r = await setTaskStatus({
-        id: args.id, status: 'done', teamctxDir: dir(), projectDir: gitCwd,
+        id: args.id, status: 'done', teamctxDir, projectDir: gitCwd,
       });
       return textResult({
         ...r,
@@ -817,8 +988,10 @@ export function makeHandlers(projectRoot) {
     },
 
     async task_reopen(args = {}) {
+      const teamctxDir = dir();
+      await assertTaskInScope(teamctxDir, args.id);
       const r = await setTaskStatus({
-        id: args.id, status: 'open', teamctxDir: dir(), projectDir: gitCwd,
+        id: args.id, status: 'open', teamctxDir, projectDir: gitCwd,
       });
       return textResult({
         ...r,
@@ -829,24 +1002,32 @@ export function makeHandlers(projectRoot) {
     },
 
     async task_assign(args = {}) {
+      const teamctxDir = dir();
+      await assertTaskInScope(teamctxDir, args.id);
       const r = await assignTask({
-        id: args.id, owner: args.owner, teamctxDir: dir(), projectDir: gitCwd,
+        id: args.id, owner: args.owner, teamctxDir, projectDir: gitCwd,
       });
       return textResult({ ...r, reportBack: `Task ${r.task.id} assigned to ${r.task.owner}.` });
     },
 
     async task_rm(args = {}) {
-      const r = await removeTask({ id: args.id, teamctxDir: dir(), projectDir: gitCwd });
+      const teamctxDir = dir();
+      await assertTaskInScope(teamctxDir, args.id);
+      const r = await removeTask({ id: args.id, teamctxDir, projectDir: gitCwd });
       return textResult({
         ...r,
-        reportBack: `Task ${r.id} ("${r.title}") permanently removed from workstream ${r.workstream}.`,
+        reportBack: `Task ${r.id} ("${r.title}") permanently removed from ${targetLabel(r.workstream, readConfig(teamctxDir).project)}.`,
       });
     },
 
     async task_compile(args = {}) {
+      const teamctxDir = dir();
+      // The compiled prompt embeds the task's whole workstream tree, so this is
+      // the same bypass `get_role_context` had, and a wider one.
+      await assertTaskInScope(teamctxDir, args.id);
       const r = await compileTask({
         id: args.id, role: args.role, force: !!args.force,
-        teamctxDir: dir(), projectDir: gitCwd,
+        teamctxDir, projectDir: gitCwd,
       });
       return textResult({
         ...r,
@@ -861,35 +1042,48 @@ export function makeHandlers(projectRoot) {
       // so `queueTimeline` finds no git binary and the approval numbers come
       // back null. The tool description tells the client to say so rather than
       // report a zero.
-      return textResult(await computeStats({
-        cwd: gitCwd,
-        teamctxDir: dir(),
-        since: args.since,
-        workstream: args.workstream,
-      }));
+      const teamctxDir = dir();
+      const config = readConfig(teamctxDir);
+      const allowed = await scope(teamctxDir, config);
+      // A named workstream goes through the same check every other tool makes.
+      // Unnamed, the numbers are project-wide, so the per-workstream breakdown
+      // is filtered rather than the whole answer refused — a scoped member is
+      // entitled to the project's own figures.
+      // Resolved, then passed on as-is. `main` resolves to project level, which
+      // is `null` — and `null || args.workstream` handed the raw "main" back to
+      // a function that no longer knows any such workstream.
+      const named = args.workstream === undefined
+        ? undefined
+        : assertInScope(allowed, resolveTarget(args.workstream));
+      const stats = await computeStats({
+        cwd: gitCwd, teamctxDir, since: args.since, workstream: named,
+      });
+      if (!allowed) return textResult(stats);
+      return textResult({
+        ...stats,
+        freshness: (stats.freshness || []).filter(row => inScope(allowed, row.workstream)),
+        scopedTo: allowed,
+      });
     },
 
     async get_connect_url() {
       const config = readConfig(dir());
-      // Hosted already knows the repository from the request URL; a clone has to
-      // read its remote, which stays right through a rename.
-      const where = isHosted
-        ? { owner: projectRoot.owner, repo: projectRoot.repo }
-        : { remote: await originRemote(gitCwd) };
-      try {
-        const r = connectorUrl({ deployUrl: config.deployUrl, ...where });
+      const link = await this.connectUrl();
+      if (link.ok) {
+        const { ok, ...r } = link;
         return textResult({
           ...r,
           reportBack: `Connector URL for ${config.project || r.repo}: ${r.url} — send it to anyone on the project; they add it as a custom connector and sign in.`,
         });
-      } catch (err) {
-        return textResult({
-          error: err.message,
-          reportBack: err.code === 'NO_DEPLOY_URL'
-            ? 'Tell the user: this project has no deploy URL recorded, so there is no connector to hand out. Set it with config_set key "deployUrl" if the project is deployed.'
-            : `Tell the user: ${err.message}.`,
-        });
       }
+      return textResult({
+        error: link.error,
+        reportBack: link.code === 'NO_DEPLOY_URL'
+          ? 'Tell the user: this project has no deploy URL recorded, so the server could not build the link — '
+            + 'but you already have it. Give them the address of the connector this conversation is using; it is the '
+            + 'same project. Then suggest setting config_set key "deployUrl" to its origin so this stops needing you.'
+          : `Tell the user: ${link.error}.`,
+      });
     },
 
     async get_config() {
@@ -910,26 +1104,43 @@ export function makeHandlers(projectRoot) {
           const available = (config.roles || []).map(r => r.slug).join(', ') || '(none)';
           throw new Error(`No role "${role}". Available: ${available}`);
         }
+        // Same walk-around `get_role_context` closes: a role file is a compiled
+        // view of one workstream, so reading it through `ask` is reading that
+        // workstream.
+        assertInScope(await scope(teamctxDir, config), resolveTarget(found.workstream));
         roleMd = readRoleFile(role, teamctxDir);
       }
-      const sharedMd = readSharedMd(teamctxDir);
       const activeWorkstreamId = await targetWorkstream(teamctxDir, config, args.workstream);
-      const workstream = readWorkstream(activeWorkstreamId, teamctxDir);
+      // The project has a tree of its own, and it is where a caller stands
+      // unless they chose otherwise. Reading it as a workstream found nothing,
+      // so a project full of context answered "there is nothing here yet".
+      const workstream = readTree(activeWorkstreamId, teamctxDir);
       const contributions = readContributions(teamctxDir);
       const answer = await answerQuestion({
-        sharedMd, roleMd, question, config,
+        sharedMd: readTreeMd(activeWorkstreamId, teamctxDir), roleMd, question, config,
         workstream, contributions, audit: !!audit,
+        // A workstream answers with the project above it; the project answers
+        // with itself, and passing it twice would repeat every Why.
+        project: isProjectLevel(activeWorkstreamId) ? null : readProject(teamctxDir),
       });
       return textResult(answer);
     },
 
     async suggest_roles({ workstream } = {}) {
-      const result = await coreSuggestRoles({ workstreamId: workstream, teamctxDir: dir(), projectDir: gitCwd });
+      const teamctxDir = dir();
+      const result = await coreSuggestRoles({
+        workstreamId: await targetWorkstream(teamctxDir, readConfig(teamctxDir), workstream),
+        teamctxDir, projectDir: gitCwd,
+      });
       return textResult(result);
     },
 
     async suggest_workstream_splits() {
-      const result = await suggestWorkstreamSplits({ teamctxDir: dir(), projectDir: gitCwd });
+      const teamctxDir = dir();
+      const result = await suggestWorkstreamSplits({
+        workstreamId: await targetWorkstream(teamctxDir, readConfig(teamctxDir), undefined),
+        teamctxDir, projectDir: gitCwd,
+      });
       return textResult({
         activeId: result.activeId,
         splits: result.splits,
@@ -985,53 +1196,72 @@ export function makeHandlers(projectRoot) {
     },
 
     async role_add(args) {
+      const teamctxDir = dir();
       const r = await addRoleFull({
         name: args.name,
         responsibilities: args.responsibilities,
         excludes: args.excludes,
         email: args.email,
-        workstreamId: args.workstream,
-        teamctxDir: dir(),
+        // A role is a compiled view of a workstream, so creating one on a
+        // workstream the caller cannot read is that boundary in reverse.
+        workstreamId: await targetWorkstream(teamctxDir, readConfig(teamctxDir), args.workstream),
+        teamctxDir,
         projectDir: gitCwd,
       });
-      const reportBack = `Tell the user: role "${r.slug}" created on workstream "${r.workstreamId}"${r.pushed ? ' (committed and pushed)' : ' (committed)'}.`;
+      const reportBack = `Tell the user: role "${r.slug}" created on ${targetLabel(r.workstreamId, readConfig(teamctxDir).project)}${r.pushed ? ' (committed and pushed)' : ' (committed)'}.`;
       return textResult({ ...r, reportBack });
     },
 
     async role_assign(args) {
+      const teamctxDir = dir();
+      // Checked rather than resolved: this argument is required, and routing it
+      // through the default would turn a missing one into a silent assignment
+      // to wherever the caller happens to be standing.
+      if (args.workstream !== undefined) {
+        assertInScope(await scope(teamctxDir, readConfig(teamctxDir)), resolveTarget(args.workstream));
+      }
       const r = await assignRole({
         slug: args.slug, workstreamId: args.workstream,
-        teamctxDir: dir(), projectDir: gitCwd,
+        teamctxDir, projectDir: gitCwd,
       });
       const reportBack = r.changed
-        ? `Tell the user: role "${r.slug}" moved to workstream "${r.workstreamId}"; role file regenerated.`
-        : `Tell the user: role "${r.slug}" was already on workstream "${r.workstreamId}" — no change.`;
+        ? `Tell the user: role "${r.slug}" moved to ${targetLabel(r.workstreamId, readConfig(teamctxDir).project)}; role file regenerated.`
+        : `Tell the user: role "${r.slug}" was already on ${targetLabel(r.workstreamId, readConfig(teamctxDir).project)} — no change.`;
       return textResult({ ...r, reportBack });
     },
 
     async workstream_split(args) {
+      const teamctxDir = dir();
+      const config = readConfig(teamctxDir);
       const r = await splitWorkstreams({
         accepted: args.accepted,
-        teamctxDir: dir(), projectDir: gitCwd,
+        // Resolved here rather than from the caller's stored preference, which
+        // can still name a workstream they have been scoped off since.
+        workstreamId: await targetWorkstream(teamctxDir, config, undefined),
+        teamctxDir, projectDir: gitCwd,
       });
       const summary = r.results.map(x => `"${x.splitName}" (${x.newId}, ${x.movedWhyCount} Whys${x.movedRoles.length ? `, moved roles ${x.movedRoles.join(',')}` : ''})`).join('; ');
-      const reportBack = `Tell the user: split "${r.sourceId}" into ${r.results.length} new workstream${r.results.length === 1 ? '' : 's'}: ${summary}.`;
+      const reportBack = `Tell the user: split ${targetLabel(r.sourceId, config.project)} into ${r.results.length} new workstream${r.results.length === 1 ? '' : 's'}: ${summary}.`;
       return textResult({ ...r, reportBack });
     },
 
-    async workstream_use({ id }) {
-      assertInScope(await scope(dir(), readConfig(dir())), id);
+    async workstream_use({ id } = {}) {
+      // Project level is always in scope: it is inherited, read-only background
+      // that a scoped member needs in order to make sense of their own branch.
+      if (!isProjectLevel(id)) assertInScope(await scope(dir(), readConfig(dir())), id);
       const r = await useWorkstream({ id, teamctxDir: dir(), projectDir: gitCwd });
       return textResult({
         ...r,
-        reportBack: `Tell the user: their active workstream is now "${r.activeWorkstream}". This is a personal setting — it does not change anyone else's.`,
+        reportBack: r.activeWorkstream
+          ? `Tell the user: their active workstream is now "${r.activeWorkstream}". This is a personal setting — it does not change anyone else's.`
+          : "Tell the user: they are working on the project itself now, not one part of it. This is a personal setting — it does not change anyone else's.",
       });
     },
 
     async review_approve({ id }) {
       // No caller-supplied identity: the gate reads the authenticated actor.
       const r = await approveReview({ id, teamctxDir: dir(), projectDir: gitCwd });
-      const reportBack = `Tell the user: approved contribution ${r.id} by ${r.author} on workstream "${r.workstream}" (${r.operations.length} op${r.operations.length === 1 ? '' : 's'}${r.rolesRegenerated.length ? `, regenerated roles: ${r.rolesRegenerated.join(', ')}` : ''}${r.pushed ? ', pushed' : ''}).`;
+      const reportBack = `Tell the user: approved contribution ${r.id} by ${r.author} on ${targetLabel(r.workstream, readConfig(dir()).project)} (${r.operations.length} op${r.operations.length === 1 ? '' : 's'}${r.rolesRegenerated.length ? `, regenerated roles: ${r.rolesRegenerated.join(', ')}` : ''}${r.pushed ? ', pushed' : ''}).`;
       return textResult({ ...r, reportBack });
     },
 
@@ -1042,7 +1272,13 @@ export function makeHandlers(projectRoot) {
     },
 
     async snapshot_create({ message } = {}) {
-      const r = await createSnapshot({ message, teamctxDir: dir(), projectDir: gitCwd });
+      const teamctxDir = dir();
+      const allowed = await scope(teamctxDir, readConfig(teamctxDir));
+      const r = await createSnapshot({ message, teamctxDir, projectDir: gitCwd });
+      // Taking a snapshot is not gated, and the result carries every tree it
+      // just collected — so handing it back whole let anyone read the project
+      // sideways in one call.
+      r.snapshot = visibleSnapshot(r.snapshot, allowed);
       const reportBack = `Tell the user: snapshot ${r.snapshot.id} created${r.snapshot.message ? ` (${r.snapshot.message})` : ''} — manager must approve via snapshot_approve for it to become current.`;
       return textResult({ ...r, reportBack });
     },
@@ -1060,8 +1296,14 @@ export function makeHandlers(projectRoot) {
     },
 
     async reflect({ workstream } = {}) {
-      const r = await reflectWorkstream({ workstreamId: workstream, teamctxDir: dir(), projectDir: gitCwd });
-      const reportBack = `Tell the user: reflected workstream "${r.workstreamId}"${r.rolesRegenerated.length ? `; regenerated roles: ${r.rolesRegenerated.join(', ')}` : ''}${r.pushed ? '; pushed' : ''}.`;
+      const teamctxDir = dir();
+      // Reflect rewrites a tree wholesale. Under `reviewPolicy: none` nothing
+      // else stands between a scoped member and a workstream they cannot read.
+      const r = await reflectWorkstream({
+        workstreamId: await targetWorkstream(teamctxDir, readConfig(teamctxDir), workstream),
+        teamctxDir, projectDir: gitCwd,
+      });
+      const reportBack = `Tell the user: reflected ${targetLabel(r.workstreamId, readConfig(teamctxDir).project)}${r.rolesRegenerated.length ? `; regenerated roles: ${r.rolesRegenerated.join(', ')}` : ''}${r.pushed ? '; pushed' : ''}.`;
       return textResult({ workstreamId: r.workstreamId, rolesRegenerated: r.rolesRegenerated, pushed: r.pushed, pushError: r.pushError, reportBack });
     },
 
@@ -1082,7 +1324,7 @@ export function makeHandlers(projectRoot) {
       let committed = false;
       if (r.from !== r.to) {
         const c = await commitContext(
-          `config: review policy ${r.from} to ${r.to} by ${await who(dir(), readConfig(dir()))} (via mcp)`,
+          `config: review policy ${r.from} to ${r.to} by ${(await who(dir(), readConfig(dir()))).name} (via mcp)`,
           gitCwd ? { cwd: gitCwd } : undefined);
         committed = c?.committed === true;
       }
@@ -1108,7 +1350,7 @@ export function makeHandlers(projectRoot) {
         // Reported rather than assumed: writing the value already stored leaves
         // nothing to commit, and a caller told otherwise has a success it can
         // only disprove by reading back.
-        const c = await commitContext(`config: ${r.key} by ${await who(dir(), readConfig(dir()))} (via mcp)`,
+        const c = await commitContext(`config: ${r.key} by ${(await who(dir(), readConfig(dir()))).name} (via mcp)`,
           gitCwd ? { cwd: gitCwd } : undefined);
         committed = c?.committed === true;
       }

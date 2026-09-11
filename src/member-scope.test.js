@@ -126,3 +126,29 @@ describe('where a scoped member lands by default', () => {
     expect(defaultWorkstream(null, 'main')).toBe('main');
   });
 });
+
+describe('the project itself against a scope', () => {
+  // A scope narrows which workstreams a member reaches. The project tree is
+  // not one of them — it is the base their own workstream inherits, so a
+  // member refused it would be reading half their own context.
+  it('admits project level for a scoped member', () => {
+    expect(inScope(['eng'], null)).toBe(true);
+  });
+
+  it('admits it under its old name too', () => {
+    expect(inScope(['eng'], 'main')).toBe(true);
+  });
+
+  it('does not refuse it', () => {
+    expect(() => assertInScope(['eng'], null)).not.toThrow();
+  });
+
+  it('still refuses a workstream that is genuinely outside', () => {
+    expect(() => assertInScope(['eng'], 'finance')).toThrow(/no workstream "finance"/);
+  });
+
+  it('does not make it the place a scoped member lands', () => {
+    // Readable is not the same as where their work should go by default.
+    expect(defaultWorkstream(['eng'], null)).toBe('eng');
+  });
+});

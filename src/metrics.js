@@ -1,3 +1,4 @@
+import { resolveTarget } from './project-level.js';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { getCurrentSession } from './session-context.js';
@@ -143,17 +144,22 @@ export function collectStats({
   const approved = haveHistory ? Math.max(0, decisions.length - rejectedInWindow.length) : null;
 
   // ---- freshness, per workstream
-  const ids = [...new Set([...workstreams, ...contributions.map(c => c.workstream || 'main')])].sort();
+  // `null` first: the project has a tree of its own, and bucketing its
+  // contributions under `main` filed them against a workstream that no longer
+  // exists — one `workstream list` will not show and `get_workstream` will not
+  // open.
+  const named = [...new Set(workstreams.map(w => resolveTarget(w)).filter(w => w !== null))].sort();
+  const ids = [null, ...named];
   const freshness = ids.map(id => {
     // `time(null)` is NaN and every comparison against NaN is false, so the
     // seed has to be handled explicitly or the reduce never leaves it.
-    const last = contributions.filter(c => (c.workstream || 'main') === id)
+    const last = contributions.filter(c => resolveTarget(c.workstream) === id)
       .reduce((acc, c) => (!acc || time(c.ts) > time(acc) ? c.ts : acc), null);
     return {
       workstream: id,
       lastContributionAt: last,
       daysSince: last ? Math.floor((time(now) - time(last)) / DAY_MS) : null,
-      pending: queue.filter(q => (q.workstream || 'main') === id).length,
+      pending: queue.filter(q => resolveTarget(q.workstream) === id).length,
     };
   });
 
@@ -205,15 +211,19 @@ export function collectStats({
  * project-wide cadence next to one workstream's queue.
  */
 export async function computeStats({
-  cwd, teamctxDir, since, until = new Date(), workstream = null, now = new Date(),
+  cwd, teamctxDir, since, until = new Date(), workstream, now = new Date(),
 } = {}) {
   const from = since ? new Date(since) : new Date(time(until) - DEFAULT_WINDOW_DAYS * DAY_MS);
   if (!Number.isFinite(from.getTime())) throw new Error(`not a date: "${since}"`);
 
-  const onWorkstream = row => !workstream || (row.workstream || 'main') === workstream;
+  // `undefined` is every workstream; `null` is the project's own, which is a
+  // real place to ask about now and not the same as "all of them".
+  const everywhere = workstream === undefined;
+  const target = everywhere ? undefined : resolveTarget(workstream);
+  const onWorkstream = row => everywhere || resolveTarget(row.workstream) === target;
   const workstreams = listWorkstreamIds(teamctxDir);
-  if (workstream && workstreams.length > 0 && !workstreams.includes(workstream)) {
-    throw new Error(`unknown workstream "${workstream}". Known: ${workstreams.join(', ')}.`);
+  if (target && workstreams.length > 0 && !workstreams.includes(target)) {
+    throw new Error(`unknown workstream "${target}". Known: ${workstreams.join(', ')}.`);
   }
 
   const stats = collectStats({

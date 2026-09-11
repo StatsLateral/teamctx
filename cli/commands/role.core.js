@@ -1,4 +1,5 @@
-import { readConfig, writeConfig, readWorkstream, listWorkstreamIds, writeRoleFile, readContributions } from '../../src/storage.js';
+import { readConfig, writeConfig, readWorkstream, readTree, readProject, listWorkstreamIds, writeRoleFile, readContributions } from '../../src/storage.js';
+import { resolveTarget, isProjectLevel, targetLabel } from '../../src/project-level.js';
 import { addRole as addRoleData, suggestRoles as aiSuggestRoles, slugify } from '../../src/roles.js';
 import { generateRoleFile } from '../../src/context.js';
 import { commitContext, pushContext } from '../../src/git.js';
@@ -54,8 +55,11 @@ export async function suggestRoleDetails({ name, workstream, config }) {
 
 export async function suggestRoles({ workstreamId, teamctxDir, projectDir } = {}) {
   const config = readConfig(teamctxDir);
-  const wsId = workstreamId || await activeId(config, teamctxDir, projectDir);
-  const workstream = readWorkstream(wsId, teamctxDir);
+  const wsId = resolveTarget(workstreamId || await activeId(config, teamctxDir, projectDir));
+  // A project with no workstreams is the ordinary shape now, and its tree is
+  // where the context is — reading it as a workstream suggested roles for an
+  // empty project.
+  const workstream = readTree(wsId, teamctxDir);
   const suggestions = await aiSuggestRoles(workstream, config);
   return { workstreamId: wsId, suggestions };
 }
@@ -67,18 +71,26 @@ export async function addRoleFull({
   if (!name) throw new Error('role name is required');
   if (!responsibilities) throw new Error('responsibilities are required');
   const config = readConfig(teamctxDir);
-  const wsId = workstreamId || await activeId(config, teamctxDir, projectDir);
-  if (!knownWorkstreams(config, teamctxDir).has(wsId)) throw new UnknownWorkstreamError(wsId);
+  const wsId = resolveTarget(workstreamId || await activeId(config, teamctxDir, projectDir));
+  // The project is not in the workstream list and never will be, so checking a
+  // project-level role against that list refused every role on a project that
+  // has not split — which is every project, on the day it is created.
+  if (!isProjectLevel(wsId) && !knownWorkstreams(config, teamctxDir).has(wsId)) {
+    throw new UnknownWorkstreamError(wsId);
+  }
 
   const { slug, config: updatedConfig } = addRoleData({
     name, responsibilities, excludes: excludes || '', email: email || undefined, workstream: wsId,
   }, config);
   writeConfig(updatedConfig, teamctxDir);
 
-  const workstream = readWorkstream(wsId, teamctxDir);
+  const workstream = readTree(wsId, teamctxDir);
   const contributions = readContributions(teamctxDir);
   const roleData = updatedConfig.roles.find(r => r.slug === slug);
-  const md = await generateRoleFile(workstream, roleData, updatedConfig.project, updatedConfig, contributions);
+  // A role on a workstream is compiled with the project above it, the same as
+  // every other view of that workstream. A role on the project reads it once.
+  const md = await generateRoleFile(workstream, roleData, updatedConfig.project, updatedConfig, contributions,
+    isProjectLevel(wsId) ? {} : { project: readProject(teamctxDir) });
   writeRoleFile(slug, md, teamctxDir);
 
   const { pushed, pushError } = await commitAndOptionallyPush(
@@ -92,31 +104,37 @@ export async function assignRole({ slug, workstreamId, teamctxDir, projectDir } 
   const config = readConfig(teamctxDir);
   const role = (config.roles || []).find(r => r.slug === slug);
   if (!role) throw new UnknownRoleError(slug);
-  if (!workstreamId) throw new Error('workstreamId is required');
-  if (!knownWorkstreams(config, teamctxDir).has(workstreamId)) throw new UnknownWorkstreamError(workstreamId);
-  if ((role.workstream || 'main') === workstreamId) {
-    return { slug, workstreamId, changed: false, pushed: false, pushError: null };
+  if (workstreamId === undefined) throw new Error('workstreamId is required');
+  // Moving a role back to the project is a real move now, so project level is
+  // a destination rather than a missing argument.
+  const target = resolveTarget(workstreamId);
+  if (!isProjectLevel(target) && !knownWorkstreams(config, teamctxDir).has(target)) {
+    throw new UnknownWorkstreamError(target);
+  }
+  if (resolveTarget(role.workstream) === target) {
+    return { slug, workstreamId: target, changed: false, pushed: false, pushError: null };
   }
 
   const updatedConfig = {
     ...config,
-    roles: config.roles.map(r => r.slug === slug ? { ...r, workstream: workstreamId } : r),
+    roles: config.roles.map(r => r.slug === slug ? { ...r, workstream: target } : r),
   };
   writeConfig(updatedConfig, teamctxDir);
 
-  const workstream = readWorkstream(workstreamId, teamctxDir);
+  const workstream = readTree(target, teamctxDir);
   const contributions = readContributions(teamctxDir);
   const md = await generateRoleFile(
     workstream, updatedConfig.roles.find(r => r.slug === slug),
     updatedConfig.project, updatedConfig, contributions,
+    isProjectLevel(target) ? {} : { project: readProject(teamctxDir) },
   );
   writeRoleFile(slug, md, teamctxDir);
 
   const { pushed, pushError } = await commitAndOptionallyPush(
-    updatedConfig, `role: assign "${slug}" to workstream ${workstreamId}`, projectDir,
+    updatedConfig, `role: assign "${slug}" to ${targetLabel(target, updatedConfig.project)}`, projectDir,
   );
 
-  return { slug, workstreamId, changed: true, pushed, pushError };
+  return { slug, workstreamId: target, changed: true, pushed, pushError };
 }
 
 export { slugify };

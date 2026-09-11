@@ -8,6 +8,179 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **Adding someone to a project handed over nothing.** `member_add` wrote the
+  roster entry and reported success; the link that person needs to reach the
+  project took a second call, and on a real project that call was never made —
+  two people were added, both told they were in, and neither was sent anything.
+  It now returns `connectUrl` with the member, and `get_connect_url` shares the
+  same resolution so the two cannot disagree about the URL.
+  The link was also failing for a second reason: it was built only from a
+  recorded `deployUrl`, and no project created through the web flow has one —
+  so every one of them refused to hand out its own connector. A hosted request
+  arrives at the address it would name, so the server now falls back to that
+  host when nothing is recorded. `deployUrl` remains an override, and remains a
+  genuine prerequisite on a clone, which has no request to read.
+  And nothing tells a caller there is no link any more. Whoever is asking
+  reached the project through a connector, so a link demonstrably exists; when
+  the server cannot build one it says to hand over the address of the connector
+  already in use rather than sending the manager off to configure something
+  before they can invite anyone.
+
+- **Snapshots handed a scoped member every tree.** `list_snapshots` returns
+  whole snapshots, trees included, and `snapshot_create` — which is not
+  manager-gated — returns the one it just built over every workstream. Both were
+  a wider door than `get_snapshot`, which had already been closed. All three
+  filter through one place now.
+- **`ask` read a role file the caller could not open.** `get_role_context`
+  refuses a role bound to a workstream outside the scope; passing the same role
+  to `ask` fed its compiled context into the answer instead.
+- **Splitting used a stored preference instead of the caller's scope.** A member
+  whose saved workstream had since been taken off their scope got that tree back
+  from `suggest_workstream_splits`, and could rewrite it with `workstream_split`.
+  Both now resolve the target the way every other tool does.
+- **Splitting the project left every sibling showing what it had lost.** Whys
+  that move out of the project stop being inherited, but the compiled pages that
+  showed them were never rewritten.
+- **The migration left survivors with no inherited section**, and could leave
+  `project.md` disagreeing with `project.json` — the page was kept whenever one
+  existed while `main`'s Whys were merged into the tree underneath it. The page
+  is compiled from the tree now rather than copied, so the two cannot drift, and
+  every surviving workstream is recompiled once `main` is gone.
+- **The terminal's contribute prompt regressed in a merge.** It went back to
+  asking "submit for manager approval?" for contributions the policy applies
+  immediately. Restored, and now covered by a test so it cannot revert quietly.
+
+### Fixed
+- **A change to the project never reached pages that were already compiled.**
+  Inheritance is concatenation at compile time, but a compiled page is written
+  once and does not re-read anything — so a contribution at project level landed
+  correctly and every workstream's page went on showing the project as it was
+  before, which is the version a member actually reads. A project-level
+  contribution, reflection or approval now rewrites every workstream's page.
+  Role files are not in that pass, because each one is an AI call and a project
+  with eight roles would spend eight of them on every sentence the manager adds;
+  a role file catches up when its own workstream is next written to.
+- **Splitting a workstream stripped the inherited section from its own page.**
+  The source's page was rewritten without the project above it, and stayed that
+  way until something else happened to touch it.
+- **A snapshot handed a scoped member every tree anyway.** The filter applied to
+  one of the two places the workstreams appear in the response, and they were
+  the same array.
+- **`get_status` listed every role and the workstream behind it**, including the
+  workstreams the same response hides from a scoped member.
+- **`get_stats` threw on any migrated project when asked about `main`.** The
+  name resolves to project level, which is `null`, and the fallback handed the
+  raw `main` to a function that no longer knows any such workstream. Statistics
+  also stop filing project-level activity under `main`; the project is its own
+  row, listed first.
+- **Tools reported work landing on `workstream "null"`.** At project level there
+  is no id, and the client is told to read these strings back word for word —
+  so on an unsplit project, which is most of them, `contribute`, `reflect`,
+  `role_add`, `role_assign`, `review_approve`, `task_rm` and `workstream_use`
+  all named a workstream called null. The terminal's `task add` printed the same
+  thing, and a compiled task prompt told the agent it belonged to `main`.
+- **An explicit request for project level was read as "wherever you are".**
+  `task_add` resolves `main` to `null` before calling the core, and the core
+  treated that `null` as "nobody said", creating the task in the caller's active
+  workstream instead of on the project.
+- **The terminal offered a contribution to a manager who was never going to see
+  it.** It asked "submit for manager approval?" before working out whether the
+  policy required review; under the default `additive` policy an add-only
+  contribution is written straight to shared context.
+- **Two config commits were attributed to `[object Object]`.**
+
+### Fixed
+- **The migration never ran on a hosted project.** `migrateIfNeeded` opened by
+  joining a filesystem path, and hosted has no filesystem — `teamctxDir` there
+  is the repository the session is scoped to, not a path — so the first line
+  threw on every hosted call and the caller's best-effort catch made it look
+  like a project that needed nothing. Every hosted project was left on the old
+  shape while the code read as though it had been converted. It now takes the
+  session path, where the only migration a hosted project can need is the
+  project layer: `init` has written both flags since hosted projects were first
+  creatable, so nothing hosted predates workstreams. Covered by a hosted-session
+  test, since every other migration test runs against a real filesystem.
+
+### Fixed
+- **A task on the project compiled its context twice.** `task compile` passed
+  the project tree as the inherited half of a tree that already was the project,
+  so the prompt carried every Why, What and How twice — the second copy under an
+  "inherited from the project, read-only here" heading that means nothing on the
+  thing it came from. This was the default case, since the migration folds every
+  task on a project that never split to project level, and the compiled prompt
+  is what a person actually acts on.
+- **Approving a project-level contribution rendered the project twice.** The
+  approve path passed the project as the inherited half of a tree that already
+  was the project, so `project.md` and any project-level role file came out with
+  every node duplicated under a heading saying it came from elsewhere. Same
+  shape as the task-prompt bug, on the other write path; every place that
+  compiles a tree now resolves the inherited half the same way.
+- **A member's workstream scope had a set of doors left open.** It was enforced
+  on the workstream and context tools, but a scoped member could still name a
+  task id and get a sibling workstream's task back — including its compiled
+  prompt, which carries that workstream's whole tree. `get_task`,
+  `task_compile`, `task_add`, `task_assign`, `task_done`, `task_reopen` and
+  `task_rm` now check the workstream the task lives in, and `reflect`,
+  `suggest_roles` and `get_stats` check the workstream they are handed, which
+  closes a path to rewriting a tree the caller could not read. `list_roles` and
+  `get_snapshot` are filtered rather than refused, since both are listings, and
+  so is `list_pending_reviews`, which had been showing a scoped member the
+  summary and operations of a contribution queued against a workstream they
+  cannot read. `role_add` and `role_assign` check the workstream they are handed,
+  since a role is a compiled view of one. A refusal reads exactly as an unknown
+  workstream does, so probing learns nothing.
+
+### Fixed
+- **The first role on a new project was refused.** `role_add` checked its target
+  against the workstream list, and the project is not in that list and never will
+  be — so on a project that had not split, which is every project on the day it
+  is created, creating a role failed as an unknown workstream. Roles now sit at
+  project level properly: created there, recorded as project level rather than
+  as a workstream called `main`, and movable back there from a workstream.
+  `suggest_roles` reads the project tree for the same reason — it had been
+  suggesting roles for a project it could not see. A role on a workstream is
+  compiled with the project above it, the way every other view of that
+  workstream already was. `teamctx role add` in the terminal refused the same
+  case for the same reason, and no longer does.
+- **`get_config` reported `main` as the project's default workstream.** There is
+  no such workstream any more; the default is the project itself.
+- **The migration deleted every task that was sitting on `main`.** Tasks live
+  inside the tree file, and folding `main` into the project carried its Whys but
+  wrote nothing else before deleting it — so on a project that had never split,
+  which is most of them, every open task disappeared at the moment of upgrade.
+  They are carried across now, merged by id the way the Whys are, and they keep
+  the workstream they were recorded with, which already reads as project level.
+- **The project itself was outside every scoped member's reach.** A scope names
+  the workstreams a member may read, and the project tree is not one of them —
+  it is the base their own workstream inherits, so a member refused it was
+  reading half of their own context. Scoping now starts below the project: its
+  tree, a role that sits at it, and a task recorded on it are readable by
+  everyone on the roster, while a sibling workstream stays refused in the same
+  words as before. Where a scoped member *lands* is unchanged — their own
+  workstream, not the project.
+- **A task could be reported as project-level when it was not.** A task carries
+  the workstream it belongs to, but an older one may not, and the fallback read
+  the task's own empty field as "the project" before falling back to the tree it
+  came from. For a scoped member that put a sibling's task in their list.
+- **`ask` could not see the project's own context.** It read the caller's
+  target as a workstream, and at project level — where everyone stands unless
+  they choose otherwise — that found nothing, so a project full of context
+  answered "there is no Why/What/How here yet". All three surfaces read the
+  right tree now: the terminal, the `ask` tool, and the hosted ask page, which
+  had been reading a compatibility shim pointing at `main`. A question asked
+  inside a workstream is answered with the project above it, the same
+  inheritance every other compiled view already had. A role that sits at
+  project level is followed there rather than losing to whichever workstream
+  the caller happened to be in.
+- **Splitting the project could not be accepted.** The proposal read the
+  project tree, but accepting it still read and wrote through
+  `readWorkstream` — at project level that is a workstream whose id is the
+  string "null", so a valid proposal died on "has fewer than 2 Why nodes". The
+  first split of a new project is now the ordinary path it was meant to be: the
+  source is read and written as the project, its compiled page is `project.md`,
+  and the workstream that comes out of it is born with the project above it —
+  the project as it stands once those Whys have moved out, so nothing is both
+  inherited and owned.
 - **Asking who the manager is answered "nobody" for projects that had one.**
   `get_status` and `get_config` both read `config.manager`, the legacy
   display-name field, which is empty on every project created since the gate
@@ -161,6 +334,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   upgrade for an existing project; choosing `none` restores it.
 
 ### Added
+- **Project context is its own layer, and workstreams inherit it.** A workstream
+  used to be a standalone tree, and `workstream split` *moved* Whys out of
+  `main` — they partitioned, and nothing was shared. So a member scoped to one
+  workstream got a complete tree and an incoherent brief: the constraints every
+  node in it depended on lived in a sibling tree they could not see.
+  There is now a project Why/What/How tree in `.teamctx/project.json`, governed
+  by the same contribution → approval pipeline, and every compile path renders
+  it above the workstream's own, marked read-only. Inheritance is concatenation
+  at compile time — a workstream's stored JSON never holds project nodes, so
+  editing project context changes every compiled view without rewriting a
+  single workstream file.
+  `contribute`, `ask`, `reflect`, `get_workstream` and `workstream use` all take
+  the project as a target: naming no workstream means the project, and
+  `workstream use` with no id goes back to it, so picking a workstream is not a
+  one-way door out of the whole picture. A scoped member (#77) always sees the
+  project tree — it is the read-only background that makes their own branch
+  legible.
+
+### Changed
+- **`main` no longer exists.** It was created at `init` and did two jobs at
+  once: a workstream, and wherever "the project" had to live because nothing
+  else could. New projects start with a project tree and no workstreams;
+  existing ones are migrated on the next command, in either mode — the older
+  workstreams migration only ever ran on a clone, so hosted projects would
+  have sat unmigrated indefinitely.
+  The migration folds `main` into the project tree, drops it from
+  `workstreams[]`, rebinds `main`-bound roles to project level and unsets
+  `activeWorkstream`. A project whose only workstream was `main` ends up with
+  compiled output that is byte-for-byte what it was. `--workstream main` and a
+  stored `activeWorkstream: "main"` keep resolving, to project level.
+
+### Fixed
+- **The terminal ran a second copy of `contribute` and `reflect`.** Both CLI
+  commands were reimplementations rather than wrappers, and the copies had
+  drifted in both directions: `teamctx contribute` never learned about the
+  review policy, and only the terminal's `reflect` preserved provenance — so a
+  rewrite over MCP dropped every statement's source trail. Both now run the
+  same code the MCP server does. One behaviour changes with it: `teamctx
+  reflect` from a clone is manager-gated under the `additive` and `all` review
+  policies, where it used to run for anybody. That is the gate the tool already
+  applied, and a rewrite of a whole tree is the last thing that should have
+  been the exception to it.
+- **Approving a project-level contribution would have lost it.** The approve
+  path defaulted a missing workstream to `main`, so a contribution with no
+  workstream would have been written to a file that no longer exists — after
+  review, which is the worst place to lose one. `status` and `snapshot` had the
+  same fallback without the data loss.
+
 - **A member can be put on named workstreams instead of the whole project.**
   `workstreams` on the roster entry, set with `teamctx member add <ref>
   --workstream <id>` or the `workstreams` parameter on `member_add`, and

@@ -1,5 +1,6 @@
 import { ask } from '../prompt.js';
-import { readConfig, readWorkstream } from '../../src/storage.js';
+import { readConfig } from '../../src/storage.js';
+import { resolveTarget, targetLabel } from '../../src/project-level.js';
 import { UnknownWorkstreamError } from './role.core.js';
 import {
   listAllWorkstreams, suggestWorkstreamSplits, splitWorkstreams, useWorkstream,
@@ -19,7 +20,7 @@ export async function workstreamSuggestCommand() {
   // than reading config.activeWorkstream (which is only the project default).
   const { splits, leftover, activeId, workstream } = await suggestWorkstreamSplits();
 
-  console.log(`\n→ Analyzed workstream "${activeId}" (${workstream.whys.length} Why nodes) for candidate splits...\n`);
+  console.log(`\n→ Analyzed ${targetLabel(activeId, readConfig().project)} (${workstream.whys.length} Why nodes) for candidate splits...\n`);
 
   if (splits.length === 0) {
     console.log('No clean split proposed. The current workstream reads as one thread.\n');
@@ -35,7 +36,7 @@ export async function workstreamSuggestCommand() {
   });
 
   if (leftover.length > 0) {
-    console.log(`Left in "${activeId}": ${leftover.length} Why node${leftover.length === 1 ? '' : 's'}`);
+    console.log(`Left in ${targetLabel(activeId, readConfig().project)}: ${leftover.length} Why node${leftover.length === 1 ? '' : 's'}`);
     leftover.forEach(why => console.log(`  - ${why.text}`));
     console.log();
   }
@@ -61,9 +62,10 @@ export async function workstreamListCommand() {
 
 export async function workstreamSplitCommand(opts = {}) {
   const { activeId, workstream, splits } = await suggestWorkstreamSplits();
-  console.log(`\n→ Analyzing workstream "${activeId}" for candidate splits...`);
+  const label = targetLabel(activeId, readConfig().project);
+  console.log(`\n→ Analyzing ${label} for candidate splits...`);
   if ((workstream.whys || []).length < 2) {
-    console.log(`\nWorkstream "${activeId}" has fewer than 2 Why nodes — nothing to split.\n`);
+    console.log(`\n${label} has fewer than 2 Why nodes — nothing to split.\n`);
     return;
   }
   if (splits.length === 0) {
@@ -89,9 +91,9 @@ export async function workstreamSplitCommand(opts = {}) {
         if (!newName) { console.log('  Skipped.'); continue; }
         entry.name = newName;
       }
-      const rolesOnSource = (config.roles || []).filter(r => (r.workstream || 'main') === activeId);
+      const rolesOnSource = (config.roles || []).filter(r => resolveTarget(r.workstream) === resolveTarget(activeId));
       if (rolesOnSource.length > 0) {
-        console.log(`\n  Roles currently on "${activeId}": ${rolesOnSource.map(r => r.slug).join(', ')}`);
+        console.log(`\n  Roles currently on ${label}: ${rolesOnSource.map(r => r.slug).join(', ')}`);
         const roleAnswer = await ask(`  Move any to "${entry.name}"? Comma-separated slugs, or blank`, '');
         if (roleAnswer) {
           entry.moveRoles = roleAnswer.split(',').map(s => s.trim()).filter(Boolean);
@@ -123,7 +125,10 @@ export async function workstreamSplitCommand(opts = {}) {
 }
 
 export async function workstreamUseCommand(id) {
-  try { await useWorkstream({ id }); }
+  let result;
+  try { result = await useWorkstream({ id }); }
   catch (err) { cliError(err); return; }
-  console.log(`✓ Your active workstream is now "${id}". (Personal setting — not committed.)`);
+  console.log(result.activeWorkstream
+    ? `✓ Your active workstream is now "${result.activeWorkstream}". (Personal setting — not committed.)`
+    : '✓ You are working on the project itself, not on one workstream. (Personal setting — not committed.)');
 }

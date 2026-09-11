@@ -14,10 +14,16 @@ let caller = MEMBER;
 let operations = [];
 
 vi.mock('../../src/storage.js', () => ({
+  writeWorkstreamMd: vi.fn(),
+  readTree: vi.fn(() => ({ id: 'main', name: 'M', whys: [] })),
+  writeTree: vi.fn(),
+  readTreeMd: vi.fn(() => ''),
+  writeTreeMd: vi.fn(),
+  readProject: vi.fn(() => ({ name: '', whys: [] })),
   readConfig: vi.fn(),
   readWorkstream: vi.fn(() => ({ id: 'main', name: 'p', whys: [] })),
-  writeWorkstream: vi.fn(),
-  writeWorkstreamMd: vi.fn(),
+  writeTree: vi.fn(),
+  writeTreeMd: vi.fn(),
   appendContribution: vi.fn(),
   writeRoleFile: vi.fn(),
   writeQueueItem: vi.fn(),
@@ -44,7 +50,10 @@ vi.mock('../../src/prefs.js', () => ({
 }));
 
 const { contributeCore } = await import('./contribute.core.js');
-const { readConfig, writeQueueItem, writeWorkstream } = await import('../../src/storage.js');
+const {
+  readConfig, writeQueueItem, writeTree,
+  writeWorkstreamMd, readWorkstream, listWorkstreamIds,
+} = await import('../../src/storage.js');
 
 const project = (over = {}) => ({ project: 'p', me: 'Ada', managerKey: 'github:1001', ...over });
 const ADDS = [{ type: 'addWhy', text: 'go to vietnam' }, { type: 'addWhat', text: 'pick dates' }];
@@ -60,7 +69,7 @@ describe('a project that has never heard of the policy', () => {
     const r = await contribute();
     expect(r.mode).toBe('queued');
     expect(writeQueueItem).toHaveBeenCalled();
-    expect(writeWorkstream).not.toHaveBeenCalled();
+    expect(writeTree).not.toHaveBeenCalled();
   });
 });
 
@@ -71,7 +80,7 @@ describe('under additive', () => {
     // The point of the whole change: nobody waits to add what they know.
     const r = await contribute();
     expect(r.mode).toBe('applied');
-    expect(writeWorkstream).toHaveBeenCalled();
+    expect(writeTree).toHaveBeenCalled();
     expect(writeQueueItem).not.toHaveBeenCalled();
   });
 
@@ -79,7 +88,7 @@ describe('under additive', () => {
     operations = WITH_DELETE;
     const r = await contribute();
     expect(r.mode).toBe('queued');
-    expect(writeWorkstream).not.toHaveBeenCalled();
+    expect(writeTree).not.toHaveBeenCalled();
   });
 
   it('queues an edit as well as a delete', async () => {
@@ -112,7 +121,7 @@ describe('under none', () => {
   it('applies a member\'s deletions too, which is the cost of choosing it', async () => {
     operations = WITH_DELETE;
     expect((await contribute()).mode).toBe('applied');
-    expect(writeWorkstream).toHaveBeenCalled();
+    expect(writeTree).toHaveBeenCalled();
   });
 });
 
@@ -124,7 +133,7 @@ describe('things the policy must not change', () => {
       readConfig.mockReturnValue(project({ reviewPolicy: p }));
       expect((await contribute()).mode).toBe('no-op');
       expect(writeQueueItem).not.toHaveBeenCalled();
-      expect(writeWorkstream).not.toHaveBeenCalled();
+      expect(writeTree).not.toHaveBeenCalled();
     }
   });
 
@@ -139,5 +148,30 @@ describe('things the policy must not change', () => {
     // It landed without review; it did not land as the manager.
     readConfig.mockReturnValue(project({ reviewPolicy: 'additive' }));
     expect((await contribute()).author).toBe('Ravi');
+  });
+});
+
+describe('a project-level contribution reaching the workstreams', () => {
+  // The compiled page of every workstream carries the project above its own,
+  // written at compile time. Nothing re-reads it, so without this a member's
+  // page kept showing the project as it was before the manager's change.
+  beforeEach(() => {
+    readConfig.mockReturnValue({
+      project: 'Ledger', reviewPolicy: 'none',
+      workstreams: [{ id: 'delivery', name: 'Delivery' }],
+      roles: [],
+    });
+    listWorkstreamIds.mockReturnValue(['delivery']);
+    readWorkstream.mockReturnValue({ id: 'delivery', name: 'Delivery', whys: [] });
+  });
+
+  it('rewrites the page of a workstream it did not touch', async () => {
+    await contributeCore({ text: 'no new vendors', apply: true, teamctxDir: '/x' });
+    expect(writeWorkstreamMd).toHaveBeenCalledWith('delivery', expect.any(String), '/x');
+  });
+
+  it('leaves them alone when the contribution was to a workstream', async () => {
+    await contributeCore({ text: 'ship it', workstreamId: 'delivery', apply: true, teamctxDir: '/x' });
+    expect(writeWorkstreamMd).not.toHaveBeenCalled();
   });
 });

@@ -1,6 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('../../src/storage.js', () => ({
+  readTree: vi.fn(() => ({ id: 'main', name: 'M', whys: [] })),
+  writeTree: vi.fn(),
+  readTreeMd: vi.fn(() => ''),
+  writeTreeMd: vi.fn(),
+  readProject: vi.fn(() => ({ name: '', whys: [] })),
   readConfig: vi.fn(),
   listTasks: vi.fn(() => []),
   readTask: vi.fn(),
@@ -46,9 +51,10 @@ import {
 } from './task.js';
 import {
   readConfig, listTasks, readTask, writeTask, deleteTask,
-  writeTaskFile, taskFileExists, readWorkstream,
+  writeTaskFile, taskFileExists, readWorkstream, readTree,
 } from '../../src/storage.js';
 import { compileTaskPrompt } from '../../src/context.js';
+import { readProject } from '../../src/storage.js';
 import { commitContext } from '../../src/git.js';
 
 beforeEach(() => {
@@ -262,9 +268,28 @@ describe('taskCompileCommand', () => {
   const wsA = { id: 'main', name: 'M', whys: [{ id: 'w1', text: 'a', whats: [] }] };
   const wsB = { id: 'main', name: 'M', whys: [{ id: 'w1', text: 'b', whats: [] }] };
 
+  it('gives a project-level task no inherited half, since it is the project', async () => {
+    // Passing the project as both the tree and the thing above it printed every
+    // Why twice. This is the default case: the migration folds every task on a
+    // project that never split to project level.
+    readTask.mockReturnValue({ task: { ...openTask, workstream: null }, workstream: null });
+    readTree.mockReturnValue({ name: 'Ledger', whys: [{ id: 'w1', text: 'a', whats: [] }] });
+    await taskCompileCommand('t-plan', {});
+    expect(compileTaskPrompt.mock.calls[0][0].project).toBe(null);
+  });
+
+  it('gives a task inside a workstream the project tree above it', async () => {
+    // A real workstream id: `main` resolves to project level now.
+    readTask.mockReturnValue({ task: { ...openTask, workstream: 'delivery' }, workstream: 'delivery' });
+    readTree.mockReturnValue(wsA);
+    readProject.mockReturnValue({ name: 'Ledger', whys: [{ id: 'p1', text: 'p', whats: [] }] });
+    await taskCompileCommand('t-plan', {});
+    expect(compileTaskPrompt.mock.calls[0][0].project.whys[0].id).toBe('p1');
+  });
+
   it('calls compileTaskPrompt, writes the file, records compiledAt + compiledFromHash, and commits', async () => {
     readTask.mockReturnValue({ task: openTask, workstream: 'main' });
-    readWorkstream.mockReturnValue(wsA);
+    readTree.mockReturnValue(wsA);
     await taskCompileCommand('t-plan', {});
     expect(compileTaskPrompt).toHaveBeenCalled();
     const [id, content] = writeTaskFile.mock.calls[0];
@@ -277,7 +302,7 @@ describe('taskCompileCommand', () => {
   });
 
   it('skips the AI call when the Whys hash on the task matches the current workstream (no --force)', async () => {
-    readWorkstream.mockReturnValue(wsA);
+    readTree.mockReturnValue(wsA);
     // First compile to capture the hash the code would store.
     readTask.mockReturnValue({ task: openTask, workstream: 'main' });
     taskFileExists.mockReturnValue(false);
@@ -291,7 +316,7 @@ describe('taskCompileCommand', () => {
       task: { ...openTask, compiledAt: '2026-07-24T00:00:00Z', compiledFromHash: savedHash },
       workstream: 'main',
     });
-    readWorkstream.mockReturnValue(wsA);
+    readTree.mockReturnValue(wsA);
     taskFileExists.mockReturnValue(true);
     await taskCompileCommand('t-plan', {});
     expect(compileTaskPrompt).not.toHaveBeenCalled();
@@ -299,7 +324,7 @@ describe('taskCompileCommand', () => {
   });
 
   it('with --force always regenerates even when the hash matches', async () => {
-    readWorkstream.mockReturnValue(wsA);
+    readTree.mockReturnValue(wsA);
     readTask.mockReturnValue({ task: openTask, workstream: 'main' });
     await taskCompileCommand('t-plan', {});
     const savedHash = writeTask.mock.calls[0][0].compiledFromHash;
@@ -310,7 +335,7 @@ describe('taskCompileCommand', () => {
       task: { ...openTask, compiledAt: '2026-07-24T00:00:00Z', compiledFromHash: savedHash },
       workstream: 'main',
     });
-    readWorkstream.mockReturnValue(wsA);
+    readTree.mockReturnValue(wsA);
     taskFileExists.mockReturnValue(true);
     await taskCompileCommand('t-plan', { force: true });
     expect(compileTaskPrompt).toHaveBeenCalled();
@@ -319,7 +344,7 @@ describe('taskCompileCommand', () => {
 
   it('regenerates when the workstream Whys have actually changed', async () => {
     // Task was compiled against wsA, but workstream now reads as wsB.
-    readWorkstream.mockReturnValue(wsA);
+    readTree.mockReturnValue(wsA);
     readTask.mockReturnValue({ task: openTask, workstream: 'main' });
     await taskCompileCommand('t-plan', {});
     const oldHash = writeTask.mock.calls[0][0].compiledFromHash;
@@ -330,7 +355,7 @@ describe('taskCompileCommand', () => {
       task: { ...openTask, compiledAt: '2026-07-24T00:00:00Z', compiledFromHash: oldHash },
       workstream: 'main',
     });
-    readWorkstream.mockReturnValue(wsB);
+    readTree.mockReturnValue(wsB);
     taskFileExists.mockReturnValue(true);
     await taskCompileCommand('t-plan', {});
     expect(compileTaskPrompt).toHaveBeenCalled();
@@ -338,7 +363,7 @@ describe('taskCompileCommand', () => {
 
   it('regenerates when the task has never been compiled (no cached file)', async () => {
     readTask.mockReturnValue({ task: openTask, workstream: 'main' });
-    readWorkstream.mockReturnValue(wsA);
+    readTree.mockReturnValue(wsA);
     taskFileExists.mockReturnValue(false);
     await taskCompileCommand('t-plan', {});
     expect(compileTaskPrompt).toHaveBeenCalled();
@@ -350,7 +375,7 @@ describe('taskCompileCommand', () => {
       roles: [{ slug: 'growth', name: 'Growth', responsibilities: 'r' }],
     });
     readTask.mockReturnValue({ task: openTask, workstream: 'main' });
-    readWorkstream.mockReturnValue(wsA);
+    readTree.mockReturnValue(wsA);
     await taskCompileCommand('t-plan', { role: 'growth' });
     const arg = compileTaskPrompt.mock.calls[0][0];
     expect(arg.role).toMatchObject({ slug: 'growth', name: 'Growth' });
@@ -359,7 +384,7 @@ describe('taskCompileCommand', () => {
   it('exits when --role names a slug that does not exist', async () => {
     readConfig.mockReturnValue({ project: 'p', me: 'alice', autoPush: false, roles: [] });
     readTask.mockReturnValue({ task: openTask, workstream: 'main' });
-    readWorkstream.mockReturnValue(wsA);
+    readTree.mockReturnValue(wsA);
     const exit = vi.spyOn(process, 'exit').mockImplementation(() => { throw new Error('exit'); });
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     await expect(taskCompileCommand('t-plan', { role: 'ghost' })).rejects.toThrow('exit');

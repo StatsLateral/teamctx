@@ -145,7 +145,8 @@ workstream.command('split').description('Interactively accept AI-proposed splits
   .option('--accept-all', 'Accept every proposed split with AI-suggested names (non-interactive)')
   .action(workstreamSplitCommand);
 workstream.command('list').description('List all workstreams and their assigned roles').action(workstreamListCommand);
-workstream.command('use <id>').description('Set the active workstream for contribute/ask/reflect').action(workstreamUseCommand);
+workstream.command('use [id]').description('Set the active workstream for contribute/ask/reflect — omit the id to work on the project itself')
+  .action(workstreamUseCommand);
 
 const task = program.command('task').description('Track tasks and compile AI-ready per-task prompts on demand');
 task.command('add <title>').description('Add a new task (default owner: you, default workstream: active)')
