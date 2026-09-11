@@ -654,6 +654,28 @@ describe('a member scoped to one workstream', () => {
     expect(ids).toContain('engineering');
   });
 
+  it('cannot create or move a role onto a sibling workstream', async () => {
+    await refused(h => h.role_add({ name: 'PM', responsibilities: 'pricing', workstream: 'product' }));
+    await refused(h => h.role_assign({ slug: 'pm', workstream: 'product' }));
+  });
+
+  it('is still told which argument is missing when role_assign gets none', async () => {
+    await expect(asUser(withTasks(), RAVI, h => h.role_assign({ slug: 'pm' })))
+      .rejects.toThrow(/workstreamId is required|no role "pm"/);
+  });
+
+  it('does not see a sibling contribution waiting for review', async () => {
+    const s = withTasks();
+    s.write('.teamctx/queue/q1.json', JSON.stringify({
+      id: 'q1', author: 'Sam', workstream: 'product', summary: 'pricing rethink', operations: [],
+    }));
+    s.write('.teamctx/queue/q2.json', JSON.stringify({
+      id: 'q2', author: 'Sam', workstream: 'engineering', summary: 'ad copy', operations: [],
+    }));
+    const r = await asUser(s, RAVI, h => json(h.list_pending_reviews()));
+    expect(r.pending.map(x => x.id)).toEqual(['q2']);
+  });
+
   it('never scopes the manager, even if the roster tries to', async () => {
     // A manager who could not read half the project could not review
     // contributions to that half, which is the one thing only they can do.

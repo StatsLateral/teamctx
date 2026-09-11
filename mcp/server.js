@@ -704,7 +704,14 @@ export function makeHandlers(projectRoot) {
     },
 
     async list_pending_reviews() {
-      return textResult({ pending: await listPendingReviews({ teamctxDir: dir() }) });
+      const teamctxDir = dir();
+      const allowed = await scope(teamctxDir, readConfig(teamctxDir));
+      // A queued item carries its summary and its operations — the content of a
+      // sibling workstream, waiting to be approved into it. Only the manager
+      // acts on these, and a manager is never scoped.
+      const pending = (await listPendingReviews({ teamctxDir }))
+        .filter(item => inScope(allowed, resolveTarget(item.workstream)));
+      return textResult({ pending, ...(allowed ? { scopedTo: allowed } : {}) });
     },
 
     async get_status() {
@@ -1081,13 +1088,16 @@ export function makeHandlers(projectRoot) {
     },
 
     async role_add(args) {
+      const teamctxDir = dir();
       const r = await addRoleFull({
         name: args.name,
         responsibilities: args.responsibilities,
         excludes: args.excludes,
         email: args.email,
-        workstreamId: args.workstream,
-        teamctxDir: dir(),
+        // A role is a compiled view of a workstream, so creating one on a
+        // workstream the caller cannot read is that boundary in reverse.
+        workstreamId: await targetWorkstream(teamctxDir, readConfig(teamctxDir), args.workstream),
+        teamctxDir,
         projectDir: gitCwd,
       });
       const reportBack = `Tell the user: role "${r.slug}" created on workstream "${r.workstreamId}"${r.pushed ? ' (committed and pushed)' : ' (committed)'}.`;
@@ -1095,9 +1105,16 @@ export function makeHandlers(projectRoot) {
     },
 
     async role_assign(args) {
+      const teamctxDir = dir();
+      // Checked rather than resolved: this argument is required, and routing it
+      // through the default would turn a missing one into a silent assignment
+      // to wherever the caller happens to be standing.
+      if (args.workstream !== undefined) {
+        assertInScope(await scope(teamctxDir, readConfig(teamctxDir)), resolveTarget(args.workstream));
+      }
       const r = await assignRole({
         slug: args.slug, workstreamId: args.workstream,
-        teamctxDir: dir(), projectDir: gitCwd,
+        teamctxDir, projectDir: gitCwd,
       });
       const reportBack = r.changed
         ? `Tell the user: role "${r.slug}" moved to workstream "${r.workstreamId}"; role file regenerated.`

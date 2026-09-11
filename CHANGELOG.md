@@ -27,6 +27,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   thing it came from. This was the default case, since the migration folds every
   task on a project that never split to project level, and the compiled prompt
   is what a person actually acts on.
+- **Approving a project-level contribution rendered the project twice.** The
+  approve path passed the project as the inherited half of a tree that already
+  was the project, so `project.md` and any project-level role file came out with
+  every node duplicated under a heading saying it came from elsewhere. Same
+  shape as the task-prompt bug, on the other write path; every place that
+  compiles a tree now resolves the inherited half the same way.
 - **A member's workstream scope had a set of doors left open.** It was enforced
   on the workstream and context tools, but a scoped member could still name a
   task id and get a sibling workstream's task back — including its compiled
@@ -35,8 +41,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `task_rm` now check the workstream the task lives in, and `reflect`,
   `suggest_roles` and `get_stats` check the workstream they are handed, which
   closes a path to rewriting a tree the caller could not read. `list_roles` and
-  `get_snapshot` are filtered rather than refused, since both are listings. A
-  refusal reads exactly as an unknown workstream does, so probing learns nothing.
+  `get_snapshot` are filtered rather than refused, since both are listings, and
+  so is `list_pending_reviews`, which had been showing a scoped member the
+  summary and operations of a contribution queued against a workstream they
+  cannot read. `role_add` and `role_assign` check the workstream they are handed,
+  since a role is a compiled view of one. A refusal reads exactly as an unknown
+  workstream does, so probing learns nothing.
 
 ### Fixed
 - **The first role on a new project was refused.** `role_add` checked its target
