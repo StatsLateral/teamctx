@@ -1,5 +1,5 @@
 import {
-  readConfig, readWorkstream, writeWorkstream, writeWorkstreamMd, writeRoleFile,
+  readProject, readConfig, readTree, writeTree, writeTreeMd, writeRoleFile,
   readQueueItem, deleteQueueItem, writeRejected, readContributions, listQueue,
 } from '../../src/storage.js';
 import { applyQueueItem, buildRejected, canApprove, isLegacyManagerRef } from '../../src/review.js';
@@ -9,8 +9,11 @@ import { commitContext, pushContext } from '../../src/git.js';
 import { resolveActor } from '../../src/actor.js';
 import { resolveDisplayName } from '../../src/prefs.js';
 import { sourceTrailer } from './contribute.core.js';
+import { resolveTarget, isProjectLevel } from '../../src/project-level.js';
+import { recompileInheritors } from '../../src/recompile.js';
 
 function workstreamDisplayName(id, workstream, config) {
+  if (isProjectLevel(id)) return config.project || workstream.name || 'project';
   return config.workstreams?.find(w => w.id === id)?.name || workstream.name || config.project;
 }
 
@@ -85,22 +88,36 @@ export async function approveReview({ id, teamctxDir, projectDir, actor } = {}) 
   try { item = readQueueItem(id, teamctxDir); }
   catch { throw new QueueItemNotFoundError(id); }
 
-  const targetId = item.workstream || 'main';
-  const workstream = readWorkstream(targetId, teamctxDir);
+  // `null` is the project itself. Defaulting to `main` here would have sent an
+  // approved project-level contribution to a workstream that no longer exists.
+  const targetId = resolveTarget(item.workstream);
+  const workstream = readTree(targetId, teamctxDir);
   const updated = applyQueueItem(workstream, item);
   const contributions = readContributions(teamctxDir);
 
-  writeWorkstream(targetId, updated, teamctxDir);
-  writeWorkstreamMd(
+  // The inherited half, or nothing when the target *is* the project: rendering
+  // the project above itself prints every node twice, under a heading that says
+  // it came from somewhere else. Every sibling write path resolves it the same
+  // way — see `contribute.core.js` and `reflect.core.js`.
+  const project = isProjectLevel(targetId) ? null : readProject(teamctxDir);
+
+  writeTree(targetId, updated, teamctxDir);
+  writeTreeMd(
     targetId,
-    serializeToMd(updated, workstreamDisplayName(targetId, updated, config), item.author, contributions),
+    serializeToMd(updated, workstreamDisplayName(targetId, updated, config), item.author, contributions, { project }),
     teamctxDir,
   );
 
-  const rolesOnTarget = (config.roles || []).filter(r => (r.workstream || 'main') === targetId);
+  // A change to the project changes what every workstream inherits, and a
+  // compiled page does not re-read the project on its own.
+  if (isProjectLevel(targetId)) {
+    recompileInheritors({ project: updated, config, contributions, teamctxDir });
+  }
+
+  const rolesOnTarget = (config.roles || []).filter(r => resolveTarget(r.workstream) === targetId);
   const rolesRegenerated = [];
   for (const role of rolesOnTarget) {
-    const md = await generateRoleFile(updated, role, config.project, config, contributions);
+    const md = await generateRoleFile(updated, role, config.project, config, contributions, { project });
     writeRoleFile(role.slug, md, teamctxDir);
     rolesRegenerated.push(role.slug);
   }
@@ -108,7 +125,7 @@ export async function approveReview({ id, teamctxDir, projectDir, actor } = {}) 
   deleteQueueItem(item.id, teamctxDir);
 
   const note = item.tagged === 'decision' ? ' [decision]' : '';
-  const wsNote = targetId === 'main' ? '' : ` (${targetId})`;
+  const wsNote = isProjectLevel(targetId) ? '' : ` (${targetId})`;
   const approvedBy = who;
   await commitContext(
     // This is the commit that actually changes shared context, so it is the one

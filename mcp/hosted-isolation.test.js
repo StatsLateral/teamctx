@@ -38,6 +38,9 @@ const CONFIG = {
   ],
   activeWorkstream: 'main',
   workstreamsMigrated: true,
+  // Already migrated, so the tests below exercise the server rather than the
+  // migration. The legacy shape is a fixture of its own, at the end of the file.
+  projectLayerMigrated: true,
 };
 
 /** Stands in for a prefetched GithubSession — same surface storage.js uses. */
@@ -91,8 +94,9 @@ describe('two identities on the hosted server', () => {
 
     const alice = await asUser(session, ALICE, h => json(h.get_status()));
     const bob = await asUser(session, BOB, h => json(h.get_status()));
-    expect(alice.activeWorkstream).toBe('main');
-    expect(bob.activeWorkstream).toBe('main');
+    // Nobody has chosen a workstream, so both are at project level.
+    expect(alice.activeWorkstream).toBe(null);
+    expect(bob.activeWorkstream).toBe(null);
 
     // Alice switches.
     await asUser(session, ALICE, h => h.workstream_use({ id: 'engineering-hiring' }));
@@ -101,8 +105,9 @@ describe('two identities on the hosted server', () => {
     const bobAfter = await asUser(session, BOB, h => json(h.get_status()));
 
     expect(aliceAfter.activeWorkstream).toBe('engineering-hiring');
-    // The whole point of the change.
-    expect(bobAfter.activeWorkstream).toBe('main');
+    // The whole point of the change: Bob stays where he was, which is the
+    // project, because he never chose anything.
+    expect(bobAfter.activeWorkstream).toBe(null);
   });
 
   it('does not write the switch to the repo or make a commit', async () => {
@@ -154,9 +159,9 @@ describe('two identities on the hosted server', () => {
     ]);
 
     expect([a.me, a.activeWorkstream]).toEqual(['Alice Example', 'engineering-hiring']);
-    expect([b.me, b.activeWorkstream]).toEqual(['Bob Example', 'main']);
+    expect([b.me, b.activeWorkstream]).toEqual(['Bob Example', null]);
     expect([a2.me, a2.activeWorkstream]).toEqual(['Alice Example', 'engineering-hiring']);
-    expect([b2.me, b2.activeWorkstream]).toEqual(['Bob Example', 'main']);
+    expect([b2.me, b2.activeWorkstream]).toEqual(['Bob Example', null]);
   });
 });
 
@@ -412,13 +417,13 @@ describe('tasks on the hosted server', () => {
     const added = await asUser(session, ALICE, h => json(h.task_add({ title: 'Ship the ledger' })));
 
     // Simulate a previous compile: the prompt file plus the hash that says it
-    // is still current for this workstream.
+    // is still current. A task with no workstream lives in the project tree.
     session.write('.teamctx/context/tasks/t-ship-the-ledger.md', '# already compiled');
-    const ws = JSON.parse(session.read('.teamctx/workstreams/main.json').content);
+    const ws = JSON.parse(session.read('.teamctx/project.json').content);
     ws.tasks = ws.tasks.map(t => t.id === added.task.id
       ? { ...t, compiledAt: '2026-01-01T00:00:00.000Z', compiledFromHash: hashOf(ws) }
       : t);
-    session.write('.teamctx/workstreams/main.json', JSON.stringify(ws));
+    session.write('.teamctx/project.json', JSON.stringify(ws));
 
     const r = await asUser(session, ALICE, h => json(h.task_compile({ id: 't-ship-the-ledger' })));
     expect(r.alreadyCompiled).toBe(true);
@@ -445,8 +450,9 @@ describe('tasks on the hosted server', () => {
     expect(forAlice.scope).toBe('workstream engineering-hiring');
     expect(forAlice.tasks.map(t => t.id)).toEqual(['t-draft-the-hiring-rubric']);
 
-    // Bob never switched, so he is still on main and sees only what lives there.
-    expect(forBob.scope).toBe('workstream main');
+    // Bob never switched, so he is still at project level and sees only what
+    // lives there.
+    expect(forBob.scope).toBe('the project');
     expect(forBob.tasks.map(t => t.id)).toEqual(['t-reconcile-the-ledger']);
   });
 
@@ -598,6 +604,534 @@ describe('adding someone hands over the link that lets them in', () => {
     const added = await asUser(session, ALICE, h => json(h.member_add({ ref: 'ravi@example.com', name: 'Ravi' })));
     const direct = await asUser(session, ALICE, h => json(h.get_connect_url()));
     expect(added.connectUrl).toBe(direct.url);
+  });
+});
+
+describe('a member scoped to one workstream', () => {
+  // The claim this change rests on and the one that cannot be made from the
+  // CLI: Bob signs in with Google, has no repository access of his own, and
+  // every read he makes goes through this server. So for him the scope is a
+  // boundary rather than a label — which is exactly what has to be proven.
+  const RAVI = { key: 'git:ravi@example.com', name: 'Ravi', login: null, email: 'ravi@example.com', source: 'google' };
+
+  const scoped = (workstreams = ['engineering']) => {
+    const s = fakeSession();
+    s.write('.teamctx/config.json', JSON.stringify({
+      ...CONFIG,
+      // Two real workstreams: `main` is project level now, so it would always
+      // be in scope and could not stand in for one that is not.
+      workstreams: [{ id: 'product', name: 'Product' }, { id: 'engineering', name: 'Engineering' }],
+      members: [{ key: RAVI.key, name: 'Ravi', email: RAVI.email, login: null, workstreams }],
+    }));
+    s.write('.teamctx/workstreams/engineering.json', JSON.stringify({ id: 'engineering', name: 'Engineering', whys: [] }));
+    s.write('.teamctx/workstreams/product.json', JSON.stringify({ id: 'product', name: 'Product', whys: [] }));
+    return s;
+  };
+
+  it('sees the project tree and their own workstream, and nothing else', async () => {
+    // Both halves matter: without the project tree their brief is incoherent,
+    // and with a sibling workstream it is a leak.
+    const r = await asUser(scoped(), RAVI, h => json(h.get_context()));
+    expect(r.workstreams.map(w => w.id)).toEqual([null, 'engineering']);
+    expect(r.scopedTo).toEqual(['engineering']);
+  });
+
+  it('sees only their own in the listing', async () => {
+    const r = await asUser(scoped(), RAVI, h => json(h.list_workstreams()));
+    expect(r.workstreams.map(w => w.id)).toEqual(['engineering']);
+  });
+
+  it('cannot read another workstream by naming it', async () => {
+    await expect(asUser(scoped(), RAVI, h => h.get_workstream({ id: 'product' })))
+      .rejects.toThrow(/no workstream "product"/);
+  });
+
+  it('cannot switch to one outside the scope', async () => {
+    await expect(asUser(scoped(), RAVI, h => h.workstream_use({ id: 'product' })))
+      .rejects.toThrow(/no workstream "product"/);
+  });
+
+  it('cannot reach one by asking about it', async () => {
+    // The decision worth writing down: omitting the argument must not widen
+    // anything, so the server clamps rather than trusting what was passed.
+    await expect(asUser(scoped(), RAVI, h => h.ask({ question: 'what?', workstream: 'product' })))
+      .rejects.toThrow(/no workstream "product"/);
+  });
+
+  it('still reads the one they are on', async () => {
+    const r = await asUser(scoped(), RAVI, h => json(h.get_workstream({ id: 'engineering' })));
+    expect(r.id).toBe('engineering');
+  });
+
+  it('leaves an unscoped member seeing everything', async () => {
+    const s = scoped();
+    const cfg = s.configJson();
+    delete cfg.members[0].workstreams;
+    s.write('.teamctx/config.json', JSON.stringify(cfg));
+    const r = await asUser(s, RAVI, h => json(h.get_context()));
+    expect(r.workstreams.map(w => w.id)).toContain('product');
+    expect(r.workstreams.map(w => w.id)).toContain('engineering');
+    expect(r.scopedTo).toBeUndefined();
+  });
+
+  it('reads the project itself, which is not a workstream to be scoped out of', async () => {
+    // Their own workstream inherits the project tree, so a member refused it
+    // would be reading half of their own context.
+    const r = await asUser(scoped(), RAVI, h => json(h.get_workstream({})));
+    expect(r).toBeTruthy();
+  });
+
+  it('reads a role that sits at project level', async () => {
+    const s = scoped();
+    const cfg = s.configJson();
+    cfg.roles = [{ slug: 'ops', name: 'Ops', workstream: null }];
+    s.write('.teamctx/config.json', JSON.stringify(cfg));
+    s.write('.teamctx/context/roles/ops.md', '# Ops');
+    const r = await asUser(s, RAVI, h => h.get_role_context({ role: 'ops' }));
+    expect(r.content[0].text).toMatch(/# Ops/);
+  });
+
+  it('still cannot read a role bound to a workstream outside the scope', async () => {
+    const s = scoped();
+    const cfg = s.configJson();
+    cfg.roles = [{ slug: 'pm', name: 'PM', workstream: 'product' }];
+    s.write('.teamctx/config.json', JSON.stringify(cfg));
+    s.write('.teamctx/context/roles/pm.md', '# PM');
+    await expect(asUser(s, RAVI, h => h.get_role_context({ role: 'pm' })))
+      .rejects.toThrow(/no workstream "product"/);
+  });
+
+  it('keeps project-level tasks in their list and drops a sibling one', async () => {
+    const s = scoped();
+    s.write('.teamctx/project.json', JSON.stringify({
+      name: 'Demo', whys: [],
+      tasks: [{ id: 't-proj', title: 'book the venue', status: 'open' }],
+    }));
+    s.write('.teamctx/workstreams/product.json', JSON.stringify({
+      id: 'product', name: 'Product', whys: [],
+      tasks: [{ id: 't-prod', title: 'pricing page', status: 'open' }],
+    }));
+    const r = await asUser(s, RAVI, h => json(h.list_tasks({ all: true })));
+    const ids = r.tasks.map(t => t.id);
+    expect(ids).toContain('t-proj');
+    expect(ids).not.toContain('t-prod');
+  });
+
+  /** Two tasks, one either side of the boundary. */
+  const withTasks = () => {
+    const s = scoped();
+    s.write('.teamctx/workstreams/engineering.json', JSON.stringify({
+      id: 'engineering', name: 'Engineering', whys: [{ id: 'e1', text: 'hire two' }],
+      tasks: [{ id: 't-eng', title: 'write the ad', status: 'open', workstream: 'engineering' }],
+    }));
+    s.write('.teamctx/workstreams/product.json', JSON.stringify({
+      id: 'product', name: 'Product', whys: [{ id: 'pr1', text: 'pricing' }],
+      tasks: [{ id: 't-prod', title: 'pricing page', status: 'open', workstream: 'product' }],
+    }));
+    return s;
+  };
+
+  const refused = (fn) => expect(asUser(withTasks(), RAVI, fn)).rejects.toThrow(/no workstream "product"/);
+
+  it('cannot read a sibling task by naming its id', async () => {
+    await refused(h => h.get_task({ id: 't-prod' }));
+  });
+
+  it('cannot compile a sibling task, which would hand over its whole tree', async () => {
+    // The same bypass `get_role_context` had, and the widest one: a compiled
+    // prompt carries the workstream's entire why/what/how.
+    await refused(h => h.task_compile({ id: 't-prod' }));
+  });
+
+  it('cannot mark a sibling task done, reopen it, reassign it or delete it', async () => {
+    await refused(h => h.task_done({ id: 't-prod' }));
+    await refused(h => h.task_reopen({ id: 't-prod' }));
+    await refused(h => h.task_assign({ id: 't-prod', owner: 'Ravi' }));
+    await refused(h => h.task_rm({ id: 't-prod' }));
+  });
+
+  it('cannot write a new task into a workstream it cannot read', async () => {
+    await refused(h => h.task_add({ title: 'sneak', workstream: 'product' }));
+  });
+
+  it('cannot rewrite a sibling workstream through reflect', async () => {
+    await refused(h => h.reflect({ workstream: 'product' }));
+  });
+
+  it('cannot read a sibling through suggest_roles or get_stats', async () => {
+    await refused(h => h.suggest_roles({ workstream: 'product' }));
+    await refused(h => h.get_stats({ workstream: 'product' }));
+  });
+
+  it('still reaches its own tasks', async () => {
+    const r = await asUser(withTasks(), RAVI, h => json(h.get_task({ id: 't-eng' })));
+    expect(r.id).toBe('t-eng');
+  });
+
+  it('still reaches a task on the project, which it inherits', async () => {
+    const s = withTasks();
+    s.write('.teamctx/project.json', JSON.stringify({
+      name: 'Ledger', whys: [{ id: 'p1', text: 'ship it' }],
+      tasks: [{ id: 't-proj', title: 'book the venue', status: 'open' }],
+    }));
+    const r = await asUser(s, RAVI, h => json(h.get_task({ id: 't-proj' })));
+    expect(r.id).toBe('t-proj');
+  });
+
+  it('is not told a sibling task exists, only that the workstream does not', async () => {
+    // The same wording an unknown workstream gets, so probing learns nothing.
+    let message = '';
+    try { await asUser(withTasks(), RAVI, h => h.get_task({ id: 't-prod' })); }
+    catch (err) { message = err.message; }
+    expect(message).not.toMatch(/pricing page|t-prod/);
+  });
+
+  it('does not see the roles of a sibling workstream in the listing', async () => {
+    const s = withTasks();
+    const cfg = s.configJson();
+    cfg.roles = [
+      { slug: 'pm', name: 'PM', workstream: 'product' },
+      { slug: 'recruiter', name: 'Recruiter', workstream: 'engineering' },
+      { slug: 'ops', name: 'Ops', workstream: null },
+    ];
+    s.write('.teamctx/config.json', JSON.stringify(cfg));
+    const r = await asUser(s, RAVI, h => json(h.list_roles()));
+    expect(r.roles.map(x => x.slug).sort()).toEqual(['ops', 'recruiter']);
+  });
+
+  it('gets a snapshot with the siblings filtered out of it', async () => {
+    const s = withTasks();
+    await asUser(s, ALICE, h => json(h.snapshot_create({ message: 'before the split' })));
+    const list = await asUser(s, ALICE, h => json(h.list_snapshots()));
+    const id = list.snapshots[0].id;
+    const r = await asUser(s, RAVI, h => json(h.get_snapshot({ id })));
+    const ids = r.workstreams.map(w => w.id);
+    expect(ids).not.toContain('product');
+    expect(ids).toContain('engineering');
+  });
+
+  it('cannot create or move a role onto a sibling workstream', async () => {
+    await refused(h => h.role_add({ name: 'PM', responsibilities: 'pricing', workstream: 'product' }));
+    await refused(h => h.role_assign({ slug: 'pm', workstream: 'product' }));
+  });
+
+  it('is still told which argument is missing when role_assign gets none', async () => {
+    await expect(asUser(withTasks(), RAVI, h => h.role_assign({ slug: 'pm' })))
+      .rejects.toThrow(/workstreamId is required|no role "pm"/);
+  });
+
+  it('does not see a sibling contribution waiting for review', async () => {
+    const s = withTasks();
+    s.write('.teamctx/queue/q1.json', JSON.stringify({
+      id: 'q1', author: 'Sam', workstream: 'product', summary: 'pricing rethink', operations: [],
+    }));
+    s.write('.teamctx/queue/q2.json', JSON.stringify({
+      id: 'q2', author: 'Sam', workstream: 'engineering', summary: 'ad copy', operations: [],
+    }));
+    const r = await asUser(s, RAVI, h => json(h.list_pending_reviews()));
+    expect(r.pending.map(x => x.id)).toEqual(['q2']);
+  });
+
+  it('cannot read a sibling tree through a snapshot listing', async () => {
+    // Wider than get_snapshot: this hands back whole snapshots, trees included.
+    const s = withTasks();
+    await asUser(s, ALICE, h => json(h.snapshot_create({ message: 'before' })));
+    const r = await asUser(s, RAVI, h => json(h.list_snapshots()));
+    const ids = r.snapshots.flatMap(sn => (sn.workstreams || []).map(w => w.id));
+    expect(ids).not.toContain('product');
+    expect(ids).toContain('engineering');
+  });
+
+  it('cannot read a sibling tree by taking a snapshot of its own', async () => {
+    const r = await asUser(withTasks(), RAVI, h => json(h.snapshot_create({ message: 'mine' })));
+    const ids = (r.snapshot.workstreams || []).map(w => w.id);
+    expect(ids).not.toContain('product');
+  });
+
+  it('cannot reach a sibling role by asking a question as it', async () => {
+    // `get_role_context` refuses this; `ask` was reading the same file.
+    const s = withTasks();
+    const cfg = s.configJson();
+    cfg.roles = [{ slug: 'pm', name: 'PM', workstream: 'product' }];
+    s.write('.teamctx/config.json', JSON.stringify(cfg));
+    s.write('.teamctx/context/roles/pm.md', '# PM');
+    await expect(asUser(s, RAVI, h => h.ask({ question: 'what?', role: 'pm' })))
+      .rejects.toThrow(/no workstream "product"/);
+  });
+
+  it('never scopes the manager, even if the roster tries to', async () => {
+    // A manager who could not read half the project could not review
+    // contributions to that half, which is the one thing only they can do.
+    const s = scoped();
+    const cfg = s.configJson();
+    cfg.members.push({ key: ALICE.key, name: 'Alice Example', login: 'alice', workstreams: ['engineering'] });
+    s.write('.teamctx/config.json', JSON.stringify(cfg));
+    const r = await asUser(s, ALICE, h => json(h.get_context()));
+    expect(r.workstreams.map(w => w.id)).toContain('product');
+    expect(r.scopedTo).toBeUndefined();
+  });
+});
+
+describe('changing a scope from a chat client', () => {
+  // A manager scoping somebody is far likelier to be in a chat than a
+  // terminal, so leaving this CLI-only would have made the feature reachable
+  // mainly from the surface its users are not on.
+  const withTwo = () => {
+    const s = fakeSession();
+    s.write('.teamctx/config.json', JSON.stringify({
+      ...CONFIG,
+      workstreams: [{ id: 'main', name: 'Main' }, { id: 'engineering', name: 'Engineering' }],
+      members: [{ key: 'git:ravi@example.com', name: 'Ravi', email: 'ravi@example.com', login: null }],
+    }));
+    return s;
+  };
+
+  it('scopes a member and commits', async () => {
+    const s = withTwo();
+    const r = await asUser(s, ALICE, h => json(h.member_scope({ ref: 'ravi@example.com', workstreams: ['engineering'] })));
+    expect(r.member.workstreams).toEqual(['engineering']);
+    expect(s.configJson().members[0].workstreams).toEqual(['engineering']);
+    expect(r.reportBack).toMatch(/now on engineering/);
+  });
+
+  it('clears the scope when no workstreams are given', async () => {
+    const s = withTwo();
+    await asUser(s, ALICE, h => json(h.member_scope({ ref: 'ravi@example.com', workstreams: ['engineering'] })));
+    const r = await asUser(s, ALICE, h => json(h.member_scope({ ref: 'ravi@example.com' })));
+    expect('workstreams' in r.member).toBe(false);
+    expect(r.reportBack).toMatch(/whole project/);
+  });
+
+  it('refuses a member who is not the manager', async () => {
+    // Scope decides what a member may read, so one who can widen their own is
+    // not scoped at all.
+    const s = withTwo();
+    await expect(asUser(s, BOB, h => h.member_scope({ ref: 'ravi@example.com', workstreams: ['engineering'] })))
+      .rejects.toThrow(/only the configured manager/);
+    expect(s.configJson().members[0].workstreams).toBeUndefined();
+  });
+
+  it('refuses a workstream the project does not have', async () => {
+    const s = withTwo();
+    await expect(asUser(s, ALICE, h => h.member_scope({ ref: 'ravi@example.com', workstreams: ['nope'] })))
+      .rejects.toThrow(/no workstream "nope"/);
+  });
+
+  it('says the scope is advisory for a collaborator with a clone', async () => {
+    const s = withTwo();
+    const cfg = s.configJson();
+    cfg.members = [{ key: 'github:7', name: 'Priya', login: 'priyar', email: null }];
+    s.write('.teamctx/config.json', JSON.stringify(cfg));
+    const r = await asUser(s, ALICE, h => json(h.member_scope({ ref: 'priyar', workstreams: ['engineering'] })));
+    expect(r.reportBack).toMatch(/advisory/i);
+  });
+
+  it('does not call it advisory for somebody with no clone', async () => {
+    const s = withTwo();
+    const r = await asUser(s, ALICE, h => json(h.member_scope({ ref: 'ravi@example.com', workstreams: ['engineering'] })));
+    expect(r.reportBack).not.toMatch(/advisory/i);
+  });
+});
+
+describe('the project itself is always reachable', () => {
+  // Inherited, read-only background. A scoped member whose brief omits it is
+  // reading a branch with no idea what it hangs off — the incoherent brief this
+  // whole layer exists to remove.
+  const RAVI = { key: 'git:ravi@example.com', name: 'Ravi', login: null, email: 'ravi@example.com', source: 'google' };
+
+  const scoped = () => {
+    const s = fakeSession();
+    s.write('.teamctx/config.json', JSON.stringify({
+      ...CONFIG,
+      workstreams: [{ id: 'product', name: 'Product' }, { id: 'engineering', name: 'Engineering' }],
+      members: [{ key: RAVI.key, name: 'Ravi', email: RAVI.email, login: null, workstreams: ['engineering'] }],
+    }));
+    s.write('.teamctx/project.json', JSON.stringify({ name: 'Ledger', whys: [{ id: 'p1', text: 'ship it', whats: [] }] }));
+    s.write('.teamctx/workstreams/engineering.json', JSON.stringify({ id: 'engineering', name: 'Engineering', whys: [] }));
+    s.write('.teamctx/workstreams/product.json', JSON.stringify({ id: 'product', name: 'Product', whys: [] }));
+    return s;
+  };
+
+  it('lets a scoped member read the project tree', async () => {
+    const r = await asUser(scoped(), RAVI, h => json(h.get_workstream({})));
+    expect(r.whys[0].text).toBe('ship it');
+  });
+
+  it('lets them read it by the name it used to have', async () => {
+    const r = await asUser(scoped(), RAVI, h => json(h.get_workstream({ id: 'main' })));
+    expect(r.whys[0].text).toBe('ship it');
+  });
+
+  it('lets them move back to it after switching', async () => {
+    // Otherwise picking a workstream is a one-way door out of the whole picture.
+    const s = scoped();
+    await asUser(s, RAVI, h => h.workstream_use({ id: 'engineering' }));
+    const back = await asUser(s, RAVI, h => json(h.workstream_use({})));
+    expect(back.activeWorkstream).toBe(null);
+  });
+
+  it('still refuses a workstream they are not on', async () => {
+    await expect(asUser(scoped(), RAVI, h => h.workstream_use({ id: 'product' })))
+      .rejects.toThrow(/no workstream "product"/);
+  });
+});
+
+describe('what a hosted read must not miss', () => {
+  // Each of these was live on a real project at once, and together they made it
+  // look corrupted: contributions landed correctly and then read as lost, a
+  // scoped member saw a workstream they could not open, and every agent was
+  // told the project had no manager.
+  const RAVI = { key: 'git:ravi@example.com', name: 'Ravi', login: null, email: 'ravi@example.com', source: 'google' };
+
+  const withProject = (members = []) => {
+    const s = fakeSession();
+    s.write('.teamctx/config.json', JSON.stringify({
+      ...CONFIG,
+      workstreams: [{ id: 'product', name: 'Product' }, { id: 'engineering', name: 'Engineering' }],
+      members,
+    }));
+    s.write('.teamctx/project.json', JSON.stringify({
+      name: 'Ledger', whys: [{ id: 'p1', text: 'nobody ships before Q3', whats: [] }],
+    }));
+    s.write('.teamctx/workstreams/engineering.json', JSON.stringify({ id: 'engineering', name: 'Engineering', whys: [] }));
+    s.write('.teamctx/workstreams/product.json', JSON.stringify({ id: 'product', name: 'Product', whys: [] }));
+    return s;
+  };
+
+  it('counts the project tree in totalWhys', async () => {
+    // It did not, so a contribution to the project moved nothing on screen and
+    // read as an orphaned write.
+    const r = await asUser(withProject(), ALICE, h => json(h.get_status()));
+    expect(r.projectWhys).toBe(1);
+    expect(r.totalWhys).toBe(1);
+  });
+
+  it('returns the project tree from get_context', async () => {
+    const r = await asUser(withProject(), ALICE, h => json(h.get_context()));
+    expect(r.workstreams[0].id).toBe(null);
+    expect(r.workstreams[0].tree.whys[0].text).toBe('nobody ships before Q3');
+  });
+
+  it('does not list a workstream in status that the caller cannot open', async () => {
+    // Listing one and then refusing it is what made a member's agent conclude
+    // the data was corrupt rather than that they were scoped.
+    const s = withProject([{ key: RAVI.key, name: 'Ravi', email: RAVI.email, login: null, workstreams: ['engineering'] }]);
+    const r = await asUser(s, RAVI, h => json(h.get_status()));
+    expect(r.workstreams.map(w => w.id)).toEqual(['engineering']);
+    expect(r.scopedTo).toEqual(['engineering']);
+  });
+
+  it('still shows the manager everything', async () => {
+    const s = withProject([{ key: RAVI.key, name: 'Ravi', email: RAVI.email, login: null, workstreams: ['engineering'] }]);
+    const r = await asUser(s, ALICE, h => json(h.get_status()));
+    const ids = r.workstreams.map(w => w.id);
+    expect(ids).toContain('engineering');
+    expect(ids).toContain('product');
+    expect(r.scopedTo).toBeUndefined();
+  });
+
+  it('reports the gate, not the empty legacy field', async () => {
+    // Reading `config.manager` alone said "no manager" on every project created
+    // since it stopped being written — and an agent told that says the gate is
+    // open, which is both alarming and false.
+    const r = await asUser(withProject(), ALICE, h => json(h.get_status()));
+    expect(r.manager).toBe(CONFIG.managerKey);
+  });
+});
+
+describe('the project layer migration, run through a hosted session', () => {
+  /**
+   * Every other migration test runs against a real filesystem. Hosted projects
+   * are where most projects now are, and they reach storage through the session
+   * buffer instead — a path that was skipped entirely until this branch, so a
+   * hosted project would have sat unmigrated forever.
+   */
+  const legacy = () => {
+    const files = new Map([
+      ['.teamctx/config.json', { content: JSON.stringify({
+        ...CONFIG,
+        workstreams: [{ id: 'main', name: 'Ledger' }, { id: 'engineering', name: 'Engineering' }],
+        activeWorkstream: 'main',
+        roles: [{ slug: 'cpo', name: 'CPO', workstream: 'main' }],
+        workstreamsMigrated: true,
+        // The point of this fixture: a project from before the project layer.
+        projectLayerMigrated: undefined,
+      }), sha: 'a' }],
+      ['.teamctx/contributions.jsonl', { content: '', sha: 'b' }],
+      ['.teamctx/workstreams/main.json', { content: JSON.stringify({
+        id: 'main', name: 'Ledger',
+        whys: [{ id: 'w1', text: 'ship the ledger', whats: [] }],
+        tasks: [{ id: 't-old', title: 'book the venue', status: 'open', workstream: 'main' }],
+      }), sha: 'c' }],
+      ['.teamctx/workstreams/engineering.json', { content: JSON.stringify({
+        id: 'engineering', name: 'Engineering', whys: [{ id: 'e1', text: 'hire two' }],
+      }), sha: 'd' }],
+      ['.teamctx/context/workstreams/main.md', { content: '# Project Context — Ledger\n', sha: 'e' }],
+    ]);
+    const s = fakeSession();
+    s.read = p => files.get(p) || null;
+    s.write = (p, c) => files.set(p, { content: String(c), sha: null });
+    s.del = p => files.delete(p);
+    s.listDir = dirPath => {
+      const prefix = dirPath.endsWith('/') ? dirPath : `${dirPath}/`;
+      return [...files.keys()]
+        .filter(k => k.startsWith(prefix) && !k.slice(prefix.length).includes('/'))
+        .map(k => k.slice(prefix.length)).sort();
+    };
+    s.configJson = () => JSON.parse(files.get('.teamctx/config.json').content);
+    s.projectJson = () => JSON.parse(files.get('.teamctx/project.json').content);
+    s.has = p => files.has(p);
+    return s;
+  };
+
+  it('runs on the first tool call rather than leaving the project half-migrated', async () => {
+    const s = legacy();
+    await asUser(s, ALICE, h => json(h.get_status()));
+    expect(s.has('.teamctx/project.json')).toBe(true);
+    expect(s.configJson().projectLayerMigrated).toBe(true);
+  });
+
+  it('moves the context off main onto the project, and deletes main', async () => {
+    const s = legacy();
+    await asUser(s, ALICE, h => json(h.get_status()));
+    expect(s.projectJson().whys.map(w => w.id)).toEqual(['w1']);
+    expect(s.has('.teamctx/workstreams/main.json')).toBe(false);
+    expect(s.configJson().workstreams.map(w => w.id)).toEqual(['engineering']);
+  });
+
+  it('carries the tasks main was holding', async () => {
+    const s = legacy();
+    await asUser(s, ALICE, h => json(h.get_status()));
+    expect(s.projectJson().tasks.map(t => t.id)).toEqual(['t-old']);
+  });
+
+  it('rebinds a main-bound role and unsets the active workstream', async () => {
+    const s = legacy();
+    await asUser(s, ALICE, h => json(h.get_status()));
+    expect(s.configJson().roles[0].workstream).toBe(null);
+    expect(s.configJson().activeWorkstream).toBe(null);
+  });
+
+  it('leaves the caller reading the same context afterwards', async () => {
+    const s = legacy();
+    const r = await asUser(s, ALICE, h => json(h.get_context()));
+    expect(r.workstreams[0].id).toBe(null);
+    expect(r.workstreams[0].tree.whys[0].text).toBe('ship the ledger');
+    expect(r.workstreams.map(w => w.id)).not.toContain('main');
+  });
+
+  it('leaves the task reachable, not stranded in a file that is gone', async () => {
+    const s = legacy();
+    const r = await asUser(s, ALICE, h => json(h.get_task({ id: 't-old' })));
+    expect(r.title).toBe('book the venue');
+  });
+
+  it('does nothing the second time', async () => {
+    const s = legacy();
+    await asUser(s, ALICE, h => json(h.get_status()));
+    const after = JSON.stringify(s.projectJson());
+    await asUser(s, BOB, h => json(h.get_status()));
+    expect(JSON.stringify(s.projectJson())).toBe(after);
   });
 });
 

@@ -20,9 +20,12 @@ const execFileAsync = promisify(execFile);
  * an identity scheme, so a member joins up with the contributions they have
  * already made and with the authorKey grouping `teamctx stats` counts by.
  *
- * Members are project-wide, not per-workstream. Workstreams are a view over one
- * context tree in one repo: anyone who can read the repo reads every
- * workstream, so per-workstream membership would be a label enforcing nothing.
+ * Members are project-wide by default. A member may instead be scoped to named
+ * workstreams, which is enforced for anyone reaching the project through the
+ * server on its lent credential — they have no repository access of their own,
+ * so the server is their only path. For anyone holding a clone it stays what it
+ * always was, a label over a repo they can read in full; `addMember` says so
+ * rather than implying a wall that is not there. See src/member-scope.js.
  */
 
 export class MemberNotFoundError extends Error {
@@ -174,8 +177,62 @@ export async function inviteCollaborator({
   }
 }
 
+export class UnknownWorkstreamsError extends Error {
+  constructor(unknown, known) {
+    super(`no workstream ${unknown.map(w => `"${w}"`).join(', ')} on this project. Known: ${known.join(', ') || 'none'}.`);
+    this.code = 'UNKNOWN_WORKSTREAMS';
+    this.unknown = unknown;
+  }
+}
+
+function normaliseScope(workstreams, config) {
+  if (workstreams === undefined || workstreams === null) return null;
+  const list = (Array.isArray(workstreams) ? workstreams : [workstreams])
+    .map(w => String(w ?? '').trim()).filter(Boolean);
+  if (!list.length) return null;
+  const known = (config.workstreams || []).map(w => w.id);
+  const unknown = list.filter(w => !known.includes(w));
+  if (unknown.length) throw new UnknownWorkstreamsError(unknown, known);
+  return [...new Set(list)];
+}
+
+/**
+ * Change which workstreams an existing member may reach.
+ *
+ * Manager-gated for the same reason `member add` is: scope decides what someone
+ * can read, so a member able to widen their own is not scoped at all. Passing
+ * nothing clears the scope and returns them to project-wide, which is the shape
+ * every member had before this existed.
+ */
+export async function setMemberWorkstreams({
+  ref, workstreams, teamctxDir, projectDir, actor,
+} = {}) {
+  const config = readConfig(teamctxDir);
+  const resolved = actor || await resolveActor({ config, cwd: projectDir });
+  const displayName = await resolveDisplayName({ actor: resolved, config, teamctxDir });
+  assertManager(config, { actor: resolved, displayName });
+
+  const members = config.members || [];
+  const existing = findMember(members, ref);
+  if (!existing) throw new MemberNotFoundError(ref);
+
+  const scope = normaliseScope(workstreams, config);
+  const updated = { ...existing };
+  if (scope) updated.workstreams = scope;
+  else delete updated.workstreams;
+
+  const next = members.map(m => (m === existing ? updated : m));
+  writeConfig({ ...config, members: next }, teamctxDir);
+  const git = await commitAndPush(
+    config,
+    `member: scope ${updated.name} to ${scope ? scope.join(', ') : 'the whole project'} by ${displayName}`,
+    projectDir, resolved,
+  );
+  return { member: updated, workstreams: scope, ...git };
+}
+
 export async function addMember({
-  ref, name, invite = false, permission = 'push',
+  ref, name, invite = false, permission = 'push', workstreams,
   owner, repo, ghToken, teamctxDir, projectDir, actor,
 } = {}) {
   const config = readConfig(teamctxDir);
@@ -188,6 +245,11 @@ export async function addMember({
   const existing = findMember(members, login || email);
   if (existing) throw new MemberExistsError(existing);
 
+  // Checked against the project's own workstreams, because a typo here is
+  // silent and expensive: it produces a member scoped to a workstream that does
+  // not exist, which is a member who can reach nothing and no message saying so.
+  const scope = normaliseScope(workstreams, config);
+
   const member = {
     // Without a GitHub id the login is still stable enough to group by; it is
     // upgraded to github:<id> the first time that person acts.
@@ -195,6 +257,9 @@ export async function addMember({
     name: name || login || email,
     login,
     email,
+    // Absent rather than empty for a project-wide member, so a roster written
+    // before scopes existed and one written after are the same shape.
+    ...(scope ? { workstreams: scope } : {}),
     addedBy: resolved.key,
     addedAt: new Date().toISOString().slice(0, 10),
   };
