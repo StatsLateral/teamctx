@@ -179,6 +179,7 @@ config.command('provider [value]').description('Get or set the AI provider (anth
 config.command('model [value]').description('Get or set the AI model').action(configModelCommand);
 config.command('github-raw-base [value]').description('Get or set the GitHub raw base URL').action(configGithubRawBaseCommand);
 config.command('manager').description('Show who may approve or reject (pinned at init, not settable)')
+  .option('--repair', 'Re-pin a display-name gate that nobody can match to your own identity')
   .action(configManagerCommand);
 config.command('review-policy [value]').description('Show or set how much of a contribution needs manager approval (manager only)')
   .action(configReviewPolicyCommand);
