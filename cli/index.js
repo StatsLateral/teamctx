@@ -12,6 +12,7 @@ import { contributeCommand } from './commands/contribute.js';
 import { importCommand } from './commands/import.js';
 import { authCommand } from './commands/auth.js';
 import { askCommand } from './commands/ask.js';
+import { briefCommand } from './commands/brief.js';
 import { pullCommand } from './commands/pull.js';
 import { reflectCommand } from './commands/reflect.js';
 import { contextCommand } from './commands/context.js';
@@ -64,6 +65,8 @@ role.command('assign <slug>').description("Move a role to a workstream and regen
   .requiredOption('--workstream <id>', 'Target workstream id')
   .action(roleAssignCommand);
 
+program.command('brief').description('What you are working on and the context behind it — read this before you start')
+  .action(briefCommand);
 program.command('contribute <text>').description('Add context — AI proposes changes and enqueues for manager approval')
   .option('--decision', 'Tag as a human decision (never pruned by reflect)')
   .option('--auto-approve', 'Skip the y/n confirmation on the proposed diff')
