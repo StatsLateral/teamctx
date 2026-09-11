@@ -1,13 +1,19 @@
 # Sub-workstreams
 
-A single teamctx project can hold multiple **workstreams** — independent
-Why / What / How trees for distinct threads of work. Each role is bound to
-one workstream, so a role's compiled context file stays sharp instead of
-mixing unrelated threads.
+A teamctx project has one **project** Why / What / How tree, and zero or more
+**workstreams** — branches of it, developed further as separate threads of
+work. A workstream inherits the project tree at compile time and adds its own,
+so a role's compiled context reads as the whole picture followed by their part
+of it, rather than one tree with no idea what it hangs off.
 
-New projects start with a single workstream, `main`. When the tree grows to
-mix threads (e.g. product strategy vs. technical architecture), the AI can
+New projects start with a project tree and no workstreams. When the tree grows
+to mix threads (e.g. product strategy vs. technical architecture), the AI can
 propose a split, and you keep the manager in the loop for every decision.
+
+There is no `main`. It used to be created at `init` and quietly did two jobs —
+a workstream, and wherever "the project" had to live because nothing else could
+— which is the confusion the project tree removes. Existing projects are
+migrated; see [Migration](#migration).
 
 - [When to use them](#when-to-use-them)
 - [End-to-end example](#end-to-end-example)
@@ -215,13 +221,21 @@ and safe to re-run.
 
 What happens on first run:
 
-- `.teamctx/shared.json` → `.teamctx/workstreams/main.json`.
-- `.teamctx/context/shared.md` → `.teamctx/context/workstreams/main.md`.
-- `config.json` gains
-  `workstreams: [{ id: "main", name: <project>, createdAt: ... }]`,
-  `activeWorkstream: "main"`, and `workstreamsMigrated: true`.
-- Every existing role is bound to `main` unless it already has an explicit
-  `workstream` field.
+- `.teamctx/shared.json` → `.teamctx/project.json`.
+- `.teamctx/context/shared.md` → `.teamctx/context/project.md`.
+- Anything that was in a `main` workstream becomes the project tree, and `main`
+  is removed from `workstreams[]`.
+- `activeWorkstream` is unset — meaning "working on the project" — rather than
+  pointed at a surviving workstream, which would silently move where somebody
+  works.
+- Roles bound to `main` rebind to project level; roles on other workstreams are
+  untouched, and those workstreams keep their own nodes and now also inherit.
+- `config.json` gains `workstreamsMigrated: true` and
+  `projectLayerMigrated: true`.
+
+A project whose only workstream was `main` ends up with a project tree and no
+workstreams — **its compiled output is unchanged**. `--workstream main` and a
+stored `activeWorkstream: "main"` keep resolving, to project level.
 - The old `shared.json` and `context/shared.md` are removed.
 
 There is nothing manual to do. Your next `teamctx contribute` (or any

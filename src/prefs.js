@@ -3,6 +3,7 @@ import { join, dirname } from 'path';
 import { getCurrentSession } from './session-context.js';
 import { getTeamctxDir } from './storage.js';
 import { kvGet, kvSet, keys } from './oauth/kv.js';
+import { isProjectLevel } from './project-level.js';
 
 /**
  * Per-user settings.
@@ -139,14 +140,22 @@ export async function writePrefs(actor, patch, teamctxDir) {
 }
 
 /**
- * The workstream this actor is working in.
+ * Where this caller is working, or `null` for the project itself.
  *
- * `config.activeWorkstream` survives as the *project default* — what a person
- * who has never switched sees — so nothing changes for an existing project.
+ * `main` used to be the fallback, and was also the project — so "nowhere in
+ * particular" and "the project" were the same answer by accident. They are the
+ * same answer on purpose now, and `null` says so: after migration there is no
+ * `main` to fall back to, and a caller who has never chosen a workstream is
+ * working on the project.
+ *
+ * A stored `main` still resolves here rather than being rejected: preferences
+ * outlive the thing they point at. `config.activeWorkstream` survives as the
+ * project default, what somebody who has never switched sees.
  */
 export async function resolveActiveWorkstream({ actor, config, teamctxDir } = {}) {
   const prefs = await readPrefs(actor, teamctxDir);
-  return prefs.activeWorkstream || config?.activeWorkstream || 'main';
+  const chosen = prefs.activeWorkstream || config?.activeWorkstream || null;
+  return isProjectLevel(chosen) ? null : chosen;
 }
 
 /**

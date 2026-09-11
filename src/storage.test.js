@@ -16,7 +16,7 @@ import {
   readWorkstream, writeWorkstream, listWorkstreamIds,
   readWorkstreamMd, writeWorkstreamMd,
   listTasks, readTask, writeTask, deleteTask, resolveTaskId,
-  writeTaskFile, readTaskFile, taskFileExists, taskFilePath,
+  writeTaskFile, readTaskFile, taskFileExists, taskFilePath, readProject,
 } from './storage.js';
 
 let dir;
@@ -298,22 +298,23 @@ describe('tasks', () => {
     expect(listTasks({}, dir)).toEqual([]);
   });
 
-  it('writeTask upserts into the correct workstream and readTask round-trips', () => {
-    writeWorkstream('main', { id: 'main', name: 'M', whys: [] }, dir);
+  it('writeTask upserts into the project tree and readTask round-trips', () => {
+    // `main` is project level now, so a task recorded against it lands in the
+    // project tree rather than in a workstream file that no longer exists.
     const t = mkTask('t-plan');
     writeTask(t, dir);
-    const ws = readWorkstream('main', dir);
-    expect(ws.tasks).toEqual([t]);
-    expect(readTask('t-plan', dir)).toEqual({ task: t, workstream: 'main' });
+    expect(readProject(dir).tasks).toEqual([t]);
+    // Read back normalised: a stored `main` comes out as project level, so
+    // nothing downstream has to keep remembering that the two are the same.
+    expect(readTask('t-plan', dir)).toEqual({ task: { ...t, workstream: null }, workstream: null });
   });
 
   it('writeTask updates an existing task in place (no duplicate)', () => {
-    writeWorkstream('main', { id: 'main', name: 'M', whys: [] }, dir);
     writeTask(mkTask('t-plan'), dir);
     writeTask(mkTask('t-plan', { status: 'done', doneAt: '2026-07-25' }), dir);
-    const ws = readWorkstream('main', dir);
-    expect(ws.tasks).toHaveLength(1);
-    expect(ws.tasks[0].status).toBe('done');
+    const project = readProject(dir);
+    expect(project.tasks).toHaveLength(1);
+    expect(project.tasks[0].status).toBe('done');
   });
 
   it('writeTask lands on the workstream named in the task', () => {
@@ -356,13 +357,12 @@ describe('tasks', () => {
     expect(resolveTaskId('t-plan', dir)).toBe('t-plan');
   });
 
-  it('deleteTask removes from workstream and its compiled file', () => {
-    writeWorkstream('main', { id: 'main', name: 'M', whys: [] }, dir);
+  it('deleteTask removes the task and its compiled file', () => {
     writeTask(mkTask('t-plan'), dir);
     writeTaskFile('t-plan', '# compiled\n', dir);
     expect(taskFileExists('t-plan', dir)).toBe(true);
     deleteTask('t-plan', dir);
-    expect(readWorkstream('main', dir).tasks).toEqual([]);
+    expect(readProject(dir).tasks).toEqual([]);
     expect(taskFileExists('t-plan', dir)).toBe(false);
   });
 

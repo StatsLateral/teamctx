@@ -1,4 +1,5 @@
 import { proposeDiff, callClaude, extractJson } from './ai.js';
+import { resolveTarget, targetLabel } from './project-level.js';
 import { applyOps } from './ops.js';
 import {
   collectContributorCounts, collectSourceRefs,
@@ -30,19 +31,8 @@ function sourceTag(node) {
 // prompt; `includeContributors` appends the `## Contributors` roll-up. The
 // roll-up belongs in the markdown we write to disk, not in prompts we send to
 // the AI, so prompt builders pass `includeContributors: false`.
-export function serializeToMd(workstream, projectName, lastUpdatedBy = '', contributions = [], { includeSourceTags = false, includeContributors = true } = {}) {
-  const now = new Date().toISOString().split('T')[0];
-  const byLine = lastUpdatedBy ? ` · Source: ${lastUpdatedBy} contribution` : '';
-  const header = `# Project Context — ${projectName}\n*Last updated: ${now}${byLine}*\n\n## Why / What / How\n\n`;
-
-  if (!workstream.whys || workstream.whys.length === 0) {
-    return header + '*No context yet. Run `teamctx contribute` to add the first contribution.*\n';
-  }
-
-  const contributionsById = new Map(contributions.map(c => [c.id, c]));
-  const tagFor = includeSourceTags ? sourceTag : () => '';
-
-  const tree = workstream.whys.map(why => {
+function renderTree(whys, contributionsById, tagFor) {
+  return (whys || []).map(why => {
     let out = `- **Why:** ${why.text}${decisionMarker(why, contributionsById)}${tagFor(why)}\n`;
     (why.whats || []).forEach(what => {
       out += `  - **What:** ${what.text}${decisionMarker(what, contributionsById)}${tagFor(what)}\n`;
@@ -52,6 +42,47 @@ export function serializeToMd(workstream, projectName, lastUpdatedBy = '', contr
     });
     return out;
   }).join('');
+}
+
+/** Render a workstream, with the project tree above it when one is passed. */
+export function serializeToMd(workstream, projectName, lastUpdatedBy = '', contributions = [], { includeSourceTags = false, includeContributors = true, project = null } = {}) {
+  const now = new Date().toISOString().split('T')[0];
+  const byLine = lastUpdatedBy ? ` · Source: ${lastUpdatedBy} contribution` : '';
+  const contributionsById = new Map(contributions.map(c => [c.id, c]));
+  const tagFor = includeSourceTags ? sourceTag : () => '';
+
+  const inheritedWhys = project?.whys || [];
+  // "Project Context — Engineering" above a section called "Project context"
+  // uses the same word for two different things in one document. When there is
+  // an inherited half to distinguish it from, the title stops claiming to be
+  // the project.
+  const title = inheritedWhys.length ? 'Context' : 'Project Context';
+  const header = `# ${title} — ${projectName}\n*Last updated: ${now}${byLine}*\n\n## Why / What / How\n\n`;
+
+  const ownWhys = workstream.whys || [];
+
+  // Empty means empty on both halves. An inherited tree is still context, so a
+  // workstream with none of its own is not a project that knows nothing.
+  if (ownWhys.length === 0 && inheritedWhys.length === 0) {
+    return header + '*No context yet. Run `teamctx contribute` to add the first contribution.*\n';
+  }
+
+  // The inherited half is concatenated here and stored nowhere: a workstream's
+  // JSON never holds project nodes. The compiled page is a different matter —
+  // it is written once and does not re-read anything, so a project-level write
+  // pushes the new tree back through every workstream's page itself. See
+  // `src/recompile.js`, which also says why role files are not in that pass.
+  //
+  // Labelled read-only because a reader has to be able to tell what they may add
+  // to from what is settled above them. Without that line the first thing a
+  // member does is propose an edit to something that was never theirs.
+  const inherited = inheritedWhys.length
+    ? '### Project context\n*Inherited from the project — read-only here.*\n\n'
+      + renderTree(inheritedWhys, contributionsById, tagFor)
+      + `\n### ${workstream.name || 'This workstream'}\n\n`
+    : '';
+
+  const tree = inherited + renderTree(ownWhys, contributionsById, tagFor);
 
   if (includeSourceTags || !includeContributors) return header + tree;
   const contributorsSection = formatContributorsSection(collectContributorCounts(workstream, contributions));
@@ -77,8 +108,8 @@ export async function updateShared(workstream, contribution, config, { intent, a
   return { workstream: updated, summary, operations };
 }
 
-export async function generateRoleFile(workstream, role, projectName, config, contributions = []) {
-  const tree = serializeToMd(workstream, projectName, '', contributions, { includeContributors: false });
+export async function generateRoleFile(workstream, role, projectName, config, contributions = [], { project = null } = {}) {
+  const tree = serializeToMd(workstream, projectName, '', contributions, { includeContributors: false, project });
   const now = new Date().toISOString().split('T')[0];
 
   const prompt = [
@@ -117,13 +148,13 @@ export async function generateRoleFile(workstream, role, projectName, config, co
   return callClaude({ prompt, model: config.model, config });
 }
 
-export async function compileTaskPrompt({ task, workstream, role, contributions, config }) {
+export async function compileTaskPrompt({ task, workstream, role, contributions, config, project = null }) {
   const projectName = config?.project || workstream?.name || 'project';
-  const tree = serializeToMd(workstream, projectName, '', contributions, { includeContributors: false });
+  const tree = serializeToMd(workstream, projectName, '', contributions, { includeContributors: false, project });
   const now = new Date().toISOString().split('T')[0];
   const roleLine = role ? `Framed for role: ${role.name} — ${role.responsibilities || ''}` : 'No role filter — write for a general team member.';
   const decisionsList = (contributions || [])
-    .filter(c => c.tagged === 'decision' && (c.workstream || 'main') === (task.workstream || 'main'))
+    .filter(c => c.tagged === 'decision' && resolveTarget(c.workstream) === resolveTarget(task.workstream))
     .slice(-8)
     .map(c => `- ${c.text} — ${c.author}, ${(c.ts || '').slice(0, 10)}, via ${c.source || 'cli'}`)
     .join('\n') || '(none yet)';
@@ -133,7 +164,7 @@ export async function compileTaskPrompt({ task, workstream, role, contributions,
     `Project: ${projectName}   Date: ${now}`,
     ``,
     `Task title: ${task.title}`,
-    `Task id: ${task.id}   Owner: ${task.owner || '(unassigned)'}   Workstream: ${task.workstream || 'main'}`,
+    `Task id: ${task.id}   Owner: ${task.owner || '(unassigned)'}   Belongs to: ${targetLabel(task.workstream, projectName)}`,
     roleLine,
     ``,
     `Full workstream context (Why/What/How tree — pick only what's relevant to THIS task):`,
@@ -146,7 +177,7 @@ export async function compileTaskPrompt({ task, workstream, role, contributions,
     ``,
     `# Task: ${task.title}`,
     ``,
-    `**Owner:** ${task.owner || '(unassigned)'} · **Workstream:** ${task.workstream || 'main'} · **Status:** ${task.status}`,
+    `**Owner:** ${task.owner || '(unassigned)'} · **Belongs to:** ${targetLabel(task.workstream, projectName)} · **Status:** ${task.status}`,
     `**Created:** ${task.createdAt || '-'} · **Compiled:** ${now}`,
     ``,
     `## Relevant context`,
@@ -277,11 +308,11 @@ function parseCitations(answer) {
   return { body, citedIds };
 }
 
-export async function answerQuestion({ sharedMd, roleMd, question, config, openTasks, workstream, contributions, audit }) {
+export async function answerQuestion({ sharedMd, roleMd, question, config, openTasks, workstream, contributions, audit, project = null }) {
   const contribs = contributions || [];
   const useCitedTags = !!workstream;
   const shared = useCitedTags
-    ? serializeToMd(workstream, workstream.name || config?.project || 'project', '', contribs, { includeSourceTags: true })
+    ? serializeToMd(workstream, workstream.name || config?.project || 'project', '', contribs, { includeSourceTags: true, project })
     : sharedMd;
   const tasksMd = (openTasks && openTasks.length)
     ? `## Open Tasks\n\n${openTasks.map(t => `- ${t.id} — ${t.title} (owner: ${t.owner || '?'})`).join('\n')}`

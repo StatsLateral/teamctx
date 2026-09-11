@@ -1,4 +1,5 @@
 import { callClaude, extractJson } from './ai.js';
+import { resolveTarget } from './project-level.js';
 
 export function slugify(name) {
   return name.toLowerCase().replace(/[^a-z0-9\s-]/g, '').trim().replace(/\s+/g, '-');
@@ -15,7 +16,9 @@ export function addRole(roleData, config) {
     responsibilities: roleData.responsibilities,
     excludes: roleData.excludes || '',
     email: roleData.email || '',
-    workstream: roleData.workstream || 'main',
+    // `null` is project level and is a real value here. Falling back to
+    // `main` wrote the name of a workstream that no longer exists.
+    workstream: resolveTarget(roleData.workstream),
     createdAt: new Date().toISOString(),
   };
   return { slug, config: { ...config, roles: [...config.roles, role] } };

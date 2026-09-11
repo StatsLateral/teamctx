@@ -1,56 +1,40 @@
 import { ask } from '../prompt.js';
-import { readConfig, readWorkstream, writeWorkstream, writeWorkstreamMd, readContributions, writeRoleFile } from '../../src/storage.js';
-import { generateReflection, serializeToMd, generateRoleFile } from '../../src/context.js';
-import { preserveSourcesThroughReflect } from '../../src/provenance.js';
-import { extractJson } from '../../src/ai.js';
-import { commitContext, pushContext } from '../../src/git.js';
-import { currentIdentity } from '../identity.js';
+import { readConfig, readContributions } from '../../src/storage.js';
+import { serializeToMd } from '../../src/context.js';
+import { reflectWorkstream } from './reflect.core.js';
+import { isProjectLevel, targetLabel } from '../../src/project-level.js';
 
+/**
+ * `teamctx reflect`, over the same code the MCP server calls.
+ *
+ * This was a second implementation, and the two had already diverged: only this
+ * one preserved provenance through a rewrite. Sharing the path is what stops
+ * that happening again — everything below is presentation and the y/n.
+ */
 export async function reflectCommand(opts = {}) {
   const config = readConfig();
-  const targetId = opts.workstream || (await currentIdentity(config)).activeWorkstream;
-  const workstream = readWorkstream(targetId);
-  const contributions = readContributions();
-
-  const wsName = config.workstreams?.find(w => w.id === targetId)?.name || workstream.name || config.project;
-  console.log(`\n→ Reviewing workstream "${targetId}" (${wsName})...`);
-  console.log(`  ${workstream.whys.length} Why nodes, ${contributions.length} contributions.\n`);
-
-  const raw = await generateReflection(workstream, contributions, config);
-
-  let updated;
+  let r;
   try {
-    const parsed = extractJson(raw);
-    const next = { ...workstream, whys: Array.isArray(parsed.whys) ? parsed.whys : workstream.whys };
-    updated = preserveSourcesThroughReflect(workstream, next);
+    r = await reflectWorkstream({
+      workstreamId: opts.workstream,
+      onProposed: async ({ updated, targetId }) => {
+        const name = targetLabel(targetId, config.project);
+        console.log(`\n→ Reviewing ${isProjectLevel(targetId) ? 'the project' : `workstream "${targetId}"`} (${name})...\n`);
+        console.log('Proposed reflected context:\n');
+        console.log(serializeToMd(updated, name, '', readContributions()));
+        return (await ask('Apply this reflection? (y/n)', 'y')).toLowerCase() === 'y';
+      },
+    });
   } catch (err) {
-    console.error('Error: AI returned invalid JSON. Reflection aborted.');
-    console.error(err.message);
+    console.error(`\nError: ${err.message}\n`);
+    process.exit(1);
     return;
   }
 
-  console.log('Proposed reflected context:\n');
-  console.log(serializeToMd(updated, wsName, '', contributions));
-
-  const answer = await ask('Apply this reflection? (y/n)', 'y');
-  if (answer.toLowerCase() !== 'y') { console.log('Reflection discarded.'); return; }
-
-  writeWorkstream(targetId, updated);
-  writeWorkstreamMd(targetId, serializeToMd(updated, wsName, 'reflect', contributions));
-
-  const rolesOnTarget = (config.roles || []).filter(r => (r.workstream || 'main') === targetId);
-  if (rolesOnTarget.length > 0) {
-    console.log(`\n→ Regenerating ${rolesOnTarget.length} role file${rolesOnTarget.length !== 1 ? 's' : ''}...`);
-    for (const role of rolesOnTarget) {
-      const md = await generateRoleFile(updated, role, config.project, config, contributions);
-      writeRoleFile(role.slug, md);
-      process.stdout.write(`  ✓ ${role.slug}.md\n`);
-    }
+  if (!r.applied) { console.log('Reflection discarded.'); return; }
+  if (r.rolesRegenerated.length) {
+    console.log(`\n→ Regenerated ${r.rolesRegenerated.length} role file${r.rolesRegenerated.length !== 1 ? 's' : ''}: ${r.rolesRegenerated.join(', ')}`);
   }
-
-  await commitContext(`context: reflect ${targetId} — AI rewrote shared context`);
-  if (config.autoPush) {
-    try { await pushContext(); } catch (err) { console.log(`Push failed (${err.message?.split('\n')[0] || err.stderr?.trim() || 'no remote?'}) — run \`git push\` manually.`); }
-  }
+  if (r.pushError) console.log(`Push failed (${r.pushError}) — run \`git push\` manually.`);
   console.log('\n✓ Context reflected and committed.');
 }

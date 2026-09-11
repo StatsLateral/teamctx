@@ -1,5 +1,8 @@
-import { readConfig, readWorkstream, writeWorkstream, writeWorkstreamMd, readContributions, writeRoleFile, listWorkstreamIds } from '../../src/storage.js';
+import { readProject, readConfig, readTree, writeTree, writeTreeMd, readContributions, writeRoleFile, listWorkstreamIds } from '../../src/storage.js';
+import { resolveTarget, isProjectLevel } from '../../src/project-level.js';
+import { recompileInheritors } from '../../src/recompile.js';
 import { generateReflection, serializeToMd, generateRoleFile } from '../../src/context.js';
+import { preserveSourcesThroughReflect } from '../../src/provenance.js';
 import { extractJson } from '../../src/ai.js';
 import { commitContext, pushContext } from '../../src/git.js';
 import { UnknownWorkstreamError } from './role.core.js';
@@ -16,7 +19,7 @@ async function activeId(config, teamctxDir, projectDir) {
 }
 
 
-export async function reflectWorkstream({ workstreamId, teamctxDir, projectDir } = {}) {
+export async function reflectWorkstream({ workstreamId, teamctxDir, projectDir, onProposed } = {}) {
   const config = readConfig(teamctxDir);
   // Reflect replaces the whole tree with whatever the model returns — there is
   // no smaller unit of it to queue, and no diff anyone is shown. So it follows
@@ -29,29 +32,46 @@ export async function reflectWorkstream({ workstreamId, teamctxDir, projectDir }
       displayName: await resolveDisplayName({ actor, config, teamctxDir }),
     });
   }
-  const targetId = workstreamId || await activeId(config, teamctxDir, projectDir);
-  const knownIds = new Set([...(config.workstreams || []).map(w => w.id), ...listWorkstreamIds(teamctxDir)]);
-  if (!knownIds.has(targetId)) throw new UnknownWorkstreamError(targetId);
-  const workstream = readWorkstream(targetId, teamctxDir);
+  const targetId = resolveTarget(workstreamId ?? await activeId(config, teamctxDir, projectDir));
+  if (!isProjectLevel(targetId)) {
+    const knownIds = new Set([...(config.workstreams || []).map(w => w.id), ...listWorkstreamIds(teamctxDir)]);
+    if (!knownIds.has(targetId)) throw new UnknownWorkstreamError(targetId);
+  }
+  const workstream = readTree(targetId, teamctxDir);
   const contributions = readContributions(teamctxDir);
 
   const raw = await generateReflection(workstream, contributions, config);
   let updated;
   try {
     const parsed = extractJson(raw);
-    updated = { ...workstream, whys: Array.isArray(parsed.whys) ? parsed.whys : workstream.whys };
+    const next = { ...workstream, whys: Array.isArray(parsed.whys) ? parsed.whys : workstream.whys };
+    // Without this a reflection silently drops every statement's provenance —
+    // the CLI has always done it and this path never did, so a rewrite over MCP
+    // cost the project its "where did this come from" trail.
+    updated = preserveSourcesThroughReflect(workstream, next);
   } catch (err) {
     throw new Error(`AI returned invalid JSON. Reflection aborted. ${err.message}`);
   }
 
-  const wsName = config.workstreams?.find(w => w.id === targetId)?.name || workstream.name || config.project;
-  writeWorkstream(targetId, updated, teamctxDir);
-  writeWorkstreamMd(targetId, serializeToMd(updated, wsName, 'reflect', contributions), teamctxDir);
+  if (onProposed && (await onProposed({ workstream, updated, targetId })) === false) {
+    return { workstreamId: targetId, applied: false, updatedTree: null, rolesRegenerated: [], pushed: false, pushError: null };
+  }
 
-  const rolesOnTarget = (config.roles || []).filter(r => (r.workstream || 'main') === targetId);
+  const wsName = isProjectLevel(targetId)
+    ? (config.project || workstream.name || 'project')
+    : (config.workstreams?.find(w => w.id === targetId)?.name || workstream.name || config.project);
+  writeTree(targetId, updated, teamctxDir);
+  const project = isProjectLevel(targetId) ? null : readProject(teamctxDir);
+  writeTreeMd(targetId, serializeToMd(updated, wsName, 'reflect', contributions, { project }), teamctxDir);
+  // A rewrite of the project is a change to what every workstream inherits.
+  if (isProjectLevel(targetId)) {
+    recompileInheritors({ project: updated, config, contributions, teamctxDir });
+  }
+
+  const rolesOnTarget = (config.roles || []).filter(r => resolveTarget(r.workstream) === targetId);
   const rolesRegenerated = [];
   for (const role of rolesOnTarget) {
-    const md = await generateRoleFile(updated, role, config.project, config, contributions);
+    const md = await generateRoleFile(updated, role, config.project, config, contributions, { project });
     writeRoleFile(role.slug, md, teamctxDir);
     rolesRegenerated.push(role.slug);
   }
@@ -63,5 +83,5 @@ export async function reflectWorkstream({ workstreamId, teamctxDir, projectDir }
     catch (err) { pushError = err.message?.split('\n')[0] || err.stderr?.trim() || 'no remote?'; }
   }
 
-  return { workstreamId: targetId, updatedTree: updated, rolesRegenerated, pushed, pushError };
+  return { workstreamId: targetId, applied: true, updatedTree: updated, rolesRegenerated, pushed, pushError };
 }

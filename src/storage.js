@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync, mkdirSync, existsSync, appendFileSync, readdirSync, unlinkSync } from 'fs';
 import { join, dirname } from 'path';
 import { getCurrentSession } from './session-context.js';
+import { isProjectLevel, resolveTarget } from './project-level.js';
 
 /**
  * Storage layer.
@@ -342,6 +343,55 @@ export function writeCurrentSnapshotPointer(pointer, dir) {
   writeFileSync(join(d, 'current.json'), JSON.stringify(pointer, null, 2));
 }
 
+// ---- Project context ----
+
+/**
+ * The project's own Why/What/How tree.
+ *
+ * One level above workstreams, and the base every workstream inherits at compile
+ * time. Its own file rather than a reserved workstream id, because that is what
+ * `main` was — a workstream doing double duty with nothing in the data to tell
+ * the two roles apart.
+ *
+ * Missing reads as an empty tree, the same way a workstream does, so a project
+ * can be read before it has been migrated.
+ */
+export function readProject(dir) {
+  const s = sessionRead(ctxPath('project.json'));
+  if (s !== undefined) return s === null ? emptyProject() : JSON.parse(s);
+  const p = resolve(dir, 'project.json');
+  if (!existsSync(p)) return emptyProject();
+  return JSON.parse(readFileSync(p, 'utf-8'));
+}
+
+function emptyProject() {
+  return { name: '', whys: [] };
+}
+
+export function writeProject(project, dir) {
+  // `id` is dropped on the way in: a project is not a workstream, and leaving
+  // one there invites code to treat it as an id it can pass around.
+  const { id, ...rest } = project || {};
+  const body = JSON.stringify({ name: '', whys: [], ...rest }, null, 2);
+  if (sessionWrite(ctxPath('project.json'), body)) return;
+  writeFileSync(resolve(dir, 'project.json'), body);
+}
+
+export function readProjectMd(dir) {
+  const s = sessionRead(ctxPath('context', 'project.md'));
+  if (s !== undefined) return s === null ? '' : s;
+  const p = resolve(dir, 'context', 'project.md');
+  if (!existsSync(p)) return '';
+  return readFileSync(p, 'utf-8');
+}
+
+export function writeProjectMd(content, dir) {
+  if (sessionWrite(ctxPath('context', 'project.md'), content)) return;
+  const mdDir = resolve(dir, 'context');
+  mkdirSync(mdDir, { recursive: true });
+  writeFileSync(join(mdDir, 'project.md'), content);
+}
+
 // ---- Workstreams ----
 
 function sanitizeWorkstreamId(id) {
@@ -459,14 +509,36 @@ export function deleteTaskFile(id, dir) {
   if (existsSync(p)) unlinkSync(p);
 }
 
-export function listTasks({ workstream } = {}, dir) {
-  const ids = workstream ? [workstream] : listWorkstreamIds(dir);
+/**
+ * Tasks live inside the tree they belong to, and the project is now one of
+ * those trees.
+ *
+ * `workstream` absent means every tree, including the project's. Passing it
+ * explicitly as `null` means the project alone — which is why the key has to be
+ * tested for presence rather than for truthiness: "the project" and "everywhere"
+ * are both falsy and are not the same request.
+ */
+export function listTasks(opts = {}, dir) {
+  const scoped = Object.prototype.hasOwnProperty.call(opts, 'workstream');
+  const targets = scoped ? [isProjectLevel(opts.workstream) ? null : opts.workstream]
+    : [null, ...listWorkstreamIds(dir)];
+  // Deduped by id, because a project part-way through the migration can have a
+  // project tree and a `main` workstream at once, and a task recorded in both
+  // would otherwise be counted twice — enough to make a prefix look ambiguous
+  // against itself.
+  const seen = new Set();
   const out = [];
-  for (const wsId of ids) {
-    const ws = readWorkstream(wsId, dir);
-    const tasks = Array.isArray(ws.tasks) ? ws.tasks : [];
+  for (const target of targets) {
+    const tree = readTree(target, dir);
+    const tasks = Array.isArray(tree.tasks) ? tree.tasks : [];
     for (const task of tasks) {
-      out.push({ ...task, workstream: task.workstream || wsId });
+      if (seen.has(task.id)) continue;
+      seen.add(task.id);
+      // The tree it was found in decides where it lives when the task does
+      // not say — checking the task's own field first made an old task with no
+      // workstream on it read as project-level, which for a scoped member is a
+      // sibling's task appearing in their list.
+      out.push({ ...task, workstream: resolveTarget(task.workstream ?? target) });
     }
   }
   return out;
@@ -494,24 +566,74 @@ export function readTask(idOrPrefix, dir) {
 
 export function writeTask(task, dir) {
   sanitizeTaskId(task?.id);
-  const wsId = task.workstream || 'main';
-  sanitizeWorkstreamId(wsId);
-  const ws = readWorkstream(wsId, dir);
+  const wsId = isProjectLevel(task.workstream) ? null : task.workstream;
+  if (wsId !== null) sanitizeWorkstreamId(wsId);
+  const ws = readTree(wsId, dir);
   const tasks = Array.isArray(ws.tasks) ? ws.tasks : [];
   const idx = tasks.findIndex(t => t.id === task.id);
   if (idx >= 0) tasks[idx] = task;
   else tasks.push(task);
   ws.tasks = tasks;
-  writeWorkstream(wsId, ws, dir);
+  writeTree(wsId, ws, dir);
 }
 
 export function deleteTask(idOrPrefix, dir) {
   const id = resolveTaskId(idOrPrefix, dir);
   const { workstream: wsId } = readTask(id, dir);
-  const ws = readWorkstream(wsId, dir);
+  const ws = readTree(wsId, dir);
   ws.tasks = (ws.tasks || []).filter(t => t.id !== id);
-  writeWorkstream(wsId, ws, dir);
+  writeTree(wsId, ws, dir);
   deleteTaskFile(id, dir);
   return { id, workstream: wsId };
 }
 
+
+// ---- Targets: the project, or one workstream ----
+
+/**
+ * Read whichever tree a caller is pointed at.
+ *
+ * Contribute, ask and reflect all do the same thing to either level, and the
+ * only difference is which file it lands in. Dispatching here keeps that
+ * difference in one place rather than putting the same `if` at the top of every
+ * command — which is how `main` came to mean two things to begin with.
+ */
+export function readTree(target, dir) {
+  return isProjectLevel(target) ? readProject(dir) : readWorkstream(target, dir);
+}
+
+export function writeTree(target, tree, dir) {
+  if (isProjectLevel(target)) return writeProject(tree, dir);
+  return writeWorkstream(target, tree, dir);
+}
+
+export function readTreeMd(target, dir) {
+  return isProjectLevel(target) ? readProjectMd(dir) : readWorkstreamMd(target, dir);
+}
+
+export function writeTreeMd(target, content, dir) {
+  if (isProjectLevel(target)) return writeProjectMd(content, dir);
+  return writeWorkstreamMd(target, content, dir);
+}
+
+/**
+ * Remove a workstream and its compiled file.
+ *
+ * Only the project-layer migration needs this, and it needs it in both modes —
+ * a hosted project has no filesystem to unlink from, and it is the one place
+ * `main` has to actually stop existing rather than merely stop being referenced.
+ */
+export function deleteWorkstream(id, dir) {
+  sanitizeWorkstreamId(id);
+  const jsonPath = ctxPath('workstreams', `${id}.json`);
+  const mdPath = ctxPath('context', 'workstreams', `${id}.md`);
+  if (getCurrentSession()) {
+    sessionDelete(jsonPath);
+    sessionDelete(mdPath);
+    return;
+  }
+  const json = resolve(dir, 'workstreams', `${id}.json`);
+  if (existsSync(json)) unlinkSync(json);
+  const md = resolve(dir, 'context', 'workstreams', `${id}.md`);
+  if (existsSync(md)) unlinkSync(md);
+}

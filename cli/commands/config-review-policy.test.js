@@ -5,7 +5,10 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-vi.mock('../../src/storage.js', () => ({ readConfig: vi.fn(), writeConfig: vi.fn() }));
+vi.mock('../../src/storage.js', () => ({
+  writeWorkstreamMd: vi.fn(),
+  readWorkstream: vi.fn(() => ({ id: 'w', name: 'W', whys: [] })),
+  listWorkstreamIds: vi.fn(() => []), readConfig: vi.fn(), writeConfig: vi.fn() }));
 vi.mock('./config.core.js', () => ({ setConfig: vi.fn(), setReviewPolicy: vi.fn() }));
 vi.mock('../../src/actor.js', () => ({
   resolveActor: vi.fn(async () => ({ key: 'github:1001', name: 'Ada' })),

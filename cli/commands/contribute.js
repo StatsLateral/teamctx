@@ -1,124 +1,79 @@
 import { ask } from '../prompt.js';
-import { readConfig, readWorkstream, writeWorkstream, writeWorkstreamMd, appendContribution, writeRoleFile, writeQueueItem, readContributions, listWorkstreamIds } from '../../src/storage.js';
-import { updateShared, generateRoleFile, serializeToMd } from '../../src/context.js';
-import { commitContext, pushContext } from '../../src/git.js';
-import { currentIdentity } from '../identity.js';
+import { contributeCore } from './contribute.core.js';
+import { isProjectLevel } from '../../src/project-level.js';
 
-function newContribution(text, author, authorKey, tagged, source, workstream) {
-  return {
-    id: `c-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-    ts: new Date().toISOString(),
-    author,
-    // Stable identity behind the display name — see cli/identity.js.
-    ...(authorKey ? { authorKey } : {}),
-    text,
-    tagged: tagged || null,
-    source: source || 'cli',
-    workstream: workstream || 'main',
-    status: 'logged',
-  };
+/**
+ * `teamctx contribute`, over the same code the MCP server calls.
+ *
+ * This used to be a second implementation of `contributeCore` — its own
+ * distillation, its own queue write, its own commit — and the two drifted. The
+ * terminal never learned about the review policy, and would have kept writing
+ * to a workstream the project layer removed. Everything below is presentation.
+ */
+function describe(op) {
+  if (op.type === 'addWhy') return `+ Why: ${op.text}`;
+  if (op.type === 'addWhat') return `+ What: ${op.text}`;
+  if (op.type === 'addHow') return `+ How: ${op.text}`;
+  if (op.type === 'editStatement') return `~ Edit: ${op.text}`;
+  return `- Delete: ${op.id}`;
 }
 
-function workstreamDisplayName(id, workstream, config) {
-  return config.workstreams?.find(w => w.id === id)?.name || workstream.name || config.project;
-}
-
-export async function contributeCommand(text, opts) {
-  const config = readConfig();
-  const { me, authorKey, activeWorkstream } = await currentIdentity(config);
-  const targetId = opts.workstream || activeWorkstream;
-  const known = new Set([
-    ...(config.workstreams || []).map(w => w.id),
-    ...listWorkstreamIds(),
-  ]);
-  if (config.workstreams && !known.has(targetId)) {
-    console.error(`Error: no workstream "${targetId}". Run \`teamctx workstream list\`.`);
+export async function contributeCommand(text, opts = {}) {
+  let r;
+  try {
+    r = await contributeCore({
+      text,
+      workstreamId: opts.workstream,
+      decision: !!opts.decision,
+      apply: !!opts.apply,
+      source: opts.source || 'cli',
+      // The terminal's one addition: show what was proposed and let the person
+      // stop it before anything is written.
+      onProposed: async ({ summary, operations, willQueue }) => {
+        console.log(`\nProposed changes (${operations.length} op${operations.length !== 1 ? 's' : ''}):`);
+        console.log(`  Summary: ${summary}`);
+        operations.forEach(op => console.log(`  ${describe(op)}`));
+        if (opts.autoApprove) return true;
+        // `willQueue` is the core's own decision, not a guess from the flags.
+        // Under the `additive` policy — what `init` writes now — an add-only
+        // contribution lands straight away, and promising a manager review
+        // would be telling somebody their work went somewhere it did not.
+        const prompt = willQueue
+          ? '\nSubmit for manager approval? (y/n)'
+          : '\nApply these changes now? (y/n)';
+        return (await ask(prompt, 'y')).toLowerCase() === 'y';
+      },
+    });
+  } catch (err) {
+    console.error(`\nError: ${err.message}\n`);
     process.exit(1);
+    return;
   }
-  const workstream = readWorkstream(targetId);
-  const tagged = opts.decision ? 'decision' : null;
-  const contribution = newContribution(text, me, authorKey, tagged, opts.source, targetId);
 
-  appendContribution(contribution);
-  const wsLabel = targetId === 'main' ? '' : ` [workstream: ${targetId}]`;
-  console.log(`\n→ Processing contribution from ${me}${wsLabel}...`);
-
-  const { workstream: updated, summary, operations } = await updateShared(workstream, contribution, config);
-
-  if (operations.length === 0) {
+  if (r.mode === 'no-op') {
     console.log('No changes to context tree (contribution logged).');
     return;
   }
-
-  console.log(`\nProposed changes (${operations.length} op${operations.length !== 1 ? 's' : ''}):`);
-  console.log(`  Summary: ${summary}`);
-  operations.forEach(op => {
-    const label = op.type === 'addWhy' ? `+ Why: ${op.text}`
-      : op.type === 'addWhat' ? `+ What: ${op.text}`
-      : op.type === 'addHow' ? `+ How: ${op.text}`
-      : op.type === 'editStatement' ? `~ Edit: ${op.text}`
-      : `- Delete: ${op.id}`;
-    console.log(`  ${label}`);
-  });
-
-  if (!opts.autoApprove) {
-    const prompt = opts.apply ? '\nApply these changes now? (y/n)' : '\nSubmit for manager approval? (y/n)';
-    const answer = await ask(prompt, 'y');
-    if (answer.toLowerCase() !== 'y') { console.log('Changes discarded. Contribution is logged.'); return; }
-  }
-
-  if (!opts.apply) {
-    writeQueueItem({
-      id: contribution.id,
-      status: 'pending',
-      createdAt: contribution.ts,
-      author: contribution.author,
-      source: 'cli',
-      workstream: targetId,
-      text: contribution.text,
-      tagged: contribution.tagged,
-      summary,
-      operations,
-    });
-
-    await commitContext(`queue: ${me} submission pending approval (${contribution.id})`);
-
-    if (config.autoPush) {
-      try {
-        await pushContext();
-        console.log(`\n✓ Submitted for approval (id: ${contribution.id}) — committed and pushed.`);
-      } catch (err) {
-        console.log(`\n✓ Submitted for approval (id: ${contribution.id}) — committed. Push failed (${err.message?.split('\n')[0] || err.stderr?.trim() || 'no remote?'}) — run \`git push\` manually.`);
-      }
-    } else {
-      console.log(`\n✓ Submitted for approval (id: ${contribution.id}) — committed. Run \`git push\` to send it to your manager.`);
-    }
-    console.log(`  Manager: after \`git pull\`, run \`teamctx review approve ${contribution.id}\` or \`teamctx review reject ${contribution.id}\`.`);
+  if (r.mode === 'discarded') {
+    console.log('Changes discarded. Contribution is logged.');
     return;
   }
 
-  writeWorkstream(targetId, updated);
-  const contributions = readContributions();
-  writeWorkstreamMd(targetId, serializeToMd(updated, workstreamDisplayName(targetId, updated, config), me, contributions));
-
-  const rolesOnTarget = (config.roles || []).filter(r => (r.workstream || 'main') === targetId);
-  if (rolesOnTarget.length > 0) {
-    console.log(`\n→ Regenerating ${rolesOnTarget.length} role file${rolesOnTarget.length !== 1 ? 's' : ''}...`);
-    for (const role of rolesOnTarget) {
-      const md = await generateRoleFile(updated, role, config.project, config, contributions);
-      writeRoleFile(role.slug, md);
-      process.stdout.write(`  ✓ ${role.slug}.md\n`);
-    }
+  const where = isProjectLevel(r.workstream) ? '' : ` [workstream: ${r.workstream}]`;
+  if (r.mode === 'queued') {
+    console.log(`\n✓ Submitted for approval (id: ${r.id})${where} — committed.${pushNote(r)}`);
+    console.log(`  Manager: after \`git pull\`, run \`teamctx review approve ${r.id}\` or \`teamctx review reject ${r.id}\`.`);
+    return;
   }
 
-  const note = tagged === 'decision' ? ' [decision]' : '';
-  const wsNote = targetId === 'main' ? '' : ` (${targetId})`;
-  await commitContext(`context: ${me} contribution${note}${wsNote}`);
-
-  if (config.autoPush) {
-    try { await pushContext(); console.log('\n✓ Committed and pushed.'); }
-    catch (err) { console.log(`\n✓ Committed. Push failed (${err.message?.split('\n')[0] || err.stderr?.trim() || 'no remote?'}) — run \`git push\` manually.`); }
-  } else {
-    console.log('\n✓ Committed. Run `git push` to share with your team.');
+  if (r.rolesRegenerated?.length) {
+    console.log(`\n→ Regenerated ${r.rolesRegenerated.length} role file${r.rolesRegenerated.length !== 1 ? 's' : ''}: ${r.rolesRegenerated.join(', ')}`);
   }
+  console.log(`\n✓ Applied${where} — committed.${pushNote(r)}`);
+}
+
+function pushNote(r) {
+  if (r.pushed) return ' Pushed.';
+  if (r.pushError) return ` Push failed (${r.pushError}) — run \`git push\` manually.`;
+  return ' Run `git push` to share with your team.';
 }

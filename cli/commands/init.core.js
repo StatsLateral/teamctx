@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, writeFileSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { checkGitRepo, commitContext, pushContext } from '../../src/git.js';
 import { getModelsFor, getDefaultModelFor } from '../../src/ai.js';
-import { readConfig, writeConfig, writeWorkstream, writeWorkstreamMd } from '../../src/storage.js';
+import { readConfig, writeConfig, writeProject, writeProjectMd } from '../../src/storage.js';
 import { getCurrentSession } from '../../src/session-context.js';
 import { serializeToMd } from '../../src/context.js';
 import { resolveActor } from '../../src/actor.js';
@@ -104,7 +104,6 @@ export async function initProject({
   const gitignoreChanged = hosted ? false : unignoreTeamctx(projectDir);
   if (!hosted) mkdirSync(join(teamctxDir, 'context', 'roles'), { recursive: true });
 
-  const createdAt = new Date().toISOString();
   // Whoever sets a project up is its manager. Left unset, the gate is open —
   // `canApprove` returns true when nothing is pinned — so every new project had
   // a window in which anyone who could reach it could approve their own work.
@@ -132,15 +131,19 @@ export async function initProject({
     reviewPolicy: NEW_PROJECT_POLICY,
     deployUrl: deployUrl || '', githubRawBase: githubRawBase || '', managerEmail: managerEmail || '',
     roles: [],
-    workstreams: [{ id: 'main', name: project, createdAt }],
-    activeWorkstream: 'main',
+    // A new project is its own base and has no strands yet. `main` used to be
+    // created here and then stood in for the project, which is the confusion
+    // the project tree removes — so it is not created at all.
+    workstreams: [],
+    activeWorkstream: null,
     workstreamsMigrated: true,
+    projectLayerMigrated: true,
   };
   writeConfig(config, teamctxDir);
 
-  const workstream = { id: 'main', name: project, whys: [] };
-  writeWorkstream('main', workstream, teamctxDir);
-  writeWorkstreamMd('main', serializeToMd(workstream, project), teamctxDir);
+  const tree = { name: project, whys: [] };
+  writeProject(tree, teamctxDir);
+  writeProjectMd(serializeToMd(tree, project), teamctxDir);
   // Locally this reserves the file so the layout is complete on disk. Hosted,
   // appendContribution creates it on first write and readContributions already
   // treats absence as empty — committing an empty blob would be noise.

@@ -56,7 +56,7 @@ describe('init over the hosted MCP server', () => {
   it('bootstraps a project instead of crashing on a path join', async () => {
     const session = emptySession();
     const r = await asUser(session, h => json(h.init({ project: 'Ledger', me: 'alice' })));
-    expect(r.config).toMatchObject({ project: 'Ledger', me: 'alice', activeWorkstream: 'main' });
+    expect(r.config).toMatchObject({ project: 'Ledger', me: 'alice', activeWorkstream: null });
   });
 
   it('writes the project files through the session, not the filesystem', async () => {
@@ -65,8 +65,8 @@ describe('init over the hosted MCP server', () => {
 
     expect([...session.files.keys()].sort()).toEqual([
       '.teamctx/config.json',
-      '.teamctx/context/workstreams/main.md',
-      '.teamctx/workstreams/main.json',
+      '.teamctx/context/project.md',
+      '.teamctx/project.json',
     ]);
   });
 
@@ -127,7 +127,8 @@ describe('init over the hosted MCP server', () => {
     await asUser(session, h => h.init({ project: 'Ledger', me: 'alice' }));
 
     const status = await asUser(session, h => json(h.get_status()));
-    expect(status).toMatchObject({ project: 'Ledger', activeWorkstream: 'main' });
-    expect(status.workstreams.map(w => w.id)).toEqual(['main']);
+    // A new project is its own base: a project tree, and no strands yet.
+    expect(status).toMatchObject({ project: 'Ledger', activeWorkstream: null });
+    expect(status.workstreams).toEqual([]);
   });
 });

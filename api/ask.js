@@ -1,5 +1,6 @@
-import { readConfig, readSharedMd, readRoleFile, readShared, readContributions } from '../src/storage.js';
+import { readConfig, readRoleFile, readTree, readTreeMd, readProject, readContributions } from '../src/storage.js';
 import { answerQuestion } from '../src/context.js';
+import { resolveTarget, isProjectLevel } from '../src/project-level.js';
 
 function esc(s) {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -89,8 +90,14 @@ export default async function handler(req, res) {
       return;
     }
 
-    const sharedMd = readSharedMd();
-    const workstream = readShared();
+    // Without a role the question is about the project, which has a tree of
+    // its own; with one it is about that role's workstream, read with the
+    // project above it the way every other compiled view reads it.
+    const target = roleSlug
+      ? resolveTarget((config.roles || []).find(r => r.slug === roleSlug)?.workstream)
+      : null;
+    const sharedMd = readTreeMd(target);
+    const workstream = readTree(target);
     const contributions = readContributions();
     const audit = /^(1|true|on|yes)$/i.test(String(req.body?.audit || ''));
 
@@ -99,6 +106,7 @@ export default async function handler(req, res) {
       answer = await answerQuestion({
         sharedMd, roleMd, question: question.trim(), config,
         workstream, contributions, audit,
+        project: isProjectLevel(target) ? null : readProject(),
       });
     } catch (err) {
       console.error('Ask error:', err.message);

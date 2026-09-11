@@ -86,11 +86,20 @@ appears later it belongs with roles, which already bind to a workstream.
 > [ROADMAP.md](../../ROADMAP.md) "Workstream-scoped membership" — with the
 > honest boundary that it stays advisory for a collaborator holding a clone.
 > This section is left as written so the original reasoning stays on record.
+>
+> **Shipped 2026-09-09 (#77).** A roster entry may now carry `workstreams`.
+> A member without one is project-wide, exactly as this section describes, so
+> nothing here stopped being true — it stopped being the only option. The
+> boundary is enforced in `mcp/server.js` for a caller reaching the project
+> through the server, and stays advisory for a collaborator with a clone;
+> `member add` and the tool descriptions say which of the two a person is.
+> See `src/member-scope.js`.
 
 ### Commands
 
 ```
-teamctx member add <username|email> [--name "…"] [--invite]
+teamctx member add <username|email> [--name "…"] [--invite] [--workstream <id...>]
+teamctx member scope <key|login|email> [--workstream <id...>]
 teamctx member list
 teamctx member rm <key|login|email>
 ```

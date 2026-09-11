@@ -1,6 +1,7 @@
-import { readConfig, readWorkstream, listWorkstreamIds, readContributions, listTasks } from '../../src/storage.js';
+import { readProject, readConfig, readWorkstream, listWorkstreamIds, readContributions, listTasks } from '../../src/storage.js';
 import { resolveActor } from '../../src/actor.js';
 import { resolveActiveWorkstream, resolveIdentity } from '../../src/prefs.js';
+import { isProjectLevel } from '../../src/project-level.js';
 
 export async function statusCommand() {
   const config = readConfig();
@@ -14,8 +15,12 @@ export async function statusCommand() {
     ...(config.workstreams || []).map(w => w.id),
     ...listWorkstreamIds(),
   ])].sort();
-  const workstreams = (wsIds.length ? wsIds : ['main']).map(id => ({ id, tree: readWorkstream(id) }));
-  const totalWhys = workstreams.reduce((n, w) => n + (w.tree.whys?.length || 0), 0);
+  const workstreams = wsIds.map(id => ({ id, tree: readWorkstream(id) }));
+  // The project tree counts. A project with no workstreams is the normal shape
+  // now, and reporting zero whys for one that has plenty would be a lie.
+  const project = readProject();
+  const totalWhys = (project.whys?.length || 0)
+    + workstreams.reduce((n, w) => n + (w.tree.whys?.length || 0), 0);
   const allTasks = listTasks({});
   const openTasks = allTasks.filter(t => t.status === 'open').length;
   const doneTasks = allTasks.filter(t => t.status === 'done').length;
@@ -42,7 +47,7 @@ export async function statusCommand() {
   } else {
     config.roles.forEach(r => {
       const url = config.deployUrl ? `${config.deployUrl}/context/${r.slug}` : `[deploy-url]/context/${r.slug}`;
-      const wsLabel = r.workstream && r.workstream !== 'main' ? ` [${r.workstream}]` : '';
+      const wsLabel = isProjectLevel(r.workstream) ? '' : ` [${r.workstream}]`;
       console.log(`  ${r.slug.padEnd(20)} ${r.name}${wsLabel}`);
       console.log(`  ${''.padEnd(20)} ${url}`);
     });

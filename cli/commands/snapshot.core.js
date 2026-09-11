@@ -1,4 +1,4 @@
-import {
+import { readProject,
   readConfig, readWorkstream, listWorkstreamIds,
   writeSnapshot, readSnapshot, listSnapshots, resolveSnapshotId,
   readCurrentSnapshotPointer, writeCurrentSnapshotPointer,
@@ -35,8 +35,12 @@ function collectWorkstreams(teamctxDir) {
     ...(config.workstreams || []).map(w => w.id),
     ...listWorkstreamIds(teamctxDir),
   ]);
-  if (idSet.size === 0) idSet.add('main');
-  return [...idSet].sort().map(id => ({ id, tree: readWorkstream(id, teamctxDir) }));
+  // The project tree is always part of a snapshot; workstreams are whatever
+  // else exists. Falling back to `main` would snapshot a file that is gone.
+  return [
+    { id: null, tree: readProject(teamctxDir) },
+    ...[...idSet].sort().map(id => ({ id, tree: readWorkstream(id, teamctxDir) })),
+  ];
 }
 
 async function commitAndPush(config, msg, { projectDir } = {}) {
