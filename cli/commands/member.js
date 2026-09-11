@@ -5,6 +5,7 @@ import {
   MemberNotFoundError, MemberExistsError, InviteNeedsLoginError,
 } from './member.core.js';
 import { ManagerGateError } from './review.core.js';
+import { EmptyContextError } from '../../src/context-gate.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -20,6 +21,9 @@ function reportAndExit(err) {
   if (err instanceof MemberNotFoundError) fail(err.message, 'Run `teamctx member list`');
   if (err instanceof MemberExistsError) fail(err.message);
   if (err instanceof InviteNeedsLoginError) fail(err.message);
+  // Already phrased for the person reading it, and it names the next step —
+  // a hint appended here would only repeat it in teamctx's words.
+  if (err instanceof EmptyContextError) fail(err.message);
   fail(err.message);
 }
 

@@ -454,12 +454,16 @@ export const TOOLS = [
   },
   {
     name: 'member_add',
-    description: RISKY + "adds a person to the project roster and commits. Manager-gated against the authenticated caller. Takes a GitHub username or an email address — only a username can be invited to the repository, since GitHub's collaborator endpoint takes no email. Set invite:true to also send a repository invitation, which they must accept before they can clone. Without it they are on the roster but have no access, which looks the same to a manager and is not. Confirm the person and whether to invite before calling. Returns `connectUrl` — the link they need to reach the project from their own assistant — so send it to them in the same reply; adding somebody without giving them the link invites nobody. When it comes back null, say why rather than reporting a clean success." + REPORT,
+    description: RISKY + "adds a person to the project roster and commits. Manager-gated against the authenticated caller. Takes a GitHub username or an email address — only a username can be invited to the repository, since GitHub's collaborator endpoint takes no email. Set invite:true to also send a repository invitation, which they must accept before they can clone. Without it they are on the roster but have no access, which looks the same to a manager and is not. Pass `workstreams` to put them on named parts of the work rather than the whole project. Refused while the project has nothing written in it, or while a named workstream has nothing of its own — somebody arriving must have something to read; the refusal says what to add, and `contribute` is how you add it. Confirm the person and whether to invite before calling. Returns `connectUrl` — the link they need to reach the project from their own assistant — so send it to them in the same reply; adding somebody without giving them the link invites nobody. When it comes back null, say why rather than reporting a clean success." + REPORT,
     inputSchema: {
       type: 'object',
       properties: {
         ref: { type: 'string', description: 'GitHub username, or an email address' },
         name: { type: 'string', description: 'Display name, if different from the handle' },
+        workstreams: {
+          type: 'array', items: { type: 'string' },
+          description: 'Workstreams they may reach. Omit for the whole project, which is the default.',
+        },
         invite: { type: 'boolean', description: 'Also invite them to the GitHub repository' },
         permission: { type: 'string', description: 'pull | triage | push | maintain | admin (default push)' },
       },
@@ -469,7 +473,7 @@ export const TOOLS = [
   },
   {
     name: 'member_scope',
-    description: RISKY + "changes which workstreams an existing member may reach, and commits. Manager-gated against the authenticated caller. Pass `workstreams` to limit them; omit it to give them the whole project again, which is what every member has by default. Enforced for somebody who signs in with Google and reaches the project through this server; advisory for a GitHub collaborator, who holds a clone and reads every workstream in it — say which of the two they are rather than implying a wall that is not there. Confirm the person and the workstreams before calling." + REPORT,
+    description: RISKY + "changes which workstreams an existing member may reach, and commits. Manager-gated against the authenticated caller. Pass `workstreams` to limit them; omit it to give them the whole project again, which is what every member has by default. Enforced for somebody who signs in with Google and reaches the project through this server; advisory for a GitHub collaborator, who holds a clone and reads every workstream in it — say which of the two they are rather than implying a wall that is not there. Refused while a workstream named has nothing written in it, for the same reason `member_add` is. Confirm the person and the workstreams before calling." + REPORT,
     inputSchema: {
       type: 'object',
       properties: {
