@@ -94,10 +94,20 @@ export async function buildBrief({
       markdown: compiled(id, teamctxDir),
     }));
 
-  // A role they hold on one of those places, if any. #81 proposes membership
-  // models but stores none, so the honest answer is the role that exists.
-  const role = (config.roles || [])
-    .find(r => places.some(id => resolveTarget(r.workstream) === id)) || null;
+  // Theirs if a role carries their address; otherwise a role that sits on their
+  // thread, which is a weaker claim and ordered second on purpose — naming
+  // somebody else's role as "your role" is worse than naming none.
+  //
+  // #81 proposes membership models but stores none, so a role in config is the
+  // only thing here that is a fact.
+  // A role at project level counts wherever they stand — it is the shape every
+  // role has on a project that never split, and matching ids alone dropped it
+  // for exactly the reason the task filter above stopped matching ids alone.
+  const roles = (config.roles || []).filter(r => isProjectLevel(r.workstream)
+    || places.some(id => resolveTarget(r.workstream) === id));
+  const email = String(resolved.email || '').toLowerCase();
+  const owned = email ? roles.find(r => String(r.email || '').toLowerCase() === email) : null;
+  const role = owned || roles[0] || null;
   let roleMarkdown = '';
   if (role) {
     try { roleMarkdown = readRoleFile(role.slug, teamctxDir); } catch { roleMarkdown = ''; }
@@ -116,7 +126,9 @@ export async function buildBrief({
     project: config.project,
     where: places,
     frame,
-    role: role ? { slug: role.slug, name: role.name, markdown: roleMarkdown } : null,
+    role: role
+      ? { slug: role.slug, name: role.name, markdown: roleMarkdown, yours: role === owned }
+      : null,
     context,
     tasks: {
       open: groupByTarget(open, config),

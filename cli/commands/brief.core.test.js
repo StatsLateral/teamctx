@@ -22,6 +22,9 @@ vi.mock('../../src/prefs.js', () => ({ resolveDisplayName: vi.fn(async () => 'Pr
 
 const { buildBrief } = await import('./brief.core.js');
 const { readConfig, readTreeMd, readRoleFile, listTasks } = await import('../../src/storage.js');
+const { resolveActor } = await import('../../src/actor.js');
+
+const PRIYA = { key: 'git:priya@example.com', name: 'Priya', email: 'priya@example.com' };
 
 const config = {
   project: 'Ledger',
@@ -41,6 +44,9 @@ beforeEach(() => {
   readConfig.mockReturnValue(config);
   listTasks.mockReturnValue(TASKS);
   readTreeMd.mockImplementation(id => (id === null ? '# Project page' : `# ${id} page`));
+  // Re-seeded every test: `clearAllMocks` clears calls, not implementations, so
+  // a caller set by one test would otherwise leak into the next.
+  resolveActor.mockResolvedValue(PRIYA);
 });
 
 describe('whose brief it is', () => {
@@ -166,5 +172,79 @@ describe('what it costs', () => {
     // call in the product, so the module imports nothing that can spend one.
     const src = await import('fs').then(fs => fs.readFileSync('cli/commands/brief.core.js', 'utf-8'));
     expect(src).not.toMatch(/from '.*\/(ai|context)\.js'/);
+  });
+});
+
+describe('whose role it is', () => {
+  const withEmails = {
+    ...config,
+    roles: [
+      { slug: 'lead', name: 'Delivery Lead', workstream: 'delivery', email: 'dev@example.com' },
+      { slug: 'writer', name: 'Writer', workstream: 'delivery', email: 'priya@example.com' },
+    ],
+  };
+
+  it('prefers the role that carries their address', async () => {
+    // Naming somebody else's role as "your role" is worse than naming none.
+    readConfig.mockReturnValue(withEmails);
+    const r = await buildBrief({ activeWorkstream: 'delivery', teamctxDir: '/x' });
+    expect(r.role.name).toBe('Writer');
+    expect(r.role.yours).toBe(true);
+  });
+
+  it('falls back to a role on their thread, and says it is not theirs', async () => {
+    readConfig.mockReturnValue(withEmails);
+    resolveActor.mockResolvedValue({ key: 'git:sam@example.com', name: 'Sam', email: 'sam@example.com' });
+    const r = await buildBrief({ activeWorkstream: 'delivery', teamctxDir: '/x' });
+    expect(r.role.yours).toBe(false);
+  });
+});
+
+describe('a scoped member and their own project-level work', () => {
+  it('keeps the tasks they hold on the project', async () => {
+    // A project-level task resolves to `null`, which is in no scope array and
+    // in everybody's scope. Testing the array dropped their own work.
+    const r = await buildBrief({ scope: ['delivery'], teamctxDir: '/x' });
+    expect(r.tasks.open.flatMap(g => g.tasks.map(t => t.id))).toContain('t1');
+  });
+
+  it('still hides a sibling thread', async () => {
+    listTasks.mockReturnValue([
+      ...TASKS,
+      { id: 't5', title: 'theirs elsewhere', status: 'open', workstream: 'docs', owner: 'Priya' },
+    ]);
+    const r = await buildBrief({ scope: ['delivery'], teamctxDir: '/x' });
+    expect(r.tasks.open.flatMap(g => g.tasks.map(t => t.id))).not.toContain('t5');
+  });
+});
+
+describe('a role that sits at project level', () => {
+  // The shape every role has on a project that never split. Matching workstream
+  // ids alone dropped it, the same mistake the task filter had.
+  const projectRole = {
+    ...config,
+    roles: [{ slug: 'ops', name: 'Ops', workstream: null, email: 'priya@example.com' }],
+  };
+
+  it('is found by a member standing in a workstream', async () => {
+    readConfig.mockReturnValue(projectRole);
+    const r = await buildBrief({ activeWorkstream: 'delivery', teamctxDir: '/x' });
+    expect(r.role.name).toBe('Ops');
+    expect(r.role.yours).toBe(true);
+  });
+
+  it('is found by a scoped member too', async () => {
+    readConfig.mockReturnValue(projectRole);
+    const r = await buildBrief({ scope: ['delivery'], teamctxDir: '/x' });
+    expect(r.role.name).toBe('Ops');
+  });
+
+  it('does not drag in a role from a workstream they are not on', async () => {
+    readConfig.mockReturnValue({
+      ...config,
+      roles: [{ slug: 'writer', name: 'Writer', workstream: 'docs' }],
+    });
+    const r = await buildBrief({ activeWorkstream: 'delivery', teamctxDir: '/x' });
+    expect(r.role).toBe(null);
   });
 });
