@@ -13,6 +13,9 @@ const MEMBER = { key: 'github:2002', name: 'Ravi', login: 'ravi', source: 'githu
 let caller = MANAGER;
 
 vi.mock('../../src/storage.js', () => ({
+  writeWorkstreamMd: vi.fn(),
+  readWorkstream: vi.fn(() => ({ id: 'w', name: 'W', whys: [] })),
+  listWorkstreamIds: vi.fn(() => []),
   readProject: vi.fn(() => ({ name: '', whys: [] })),
   readConfig: vi.fn(),
   writeConfig: vi.fn(),

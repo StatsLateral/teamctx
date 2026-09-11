@@ -1,5 +1,6 @@
 import { readProject, readConfig, readTree, writeTree, writeTreeMd, appendContribution, writeRoleFile, writeQueueItem, readContributions, listWorkstreamIds } from '../../src/storage.js';
 import { resolveTarget, isProjectLevel } from '../../src/project-level.js';
+import { recompileInheritors } from '../../src/recompile.js';
 import { updateShared, generateRoleFile, serializeToMd } from '../../src/context.js';
 import { commitContext, pushContext } from '../../src/git.js';
 import { UnknownWorkstreamError } from './role.core.js';
@@ -117,7 +118,13 @@ export async function contributeCore({
     };
   }
 
-  if (onProposed && (await onProposed({ summary, operations })) === false) {
+  // The caller is told what will actually happen, not what usually happens.
+  // Under the `additive` policy an add-only contribution is written straight to
+  // shared context, and the terminal was asking "submit for manager approval?"
+  // before it knew that — so somebody answering yes was told their work had
+  // gone to a queue it never entered.
+  const willQueue = !apply && needsReview(config, operations);
+  if (onProposed && (await onProposed({ summary, operations, willQueue })) === false) {
     return {
       id: contribution.id, workstream: targetId, author: actor, source,
       mode: 'discarded', summary, operations, pushed: false, pushError: null,
@@ -156,6 +163,12 @@ export async function contributeCore({
     serializeToMd(updated, workstreamDisplayName(targetId, updated, config), actor, contributions, { project }),
     teamctxDir,
   );
+
+  // A change to the project changes what every workstream inherits, and a
+  // compiled page does not re-read the project on its own.
+  if (isProjectLevel(targetId)) {
+    recompileInheritors({ project: updated, config, contributions, teamctxDir });
+  }
 
   const rolesOnTarget = (config.roles || []).filter(r => resolveTarget(r.workstream) === targetId);
   const rolesRegenerated = [];

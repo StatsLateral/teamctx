@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('../../src/storage.js', () => ({
+  writeWorkstreamMd: vi.fn(),
   readTree: vi.fn(() => ({ id: 'main', name: 'M', whys: [] })),
   writeTree: vi.fn(),
   readTreeMd: vi.fn(() => ''),

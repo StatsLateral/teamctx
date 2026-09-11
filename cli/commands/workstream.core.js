@@ -97,7 +97,14 @@ async function applySplit({ source, sourceId, split, moveRoleSlugs, config, team
   const sourceName = fromProject
     ? (config.project || source.name || 'project')
     : (config.workstreams?.find(w => w.id === sourceId)?.name || source.name || sourceId);
-  writeTreeMd(sourceId, serializeToMd(updatedSource, sourceName), teamctxDir);
+  // With `project` when the source is a workstream: without it the source's
+  // page was rewritten minus its inherited section, and stayed that way until
+  // the next contribute, reflect or approval touched it.
+  writeTreeMd(
+    sourceId,
+    serializeToMd(updatedSource, sourceName, '', [], fromProject ? {} : { project }),
+    teamctxDir,
+  );
 
   const rolesOnSource = (config.roles || []).filter(r => resolveTarget(r.workstream) === resolveTarget(sourceId));
   const validMoveSlugs = (moveRoleSlugs || []).filter(s => rolesOnSource.some(r => r.slug === s));

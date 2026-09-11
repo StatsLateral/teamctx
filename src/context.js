@@ -1,4 +1,5 @@
 import { proposeDiff, callClaude, extractJson } from './ai.js';
+import { resolveTarget, targetLabel } from './project-level.js';
 import { applyOps } from './ops.js';
 import {
   collectContributorCounts, collectSourceRefs,
@@ -67,8 +68,10 @@ export function serializeToMd(workstream, projectName, lastUpdatedBy = '', contr
   }
 
   // The inherited half is concatenated here and stored nowhere: a workstream's
-  // JSON never holds project nodes, so editing project context changes every
-  // compiled view without rewriting a single workstream file.
+  // JSON never holds project nodes. The compiled page is a different matter —
+  // it is written once and does not re-read anything, so a project-level write
+  // pushes the new tree back through every workstream's page itself. See
+  // `src/recompile.js`, which also says why role files are not in that pass.
   //
   // Labelled read-only because a reader has to be able to tell what they may add
   // to from what is settled above them. Without that line the first thing a
@@ -151,7 +154,7 @@ export async function compileTaskPrompt({ task, workstream, role, contributions,
   const now = new Date().toISOString().split('T')[0];
   const roleLine = role ? `Framed for role: ${role.name} — ${role.responsibilities || ''}` : 'No role filter — write for a general team member.';
   const decisionsList = (contributions || [])
-    .filter(c => c.tagged === 'decision' && (c.workstream || 'main') === (task.workstream || 'main'))
+    .filter(c => c.tagged === 'decision' && resolveTarget(c.workstream) === resolveTarget(task.workstream))
     .slice(-8)
     .map(c => `- ${c.text} — ${c.author}, ${(c.ts || '').slice(0, 10)}, via ${c.source || 'cli'}`)
     .join('\n') || '(none yet)';
@@ -161,7 +164,7 @@ export async function compileTaskPrompt({ task, workstream, role, contributions,
     `Project: ${projectName}   Date: ${now}`,
     ``,
     `Task title: ${task.title}`,
-    `Task id: ${task.id}   Owner: ${task.owner || '(unassigned)'}   Workstream: ${task.workstream || 'main'}`,
+    `Task id: ${task.id}   Owner: ${task.owner || '(unassigned)'}   Belongs to: ${targetLabel(task.workstream, projectName)}`,
     roleLine,
     ``,
     `Full workstream context (Why/What/How tree — pick only what's relevant to THIS task):`,
@@ -174,7 +177,7 @@ export async function compileTaskPrompt({ task, workstream, role, contributions,
     ``,
     `# Task: ${task.title}`,
     ``,
-    `**Owner:** ${task.owner || '(unassigned)'} · **Workstream:** ${task.workstream || 'main'} · **Status:** ${task.status}`,
+    `**Owner:** ${task.owner || '(unassigned)'} · **Belongs to:** ${targetLabel(task.workstream, projectName)} · **Status:** ${task.status}`,
     `**Created:** ${task.createdAt || '-'} · **Compiled:** ${now}`,
     ``,
     `## Relevant context`,

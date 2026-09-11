@@ -15,6 +15,9 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 vi.mock('./contribute.core.js', () => ({ contributeCore: vi.fn() }));
 vi.mock('./reflect.core.js', () => ({ reflectWorkstream: vi.fn() }));
 vi.mock('../../src/storage.js', () => ({
+  writeWorkstreamMd: vi.fn(),
+  readWorkstream: vi.fn(() => ({ id: 'w', name: 'W', whys: [] })),
+  listWorkstreamIds: vi.fn(() => []),
   readConfig: vi.fn(() => ({ project: 'Ledger' })),
   readContributions: vi.fn(() => []),
 }));

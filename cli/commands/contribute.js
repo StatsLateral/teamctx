@@ -29,7 +29,7 @@ export async function contributeCommand(text, opts = {}) {
       source: opts.source || 'cli',
       // The terminal's one addition: show what was proposed and let the person
       // stop it before anything is written.
-      onProposed: async ({ summary, operations }) => {
+      onProposed: async ({ summary, operations, willQueue }) => {
         console.log(`\nProposed changes (${operations.length} op${operations.length !== 1 ? 's' : ''}):`);
         console.log(`  Summary: ${summary}`);
         operations.forEach(op => console.log(`  ${describe(op)}`));

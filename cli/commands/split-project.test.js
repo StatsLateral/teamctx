@@ -168,3 +168,30 @@ describe('proposing a split at project level', () => {
     expect(proposeSubworkstreams.mock.calls[0][0]).toBe(TREE);
   });
 });
+
+describe('the page of the workstream being split from', () => {
+  beforeEach(() => {
+    resolveActiveWorkstream.mockResolvedValue('engineering');
+    readConfig.mockReturnValue({
+      project: 'Ledger', roles: [],
+      workstreams: [{ id: 'engineering', name: 'Engineering' }],
+    });
+    readProject.mockReturnValue({ name: 'Ledger', whys: [{ id: 'p1', text: 'no new vendors' }] });
+  });
+
+  it('keeps its inherited project section', async () => {
+    // It was rewritten without one, and stayed that way until something else
+    // happened to touch it.
+    await splitWorkstreams({ accepted, teamctxDir: '/x' });
+    const sourceCall = serializeToMd.mock.calls.find(c => c[1] === 'Engineering');
+    expect(sourceCall[4].project.whys[0].id).toBe('p1');
+  });
+
+  it('does not give the project itself one', async () => {
+    resolveActiveWorkstream.mockResolvedValue(null);
+    readConfig.mockReturnValue({ project: 'Ledger', roles: [], workstreams: [] });
+    await splitWorkstreams({ accepted, teamctxDir: '/x' });
+    const sourceCall = serializeToMd.mock.calls.find(c => c[1] === 'Ledger');
+    expect(sourceCall[4]?.project).toBeUndefined();
+  });
+});

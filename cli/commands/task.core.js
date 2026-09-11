@@ -117,7 +117,11 @@ async function resolveTargetWorkstream(config, requested, { teamctxDir, projectD
   // `null` is the project itself — a task belonging to the whole thing rather
   // than to one strand of it, which is where every task sits on a project that
   // has not split anything out yet.
-  if (requested === undefined || requested === null) {
+  // `undefined` is "nobody said"; `null` is somebody saying "the project". The
+  // MCP handler resolves `main` to `null` before calling, so collapsing the two
+  // turned an explicit request for project level into "wherever you happen to
+  // be standing". `storage.listTasks` keeps them apart for the same reason.
+  if (requested === undefined) {
     const resolved = actor || await resolveActor({ config, cwd: projectDir });
     return resolveActiveWorkstream({ actor: resolved, config, teamctxDir });
   }

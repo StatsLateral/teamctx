@@ -43,7 +43,7 @@ import { canApprove, managerKeys } from '../src/review.js';
 import {
   scopeFor, assertInScope, inScope, visibleWorkstreams, defaultWorkstream,
 } from '../src/member-scope.js';
-import { isProjectLevel, resolveTarget } from '../src/project-level.js';
+import { isProjectLevel, resolveTarget, targetLabel } from '../src/project-level.js';
 import { resolveActiveWorkstream, resolveIdentity, resolveDisplayName } from '../src/prefs.js';
 import { INSTRUCTIONS } from './instructions.js';
 
@@ -518,9 +518,13 @@ function textResult(value) {
 }
 
 function reportBackContribute(r) {
-  if (r.mode === 'no-op') return `Tell the user: contribution logged for workstream "${r.workstream}" but the AI proposed no changes to the tree.`;
-  if (r.mode === 'queued') return `Tell the user: contribution ${r.id} queued for manager approval on workstream "${r.workstream}" (${r.operations.length} op${r.operations.length === 1 ? '' : 's'}). Manager must run \`teamctx review approve ${r.id}\` or call the review_approve tool.`;
-  return `Tell the user: contribution ${r.id} applied to workstream "${r.workstream}" (${r.operations.length} op${r.operations.length === 1 ? '' : 's'})${r.rolesRegenerated?.length ? `, regenerated roles: ${r.rolesRegenerated.join(', ')}` : ''}${r.pushed ? ', committed and pushed' : ', committed'}.`;
+  // `where`, not the raw id. At project level the id is `null`, and the client
+  // is told to read this string back word for word — so an unsplit project,
+  // which is most of them, reported work landing on workstream "null".
+  const where = r.workstream === null ? 'the project' : `workstream "${r.workstream}"`;
+  if (r.mode === 'no-op') return `Tell the user: contribution logged for ${where} but the AI proposed no changes to the tree.`;
+  if (r.mode === 'queued') return `Tell the user: contribution ${r.id} queued for manager approval on ${where} (${r.operations.length} op${r.operations.length === 1 ? '' : 's'}). Manager must run \`teamctx review approve ${r.id}\` or call the review_approve tool.`;
+  return `Tell the user: contribution ${r.id} applied to ${where} (${r.operations.length} op${r.operations.length === 1 ? '' : 's'})${r.rolesRegenerated?.length ? `, regenerated roles: ${r.rolesRegenerated.join(', ')}` : ''}${r.pushed ? ', committed and pushed' : ', committed'}.`;
 }
 
 export function makeHandlers(projectRoot) {
@@ -692,9 +696,14 @@ export function makeHandlers(projectRoot) {
       if (!allowed) return textResult(r);
       // A snapshot is every tree at one moment, so handing one over whole is
       // the same leak as `get_context` without a filter.
+      // Both halves: `snapshot.workstreams` and the top-level `workstreams` are
+      // the same array, so filtering one and spreading the other handed over
+      // every tree anyway.
+      const visible = (r.workstreams || []).filter(w => inScope(allowed, resolveTarget(w.id)));
       return textResult({
         ...r,
-        workstreams: (r.workstreams || []).filter(w => inScope(allowed, resolveTarget(w.id))),
+        snapshot: { ...r.snapshot, workstreams: visible },
+        workstreams: visible,
         scopedTo: allowed,
       });
     },
@@ -751,7 +760,12 @@ export function makeHandlers(projectRoot) {
         workstreams,
         ...(allowed ? { scopedTo: allowed } : {}),
         contributions: { total: contributions.length, decisions: decisions.length },
-        roles: (config.roles || []).map(r => ({ slug: r.slug, name: r.name, workstream: resolveTarget(r.workstream) })),
+        // Filtered for the same reason `list_roles` is: a role name and the
+        // workstream behind it are two of the things a scope keeps back, and
+        // this response hides those workstream ids three lines above.
+        roles: (config.roles || [])
+          .map(r => ({ slug: r.slug, name: r.name, workstream: resolveTarget(r.workstream) }))
+          .filter(r => inScope(allowed, r.workstream)),
       });
     },
 
@@ -916,7 +930,7 @@ export function makeHandlers(projectRoot) {
       const r = await removeTask({ id: args.id, teamctxDir, projectDir: gitCwd });
       return textResult({
         ...r,
-        reportBack: `Task ${r.id} ("${r.title}") permanently removed from workstream ${r.workstream}.`,
+        reportBack: `Task ${r.id} ("${r.title}") permanently removed from ${targetLabel(r.workstream, readConfig(teamctxDir).project)}.`,
       });
     },
 
@@ -949,11 +963,14 @@ export function makeHandlers(projectRoot) {
       // Unnamed, the numbers are project-wide, so the per-workstream breakdown
       // is filtered rather than the whole answer refused — a scoped member is
       // entitled to the project's own figures.
-      const named = args.workstream
-        ? assertInScope(allowed, resolveTarget(args.workstream))
-        : null;
+      // Resolved, then passed on as-is. `main` resolves to project level, which
+      // is `null` — and `null || args.workstream` handed the raw "main" back to
+      // a function that no longer knows any such workstream.
+      const named = args.workstream === undefined
+        ? undefined
+        : assertInScope(allowed, resolveTarget(args.workstream));
       const stats = await computeStats({
-        cwd: gitCwd, teamctxDir, since: args.since, workstream: named || args.workstream,
+        cwd: gitCwd, teamctxDir, since: args.since, workstream: named,
       });
       if (!allowed) return textResult(stats);
       return textResult({
@@ -1100,7 +1117,7 @@ export function makeHandlers(projectRoot) {
         teamctxDir,
         projectDir: gitCwd,
       });
-      const reportBack = `Tell the user: role "${r.slug}" created on workstream "${r.workstreamId}"${r.pushed ? ' (committed and pushed)' : ' (committed)'}.`;
+      const reportBack = `Tell the user: role "${r.slug}" created on ${targetLabel(r.workstreamId, readConfig(teamctxDir).project)}${r.pushed ? ' (committed and pushed)' : ' (committed)'}.`;
       return textResult({ ...r, reportBack });
     },
 
@@ -1117,8 +1134,8 @@ export function makeHandlers(projectRoot) {
         teamctxDir, projectDir: gitCwd,
       });
       const reportBack = r.changed
-        ? `Tell the user: role "${r.slug}" moved to workstream "${r.workstreamId}"; role file regenerated.`
-        : `Tell the user: role "${r.slug}" was already on workstream "${r.workstreamId}" — no change.`;
+        ? `Tell the user: role "${r.slug}" moved to ${targetLabel(r.workstreamId, readConfig(teamctxDir).project)}; role file regenerated.`
+        : `Tell the user: role "${r.slug}" was already on ${targetLabel(r.workstreamId, readConfig(teamctxDir).project)} — no change.`;
       return textResult({ ...r, reportBack });
     },
 
@@ -1139,14 +1156,16 @@ export function makeHandlers(projectRoot) {
       const r = await useWorkstream({ id, teamctxDir: dir(), projectDir: gitCwd });
       return textResult({
         ...r,
-        reportBack: `Tell the user: their active workstream is now "${r.activeWorkstream}". This is a personal setting — it does not change anyone else's.`,
+        reportBack: r.activeWorkstream
+          ? `Tell the user: their active workstream is now "${r.activeWorkstream}". This is a personal setting — it does not change anyone else's.`
+          : "Tell the user: they are working on the project itself now, not one part of it. This is a personal setting — it does not change anyone else's.",
       });
     },
 
     async review_approve({ id }) {
       // No caller-supplied identity: the gate reads the authenticated actor.
       const r = await approveReview({ id, teamctxDir: dir(), projectDir: gitCwd });
-      const reportBack = `Tell the user: approved contribution ${r.id} by ${r.author} on workstream "${r.workstream}" (${r.operations.length} op${r.operations.length === 1 ? '' : 's'}${r.rolesRegenerated.length ? `, regenerated roles: ${r.rolesRegenerated.join(', ')}` : ''}${r.pushed ? ', pushed' : ''}).`;
+      const reportBack = `Tell the user: approved contribution ${r.id} by ${r.author} on ${targetLabel(r.workstream, readConfig(dir()).project)} (${r.operations.length} op${r.operations.length === 1 ? '' : 's'}${r.rolesRegenerated.length ? `, regenerated roles: ${r.rolesRegenerated.join(', ')}` : ''}${r.pushed ? ', pushed' : ''}).`;
       return textResult({ ...r, reportBack });
     },
 
@@ -1182,7 +1201,7 @@ export function makeHandlers(projectRoot) {
         workstreamId: await targetWorkstream(teamctxDir, readConfig(teamctxDir), workstream),
         teamctxDir, projectDir: gitCwd,
       });
-      const reportBack = `Tell the user: reflected workstream "${r.workstreamId}"${r.rolesRegenerated.length ? `; regenerated roles: ${r.rolesRegenerated.join(', ')}` : ''}${r.pushed ? '; pushed' : ''}.`;
+      const reportBack = `Tell the user: reflected ${targetLabel(r.workstreamId, readConfig(teamctxDir).project)}${r.rolesRegenerated.length ? `; regenerated roles: ${r.rolesRegenerated.join(', ')}` : ''}${r.pushed ? '; pushed' : ''}.`;
       return textResult({ workstreamId: r.workstreamId, rolesRegenerated: r.rolesRegenerated, pushed: r.pushed, pushError: r.pushError, reportBack });
     },
 
@@ -1191,7 +1210,7 @@ export function makeHandlers(projectRoot) {
       let committed = false;
       if (r.from !== r.to) {
         const c = await commitContext(
-          `config: review policy ${r.from} to ${r.to} by ${await who(dir(), readConfig(dir()))} (via mcp)`,
+          `config: review policy ${r.from} to ${r.to} by ${(await who(dir(), readConfig(dir()))).name} (via mcp)`,
           gitCwd ? { cwd: gitCwd } : undefined);
         committed = c?.committed === true;
       }
@@ -1217,7 +1236,7 @@ export function makeHandlers(projectRoot) {
         // Reported rather than assumed: writing the value already stored leaves
         // nothing to commit, and a caller told otherwise has a success it can
         // only disprove by reading back.
-        const c = await commitContext(`config: ${r.key} by ${await who(dir(), readConfig(dir()))} (via mcp)`,
+        const c = await commitContext(`config: ${r.key} by ${(await who(dir(), readConfig(dir()))).name} (via mcp)`,
           gitCwd ? { cwd: gitCwd } : undefined);
         committed = c?.committed === true;
       }

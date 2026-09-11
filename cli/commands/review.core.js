@@ -9,6 +9,7 @@ import { resolveActor } from '../../src/actor.js';
 import { resolveDisplayName } from '../../src/prefs.js';
 import { sourceTrailer } from './contribute.core.js';
 import { resolveTarget, isProjectLevel } from '../../src/project-level.js';
+import { recompileInheritors } from '../../src/recompile.js';
 
 function workstreamDisplayName(id, workstream, config) {
   if (isProjectLevel(id)) return config.project || workstream.name || 'project';
@@ -92,6 +93,12 @@ export async function approveReview({ id, teamctxDir, projectDir, actor } = {}) 
     serializeToMd(updated, workstreamDisplayName(targetId, updated, config), item.author, contributions, { project }),
     teamctxDir,
   );
+
+  // A change to the project changes what every workstream inherits, and a
+  // compiled page does not re-read the project on its own.
+  if (isProjectLevel(targetId)) {
+    recompileInheritors({ project: updated, config, contributions, teamctxDir });
+  }
 
   const rolesOnTarget = (config.roles || []).filter(r => resolveTarget(r.workstream) === targetId);
   const rolesRegenerated = [];

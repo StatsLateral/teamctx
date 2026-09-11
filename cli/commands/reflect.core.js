@@ -1,5 +1,6 @@
 import { readProject, readConfig, readTree, writeTree, writeTreeMd, readContributions, writeRoleFile, listWorkstreamIds } from '../../src/storage.js';
 import { resolveTarget, isProjectLevel } from '../../src/project-level.js';
+import { recompileInheritors } from '../../src/recompile.js';
 import { generateReflection, serializeToMd, generateRoleFile } from '../../src/context.js';
 import { preserveSourcesThroughReflect } from '../../src/provenance.js';
 import { extractJson } from '../../src/ai.js';
@@ -62,6 +63,10 @@ export async function reflectWorkstream({ workstreamId, teamctxDir, projectDir, 
   writeTree(targetId, updated, teamctxDir);
   const project = isProjectLevel(targetId) ? null : readProject(teamctxDir);
   writeTreeMd(targetId, serializeToMd(updated, wsName, 'reflect', contributions, { project }), teamctxDir);
+  // A rewrite of the project is a change to what every workstream inherits.
+  if (isProjectLevel(targetId)) {
+    recompileInheritors({ project: updated, config, contributions, teamctxDir });
+  }
 
   const rolesOnTarget = (config.roles || []).filter(r => resolveTarget(r.workstream) === targetId);
   const rolesRegenerated = [];
