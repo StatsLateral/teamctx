@@ -34,7 +34,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   own goals with their workstream's beneath them), their role if they have one,
   and a line saying where they are and to read it before picking anything up.
   It knows who is calling, so nobody is asked their own name. A scoped member
-  gets their thread and the project above it, never a sibling. It spends no AI
+  gets their thread and the project above it, never a sibling — including the
+  tasks and roles they hold at project level, which a scope hides no more than
+  it hides the context above them. A role is named as theirs only when it
+  carries their address; one that merely sits on their thread is shown as
+  what it is. It spends no AI
   call, deliberately: a member's assistant opens this first, every time. It is
   now the first step in the member sequence the agent guidance describes, ahead
   of contributing or marking anything done. Closes #83.

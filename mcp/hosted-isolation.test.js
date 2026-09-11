@@ -1284,8 +1284,16 @@ describe('the brief a member opens first', () => {
   });
 
   it('gives them their own tasks, grouped by where the work sits', async () => {
+    // Both: the one on their thread and the one on the project, which they
+    // inherit. A scope hides siblings, never the project above them.
     const r = await asUser(project(), RAVI, h => json(h.my_brief()));
-    expect(r.tasks.open.flatMap(g => g.tasks.map(t => t.id))).toEqual(['t-eng']);
+    expect(r.tasks.open.map(g => g.workstream)).toEqual([null, 'engineering']);
+    expect(r.tasks.open.flatMap(g => g.tasks.map(t => t.id))).toEqual(['t-proj', 't-eng']);
+  });
+
+  it('does not give them a sibling task owned by the same name', async () => {
+    const r = await asUser(project(), RAVI, h => json(h.my_brief()));
+    expect(r.tasks.open.flatMap(g => g.tasks.map(t => t.id))).not.toContain('t-prod');
   });
 
   it('names their role when one sits on their thread', async () => {

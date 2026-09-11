@@ -80,8 +80,11 @@ export async function buildBrief({
     // the one view meant to tell them what they are doing.
     .filter(t => inScope(scope && scope.length ? scope : null, t.workstream));
 
-  const open = mine.filter(t => t.status === 'open');
-  const done = mine.filter(t => t.status !== 'open');
+  // Oldest first, matching `task list`. Two surfaces listing the same tasks in
+  // different orders is the kind of difference somebody spends an afternoon on.
+  const byAge = (a, b) => (a.createdAt || '').localeCompare(b.createdAt || '');
+  const open = mine.filter(t => t.status === 'open').sort(byAge);
+  const done = mine.filter(t => t.status !== 'open').sort(byAge);
 
   // The compiled context for each place they stand. `readTreeMd` already holds
   // the project tree above the workstream's own, so this is the merged view

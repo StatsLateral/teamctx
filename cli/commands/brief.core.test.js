@@ -166,12 +166,18 @@ describe('the line of framing', () => {
 });
 
 describe('what it costs', () => {
-  it('spends no AI call', async () => {
+  it('imports nothing that can spend an AI call', async () => {
     // Stated as a property, not an accident: a member's assistant opens this
-    // first, every time. The read-before-you-write step must stay the cheapest
-    // call in the product, so the module imports nothing that can spend one.
-    const src = await import('fs').then(fs => fs.readFileSync('cli/commands/brief.core.js', 'utf-8'));
-    expect(src).not.toMatch(/from '.*\/(ai|context)\.js'/);
+    // first, every time, so the read-before-you-write step has to stay the
+    // cheapest call in the product.
+    //
+    // This checks direct imports only — it would not catch a call reached
+    // through another module — so it is a tripwire on the obvious regression
+    // rather than a proof.
+    const { readFileSync } = await import('fs');
+    const { fileURLToPath } = await import('url');
+    const subject = fileURLToPath(new URL('./brief.core.js', import.meta.url));
+    expect(readFileSync(subject, 'utf-8')).not.toMatch(/from '[^']*\/(ai|context)\.js'/);
   });
 });
 
@@ -246,5 +252,16 @@ describe('a role that sits at project level', () => {
     });
     const r = await buildBrief({ activeWorkstream: 'delivery', teamctxDir: '/x' });
     expect(r.role).toBe(null);
+  });
+});
+
+describe('the order tasks come back in', () => {
+  it('is oldest first, the same as `task list`', async () => {
+    listTasks.mockReturnValue([
+      { id: 'b', title: 'second', status: 'open', workstream: null, owner: 'Priya', createdAt: '2026-02-01' },
+      { id: 'a', title: 'first', status: 'open', workstream: null, owner: 'Priya', createdAt: '2026-01-01' },
+    ]);
+    const r = await buildBrief({ teamctxDir: '/x' });
+    expect(r.tasks.open[0].tasks.map(t => t.id)).toEqual(['a', 'b']);
   });
 });
