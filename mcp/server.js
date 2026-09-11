@@ -612,6 +612,22 @@ export function makeHandlers(projectRoot) {
   };
 
   /**
+   * A snapshot carries every tree at one moment, so handing one over whole is
+   * the same leak as an unfiltered `get_context` — and it reaches further,
+   * because a snapshot is history the caller was never meant to browse.
+   *
+   * The legacy `shared` key is `main`'s tree, which is project level and in
+   * everybody's scope, so it stays.
+   */
+  const visibleSnapshot = (snapshot, allowed) => {
+    if (!allowed || !snapshot) return snapshot;
+    return {
+      ...snapshot,
+      workstreams: (snapshot.workstreams || []).filter(w => inScope(allowed, resolveTarget(w.id))),
+    };
+  };
+
+  /**
    * The workstream a task lives in, checked against the caller's scope.
    *
    * A scope that stopped at the workstream tools would be walked around by
@@ -692,7 +708,16 @@ export function makeHandlers(projectRoot) {
     },
 
     async list_snapshots() {
-      return textResult(listAllSnapshots({ teamctxDir: dir() }));
+      const teamctxDir = dir();
+      const allowed = await scope(teamctxDir, readConfig(teamctxDir));
+      const r = listAllSnapshots({ teamctxDir });
+      // Every entry here is a whole snapshot, trees included — this listing was
+      // a wider door than `get_snapshot`, which had already been closed.
+      return textResult({
+        ...r,
+        snapshots: (r.snapshots || []).map(sn => visibleSnapshot(sn, allowed)),
+        ...(allowed ? { scopedTo: allowed } : {}),
+      });
     },
 
     async get_snapshot({ id }) {
@@ -705,11 +730,11 @@ export function makeHandlers(projectRoot) {
       // Both halves: `snapshot.workstreams` and the top-level `workstreams` are
       // the same array, so filtering one and spreading the other handed over
       // every tree anyway.
-      const visible = (r.workstreams || []).filter(w => inScope(allowed, resolveTarget(w.id)));
+      const filtered = visibleSnapshot(r.snapshot, allowed);
       return textResult({
         ...r,
-        snapshot: { ...r.snapshot, workstreams: visible },
-        workstreams: visible,
+        snapshot: filtered,
+        workstreams: filtered.workstreams || [],
         scopedTo: allowed,
       });
     },
@@ -1033,6 +1058,10 @@ export function makeHandlers(projectRoot) {
           const available = (config.roles || []).map(r => r.slug).join(', ') || '(none)';
           throw new Error(`No role "${role}". Available: ${available}`);
         }
+        // Same walk-around `get_role_context` closes: a role file is a compiled
+        // view of one workstream, so reading it through `ask` is reading that
+        // workstream.
+        assertInScope(await scope(teamctxDir, config), resolveTarget(found.workstream));
         roleMd = readRoleFile(role, teamctxDir);
       }
       const activeWorkstreamId = await targetWorkstream(teamctxDir, config, args.workstream);
@@ -1061,7 +1090,11 @@ export function makeHandlers(projectRoot) {
     },
 
     async suggest_workstream_splits() {
-      const result = await suggestWorkstreamSplits({ teamctxDir: dir(), projectDir: gitCwd });
+      const teamctxDir = dir();
+      const result = await suggestWorkstreamSplits({
+        workstreamId: await targetWorkstream(teamctxDir, readConfig(teamctxDir), undefined),
+        teamctxDir, projectDir: gitCwd,
+      });
       return textResult({
         activeId: result.activeId,
         splits: result.splits,
@@ -1152,12 +1185,17 @@ export function makeHandlers(projectRoot) {
     },
 
     async workstream_split(args) {
+      const teamctxDir = dir();
+      const config = readConfig(teamctxDir);
       const r = await splitWorkstreams({
         accepted: args.accepted,
-        teamctxDir: dir(), projectDir: gitCwd,
+        // Resolved here rather than from the caller's stored preference, which
+        // can still name a workstream they have been scoped off since.
+        workstreamId: await targetWorkstream(teamctxDir, config, undefined),
+        teamctxDir, projectDir: gitCwd,
       });
       const summary = r.results.map(x => `"${x.splitName}" (${x.newId}, ${x.movedWhyCount} Whys${x.movedRoles.length ? `, moved roles ${x.movedRoles.join(',')}` : ''})`).join('; ');
-      const reportBack = `Tell the user: split "${r.sourceId}" into ${r.results.length} new workstream${r.results.length === 1 ? '' : 's'}: ${summary}.`;
+      const reportBack = `Tell the user: split ${targetLabel(r.sourceId, config.project)} into ${r.results.length} new workstream${r.results.length === 1 ? '' : 's'}: ${summary}.`;
       return textResult({ ...r, reportBack });
     },
 
@@ -1188,7 +1226,13 @@ export function makeHandlers(projectRoot) {
     },
 
     async snapshot_create({ message } = {}) {
-      const r = await createSnapshot({ message, teamctxDir: dir(), projectDir: gitCwd });
+      const teamctxDir = dir();
+      const allowed = await scope(teamctxDir, readConfig(teamctxDir));
+      const r = await createSnapshot({ message, teamctxDir, projectDir: gitCwd });
+      // Taking a snapshot is not gated, and the result carries every tree it
+      // just collected — so handing it back whole let anyone read the project
+      // sideways in one call.
+      r.snapshot = visibleSnapshot(r.snapshot, allowed);
       const reportBack = `Tell the user: snapshot ${r.snapshot.id} created${r.snapshot.message ? ` (${r.snapshot.message})` : ''} — manager must approve via snapshot_approve for it to become current.`;
       return textResult({ ...r, reportBack });
     },

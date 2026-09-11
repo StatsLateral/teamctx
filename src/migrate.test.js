@@ -65,13 +65,18 @@ describe('migrateIfNeeded', () => {
     expect(project.id).toBeUndefined();
   });
 
-  it('carries the compiled markdown all the way too', () => {
+  it('ends with one compiled page, written from the tree rather than copied', () => {
+    // The old markdown was carried across verbatim, which let the page and the
+    // tree disagree wherever both existed. It is rendered now, so it cannot.
     seedPreMigrationProject();
     migrateIfNeeded(dir);
 
     expect(existsSync(join(dir, 'context', 'shared.md'))).toBe(false);
     expect(existsSync(join(dir, 'context', 'workstreams', 'main.md'))).toBe(false);
-    expect(readFileSync(join(dir, 'context', 'project.md'), 'utf-8')).toBe('# Demo\n\nHello.\n');
+    const md = readFileSync(join(dir, 'context', 'project.md'), 'utf-8');
+    const project = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf-8'));
+    expect(md).toContain(project.name);
+    project.whys.forEach(why => expect(md).toContain(why.text));
   });
 
   it('leaves no workstreams and no active one', () => {

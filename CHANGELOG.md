@@ -8,6 +8,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **Snapshots handed a scoped member every tree.** `list_snapshots` returns
+  whole snapshots, trees included, and `snapshot_create` — which is not
+  manager-gated — returns the one it just built over every workstream. Both were
+  a wider door than `get_snapshot`, which had already been closed. All three
+  filter through one place now.
+- **`ask` read a role file the caller could not open.** `get_role_context`
+  refuses a role bound to a workstream outside the scope; passing the same role
+  to `ask` fed its compiled context into the answer instead.
+- **Splitting used a stored preference instead of the caller's scope.** A member
+  whose saved workstream had since been taken off their scope got that tree back
+  from `suggest_workstream_splits`, and could rewrite it with `workstream_split`.
+  Both now resolve the target the way every other tool does.
+- **Splitting the project left every sibling showing what it had lost.** Whys
+  that move out of the project stop being inherited, but the compiled pages that
+  showed them were never rewritten.
+- **The migration left survivors with no inherited section**, and could leave
+  `project.md` disagreeing with `project.json` — the page was kept whenever one
+  existed while `main`'s Whys were merged into the tree underneath it. The page
+  is compiled from the tree now rather than copied, so the two cannot drift, and
+  every surviving workstream is recompiled once `main` is gone.
+- **The terminal's contribute prompt regressed in a merge.** It went back to
+  asking "submit for manager approval?" for contributions the policy applies
+  immediately. Restored, and now covered by a test so it cannot revert quietly.
+
+### Fixed
 <<<<<<< HEAD
 - **A change to the project never reached pages that were already compiled.**
   Inheritance is concatenation at compile time, but a compiled page is written

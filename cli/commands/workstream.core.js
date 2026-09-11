@@ -10,6 +10,7 @@ import { UnknownWorkstreamError } from './role.core.js';
 import { resolveActor } from '../../src/actor.js';
 import { resolveActiveWorkstream, writePrefs } from '../../src/prefs.js';
 import { resolveTarget, isProjectLevel, targetLabel } from '../../src/project-level.js';
+import { recompileInheritors } from '../../src/recompile.js';
 
 /** The caller's active workstream — their own preference, then the project default. */
 async function activeId(config, teamctxDir, projectDir) {
@@ -52,9 +53,14 @@ export async function listAllWorkstreams({ teamctxDir, projectDir } = {}) {
   });
 }
 
-export async function suggestWorkstreamSplits({ teamctxDir, projectDir } = {}) {
+export async function suggestWorkstreamSplits({ workstreamId, teamctxDir, projectDir } = {}) {
   const config = readConfig(teamctxDir);
-  const active = await activeId(config, teamctxDir, projectDir);
+  // A caller may hand in the target it has already resolved. The MCP server
+  // does, because a stored preference can name a workstream the member has
+  // since been scoped off, and reading it raw would hand back that tree.
+  const active = workstreamId !== undefined
+    ? resolveTarget(workstreamId)
+    : await activeId(config, teamctxDir, projectDir);
   // `readTree`, not `readWorkstream`: after the project layer the caller is at
   // project level unless they chose otherwise, and that is the tree with
   // everything in it — the one most worth splitting.
@@ -106,6 +112,13 @@ async function applySplit({ source, sourceId, split, moveRoleSlugs, config, team
     teamctxDir,
   );
 
+  // Whys that just left the project stop being inherited, and a compiled page
+  // does not re-read anything — so every sibling went on showing them as
+  // inherited until something unrelated happened to touch it.
+  if (fromProject) {
+    recompileInheritors({ project: updatedSource, config, teamctxDir });
+  }
+
   const rolesOnSource = (config.roles || []).filter(r => resolveTarget(r.workstream) === resolveTarget(sourceId));
   const validMoveSlugs = (moveRoleSlugs || []).filter(s => rolesOnSource.some(r => r.slug === s));
   const unknownRequested = (moveRoleSlugs || []).filter(s => !rolesOnSource.some(r => r.slug === s));
@@ -135,12 +148,14 @@ async function applySplit({ source, sourceId, split, moveRoleSlugs, config, team
   return { newId, movedWhyCount: movingWhys.length, movedRoles: validMoveSlugs, unknownRoles: unknownRequested };
 }
 
-export async function splitWorkstreams({ accepted, teamctxDir, projectDir } = {}) {
+export async function splitWorkstreams({ accepted, workstreamId, teamctxDir, projectDir } = {}) {
   if (!Array.isArray(accepted) || accepted.length === 0) {
     throw new WorkstreamSplitError('accepted must be a non-empty array of splits.');
   }
   const config = readConfig(teamctxDir);
-  const active = await activeId(config, teamctxDir, projectDir);
+  const active = workstreamId !== undefined
+    ? resolveTarget(workstreamId)
+    : await activeId(config, teamctxDir, projectDir);
   const source = readTree(active, teamctxDir);
   if ((source.whys || []).length < 2) {
     throw new WorkstreamSplitError(`${targetLabel(active, config.project)} has fewer than 2 Why nodes — nothing to split.`);

@@ -788,6 +788,33 @@ describe('a member scoped to one workstream', () => {
     expect(r.pending.map(x => x.id)).toEqual(['q2']);
   });
 
+  it('cannot read a sibling tree through a snapshot listing', async () => {
+    // Wider than get_snapshot: this hands back whole snapshots, trees included.
+    const s = withTasks();
+    await asUser(s, ALICE, h => json(h.snapshot_create({ message: 'before' })));
+    const r = await asUser(s, RAVI, h => json(h.list_snapshots()));
+    const ids = r.snapshots.flatMap(sn => (sn.workstreams || []).map(w => w.id));
+    expect(ids).not.toContain('product');
+    expect(ids).toContain('engineering');
+  });
+
+  it('cannot read a sibling tree by taking a snapshot of its own', async () => {
+    const r = await asUser(withTasks(), RAVI, h => json(h.snapshot_create({ message: 'mine' })));
+    const ids = (r.snapshot.workstreams || []).map(w => w.id);
+    expect(ids).not.toContain('product');
+  });
+
+  it('cannot reach a sibling role by asking a question as it', async () => {
+    // `get_role_context` refuses this; `ask` was reading the same file.
+    const s = withTasks();
+    const cfg = s.configJson();
+    cfg.roles = [{ slug: 'pm', name: 'PM', workstream: 'product' }];
+    s.write('.teamctx/config.json', JSON.stringify(cfg));
+    s.write('.teamctx/context/roles/pm.md', '# PM');
+    await expect(asUser(s, RAVI, h => h.ask({ question: 'what?', role: 'pm' })))
+      .rejects.toThrow(/no workstream "product"/);
+  });
+
   it('never scopes the manager, even if the roster tries to', async () => {
     // A manager who could not read half the project could not review
     // contributions to that half, which is the one thing only they can do.

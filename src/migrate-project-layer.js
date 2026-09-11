@@ -2,8 +2,11 @@ import {
   readConfig, writeConfig,
   readWorkstream, readWorkstreamMd, deleteWorkstream,
   readProject, readProjectMd, writeProject, writeProjectMd, listWorkstreamIds,
+  readContributions,
 } from './storage.js';
 import { LEGACY_MAIN } from './project-level.js';
+import { serializeToMd } from './context.js';
+import { recompileInheritors } from './recompile.js';
 
 /**
  * Fold `main` into the project tree.
@@ -55,18 +58,25 @@ export function migrateProjectLayer(teamctxDir) {
   // reads as project level everywhere, so nothing about them is rewritten.
   const tasks = mergeById(existing.tasks, main?.tasks);
 
-  writeProject({
+  const projectTree = {
     // The project's name, not the workstream's. `main` was usually named after
     // the project anyway, but where it was not, the project's own name is the
     // truthful one.
     name: config.project || existing.name || main?.name || '',
     whys: merged,
     ...(tasks.length ? { tasks } : {}),
-  }, teamctxDir);
+  };
+  writeProject(projectTree, teamctxDir);
 
-  // Same reasoning: a project.md already there was compiled from a tree that
-  // includes writes `main`'s copy never saw.
-  if (mainMd && !readProjectMd(teamctxDir)) writeProjectMd(mainMd, teamctxDir);
+  // Compiled from the tree just written, not copied from `main`'s markdown.
+  // Copying was wrong in both directions: where a project page already existed
+  // it was kept while `main`'s whys were merged in underneath it, so the page
+  // and the tree disagreed; and where it did not, the copy described only
+  // `main`'s half. Rendering is deterministic, so this always matches.
+  const contributions = readContributions(teamctxDir);
+  if (mainMd || merged.length || readProjectMd(teamctxDir)) {
+    writeProjectMd(serializeToMd(projectTree, projectTree.name, '', contributions), teamctxDir);
+  }
 
   writeConfig({
     ...config,
@@ -83,6 +93,16 @@ export function migrateProjectLayer(teamctxDir) {
 
   // Last, so everything above is durable before the old copy goes.
   if (hadMain) deleteWorkstream(LEGACY_MAIN, teamctxDir);
+
+  // And after it, so `main` is not among them: a workstream that survives the
+  // migration starts inheriting the project tree, and its compiled page would
+  // otherwise show no inherited section until something happened to rewrite it.
+  recompileInheritors({
+    project: projectTree,
+    config: { ...config, workstreams: (config.workstreams || []).filter(w => w.id !== LEGACY_MAIN) },
+    contributions,
+    teamctxDir,
+  });
 
   return true;
 }

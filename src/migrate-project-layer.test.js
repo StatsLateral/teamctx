@@ -11,12 +11,14 @@ vi.mock('./storage.js', () => ({
   writeProject: vi.fn(),
   writeProjectMd: vi.fn(),
   listWorkstreamIds: vi.fn(() => []),
+  readContributions: vi.fn(() => []),
+  writeWorkstreamMd: vi.fn(),
 }));
 
 const { migrateProjectLayer } = await import('./migrate-project-layer.js');
 const {
   readConfig, writeConfig, readWorkstream, readWorkstreamMd, readProject, readProjectMd,
-  deleteWorkstream, writeProject, writeProjectMd, listWorkstreamIds,
+  deleteWorkstream, writeProject, writeProjectMd, listWorkstreamIds, writeWorkstreamMd,
 } = await import('./storage.js');
 
 const MAIN_TREE = { id: 'main', name: 'Ledger', whys: [{ id: 'w1', text: 'ship it', whats: [] }] };
@@ -54,9 +56,13 @@ describe('folding main into the project tree', () => {
     expect(writeProject.mock.calls[0][0].name).toBe('Ledger');
   });
 
-  it('carries main\'s compiled markdown across', () => {
+  it('compiles the project page from the tree it just wrote', () => {
+    // Not copied from main's markdown. Copying disagreed with the tree in both
+    // directions; rendering is deterministic, so this always matches.
     migrateProjectLayer('/x');
-    expect(writeProjectMd).toHaveBeenCalledWith('# Project Context — Ledger\n', '/x');
+    const md = writeProjectMd.mock.calls[0][0];
+    expect(md).toContain('Ledger');
+    expect(md).toContain('ship it');
   });
 
   it('removes main from the workstream list and leaves the others', () => {
@@ -142,8 +148,16 @@ describe('projects that do not look like the common case', () => {
     expect(writeProject).not.toHaveBeenCalled();
   });
 
-  it('skips the markdown when main had none compiled', () => {
+  it('still writes a page when main had none compiled, because the tree has content', () => {
     readWorkstreamMd.mockReturnValue('');
+    migrateProjectLayer('/x');
+    expect(writeProjectMd.mock.calls[0][0]).toContain('ship it');
+  });
+
+  it('writes no page for a project with nothing in it and nothing compiled', () => {
+    readWorkstreamMd.mockReturnValue('');
+    listWorkstreamIds.mockReturnValue([]);
+    readConfig.mockReturnValue({ project: 'Ledger' });
     migrateProjectLayer('/x');
     expect(writeProjectMd).not.toHaveBeenCalled();
   });
@@ -177,11 +191,14 @@ describe('a project that already has a tree when this runs', () => {
     expect(writeProject.mock.calls[0][0].whys.map(w => w.id)).toEqual(['w1']);
   });
 
-  it('leaves a compiled project.md alone when one exists', () => {
-    // It was compiled from a tree that main's copy never saw.
-    readProjectMd.mockReturnValue('# Context — Ledger\n');
+  it('recompiles a project.md that already exists, rather than leaving it stale', () => {
+    // The page was kept while main's whys were merged into the tree beneath it,
+    // so the two disagreed about what the project says.
+    readProjectMd.mockReturnValue('# Context — Ledger');
     migrateProjectLayer('/x');
-    expect(writeProjectMd).not.toHaveBeenCalled();
+    const md = writeProjectMd.mock.calls[0][0];
+    expect(md).toContain('nobody flies before the 3rd');
+    expect(md).toContain('ship it');
   });
 });
 
@@ -217,5 +234,21 @@ describe('tasks that were sitting on main', () => {
     readWorkstream.mockReturnValue(MAIN_TREE);
     migrateProjectLayer('/x');
     expect(writeProject.mock.calls[0][0]).not.toHaveProperty('tasks');
+  });
+});
+
+describe('workstreams that survive the migration', () => {
+  // They start inheriting the project tree the moment it exists, and a compiled
+  // page does not re-read anything — so without this their page shows no
+  // inherited section until something unrelated rewrites it.
+  it('recompiles their pages, with the project above their own', () => {
+    migrateProjectLayer('/x');
+    expect(writeWorkstreamMd).toHaveBeenCalled();
+  });
+
+  it('does so after main is gone, so it is not one of them', () => {
+    migrateProjectLayer('/x');
+    expect(deleteWorkstream.mock.invocationCallOrder[0])
+      .toBeLessThan(writeWorkstreamMd.mock.invocationCallOrder[0]);
   });
 });

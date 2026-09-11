@@ -34,7 +34,13 @@ export async function contributeCommand(text, opts = {}) {
         console.log(`  Summary: ${summary}`);
         operations.forEach(op => console.log(`  ${describe(op)}`));
         if (opts.autoApprove) return true;
-        const prompt = opts.apply ? '\nApply these changes now? (y/n)' : '\nSubmit for manager approval? (y/n)';
+        // `willQueue` is the core's own decision, not a guess from the flags.
+        // Under the `additive` policy — what `init` writes now — an add-only
+        // contribution lands straight away, and promising a manager review
+        // would be telling somebody their work went somewhere it did not.
+        const prompt = willQueue
+          ? '\nSubmit for manager approval? (y/n)'
+          : '\nApply these changes now? (y/n)';
         return (await ask(prompt, 'y')).toLowerCase() === 'y';
       },
     });
