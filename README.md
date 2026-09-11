@@ -292,7 +292,7 @@ Go to [github.com/new](https://github.com/new) and create a new **private** repo
 Then clone teamctx and point it at your new private repo:
 
 ```bash
-git clone https://github.com/statslateralinc/teamctx team-context
+git clone https://github.com/StatsLateral/teamctx team-context
 cd team-context
 git remote set-url origin https://github.com/YOUR_USERNAME/team-context
 git push -u origin main

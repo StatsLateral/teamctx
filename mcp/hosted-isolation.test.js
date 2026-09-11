@@ -53,6 +53,10 @@ function fakeSession() {
   return {
     owner: OWNER,
     repo: REPO,
+    // Without this, `creatorViaApi` bails before it ever calls fetch and the
+    // repair tests below pass on the display-name fallback instead of the
+    // history — which is the escalation they exist to rule out.
+    ghToken: 'gh-lent-token',
     commits,
     commitOpts,
     read: p => files.get(p) || null,
@@ -257,6 +261,114 @@ describe('the manager gate cannot be talked around', () => {
 
     await expect(asUser(session, BOB, h => h.review_approve({ id: 'q-1' })))
       .rejects.toThrow(/only the configured manager/);   // and it buys him nothing
+  });
+});
+
+describe('asking who the manager is', () => {
+  // `config.manager` is the legacy display-name field and is empty on every
+  // project created since the gate moved to `managerKey` — so reading it
+  // answered "no manager" for a project that had one. Both tools are asserted
+  // together because fixing one and not the other is how this survived twice.
+  it('get_status reports the gate, not the empty legacy field', async () => {
+    const session = fakeSession();
+    const s = await asUser(session, ALICE, h => json(h.get_status()));
+    expect(s.manager).toBe(CONFIG.managerKey);
+    expect(s.manager).not.toBeNull();
+  });
+
+  it('get_config reports the same answer', async () => {
+    const session = fakeSession();
+    const c = await asUser(session, ALICE, h => json(h.get_config()));
+    expect(c.manager).toBe(CONFIG.managerKey);
+  });
+
+  it('keeps the display name available under its own name', async () => {
+    // Still worth returning — it is just not the answer to "who is the manager".
+    const session = fakeSession();
+    const s = await asUser(session, ALICE, h => json(h.get_status()));
+    expect(s).toHaveProperty('managerDisplayName');
+  });
+});
+
+describe('repairing a manager gate over the hosted server', () => {
+  // Exposed here because the creator check refuses by identity, whatever
+  // credential the request runs on — a member acting on the project's lent
+  // token is still not the person who created it.
+  const brokenSession = () => {
+    const s = fakeSession();
+    const c = { ...CONFIG, managerKey: 'name:Alice Example', managerKeys: [] };
+    s.write('.teamctx/config.json', JSON.stringify(c));
+    return s;
+  };
+
+  it('lets the creator re-pin a gate nobody can match', async () => {
+    const session = brokenSession();
+    globalThis.fetch = async () => ({
+      ok: true,
+      json: async () => ([{ commit: { author: { email: '1001+alice@users.noreply.github.com' } } }]),
+    });
+    const r = await asUser(session, ALICE, h => json(h.repair_manager_gate()));
+    expect(r).toMatchObject({ from: 'name:Alice Example', to: ALICE.key });
+    expect(session.configJson().managerKey).toBe(ALICE.key);
+  });
+
+  it('refuses somebody who did not create the project', async () => {
+    // The reason this is safe to expose at all. Bob reaches the repo on the
+    // project's lent credential, which has push access — the check is on who he
+    // is, not on what token carried the request.
+    const session = brokenSession();
+    globalThis.fetch = async () => ({
+      ok: true,
+      json: async () => ([{ commit: { author: { email: '1001+alice@users.noreply.github.com' } } }]),
+    });
+    await expect(asUser(session, BOB, h => h.repair_manager_gate())).rejects.toThrow();
+    expect(session.configJson().managerKey).toBe('name:Alice Example');
+  });
+
+
+  it('refuses a member who renamed themselves to the gate', async () => {
+    // The escalation as it would actually be run: Mallory reads the gate's
+    // display name from get_config, sets her own to match, and catches the
+    // commits API on a bad minute. Nothing here is privileged.
+    const session = brokenSession();
+    globalThis.fetch = async () => ({ ok: false, status: 403, json: async () => ({}) });
+    const mallory = { key: 'github:9999', name: 'Alice Example', login: 'mallory', source: 'github' };
+    await expect(asUser(session, mallory, h => h.repair_manager_gate())).rejects.toThrow();
+    expect(session.configJson().managerKey).toBe('name:Alice Example');
+  });
+
+  it('tells the real creator to try again when GitHub is unreachable', async () => {
+    // The same refusal, reaching the person the command is for. It has to read
+    // as temporary, because on a connector there is no config.json to edit and
+    // a permanent no would strand them.
+    const session = brokenSession();
+    globalThis.fetch = async () => { throw new Error('offline'); };
+    await expect(asUser(session, ALICE, h => h.repair_manager_gate())).rejects.toThrow(/try again/i);
+  });
+
+  it('walks past the first page to find the commit that created the file', async () => {
+    // A config.json touched more than a hundred times used to yield the
+    // hundredth-newest commit's author — a confidently wrong creator.
+    const session = brokenSession();
+    const page = (email, n) => Array.from({ length: n }, () => ({ commit: { author: { email } } }));
+    let call = 0;
+    globalThis.fetch = async () => {
+      call += 1;
+      return {
+        ok: true,
+        json: async () => (call === 1
+          ? page('someone-else@example.com', 100)
+          : page('1001+alice@users.noreply.github.com', 3)),
+      };
+    };
+    const r = await asUser(session, ALICE, h => json(h.repair_manager_gate()));
+    expect(call).toBe(2);
+    expect(r).toMatchObject({ to: ALICE.key });
+  });
+
+  it('refuses a gate that already works', async () => {
+    const session = fakeSession();
+    await expect(asUser(session, ALICE, h => h.repair_manager_gate())).rejects.toThrow(/real identity/i);
   });
 });
 
@@ -486,5 +598,31 @@ describe('adding someone hands over the link that lets them in', () => {
     const added = await asUser(session, ALICE, h => json(h.member_add({ ref: 'ravi@example.com', name: 'Ravi' })));
     const direct = await asUser(session, ALICE, h => json(h.get_connect_url()));
     expect(added.connectUrl).toBe(direct.url);
+  });
+});
+
+describe('a broken gate is visible before anything fails', () => {
+  // #73 asks for this by name: without it the only way to learn the gate is
+  // unmatchable is to be refused an approval, which is late and reads as a bug.
+  const brokenConfig = () => {
+    const s = fakeSession();
+    s.write('.teamctx/config.json', JSON.stringify({ ...CONFIG, managerKey: 'name:Alice Example', managerKeys: [] }));
+    return s;
+  };
+
+  it('get_status says so', async () => {
+    const r = await asUser(brokenConfig(), ALICE, h => json(h.get_status()));
+    expect(r.managerGateBroken).toBe(true);
+  });
+
+  it('get_config says so', async () => {
+    const r = await asUser(brokenConfig(), ALICE, h => json(h.get_config()));
+    expect(r.managerGateBroken).toBe(true);
+  });
+
+  it('stays false for a gate that works', async () => {
+    const s = fakeSession();
+    const r = await asUser(s, ALICE, h => json(h.get_status()));
+    expect(r.managerGateBroken).toBe(false);
   });
 });

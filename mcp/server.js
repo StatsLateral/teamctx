@@ -37,9 +37,11 @@ import {
 } from '../cli/commands/task.core.js';
 import { listMembers, addMember, removeMember } from '../cli/commands/member.core.js';
 import { reflectWorkstream } from '../cli/commands/reflect.core.js';
-import { getConfig, setConfig, setReviewPolicy } from '../cli/commands/config.core.js';
+import { getConfig, setConfig, repairManagerGate, setReviewPolicy } from '../cli/commands/config.core.js';
 import { resolveActor } from '../src/actor.js';
 import { resolveActiveWorkstream, resolveIdentity, resolveDisplayName } from '../src/prefs.js';
+import { managerKeys } from '../src/review.js';
+import { isBrokenGate } from '../src/manager-repair.js';
 import { INSTRUCTIONS } from './instructions.js';
 
 export function resolveProjectDir(argv = process.argv.slice(2), env = process.env, cwd = process.cwd()) {
@@ -115,7 +117,7 @@ export const TOOLS = [
   },
   {
     name: 'get_status',
-    description: "**Call this first when you do not know where you are.** Answers who is calling, which project, whether it is set up at all, and whether the caller is the manager — all in one read. Returns project name, provider, model, manager identity, workstreams with why-counts, roles, contribution/decision totals. `me` and `activeWorkstream` are the calling user's, not the project defaults. Read-only.",
+    description: "**Call this first when you do not know where you are.** Answers who is calling, which project, whether it is set up at all, and whether the caller is the manager — all in one read. `managerGateBroken: true` means the gate is a display name nobody can match, so every approval on this project is already failing — tell the user plainly and offer repair_manager_gate if they set the project up. Returns project name, provider, model, manager identity, workstreams with why-counts, roles, contribution/decision totals. `me` and `activeWorkstream` are the calling user's, not the project defaults. Read-only.",
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
   },
   {
@@ -412,6 +414,11 @@ export const TOOLS = [
     },
   },
   {
+    name: 'repair_manager_gate',
+    description: RISKY + "re-pins a manager gate that is a display name rather than an identity — projects created on the web before this was fixed carry one, and nobody can match it, so every approval fails. Refuses unless the gate is broken **and** the caller created the project, read from the commit that added .teamctx/config.json. Not a way to take over a project: against a working gate, or from anybody but the creator, it refuses." + REPORT,
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+  },
+  {
     name: 'set_review_policy',
     description: RISKY + "chooses how much of a contribution waits for the manager's approval. Manager-gated against the authenticated caller, and deliberately not reachable through config_set: a caller who can set this to \"none\" can then write anything. \"all\" queues every contribution. \"additive\" lets contributions that only add land immediately and queues anything that edits or deletes an existing statement. \"none\" applies everything and also lets any member run reflect, which rewrites the whole shared context. Say what changes in plain language and confirm before calling." + REPORT,
     inputSchema: {
@@ -594,7 +601,16 @@ export function makeHandlers(projectRoot) {
         project: config.project,
         provider: config.provider || 'anthropic',
         model: config.model,
-        manager: config.manager || null,
+        // The gate, not `config.manager`. That field is the legacy display-name
+        // one and is empty on every project created since; reading it reported
+        // "no manager" for projects that had one, which is the question this
+        // field exists to answer.
+        manager: managerKeys(config)[0] || config.manager || null,
+        managerDisplayName: config.manager || null,
+        // Named here because this is where an agent orients, and a broken gate
+        // is otherwise only discovered at the moment an approval is refused —
+        // which is late, and reads as a bug rather than a fixable state.
+        managerGateBroken: isBrokenGate(config),
         // Who *this caller* is and where *they* are working — not the shared
         // config.me / config.activeWorkstream, which are only the defaults.
         me: me.name,
@@ -997,6 +1013,18 @@ export function makeHandlers(projectRoot) {
       const r = await reflectWorkstream({ workstreamId: workstream, teamctxDir: dir(), projectDir: gitCwd });
       const reportBack = `Tell the user: reflected workstream "${r.workstreamId}"${r.rolesRegenerated.length ? `; regenerated roles: ${r.rolesRegenerated.join(', ')}` : ''}${r.pushed ? '; pushed' : ''}.`;
       return textResult({ workstreamId: r.workstreamId, rolesRegenerated: r.rolesRegenerated, pushed: r.pushed, pushError: r.pushError, reportBack });
+    },
+
+    async repair_manager_gate() {
+      const r = await repairManagerGate({ teamctxDir: dir(), projectDir: gitCwd });
+      const c = await commitContext(`config: repair manager gate (via mcp)`,
+        gitCwd ? { cwd: gitCwd } : undefined);
+      return textResult({
+        ...r, committed: c?.committed === true,
+        reportBack: `Tell the user: the manager gate was ${r.from}, which nobody could match. `
+          + `It is now ${r.to}, so they can approve again.`
+          + (r.warning ? ` Also tell them: ${r.warning}` : ''),
+      });
     },
 
     async set_review_policy({ policy }) {
