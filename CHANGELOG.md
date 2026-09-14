@@ -39,8 +39,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   request with no key of its own runs on the primary manager's project key, so
   handing a project over changes whose key it runs on without moving a secret
   between people. Nobody can step out while members still reach the project
-  through GitHub access they lent, and the primary cannot remove the key the
-  project runs on. On a deployed project, manager changes are made through the
+  through GitHub access they lent. The primary manager can still remove the key
+  the project runs on, since it is theirs, but is warned first that everyone
+  without a key of their own loses the model. On a deployed project, manager changes are made through the
   connector, where these checks can run; from a clone they are refused with that
   instruction.
 - **Sign in to the settings page with Google.** It offered only GitHub, so

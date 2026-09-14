@@ -315,6 +315,7 @@ app.get('/settings', async (req, res) => {
     user, hasKey: !!existing, shared, lent, repos,
     saved: req.query.saved === '1',
     error: req.query.error ? String(req.query.error) : null,
+    confirmRemove: req.query.confirmRemove ? String(req.query.confirmRemove) : null,
   }));
 });
 
@@ -627,13 +628,12 @@ app.post('/settings/unshare', async (req, res) => {
 
   const slug = `${ref.owner}/${ref.repo}`;
 
-  // Not the key the project runs on. The primary manager passed a key check to
-  // become primary; removing that key a moment later would leave everyone with
-  // no key of their own unable to use a model, with no manager noticing.
-  // Transferring the primary role first is the way to stop paying.
-  if (user.email && await isPrimaryManager(user, ref)) {
-    return backToSettings(res, `You are the primary manager of ${slug}, and it runs on your key. `
-      + 'Hand the primary role to someone else first — then you can remove it.');
+  // Warned, not refused. The key is theirs to remove, but if they are the
+  // primary manager the project runs on it, and everyone without a key of their
+  // own loses the model the moment it goes. So the first attempt stops to say so,
+  // and a second, deliberate one goes through.
+  if (!req.body?.confirm && user.email && await isPrimaryManager(user, ref)) {
+    return res.redirect(303, `/settings?confirmRemove=${encodeURIComponent(slug)}`);
   }
 
   // Only the person who added a key can take it away — keyed by their own
@@ -840,11 +840,22 @@ button.link{background:none;border:0;padding:0;margin:0;color:var(--dim);
 code{background:#8881;padding:.1rem .3rem;border-radius:.2rem}
 </style></head><body${wide ? ' class="wide"' : ''}>${body}</body></html>`;
 
-const settingsPage = ({ user, hasKey, saved, error, shared = [], lent = [], repos = [] }) => shell('Settings', `
+const settingsPage = ({ user, hasKey, saved, error, confirmRemove = null, shared = [], lent = [], repos = [] }) => shell('Settings', `
 ${navBar({ user, current: '/settings' })}
 <h1>Settings</h1>
 ${saved ? '<div class="ok">Saved.</div>' : ''}
 ${error ? `<div class="bad">${esc(error)}</div>` : ''}
+${confirmRemove ? `<div class="bad">
+<p><strong>${esc(confirmRemove)} runs on this key.</strong> You are its primary manager, so
+anyone on it without a key of their own will lose the model as soon as it is removed.
+To stop paying without that, hand the primary role to someone else first.</p>
+<form method="POST" action="/settings/unshare" style="margin:.35rem 0">
+  <input type="hidden" name="project" value="${esc(confirmRemove)}">
+  <input type="hidden" name="confirm" value="1">
+  <button type="submit">Remove it anyway</button>
+  <a href="/settings">Keep it</a>
+</form>
+</div>` : ''}
 
 <div class="cols">
 <section class="card">

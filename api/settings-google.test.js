@@ -240,18 +240,34 @@ describe('lending GitHub access', () => {
 });
 
 describe('the key a project runs on', () => {
-  it('cannot be removed by the primary manager, who must hand the role over first', async () => {
-    // They passed a key check to become primary; removing the key straight after
-    // would leave everyone without one of their own unable to use a model.
+  it('warns the primary manager before removing the key the project runs on', async () => {
+    // The key is theirs to remove. But everyone without a key of their own loses
+    // the model when it goes, so the first attempt stops to say so.
     const primaryConfig = { ...CONFIG, managerKey: 'git:dev@example.com' };
     await kvSet(keys.projectGhCred('acme', 'ledger'), { token: 'lent', lentById: '1' });
     const restore = stubGithub({ config: primaryConfig });
     try {
       await as(GOOGLE, '/settings/share', { method: 'POST', form: { project: 'acme/ledger', apiKey: 'sk-dev' } });
       const r = await as(GOOGLE, '/settings/unshare', { method: 'POST', form: { project: 'acme/ledger' } });
-      expect(decodeURIComponent(r.location)).toMatch(/You are the primary manager of acme\/ledger/);
+      expect(r.location).toBe('/settings?confirmRemove=acme%2Fledger');
+      expect((await readProjectKeys('acme', 'ledger')).byEmail['dev@example.com']).toBeTruthy();
+
+      const page = await as(GOOGLE, r.location);
+      expect(page.body).toContain('acme/ledger runs on this key.');
+      expect(page.body).toContain('name="confirm" value="1"');
     } finally { restore(); }
-    expect((await readProjectKeys('acme', 'ledger')).byEmail['dev@example.com']).toBeTruthy();
+  });
+
+  it('removes it when the primary manager confirms, because it is theirs', async () => {
+    const primaryConfig = { ...CONFIG, managerKey: 'git:dev@example.com' };
+    await kvSet(keys.projectGhCred('acme', 'ledger'), { token: 'lent', lentById: '1' });
+    const restore = stubGithub({ config: primaryConfig });
+    try {
+      await as(GOOGLE, '/settings/share', { method: 'POST', form: { project: 'acme/ledger', apiKey: 'sk-dev' } });
+      const r = await as(GOOGLE, '/settings/unshare', { method: 'POST', form: { project: 'acme/ledger', confirm: '1' } });
+      expect(r.location).toBe('/settings?saved=1');
+    } finally { restore(); }
+    expect((await readProjectKeys('acme', 'ledger')).byEmail).toEqual({});
   });
 
   it('can be removed by anyone who is not primary', async () => {

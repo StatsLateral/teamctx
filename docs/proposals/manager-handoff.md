@@ -188,8 +188,9 @@ Recorded here so the commits and the pull request can cite them.
     who lent it refuses a step-out, with the fix: lend it again to record it.
 16. A manager recorded before managers were identified by email is matched by
     GitHub id or login in the step-out check, so they cannot slip past it.
-17. The primary manager cannot remove the key the project runs on until they
-    have handed the primary role over.
+17. The primary manager can remove the key the project runs on — it is theirs —
+    but is warned first that everyone without a key of their own loses the
+    model, and has to confirm.
 
 ## Out of scope
 
