@@ -163,6 +163,21 @@ export const keys = {
   /** Which projects one user shares a key with, so the settings page can show them. */
   sharedProjects: githubUserId => `teamctx:aikey:shared-by:${githubUserId}`,
   /**
+   * A person's own AI key, by verified email. Replaces `aiKey`, which is keyed
+   * by GitHub id and so could not be found by the same person signing in with
+   * Google. The GitHub-id record is still read as a fallback — see ai-keys.js.
+   */
+  personalAiKey: email => `teamctx:aikey:email:${String(email).toLowerCase()}`,
+  /**
+   * Every project key added to one project: one per person, by the email of
+   * whoever added it. Replaces the single `projectAiKey` record, which let the
+   * first person to share block everyone else. A request runs on the primary
+   * manager's entry — see ai-keys.js.
+   */
+  projectAiKeys: (owner, repo) => `teamctx:aikey:project-keys:${slug(owner, repo)}`,
+  /** Which projects one person has added a key to, by email, for the settings page. */
+  keysAddedBy: email => `teamctx:aikey:added-by:${String(email).toLowerCase()}`,
+  /**
    * A GitHub credential the project lends to members who have none of their
    * own. Keyed by the repository it serves and looked up by the owner/repo in
    * the request URL, so it can only ever act on the project it was stored for.

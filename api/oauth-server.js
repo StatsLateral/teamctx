@@ -4,6 +4,9 @@ import { mcpAuthRouter } from '@modelcontextprotocol/sdk/server/auth/router.js';
 import { providerFromEnv, oauthConfigStatus, GITHUB_SCOPES, OAuthCallbackError } from '../src/oauth/provider.js';
 import { kvGet, kvSet, kvTake, kvDelete, keys, TTL, isPersistent } from '../src/oauth/kv.js';
 import { googleAuthorizeUrl } from '../src/oauth/google.js';
+import {
+  readPersonalKey, writePersonalKey, addProjectKey, removeProjectKey, projectsKeyedBy,
+} from '../src/oauth/ai-keys.js';
 import { primaryEmail } from '../src/oauth/github-identity.js';
 import { lendDecision } from '../src/oauth/lend-decision.js';
 import { GithubSession, listUserOrgs, createRepo, slugifyProjectName, suggestAvailableName, listPushableRepos } from '../src/adapters/github.js';
@@ -59,7 +62,7 @@ app.get('/', async (req, res) => {
   // settings page, so every one of them links to the same place.
   const projects = user
     ? [...new Set([
-        ...((await kvGet(keys.sharedProjects(user.id)))?.projects || []),
+        ...(await projectsKeyedBy({ email: user.email, githubId: user.id })),
         ...((await kvGet(keys.lentProjects(user.id)))?.projects || []),
       ])].sort()
     : [];
@@ -271,8 +274,8 @@ app.get('/settings', async (req, res) => {
   // they landed — making "signed out" a state you could never actually see.
   if (!user) return res.send(signInPage());
 
-  const existing = await kvGet(keys.aiKey(user.id));
-  const shared = (await kvGet(keys.sharedProjects(user.id)))?.projects || [];
+  const existing = await readPersonalKey({ email: user.email, githubId: user.id });
+  const shared = await projectsKeyedBy({ email: user.email, githubId: user.id });
   // A dropdown instead of free text: nobody should have to remember the exact
   // spelling of a repository they already chose once.
   const repos = user.token ? await listPushableRepos(user.token) : [];
@@ -437,14 +440,20 @@ app.post('/settings', async (req, res) => {
   const apiKey = String(req.body?.apiKey || '').trim();
   const provider_ = String(req.body?.provider || 'anthropic').trim();
 
+  // Keys are stored by verified email, so the same person finds them whether
+  // they signed in with GitHub or Google. Without an address there is nothing
+  // to store them under that another sign-in could ever find.
+  if (!user.email) {
+    return backToSettings(res, 'Your sign-in did not come with a verified email address, so there is nowhere to keep a key. Sign out and sign in again.');
+  }
   if (apiKey === '__clear__') {
-    await kvSet(keys.aiKey(user.id), null);
+    await writePersonalKey({ email: user.email, githubId: user.id, apiKey: null });
     return res.redirect(303, '/settings?saved=1');
   }
   if (!apiKey) {
     return res.status(400).send(errorPage('Paste a key, or leave the page.'));
   }
-  await kvSet(keys.aiKey(user.id), { provider: provider_, apiKey });
+  await writePersonalKey({ email: user.email, githubId: user.id, provider: provider_, apiKey });
   res.redirect(303, '/settings?saved=1');
 });
 
@@ -491,8 +500,11 @@ app.post('/settings/share', async (req, res) => {
   // has it to hand would otherwise be unable to share the very key they already
   // gave us — so reuse it rather than asking them to produce it again.
   let apiKey, provider_;
+  if (!user.email) {
+    return backToSettings(res, 'Your sign-in did not come with a verified email address, so a key added now could not be attributed to you. Sign out and sign in again.');
+  }
   if (req.body?.useMyKey) {
-    const mine = await kvGet(keys.aiKey(user.id));
+    const mine = await readPersonalKey({ email: user.email, githubId: user.id });
     if (!mine?.apiKey) {
       return backToSettings(res, 'You have no saved key to share — paste one below instead.');
     }
@@ -507,19 +519,10 @@ app.post('/settings/share', async (req, res) => {
   const allowed = await canShareWith(user.token, ref.owner, ref.repo);
   if (!allowed.ok) return backToSettings(res, allowed.why);
 
-  const slug = `${ref.owner}/${ref.repo}`;
-  const existing = await kvGet(keys.projectAiKey(ref.owner, ref.repo));
-  if (existing && existing.sharedById && existing.sharedById !== user.id) {
-    return backToSettings(res, `${existing.sharedByLogin || 'Someone else'} already shares a key with ${slug}. They need to stop sharing first.`);
-  }
-
-  await kvSet(keys.projectAiKey(ref.owner, ref.repo), {
-    provider: provider_, apiKey, sharedById: user.id, sharedByLogin: user.login,
-  });
-  const list = (await kvGet(keys.sharedProjects(user.id)))?.projects || [];
-  if (!list.includes(slug)) {
-    await kvSet(keys.sharedProjects(user.id), { projects: [...list, slug] });
-  }
+  // One key per person, recorded against who added it. Nobody's key displaces
+  // anyone else's any more; which one a project runs on is decided by who its
+  // primary manager is, not by who got here first.
+  await addProjectKey({ owner: ref.owner, repo: ref.repo, email: user.email, provider: provider_, apiKey });
   backToSettings(res);
 });
 
@@ -531,15 +534,23 @@ app.post('/settings/unshare', async (req, res) => {
   if (!ref) return backToSettings(res, 'Write the project as owner/repo.');
 
   const slug = `${ref.owner}/${ref.repo}`;
-  const existing = await kvGet(keys.projectAiKey(ref.owner, ref.repo));
-  // Only the person who put the key there can take it away; anyone else with
-  // push access could otherwise drop a key that is not theirs.
-  if (existing && existing.sharedById && existing.sharedById !== user.id) {
-    return backToSettings(res, `That key was shared by someone else.`);
+  // Only the person who added a key can take it away — keyed by their own
+  // address, so there is no path to anybody else's.
+  const removed = user.email
+    ? await removeProjectKey({ owner: ref.owner, repo: ref.repo, email: user.email })
+    : false;
+
+  // The single shared record from before this change, if it is theirs.
+  const legacy = await kvGet(keys.projectAiKey(ref.owner, ref.repo));
+  const legacyIsMine = legacy?.sharedById && legacy.sharedById === user.id;
+  if (legacyIsMine) {
+    await kvSet(keys.projectAiKey(ref.owner, ref.repo), null);
+    const list = (await kvGet(keys.sharedProjects(user.id)))?.projects || [];
+    await kvSet(keys.sharedProjects(user.id), { projects: list.filter(p => p !== slug) });
   }
-  await kvSet(keys.projectAiKey(ref.owner, ref.repo), null);
-  const list = (await kvGet(keys.sharedProjects(user.id)))?.projects || [];
-  await kvSet(keys.sharedProjects(user.id), { projects: list.filter(p => p !== slug) });
+  if (!removed && !legacyIsMine) {
+    return backToSettings(res, `You have not added a key to ${slug}.`);
+  }
   backToSettings(res);
 });
 
