@@ -3,7 +3,8 @@ import { createHash } from 'crypto';
 import { makeHandlers, TOOLS } from './server.js';
 import { runWithSession } from '../src/session-context.js';
 import { runWithActor } from '../src/actor.js';
-import { __resetMemory } from '../src/oauth/kv.js';
+import { __resetMemory, kvSet, keys } from '../src/oauth/kv.js';
+import { addProjectKey } from '../src/oauth/ai-keys.js';
 
 /**
  * Two people on the hosted server at the same time.
@@ -1330,5 +1331,100 @@ describe('the brief a member opens first', () => {
     const tasks = TOOLS.find(t => t.name === 'list_tasks').description;
     expect(tasks).toMatch(/my_brief/);
     expect(tasks).not.toMatch(/Reach for this when somebody asks what they should be working on/);
+  });
+});
+
+describe('changing who manages a project, over the server', () => {
+  // The hosted server is the one place the checks can run: it holds each
+  // project's keys and its lent GitHub access, which a clone cannot read.
+  const PRIYA_GOOGLE = { key: 'git:priya@example.com', name: 'Priya', login: null, email: 'priya@example.com', source: 'google' };
+
+  /** Stand in for the provider's list-models endpoint. */
+  const providerAnswers = (status) => {
+    const real = globalThis.fetch;
+    globalThis.fetch = async (u, o) => (String(u).includes('api.anthropic.com/v1/models')
+      ? { ok: status === 200, status }
+      : real(u, o));
+    return () => { globalThis.fetch = real; };
+  };
+
+  it('refuses to promote somebody who has added no key, and writes nothing', async () => {
+    const s = fakeSession();
+    await expect(asUser(s, ALICE, h => h.manager_add({ email: 'priya@example.com' })))
+      .rejects.toThrow(/priya@example\.com has not added a key to acme\/ledger/);
+    expect(s.configJson().managerKeys).toBeUndefined();
+    expect(s.commits).toEqual([]);
+  });
+
+  it('promotes somebody whose own key passes the check, and records it in the commit', async () => {
+    const s = fakeSession();
+    await addProjectKey({ owner: OWNER, repo: REPO, email: 'priya@example.com', provider: 'anthropic', apiKey: 'sk-priya' });
+    const restore = providerAnswers(200);
+    try {
+      const r = await asUser(s, ALICE, h => json(h.manager_add({ email: 'priya@example.com' })));
+      expect(r.coManagers.map(m => m.email)).toEqual(['priya@example.com']);
+    } finally { restore(); }
+    expect(s.configJson().managerKeys).toEqual(['git:priya@example.com']);
+    expect(s.commits.at(-1)).toMatch(/manager: add priya@example\.com as co-manager by .*\(key verified with anthropic\)/);
+  });
+
+  it('refuses a key the provider rejects', async () => {
+    const s = fakeSession();
+    await addProjectKey({ owner: OWNER, repo: REPO, email: 'priya@example.com', apiKey: 'sk-bad' });
+    const restore = providerAnswers(401);
+    try {
+      await expect(asUser(s, ALICE, h => h.manager_add({ email: 'priya@example.com' })))
+        .rejects.toThrow(/did not pass a check/);
+    } finally { restore(); }
+    expect(s.configJson().managerKeys).toBeUndefined();
+  });
+
+  it('lets a co-manager promoted by address approve when they sign in with Google', async () => {
+    const s = fakeSession();
+    await addProjectKey({ owner: OWNER, repo: REPO, email: 'priya@example.com', apiKey: 'sk-priya' });
+    const restore = providerAnswers(200);
+    try {
+      await asUser(s, ALICE, h => json(h.manager_add({ email: 'priya@example.com' })));
+    } finally { restore(); }
+    const r = await asUser(s, PRIYA_GOOGLE, h => json(h.set_review_policy({ policy: 'all' })));
+    expect(r.to).toBe('all');
+  });
+
+  it('refuses to promote by username, since a manager is identified by email', async () => {
+    await expect(asUser(fakeSession(), ALICE, h => h.manager_add({ email: 'priyar' })))
+      .rejects.toThrow(/not an email address/);
+  });
+
+  it('transfers the primary role to somebody with a working key', async () => {
+    const s = fakeSession();
+    await addProjectKey({ owner: OWNER, repo: REPO, email: 'priya@example.com', apiKey: 'sk-priya' });
+    const restore = providerAnswers(200);
+    try {
+      const r = await asUser(s, ALICE, h => json(h.manager_transfer({ email: 'priya@example.com' })));
+      expect(r.primary.email).toBe('priya@example.com');
+    } finally { restore(); }
+    expect(s.configJson().managerKey).toBe('git:priya@example.com');
+    expect(s.configJson().managerKeys).toEqual(['github:1001']);
+  });
+
+  it('does not let somebody who is not a manager change the managers', async () => {
+    await expect(asUser(fakeSession(), BOB, h => h.manager_add({ email: 'priya@example.com' })))
+      .rejects.toThrow(/only the configured manager/);
+  });
+
+  it('refuses a step-out while the lent GitHub access is theirs', async () => {
+    const s = fakeSession();
+    s.write('.teamctx/config.json', JSON.stringify({ ...CONFIG, managerKeys: ['git:priya@example.com'] }));
+    await kvSet(keys.projectGhCred(OWNER, REPO), { token: 't', lentById: '9', lentByLogin: 'priya', lentByEmail: 'priya@example.com' });
+    await expect(asUser(s, ALICE, h => h.manager_remove({ email: 'priya@example.com' })))
+      .rejects.toThrow(/still lent by priya@example\.com/);
+    expect(s.configJson().managerKeys).toEqual(['git:priya@example.com']);
+  });
+
+  it('reports every manager in get_status, not just the first', async () => {
+    const s = fakeSession();
+    s.write('.teamctx/config.json', JSON.stringify({ ...CONFIG, managerKeys: ['git:priya@example.com'] }));
+    const r = await asUser(s, ALICE, h => json(h.get_status()));
+    expect(r.managers.coManagers.map(m => m.email)).toEqual(['priya@example.com']);
   });
 });

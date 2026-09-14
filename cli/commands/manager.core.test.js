@@ -159,3 +159,32 @@ describe('what is written and committed', () => {
     await expect(addManager({ ref: 'priyar' })).rejects.toThrow(ManagerChangeError);
   });
 });
+
+describe('a deployed project, changed from somewhere the checks cannot run', () => {
+  const deployed = (over = {}) => config({ deployUrl: 'https://team.vercel.app', ...over });
+
+  it('refuses a promotion without the key check, and points at the connector', async () => {
+    readConfig.mockReturnValue(deployed());
+    await expect(addManager({ ref: 'priya@example.com' }))
+      .rejects.toMatchObject({ code: 'MANAGER_NEEDS_CONNECTOR' });
+    await expect(addManager({ ref: 'priya@example.com' })).rejects.toThrow(/through the teamctx connector/);
+    expect(writeConfig).not.toHaveBeenCalled();
+  });
+
+  it('refuses a step-out without the step-out check', async () => {
+    readConfig.mockReturnValue(deployed({ managerKeys: ['git:priya@example.com'] }));
+    await expect(removeManager({ ref: 'priya@example.com' }))
+      .rejects.toMatchObject({ code: 'MANAGER_NEEDS_CONNECTOR' });
+  });
+
+  it('goes through when the checks are supplied, as they are on the hosted server', async () => {
+    readConfig.mockReturnValue(deployed());
+    await addManager({ ref: 'priya@example.com', checkKey: async () => ({ ok: true }) });
+    expect(writeConfig).toHaveBeenCalled();
+  });
+
+  it('allows the same change on a project with no deployment, where there is nothing to check', async () => {
+    await addManager({ ref: 'priya@example.com' });
+    expect(writeConfig).toHaveBeenCalled();
+  });
+});

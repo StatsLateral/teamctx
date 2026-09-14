@@ -71,7 +71,32 @@ export function listManagers({ teamctxDir } = {}) {
   return listManagersFrom(readConfig(teamctxDir));
 }
 
+/**
+ * Refuse a change the checks cannot guard.
+ *
+ * A project with a `deployUrl` is reached through the hosted server, where its
+ * keys and its lent access live. A clone cannot see either, so from a clone the
+ * key check and the step-out check cannot run — and a deployed project is exactly
+ * the one where skipping them strands people. The connector can run both.
+ *
+ * A project with no deployment has no hosted keys or lent access to check, so
+ * there is nothing a missing check could miss.
+ */
+function assertGuardable({ config, plan, checkKey, checkStepOut }) {
+  if (!config.deployUrl) return;
+  const missing = (plan.promotes && !checkKey) || (plan.leaves && !checkStepOut);
+  if (!missing) return;
+  throw new ManagerChangeError(
+    `This project is deployed at ${config.deployUrl}, and changing its managers needs checks that only `
+    + 'the hosted server can run: that the new manager has a working key, and that nobody leaves while '
+    + 'members still reach the project through access they lent. Ask your assistant to make this change '
+    + 'through the teamctx connector instead.',
+    'MANAGER_NEEDS_CONNECTOR',
+  );
+}
+
 async function apply({ plan, config, message, who, teamctxDir, projectDir, checkKey, checkStepOut }) {
+  assertGuardable({ config, plan, checkKey, checkStepOut });
   const keyCheck = plan.promotes
     ? await runCheck(checkKey, emailOfKey(plan.promotes), 'MANAGER_KEY_CHECK')
     : null;
