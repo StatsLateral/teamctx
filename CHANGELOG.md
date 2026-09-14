@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Documentation
+- **The roadmap no longer calls workstreams nestable.** Workstreams are peers
+  that each inherit the project's context; nesting was never built, and
+  `docs/workstreams.md` already says it is not supported.
+
 ### Added
 - **Nobody is brought onto a project with nothing in it.** A manager could
   invite somebody the moment a project existed; that person connected, their

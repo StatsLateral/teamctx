@@ -8,7 +8,7 @@ It compiles a role-specific file for each person to bring to their AI tool witho
 1. **No platform lock-in** — use any AI provider (Claude, OpenAI, Gemini, a local model). teamctx organizes context and answers `ask`, but you choose the engine.
 2. **Bring your own tools & agents** — team members work in whatever AI tool they like, then feed distilled decisions back into the shared context.
 3. **Managers stay in control** — they approve both the work and the shared context before it lands.
-4. **Structured workstreams** — organize context into assignable, nestable workstreams that can sync out to your project-management tools.
+4. **Structured workstreams** — organize context into assignable workstreams — peers that each inherit the project's context — that can sync out to your project-management tools.
 5. **Prove team productivity** — a team should be able to *see* that shared context is working: fewer redos, fresher context, faster first-pass acceptance — measured locally, no telemetry.
 
 > ⚠️ **This roadmap is a set of suggestions, not commitments.** "Now" is roughly
