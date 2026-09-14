@@ -712,7 +712,9 @@ app.post('/settings/lend', async (req, res) => {
 
   const slug = `${ref.owner}/${ref.repo}`;
   await kvSet(keys.projectGhCred(ref.owner, ref.repo), {
-    token: user.token, lentById: user.id, lentByLogin: user.login,
+    // The address is recorded so a manager can be matched to access they lent:
+    // managers are identified by email, and a GitHub id says nothing about one.
+    token: user.token, lentById: user.id, lentByLogin: user.login, lentByEmail: user.email || null,
   });
   const list = (await kvGet(keys.lentProjects(user.id)))?.projects || [];
   if (!list.includes(slug)) await kvSet(keys.lentProjects(user.id), { projects: [...list, slug] });

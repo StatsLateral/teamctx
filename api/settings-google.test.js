@@ -217,3 +217,24 @@ describe('adding a key to a project', () => {
     expect((await readProjectKeys('acme', 'ledger')).byEmail['dev@example.com']).toMatchObject({ apiKey: 'sk-saved', provider: 'gemini' });
   });
 });
+
+describe('lending GitHub access', () => {
+  it('records the address of whoever lent it, so a manager can be matched to it', async () => {
+    const real = globalThis.fetch;
+    globalThis.fetch = async (u, o) => {
+      const url = String(u);
+      if (url.includes('/contents/.teamctx/config.json')) {
+        return { ok: true, status: 200, json: async () => ({ content: b64(CONFIG) }) };
+      }
+      if (url.includes('api.github.com/repos/')) {
+        return { ok: true, status: 200, json: async () => ({ permissions: { admin: true, push: true } }) };
+      }
+      if (url.includes('api.github.com')) return { ok: true, status: 200, json: async () => ([]) };
+      return real(u, o);
+    };
+    try {
+      await as({ ...GITHUB, email: 'maya@example.com' }, '/settings/lend', { method: 'POST', form: { project: 'acme/ledger' } });
+    } finally { globalThis.fetch = real; }
+    expect(await kvGet(keys.projectGhCred('acme', 'ledger'))).toMatchObject({ lentByEmail: 'maya@example.com', lentById: '7' });
+  });
+});
