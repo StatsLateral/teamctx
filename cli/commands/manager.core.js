@@ -1,0 +1,127 @@
+import { readConfig, writeConfig } from '../../src/storage.js';
+import { commitContext, pushContext } from '../../src/git.js';
+import { resolveActor } from '../../src/actor.js';
+import { resolveDisplayName } from '../../src/prefs.js';
+import { assertManager } from './review.core.js';
+import { noreplyEmail } from './member.core.js';
+import {
+  managersOf, emailOfKey, planAdd, planRemove, planTransfer, ManagerChangeError,
+} from '../../src/managers.js';
+
+/**
+ * Changing who manages a project.
+ *
+ * Its own gated write path, beside `setReviewPolicy` and `repairManagerGate`,
+ * and deliberately never reachable through `config_set`: `managerKey` is kept
+ * off the writable keys because a caller who can write the gate can grant
+ * themselves approval (#49). Every operation here opens by checking that the
+ * caller can already pass the gate it is about to change.
+ *
+ * Two checks are passed in rather than performed here, because only the hosted
+ * server can run them — a clone cannot read the hosted key store:
+ *
+ *   checkKey({ email })       before anyone is promoted: do they have a working
+ *                             project key? A promotion without one is refused.
+ *   checkStepOut({ email })   before anyone leaves: does the project still run
+ *                             on something of theirs?
+ *
+ * Each returns `{ ok, why?, note? }`. Absent, the check did not run, and the
+ * commit says so rather than implying it passed.
+ */
+
+export { ManagerChangeError };
+
+async function caller({ config, teamctxDir, projectDir, actor }) {
+  const resolved = actor || await resolveActor({ config, cwd: projectDir });
+  const displayName = await resolveDisplayName({ actor: resolved, config, teamctxDir });
+  assertManager(config, { actor: resolved, displayName });
+  return { actor: resolved, displayName };
+}
+
+async function commitAndPush(config, message, projectDir, actor) {
+  await commitContext(message, {
+    ...(projectDir ? { cwd: projectDir } : {}),
+    ...(actor ? { author: { name: actor.name, email: noreplyEmail(actor) || actor.email } } : {}),
+  });
+  if (!config.autoPush) return { committed: true, pushed: false };
+  try {
+    await pushContext(projectDir ? { cwd: projectDir } : undefined);
+    return { committed: true, pushed: true };
+  } catch (err) {
+    return { committed: true, pushed: false, pushError: err.message?.split('\n')[0] || 'push failed' };
+  }
+}
+
+/** Run a check the caller passed in, and refuse on a failure. */
+async function runCheck(check, email, code) {
+  if (!check) return { ran: false };
+  const result = await check({ email });
+  if (!result?.ok) throw new ManagerChangeError(result?.why || 'The check did not pass.', code);
+  return { ran: true, note: result.note || null };
+}
+
+/** What the commit says about the key check — including that it did not run. */
+function keyNote(check) {
+  if (!check) return '';
+  if (!check.ran) return ' (key not checked)';
+  return check.note ? ` (${check.note})` : ' (key verified)';
+}
+
+export function listManagers({ teamctxDir } = {}) {
+  return listManagersFrom(readConfig(teamctxDir));
+}
+
+async function apply({ plan, config, message, who, teamctxDir, projectDir, checkKey, checkStepOut }) {
+  const keyCheck = plan.promotes
+    ? await runCheck(checkKey, emailOfKey(plan.promotes), 'MANAGER_KEY_CHECK')
+    : null;
+  if (plan.leaves) await runCheck(checkStepOut, emailOfKey(plan.leaves), 'MANAGER_STEP_OUT');
+
+  writeConfig(plan.next, teamctxDir);
+  const git = await commitAndPush(config, `${message} by ${who.displayName}${keyNote(keyCheck)}`, projectDir, who.actor);
+  return {
+    ...listManagersFrom(plan.next),
+    keyChecked: keyCheck ? keyCheck.ran : null,
+    ...git,
+  };
+}
+
+function listManagersFrom(config) {
+  const { primary, coManagers } = managersOf(config);
+  return {
+    primary: primary ? { key: primary, email: emailOfKey(primary) } : null,
+    coManagers: coManagers.map(key => ({ key, email: emailOfKey(key) })),
+  };
+}
+
+export async function addManager({ ref, teamctxDir, projectDir, actor, checkKey } = {}) {
+  const config = readConfig(teamctxDir);
+  const who = await caller({ config, teamctxDir, projectDir, actor });
+  const plan = planAdd(config, ref);
+  return apply({
+    plan, config, who, teamctxDir, projectDir, checkKey,
+    message: `manager: add ${emailOfKey(plan.key)} as co-manager`,
+  });
+}
+
+export async function removeManager({ ref, teamctxDir, projectDir, actor, checkStepOut } = {}) {
+  const config = readConfig(teamctxDir);
+  const who = await caller({ config, teamctxDir, projectDir, actor });
+  const plan = planRemove(config, ref);
+  return apply({
+    plan, config, who, teamctxDir, projectDir, checkStepOut,
+    message: `manager: remove ${emailOfKey(plan.key)}`,
+  });
+}
+
+export async function transferManager({
+  ref, stepDown = false, teamctxDir, projectDir, actor, checkKey, checkStepOut,
+} = {}) {
+  const config = readConfig(teamctxDir);
+  const who = await caller({ config, teamctxDir, projectDir, actor });
+  const plan = planTransfer(config, ref, { actor: who.actor, stepDown });
+  return apply({
+    plan, config, who, teamctxDir, projectDir, checkKey, checkStepOut,
+    message: `manager: transfer primary to ${emailOfKey(plan.key)}${stepDown ? ', stepping down' : ''}`,
+  });
+}
