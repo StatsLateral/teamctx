@@ -238,3 +238,30 @@ describe('lending GitHub access', () => {
     expect(await kvGet(keys.projectGhCred('acme', 'ledger'))).toMatchObject({ lentByEmail: 'maya@example.com', lentById: '7' });
   });
 });
+
+describe('the key a project runs on', () => {
+  it('cannot be removed by the primary manager, who must hand the role over first', async () => {
+    // They passed a key check to become primary; removing the key straight after
+    // would leave everyone without one of their own unable to use a model.
+    const primaryConfig = { ...CONFIG, managerKey: 'git:dev@example.com' };
+    await kvSet(keys.projectGhCred('acme', 'ledger'), { token: 'lent', lentById: '1' });
+    const restore = stubGithub({ config: primaryConfig });
+    try {
+      await as(GOOGLE, '/settings/share', { method: 'POST', form: { project: 'acme/ledger', apiKey: 'sk-dev' } });
+      const r = await as(GOOGLE, '/settings/unshare', { method: 'POST', form: { project: 'acme/ledger' } });
+      expect(decodeURIComponent(r.location)).toMatch(/You are the primary manager of acme\/ledger/);
+    } finally { restore(); }
+    expect((await readProjectKeys('acme', 'ledger')).byEmail['dev@example.com']).toBeTruthy();
+  });
+
+  it('can be removed by anyone who is not primary', async () => {
+    await kvSet(keys.projectGhCred('acme', 'ledger'), { token: 'lent', lentById: '1' });
+    const restore = stubGithub();
+    try {
+      await as(GOOGLE, '/settings/share', { method: 'POST', form: { project: 'acme/ledger', apiKey: 'sk-dev' } });
+      const r = await as(GOOGLE, '/settings/unshare', { method: 'POST', form: { project: 'acme/ledger' } });
+      expect(r.location).toBe('/settings?saved=1');
+    } finally { restore(); }
+    expect((await readProjectKeys('acme', 'ledger')).byEmail).toEqual({});
+  });
+});

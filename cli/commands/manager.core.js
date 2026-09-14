@@ -53,9 +53,12 @@ async function commitAndPush(config, message, projectDir, actor) {
 }
 
 /** Run a check the caller passed in, and refuse on a failure. */
-async function runCheck(check, email, code) {
+async function runCheck(check, key, code) {
   if (!check) return { ran: false };
-  const result = await check({ email });
+  // The key travels with the address. A manager written before managers were
+  // identified by email has no address, and a check handed only `null` would
+  // match nothing — which for the step-out check means letting them through.
+  const result = await check({ email: emailOfKey(key), key });
   if (!result?.ok) throw new ManagerChangeError(result?.why || 'The check did not pass.', code);
   return { ran: true, note: result.note || null };
 }
@@ -98,9 +101,9 @@ function assertGuardable({ config, plan, checkKey, checkStepOut }) {
 async function apply({ plan, config, message, who, teamctxDir, projectDir, checkKey, checkStepOut }) {
   assertGuardable({ config, plan, checkKey, checkStepOut });
   const keyCheck = plan.promotes
-    ? await runCheck(checkKey, emailOfKey(plan.promotes), 'MANAGER_KEY_CHECK')
+    ? await runCheck(checkKey, plan.promotes, 'MANAGER_KEY_CHECK')
     : null;
-  if (plan.leaves) await runCheck(checkStepOut, emailOfKey(plan.leaves), 'MANAGER_STEP_OUT');
+  if (plan.leaves) await runCheck(checkStepOut, plan.leaves, 'MANAGER_STEP_OUT');
 
   writeConfig(plan.next, teamctxDir);
   const git = await commitAndPush(config, `${message} by ${who.displayName}${keyNote(keyCheck)}`, projectDir, who.actor);

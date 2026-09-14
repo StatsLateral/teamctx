@@ -61,7 +61,7 @@ describe('the key check before a promotion', () => {
   it('runs against the person being promoted', async () => {
     const checkKey = vi.fn(async () => ({ ok: true }));
     await addManager({ ref: 'priya@example.com', checkKey });
-    expect(checkKey).toHaveBeenCalledWith({ email: 'priya@example.com' });
+    expect(checkKey).toHaveBeenCalledWith({ email: 'priya@example.com', key: 'git:priya@example.com' });
   });
 
   it('refuses the promotion, and writes nothing, when it fails', async () => {
@@ -100,13 +100,13 @@ describe('the step-out check', () => {
     readConfig.mockReturnValue(config({ managerKeys: ['git:priya@example.com'] }));
     const checkStepOut = vi.fn(async () => ({ ok: true }));
     await removeManager({ ref: 'priya@example.com', checkStepOut });
-    expect(checkStepOut).toHaveBeenCalledWith({ email: 'priya@example.com' });
+    expect(checkStepOut).toHaveBeenCalledWith({ email: 'priya@example.com', key: 'git:priya@example.com' });
   });
 
   it('runs against the outgoing primary when they step down on a transfer', async () => {
     const checkStepOut = vi.fn(async () => ({ ok: true }));
     await transferManager({ ref: 'priya@example.com', stepDown: true, checkKey: async () => ({ ok: true }), checkStepOut });
-    expect(checkStepOut).toHaveBeenCalledWith({ email: 'maya@example.com' });
+    expect(checkStepOut).toHaveBeenCalledWith({ email: 'maya@example.com', key: 'git:maya@example.com' });
   });
 
   it('does not run when the outgoing primary stays on as a co-manager', async () => {
@@ -186,5 +186,17 @@ describe('a deployed project, changed from somewhere the checks cannot run', () 
   it('allows the same change on a project with no deployment, where there is nothing to check', async () => {
     await addManager({ ref: 'priya@example.com' });
     expect(writeConfig).toHaveBeenCalled();
+  });
+});
+
+describe('a manager recorded before managers were identified by email', () => {
+  it('still hands the step-out check something to match them by', async () => {
+    // Handed only an address, a GitHub-id manager arrived as null and matched
+    // nothing — so the check let them step out whatever they had lent.
+    readConfig.mockReturnValue(config({ managerKey: 'github:7' }));
+    resolveActor.mockResolvedValue({ key: 'github:7', login: 'maya', name: 'Maya' });
+    const checkStepOut = vi.fn(async () => ({ ok: true }));
+    await transferManager({ ref: 'priya@example.com', stepDown: true, checkKey: async () => ({ ok: true }), checkStepOut });
+    expect(checkStepOut).toHaveBeenCalledWith({ email: null, key: 'github:7' });
   });
 });

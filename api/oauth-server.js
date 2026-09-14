@@ -5,6 +5,7 @@ import { providerFromEnv, oauthConfigStatus, GITHUB_SCOPES, OAuthCallbackError }
 import { kvGet, kvSet, kvTake, kvDelete, keys, TTL, isPersistent } from '../src/oauth/kv.js';
 import { googleAuthorizeUrl, googleUserFromCode } from '../src/oauth/google.js';
 import { projectKeyDecision } from '../src/oauth/project-key-decision.js';
+import { managersOf } from '../src/managers.js';
 import { readConfigJson } from '../src/oauth/member-access.js';
 import {
   readPersonalKey, writePersonalKey, addProjectKey, removeProjectKey, projectsKeyedBy,
@@ -511,6 +512,21 @@ app.post('/settings', async (req, res) => {
 });
 
 /**
+ * Is this person the primary manager of this project?
+ *
+ * Read with their own GitHub credential, or the project's lent one for a Google
+ * sign-in. A project that cannot be read answers no: this only ever stands in
+ * the way of removing a key, and a key is the person's own to remove.
+ */
+async function isPrimaryManager(user, ref) {
+  const token = user.token || (await kvGet(keys.projectGhCred(ref.owner, ref.repo)))?.token;
+  if (!token) return false;
+  let config;
+  try { config = await readConfigJson({ owner: ref.owner, repo: ref.repo, token }); } catch { return false; }
+  return managersOf(config).primary === `git:${String(user.email).toLowerCase()}`;
+}
+
+/**
  * May this person add a key to this project?
  *
  * Anyone on the project — see src/oauth/project-key-decision.js for the rule.
@@ -610,6 +626,16 @@ app.post('/settings/unshare', async (req, res) => {
   if (!ref) return backToSettings(res, 'Write the project as owner/repo.');
 
   const slug = `${ref.owner}/${ref.repo}`;
+
+  // Not the key the project runs on. The primary manager passed a key check to
+  // become primary; removing that key a moment later would leave everyone with
+  // no key of their own unable to use a model, with no manager noticing.
+  // Transferring the primary role first is the way to stop paying.
+  if (user.email && await isPrimaryManager(user, ref)) {
+    return backToSettings(res, `You are the primary manager of ${slug}, and it runs on your key. `
+      + 'Hand the primary role to someone else first — then you can remove it.');
+  }
+
   // Only the person who added a key can take it away — keyed by their own
   // address, so there is no path to anybody else's.
   const removed = user.email

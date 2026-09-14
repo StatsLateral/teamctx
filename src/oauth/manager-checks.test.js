@@ -117,3 +117,29 @@ describe('the step-out check', () => {
     expect(r.why).toMatch(/lent before teamctx recorded who by/);
   });
 });
+
+describe('the step-out check, for a manager recorded the older ways', () => {
+  const lend = value => kvSet(keys.projectGhCred('acme', 'ledger'), value);
+
+  it('matches a manager written as a GitHub id against who lent it', async () => {
+    await lend({ token: 't', lentById: '7', lentByLogin: 'maya', lentByEmail: 'maya@example.com' });
+    const r = await stepOutCheckFor({ owner: 'acme', repo: 'ledger' })({ email: null, key: 'github:7' });
+    expect(r.ok).toBe(false);
+    expect(r.why).toMatch(/still lent by github:7/);
+  });
+
+  it('matches a manager written as a login', async () => {
+    await lend({ token: 't', lentById: '7', lentByLogin: 'Maya' });
+    expect((await stepOutCheckFor({ owner: 'acme', repo: 'ledger' })({ email: null, key: '@maya' })).ok).toBe(false);
+  });
+
+  it('matches by id even on a record that predates recording the address', async () => {
+    await lend({ token: 't', lentById: '7', lentByLogin: 'maya' });
+    expect((await stepOutCheckFor({ owner: 'acme', repo: 'ledger' })({ email: null, key: 'github:7' })).ok).toBe(false);
+  });
+
+  it('lets an id-shaped manager leave when somebody else lent it', async () => {
+    await lend({ token: 't', lentById: '9', lentByLogin: 'priya' });
+    expect((await stepOutCheckFor({ owner: 'acme', repo: 'ledger' })({ email: null, key: 'github:7' })).ok).toBe(true);
+  });
+});

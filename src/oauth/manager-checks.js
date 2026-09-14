@@ -85,24 +85,34 @@ export function keyCheckFor({ owner, repo }, fetchImpl) {
  */
 export function stepOutCheckFor({ owner, repo }) {
   const slug = `${owner}/${repo}`;
-  return async ({ email }) => {
+  return async ({ email, key }) => {
     const lent = await kvGet(keys.projectGhCred(owner, repo));
     if (!lent?.token) return { ok: true };
     const leaving = String(email || '').toLowerCase();
-    if (!lent.lentByEmail) {
+    const who = leaving || key || 'this manager';
+
+    // A manager recorded the older ways — a GitHub id, or a login — has no
+    // address, but the lent record carries both of those, so they can still be
+    // matched. Checking the address alone let exactly those managers through.
+    const id = /^github:(\d+)$/.exec(String(key || ''))?.[1];
+    const login = /^@(.+)$/.exec(String(key || ''))?.[1];
+    const theirs = (leaving && String(lent.lentByEmail || '').toLowerCase() === leaving)
+      || (id && String(lent.lentById) === id)
+      || (login && String(lent.lentByLogin || '').toLowerCase() === login.toLowerCase());
+    if (theirs) {
+      return {
+        ok: false,
+        why: `${slug}'s GitHub access is still lent by ${who}, and members who signed in with Google `
+          + 'reach the project through it. Have somebody who is staying lend access from the settings page '
+          + 'first, then step out.',
+      };
+    }
+    if (!lent.lentByEmail && leaving) {
       return {
         ok: false,
         why: `${slug} lends GitHub access, and it was lent before teamctx recorded who by, so there is no `
           + `way to tell whether it is ${leaving}'s. Whoever lent it can lend it again from the settings page `
           + 'to record it, or somebody else can lend it in their place.',
-      };
-    }
-    if (String(lent.lentByEmail).toLowerCase() === leaving) {
-      return {
-        ok: false,
-        why: `${slug}'s GitHub access is still lent by ${leaving}, and members who signed in with Google `
-          + 'reach the project through it. Have somebody who is staying lend access from the settings page '
-          + 'first, then step out.',
       };
     }
     return { ok: true };
