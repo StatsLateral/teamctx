@@ -1,8 +1,8 @@
 # Proposal: handing the manager role over, or sharing it
 
 **Status:** Proposal · **Serves:** Managers in control ·
-**Rough size:** Medium — one gated write path, three operations, two surfaces,
-and a check against what the outgoing manager still provides ·
+**Rough size:** Large — a gated write path for managers, keys stored by email,
+Google sign-in on the settings page, and a key check before promotion ·
 **Issue:** [#86](https://github.com/StatsLateral/teamctx/issues/86)
 · **Unblocks:** [#87](https://github.com/StatsLateral/teamctx/issues/87) (the handoff recipe)
 
@@ -17,169 +17,193 @@ So two ordinary situations have no path at all.
 - **Handoff.** Someone builds a project for a client and wants the client's own
   lead to run it. The builder steps out; the client approves from then on.
 - **Co-manager.** A second person should also be able to approve — to cover
-  leave, to split the load, or to approve alongside an advisor who stays on
-  part-time.
+  leave, to split the load, or alongside an advisor who stays on part-time.
 
-The code is already half-way there. `managerKeys(config)` reads a list of
-identities and `canApprove` passes a caller who matches any of them. Nothing
-writes to that list. Repair (#74) writes it, but only to empty it.
+The issue also decides that the API key is not handed off: the incoming manager
+brings their own, so a client running the project does not depend on the
+builder's key and the builder does not keep paying for the client's usage.
 
-## How the gate works today
+## How it works today
 
-Worth stating exactly, because this proposal changes who can write it and the
-details decide what is safe.
+Stated exactly, because the details decide what is safe.
 
-- **Storage.** `managerKey`, a single identity written at `init`, and
-  `managerKeys`, a list. `managerKeys()` merges the two and removes duplicates,
-  so either can hold the gate.
-- **Matching.** `matchesActor` accepts three forms and no others:
-  - `github:<numeric id>` — matches a GitHub caller's key.
-  - `git:<email>` — matches a clone's key, and also any caller whose verified
-    email is that address, which is what lets one person pass from a clone, a
-    GitHub sign-in and a Google sign-in alike.
-  - `@<login>` — matches a caller whose GitHub login is that name.
-- **Not accepted:** a display name, ever. And not `github:<login>` — which is
-  the shape `member add` stores for a member added by username. A co-manager
-  written in that shape would match nobody.
-- **Where the gate is consulted.** Approvals, rejections, snapshots, setting the
-  review policy, member changes — and, on the hosted settings page, lending the
-  project's GitHub credential (`lendDecision`).
+- **The gate.** `managerKey` holds one identity, written at `init`. `managerKeys`
+  is a list that `managerKeys(config)` merges in, and nothing writes to it except
+  repair (#74), which empties it.
+- **Matching.** `matchesActor` accepts `github:<numeric id>`, `git:<email>` and
+  `@<login>`. `git:<email>` matches any caller whose verified email is that
+  address — a clone, a GitHub sign-in and a Google sign-in alike.
+- **Where people sign in.** The **Connect** page, reached when connecting an AI
+  client, offers Google and GitHub. The **settings page**, where keys are saved,
+  offers only GitHub.
+- **Keys on the hosted server.**
+  - A personal key is stored against a **GitHub id** (`aiKey(githubUserId)`), and
+    only a GitHub connection ever looks one up.
+  - A project key is **one record per project**, stored with the sharer's GitHub
+    id. The first person to share blocks everyone else, and sharing needs push
+    access to the repository.
+  - Lent GitHub access is one record per project, stored with the lender's GitHub
+    id. Members who signed in with Google reach the project through it.
+- **Keys on a clone.** Each clone reads its own `.env.local`. Nothing is shared.
 
-## What changes
+So signing in with Google and with GitHub makes you the same person to the gate
+and the roster, and two different people to everything saved against you.
 
-### 1. One gated write path, not a config key
+## What we are building
+
+### 1. Managers are identified by email
+
+Every manager identity is written as `git:<email>`. It is the one form every
+surface matches, so there is no case where a manager can approve from one place
+and not another. A username or a GitHub id is refused as a manager.
+
+Members are untouched. A member can already be added by email alone; a username
+is only needed for the optional `--invite`, which sends a GitHub repository
+invitation that GitHub's API accepts only by username.
+
+### 2. One primary manager, and co-managers
+
+- **Primary:** `managerKey`. The one whose project key the project runs on.
+- **Co-managers:** `managerKeys`. They approve exactly as the primary does.
+
+Existing projects need no migration: today's single `managerKey` is already the
+primary, with no co-managers.
+
+### 3. Three manager-only operations
 
 A new core, `manager.core.js`, beside `setReviewPolicy` and `repairManagerGate`.
-Every operation opens with `assertManager` against the resolved caller — so only
-somebody who can already pass the gate can change it, which is the property #49
-protects. `managerKey` stays off `WRITABLE`.
+Each opens with `assertManager` against the resolved caller, so only somebody who
+can already pass the gate can change it. `managerKey` stays off `WRITABLE`.
 
-Three operations:
-
-- **`add <ref>`** — puts another identity on the gate.
-- **`remove <ref>`** — takes one off. Removing yourself is stepping down.
-- **`transfer <ref>`** — `add` then removing the caller, in one commit, so there
-  is no moment with the old manager gone and the new one not yet written.
+- **`add <email>`** — a co-manager.
+- **`remove <email>`** — takes a co-manager off. Removing yourself is stepping down.
+- **`transfer <email>`** — makes that person primary. The previous primary becomes
+  a co-manager, or leaves with `--step-down`.
 
 Surfaces: `teamctx manager list | add | remove | transfer`, and MCP tools
-`manager_add`, `manager_remove`, `manager_transfer`. `teamctx config manager`
-keeps working as the read-only view it is today; it already lists every key.
-`get_status` reports only the first manager, and should report all of them.
+`manager_list`, `manager_add`, `manager_remove`, `manager_transfer`.
 
-### 2. What `<ref>` becomes
+### 4. The rules
 
-The same shapes `member add` takes — a GitHub username or an email address,
-told apart by shape — but written in the forms the gate can actually match.
+- **Never zero managers.** An empty gate is not a locked project — `canApprove`
+  treats it as no gate, and lets anyone approve.
+- **The primary cannot leave without a successor.** Removing the primary is
+  refused; `transfer` is the way out.
+- **Nobody becomes a manager without a working key** — section 7.
+- **Nobody steps out while the project still runs on them** — section 8.
 
-- An email becomes `git:<email>`. This is the one identity every surface
-  matches.
-- A username becomes `@<login>`. It works for a GitHub sign-in and nothing
-  else: a clone knows its user by email and has no login to compare.
+### 5. Keys stored by email
 
-The person does not have to be on the roster. The manager is not on their own
-roster today, and the hosted access path already recognises a manager before it
-looks at the roster at all.
+Every key record on the hosted server is keyed by the verified email of the
+person it belongs to, not their GitHub id. Signing in with GitHub or with Google
+reaches the same keys, because both carry the same verified address.
 
-### 3. The rules that keep it safe
+- **Personal key:** one per person, by email. A Google connection now looks one
+  up as well as a GitHub connection.
+- **Project keys:** a project holds **one key per person**, each stored with the
+  email of whoever added it — replacing today's single record.
 
-- **Never zero managers.** `remove` and `transfer` refuse to leave the gate
-  empty. An empty gate is not a locked project — `canApprove` treats it as *no
-  gate*, and lets anyone approve.
-- **Never an unmatchable gate.** A ref that parses to neither form is refused,
-  rather than written as a key nobody can present — which is the failure repair
-  exists to clean up.
-- **A transfer must name an email address.** A transfer removes the only person
-  who could fix a mistake. An `@login` manager cannot approve from a clone, and
-  there is no path back through the tool once the old manager is gone.
-  Co-managers may be either form, because the person adding them is still there.
+Existing records keyed by GitHub id are read as a fallback, so nothing saved
+today stops working.
 
-### 4. What the outgoing manager is still providing
+### 6. Anyone on the project can add a project key
 
-The issue decided that the API key is not handed off: the builder's key stays
-the builder's. Looking at where keys actually come from, that decision has more
-reach than it first appears.
+The settings page gains **Continue with Google** beside GitHub, using the same
+Google flow the Connect page already has.
 
-- **On a clone** nothing is shared. Each clone reads its own `.env.local`, so a
-  new manager uses their own key and the old manager's is never involved.
-- **On the hosted server** two things belong to a *person*, not the project:
-  - the project's **shared AI key**, stored with `sharedById` — members without
-    a key of their own run on it;
-  - the project's **lent GitHub credential**, stored with `lentById` — every
-    member who signed in with Google reaches the project through it.
+Adding a project key is open to anyone **on the project** — a manager or a
+roster member — not to any signed-in stranger. A GitHub user is checked as they
+are today. A Google user is checked against the roster, read through the
+project's lent GitHub access; a project that has not lent access cannot take keys
+from Google users, and the page says so.
 
-  Only the person who put either one there can take it away. If the builder
-  steps out and later withdraws them — or their GitHub token is revoked — the
-  project loses its model for keyless members, and loses Google members
-  entirely.
+**Which key a request runs on:** the caller's own personal key first, as now.
+Otherwise **the primary manager's project key**. Other people's project keys are
+stored but not used unless that person becomes primary — which is what makes a
+handoff a matter of changing who is primary, rather than moving a secret.
 
-So the check that matters is not "does the incoming manager have a key" — which
-the outgoing manager's request has no way to see — but **"does this project
-still run on the outgoing manager"**. Hosted, `remove` and `transfer` read both
-records and refuse to let a manager step out while either is still theirs, and
-say which one to hand over first.
+### 7. The key check before becoming a manager
 
-### 5. A Google-only manager
+Before `add` or `transfer` completes, the person being promoted must have added a
+project key, and that key is tested with the provider's **list-models** endpoint.
+It confirms the key works and spends no tokens. A missing or failing key refuses
+the promotion and says which.
 
-The issue asks whether somebody with no GitHub account can be promoted. They
-can: nothing in the approval path checks how a caller signed in, and
-`git:<email>` matches a Google sign-in.
+The result is written into the commit that changes the gate.
 
-What they cannot do is *take over* a project alone. A per-person AI key is
-stored against a GitHub id, and lending a GitHub credential needs a GitHub
-token. A Google-only manager has neither, so their access and their model both
-run on whatever someone else lent and shared. The rule in section 4 makes that
-visible instead of letting it fail later: a builder handing over to a Google-only
-manager is told they cannot step out while the project still runs on them.
+### 8. Nobody steps out while the project still runs on them
 
-### 6. Repair stays separate
+Lent GitHub access still belongs to one person, and only someone signed in with
+GitHub can lend it — people without a GitHub sign-in skip it entirely.
+
+A manager cannot step down, or transfer with `--step-down`, while the project's
+lent GitHub access is still theirs. The refusal says to lend it from another
+account first. Their project key is no longer an obstacle, because the project
+runs on the primary's key and they are no longer primary.
+
+### 9. The terminal
+
+A clone cannot read the hosted store, so it cannot run the key check or see who
+lent access.
+
+- **A project with a `deployUrl`:** manager changes are refused in the terminal,
+  and it points at the connector, where the checks can run.
+- **A project with no `deployUrl`:** there are no hosted keys to check. The
+  terminal lists what it cannot verify and asks to confirm, and requires `--yes`
+  when not interactive.
+
+### 10. Repair stays separate
 
 Repair (#74) fires on a gate *nobody* can pass, and admits the project's creator
-by the repository history. This fires on a gate somebody *can* pass, and admits
-whoever passes it. Different trigger, different authority — sharing them would
-put one authority's shortcut behind the other's check.
+by repository history. This fires on a gate somebody *can* pass, and admits
+whoever passes it. They share only the write, one helper that keeps `managerKey`
+and `managerKeys` consistent.
 
-What they share is the write: one helper that keeps `managerKey` and
-`managerKeys` consistent, so both paths leave the file in the same shape.
+### 11. The audit trail
 
-### 7. The audit trail
+Every change is one commit attributed to the caller, naming the change and the
+key check: `manager: transfer to a@b.com by Maya (key verified)`.
 
-Every change is its own commit, attributed to the caller, naming what changed:
-`manager: add a@b.com by Maya`, `manager: transfer to a@b.com by Maya`. The same
-attribution `member add` uses, so it shows against the right GitHub profile.
+## Decisions
 
-## Decisions taken here
+Recorded here so the commits and the pull request can cite them.
 
-- Written through its own core, never `config_set`.
-- Email becomes `git:<email>`, username becomes `@<login>`, and `github:<login>`
-  is never written.
-- No roster requirement.
-- Never zero managers, never an unmatchable key.
-- A transfer needs an email address; a co-manager does not.
-- Repair stays a separate command and shares only the write.
+1. Managers are identified by email only, as `git:<email>`.
+2. One primary manager (`managerKey`) and any number of co-managers (`managerKeys`).
+3. Manager changes go through their own gated core, never `config_set`.
+4. Never zero managers; the primary cannot leave without naming a successor.
+5. Members are unchanged; a username is only for GitHub repository invites.
+6. Hosted keys are stored by verified email, with the GitHub-id records read as a
+   fallback.
+7. A project holds one project key per person, recording who added it.
+8. Anyone on the project may add a project key; the settings page gains Google
+   sign-in.
+9. A request runs on the caller's own key, then the primary manager's project key.
+10. Promotion requires a project key that passes a free list-models check.
+11. Lent GitHub access stays GitHub-only; a manager cannot step out while it is theirs.
+12. On a deployed project, manager changes happen through the connector.
+13. Repair stays a separate command.
+14. Every change is one attributed commit that records the key check.
 
-## Open questions
+## Out of scope
 
-1. **The prerequisite check.** The issue asks that the incoming manager have a
-   working key before a transfer completes. That is not checkable from the
-   outgoing manager's request: on a clone the key is on someone else's machine,
-   and hosted it is stored against a GitHub id the transfer does not know. This
-   proposal checks the other side instead — that the project no longer runs on
-   the outgoing manager. Is that the intent?
-2. **A transfer run from a clone.** A clone cannot read the hosted shared key or
-   lent credential, so the check in section 4 cannot run there. Either refuse a
-   step-out from a clone when the project records a `deployUrl`, and point at the
-   connector — or allow it and say plainly that hosted members were not checked.
+- Storing preferences — active workstream, display name — by email. A person
+  signing in both ways still keeps two sets. The handoff does not depend on it.
 
 ## Verification
 
 - Only a current manager can add, remove or transfer, on both surfaces.
-- An email is stored as `git:<email>` and passes on a clone, a GitHub sign-in and
-  a Google sign-in. A username is stored as `@<login>` and passes a GitHub sign-in.
-- A ref that is neither is refused, and nothing is written.
-- `remove` and `transfer` refuse to leave the gate empty.
-- A transfer to a username is refused.
-- Hosted, stepping out is refused while the shared AI key or the lent GitHub
-  credential is still the outgoing manager's, and the refusal names which.
-- A co-manager can approve, and can lend the project's GitHub credential.
-- Every change is one attributed commit.
-- Repair behaves exactly as before.
+- A manager written by email approves from a clone, a GitHub sign-in and a
+  Google sign-in. A username or GitHub id is refused as a manager.
+- The gate is never left empty, and the primary cannot be removed.
+- A promotion is refused without a project key, and refused when that key fails
+  the list-models check; neither writes anything.
+- A request with no personal key runs on the primary manager's project key, and
+  changes key when the primary changes.
+- A Google sign-in on the settings page reaches the same keys as a GitHub sign-in
+  with the same address.
+- A roster member can add a project key; a signed-in stranger cannot.
+- A manager cannot step down while the lent GitHub access is theirs.
+- On a deployed project the terminal refuses and points at the connector.
+- Keys saved under a GitHub id before this change still work.
+- Every change is one attributed commit recording the key check.
