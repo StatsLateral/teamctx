@@ -186,6 +186,17 @@ export const keys = {
   /** Which projects one user lends GitHub access to, for the settings page. */
   lentProjects: githubUserId => `teamctx:ghcred:lent-by:${githubUserId}`,
   /**
+   * The same list by address, so somebody who lent access while signed in with
+   * GitHub still sees it — and can withdraw it — when they sign in with Google.
+   */
+  lentByAddress: email => `teamctx:ghcred:lent-by-email:${String(email).toLowerCase()}`,
+  /**
+   * Projects an address has connected to through the connector with a Google
+   * sign-in. A Google account has no repository list, so without this the
+   * settings page could offer them nothing to pick.
+   */
+  connectedProjects: email => `teamctx:connected:${String(email).toLowerCase()}`,
+  /**
    * Per-user, per-project settings (display name, active workstream). These are
    * personal, so they deliberately live here rather than in the repo's
    * config.json — see src/prefs.js. Long-lived.

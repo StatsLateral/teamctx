@@ -332,3 +332,30 @@ describe('AI key storage', () => {
     expect(await kvGet(keys.aiKey('9999'))).toBeNull();
   });
 });
+
+describe('connecting through Google remembers which project it was for', () => {
+  // A Google account has no repository list, so the settings page had nothing
+  // to offer a Google sign-in. The connector URL names the project; this is the
+  // one moment both it and the verified address are in hand.
+  beforeEach(() => __resetMemory());
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('records the project named by the connector URL against the address', async () => {
+    const provider = new TeamctxOAuthProvider({
+      githubClientId: 'gh-client', githubClientSecret: 'gh-secret', baseUrl: BASE,
+      googleClientId: 'g-client', googleClientSecret: 'g-secret',
+    });
+    const res = fakeRes();
+    await provider.authorize(CLIENT, {
+      redirectUri: CLIENT.redirect_uris[0], codeChallenge: 'c', state: 's', scopes: ['mcp:tools'],
+      resource: new URL(`${BASE}/api/mcp/Acme/ledger`),
+    }, res);
+    const state = new URL(res.redirectedTo).searchParams.get('state');
+    vi.stubGlobal('fetch', vi.fn(async (url) => {
+      if (String(url).includes('oauth2.googleapis.com/token')) return { ok: true, json: async () => ({ access_token: 'g' }) };
+      return { ok: true, json: async () => ({ email: 'Priya@Example.com', email_verified: true, name: 'Priya' }) };
+    }));
+    await provider.handleGoogleCallback({ code: 'code', state });
+    expect(await kvGet(keys.connectedProjects('priya@example.com'))).toEqual({ projects: ['Acme/ledger'] });
+  });
+});

@@ -10,6 +10,7 @@ import { matchesActor } from '../src/review.js';
 import { readConfigJson } from '../src/oauth/member-access.js';
 import {
   readPersonalKey, writePersonalKey, addProjectKey, removeProjectKey, projectsKeyedBy,
+  adoptGithubRecords, projectsKnownFor,
 } from '../src/oauth/ai-keys.js';
 import { primaryEmail } from '../src/oauth/github-identity.js';
 import { lendDecision } from '../src/oauth/lend-decision.js';
@@ -67,8 +68,8 @@ app.get('/', async (req, res) => {
   const projects = user
     ? [...new Set([
         ...(await projectsKeyedBy({ email: user.email, githubId: user.id })),
-        // Lending needs a GitHub sign-in, so a Google one has nothing lent.
         ...(user.id ? (await kvGet(keys.lentProjects(user.id)))?.projects || [] : []),
+        ...(await projectsKnownFor(user.email)),
       ])].sort()
     : [];
   res.send(homePage({ user, projects }));
@@ -306,12 +307,25 @@ app.get('/settings', async (req, res) => {
   // they landed — making "signed out" a state you could never actually see.
   if (!user) return res.send(signInPage());
 
+  // A GitHub sign-in is the one place both the id and the address are known, so
+  // it is where records saved under the id are carried over to the address —
+  // after which a Google sign-in with the same address finds them too.
+  if (user.id && user.email) {
+    try { await adoptGithubRecords({ email: user.email, githubId: user.id, githubLogin: user.login }); } catch { /* best effort */ }
+  }
   const existing = await readPersonalKey({ email: user.email, githubId: user.id });
   const shared = await projectsKeyedBy({ email: user.email, githubId: user.id });
   // A dropdown instead of free text: nobody should have to remember the exact
-  // spelling of a repository they already chose once.
-  const repos = user.token ? await listPushableRepos(user.token) : [];
-  const lent = (await kvGet(keys.lentProjects(user.id)))?.projects || [];
+  // spelling of a repository they already chose once. A Google sign-in has no
+  // repository list, so it is offered the projects that address is known to be
+  // on — connected to, added a key to, or lent access to.
+  const repos = user.token
+    ? await listPushableRepos(user.token)
+    : (await projectsKnownFor(user.email)).map(fullName => ({ fullName, private: true }));
+  const lent = [...new Set([
+    ...(user.id ? (await kvGet(keys.lentProjects(user.id)))?.projects || [] : []),
+    ...(user.email ? (await kvGet(keys.lentByAddress(user.email)))?.projects || [] : []),
+  ])].sort();
   res.send(settingsPage({
     user, hasKey: !!existing, shared, lent, repos,
     saved: req.query.saved === '1',
@@ -766,6 +780,8 @@ app.post('/settings/lend', async (req, res) => {
   });
   const list = (await kvGet(keys.lentProjects(user.id)))?.projects || [];
   if (!list.includes(slug)) await kvSet(keys.lentProjects(user.id), { projects: [...list, slug] });
+  const byAddress = (await kvGet(keys.lentByAddress(user.email)))?.projects || [];
+  if (!byAddress.includes(slug)) await kvSet(keys.lentByAddress(user.email), { projects: [...byAddress, slug] });
   backToSettings(res);
 });
 
@@ -776,14 +792,26 @@ app.post('/settings/unlend', async (req, res) => {
   const ref = parseRepoRef(req.body?.project);
   if (!ref) return backToSettings(res, 'Write the project as owner/repo.');
 
-  if (!user.id) return backToSettings(res, 'Lending GitHub access needs a GitHub sign-in.');
+  // Withdrawing needs no GitHub credential — only to be the person who lent it,
+  // recognised by GitHub id or by address. Somebody who lent access signed in
+  // with GitHub can withdraw it signed in with Google.
+  const slug = `${ref.owner}/${ref.repo}`;
   const existing = await kvGet(keys.projectGhCred(ref.owner, ref.repo));
-  if (existing?.lentById && existing.lentById !== user.id) {
-    return backToSettings(res, 'That access was lent by someone else.');
-  }
+  const mine = existing && (
+    (user.id && String(existing.lentById) === String(user.id))
+    || (user.email && existing.lentByEmail && String(existing.lentByEmail).toLowerCase() === String(user.email).toLowerCase())
+  );
+  if (existing && !mine) return backToSettings(res, 'That access was lent by someone else.');
   await kvSet(keys.projectGhCred(ref.owner, ref.repo), null);
-  const list = (await kvGet(keys.lentProjects(user.id)))?.projects || [];
-  await kvSet(keys.lentProjects(user.id), { projects: list.filter(p => p !== `${ref.owner}/${ref.repo}`) });
+  const lender = existing?.lentById || user.id;
+  if (lender) {
+    const list = (await kvGet(keys.lentProjects(lender)))?.projects || [];
+    await kvSet(keys.lentProjects(lender), { projects: list.filter(p => p !== slug) });
+  }
+  if (user.email) {
+    const byAddress = (await kvGet(keys.lentByAddress(user.email)))?.projects || [];
+    await kvSet(keys.lentByAddress(user.email), { projects: byAddress.filter(p => p !== slug) });
+  }
   backToSettings(res);
 });
 

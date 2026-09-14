@@ -306,3 +306,78 @@ describe('the key a project runs on', () => {
     expect((await readProjectKeys('acme', 'ledger')).byEmail).toEqual({});
   });
 });
+
+describe('records saved under a GitHub id before keys were stored by address', () => {
+  // The screenshots: signed in with GitHub, a personal key, three project keys
+  // and two lent projects; signed in with Google on the same address, nothing.
+  // The old records were keyed by GitHub id, and a Google sign-in has none.
+  const seedOld = async () => {
+    await kvSet(keys.aiKey('7'), { provider: 'anthropic', apiKey: 'sk-old-personal' });
+    await kvSet(keys.projectAiKey('acme', 'ledger'), { provider: 'anthropic', apiKey: 'sk-old-shared', sharedById: '7', sharedByLogin: 'dev' });
+    await kvSet(keys.sharedProjects('7'), { projects: ['acme/ledger'] });
+    await kvSet(keys.projectGhCred('acme', 'ledger'), { token: 'lent', lentById: '7', lentByLogin: 'dev' });
+    await kvSet(keys.lentProjects('7'), { projects: ['acme/ledger'] });
+  };
+
+  it('are carried over on a GitHub sign-in, so a Google sign-in sees all of them', async () => {
+    await seedOld();
+    const restore = stubGithub();
+    try { await as(GITHUB, '/settings'); } finally { restore(); }
+
+    const { body } = await as(GOOGLE, '/settings');
+    expect(body).toContain('a key is already saved');
+    expect(body).toContain('You have added a key to:');
+    expect(body).toContain('action="/settings/unshare"');
+    expect(body).toContain('Lending access to:');
+    expect(body).toContain('action="/settings/unlend"');
+  });
+
+  it('keep the project running on the same key afterwards', async () => {
+    const { pickProjectKey } = await import('../src/oauth/ai-keys.js');
+    await seedOld();
+    const restore = stubGithub();
+    try { await as(GITHUB, '/settings'); } finally { restore(); }
+    // Before: the single shared record was the fallback for everyone. After:
+    // the same key, carried over under its owner's address, still is.
+    const projectKeys = await readProjectKeys('acme', 'ledger');
+    expect(projectKeys.legacy).toBe(null);
+    expect(pickProjectKey({ projectKeys, primaryKey: 'git:maya@example.com' }).apiKey).toBe('sk-old-shared');
+  });
+
+  it('can be withdrawn from the Google sign-in: lent access and the carried key', async () => {
+    const { pickProjectKey } = await import('../src/oauth/ai-keys.js');
+    await seedOld();
+    const restore = stubGithub();
+    try {
+      await as(GITHUB, '/settings');
+      const lend = await as(GOOGLE, '/settings/unlend', { method: 'POST', form: { project: 'acme/ledger' } });
+      expect(lend.location).toBe('/settings?saved=1');
+      await as(GOOGLE, '/settings/unshare', { method: 'POST', form: { project: 'acme/ledger' } });
+    } finally { restore(); }
+    expect(await kvGet(keys.projectGhCred('acme', 'ledger'))).toBe(null);
+    const projectKeys = await readProjectKeys('acme', 'ledger');
+    expect(pickProjectKey({ projectKeys, primaryKey: 'git:maya@example.com' })).toBe(null);
+  });
+
+  it('are not carried over twice', async () => {
+    await seedOld();
+    const restore = stubGithub();
+    try { await as(GITHUB, '/settings'); await as(GITHUB, '/settings'); } finally { restore(); }
+    expect(Object.keys((await readProjectKeys('acme', 'ledger')).byEmail)).toEqual(['dev@example.com']);
+  });
+
+  it('still refuses to withdraw somebody else\'s lent access from a Google sign-in', async () => {
+    await kvSet(keys.projectGhCred('acme', 'ledger'), { token: 't', lentById: '9', lentByEmail: 'maya@example.com' });
+    const r = await as(GOOGLE, '/settings/unlend', { method: 'POST', form: { project: 'acme/ledger' } });
+    expect(decodeURIComponent(r.location)).toMatch(/lent by someone else/);
+    expect(await kvGet(keys.projectGhCred('acme', 'ledger'))).toBeTruthy();
+  });
+});
+
+describe('the project picker for a Google sign-in', () => {
+  it('offers the projects that address connected to through the connector', async () => {
+    await kvSet(keys.connectedProjects('dev@example.com'), { projects: ['acme/ledger'] });
+    const { body } = await as(GOOGLE, '/settings');
+    expect(body).toContain('<option value="acme/ledger">');
+  });
+});

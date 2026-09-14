@@ -76,9 +76,14 @@ export async function addProjectKey({ owner, repo, email, provider, apiKey, gith
   if (!apiKey) throw new Error('an API key is required');
   const who = norm(email);
   const record = (await kvGet(keys.projectAiKeys(owner, repo))) || { keys: {} };
+  // A key carried over from the project's old single shared record stays the
+  // project's fallback when its owner replaces it; replacing a key is not the
+  // same as giving up being the one the project leaned on.
+  const wasFallback = !!record.keys?.[who]?.fromLegacy;
   record.keys = {
     ...(record.keys || {}),
     [who]: {
+      ...(wasFallback ? { fromLegacy: true } : {}),
       provider: provider || 'anthropic', apiKey, addedBy: who, addedAt: new Date().toISOString(),
       // Recorded too, because some primary managers are stored by GitHub id or
       // login rather than by address, and their key has to be findable by that.
@@ -150,8 +155,101 @@ export function entryFor(projectKeys, managerKey) {
 export function pickProjectKey({ projectKeys, primaryKey } = {}) {
   const entry = entryFor(projectKeys, primaryKey);
   if (entry?.apiKey) return { apiKey: entry.apiKey, provider: entry.provider || null, addedBy: entry.addedBy };
+  // The old single shared key, once carried over under its owner's address. It
+  // keeps doing the job it did before — the fallback when the primary has added
+  // none — and now its owner can see it and remove it from either sign-in.
+  const carried = Object.values(projectKeys?.byEmail || {}).find(e => e.fromLegacy && e.apiKey);
+  if (carried) return { apiKey: carried.apiKey, provider: carried.provider || null, addedBy: carried.addedBy };
   if (projectKeys?.legacy?.apiKey) {
     return { apiKey: projectKeys.legacy.apiKey, provider: projectKeys.legacy.provider || null, addedBy: null };
   }
   return null;
 }
+
+// ---- records saved before keys were stored by address --------------------
+
+async function addToList(listKey, slug) {
+  const list = (await kvGet(listKey))?.projects || [];
+  if (!list.includes(slug)) await kvSet(listKey, { projects: [...list, slug] });
+}
+
+/**
+ * Carry a GitHub account's older records over to its verified address.
+ *
+ * Records saved before this change were keyed by GitHub id. They were still
+ * read on a GitHub sign-in, but a Google sign-in has no GitHub id to read them
+ * by — so the same person saw their keys and their lent access through one
+ * sign-in and nothing through the other. Run on a GitHub sign-in, which is the
+ * one place both the id and the address are known, it moves them to the
+ * address so every sign-in finds them.
+ *
+ * Nothing is lost or changes behaviour. A personal key is copied only when the
+ * address has none. The project's old single shared key moves into the
+ * per-person record marked as carried over, and keeps being the project's
+ * fallback. Lent access gains the lender's address. Safe to run repeatedly.
+ */
+export async function adoptGithubRecords({ email, githubId, githubLogin } = {}) {
+  if (!email || !githubId) return;
+  const who = norm(email);
+  const id = String(githubId);
+
+  if (!(await kvGet(keys.personalAiKey(who)))) {
+    const legacy = await kvGet(keys.aiKey(id));
+    if (legacy?.apiKey) await kvSet(keys.personalAiKey(who), { provider: legacy.provider || 'anthropic', apiKey: legacy.apiKey });
+  }
+
+  const shared = (await kvGet(keys.sharedProjects(id)))?.projects || [];
+  for (const slug of shared) {
+    const [owner, repo] = slug.split('/');
+    if (!owner || !repo) continue;
+    const legacy = await kvGet(keys.projectAiKey(owner, repo));
+    if (!legacy?.apiKey || String(legacy.sharedById) !== id) continue;
+    const record = (await kvGet(keys.projectAiKeys(owner, repo))) || { keys: {} };
+    if (!record.keys?.[who]) {
+      record.keys = {
+        ...(record.keys || {}),
+        [who]: {
+          provider: legacy.provider || 'anthropic', apiKey: legacy.apiKey,
+          addedBy: who, addedAt: new Date().toISOString(),
+          addedById: id, ...(githubLogin ? { addedByLogin: String(githubLogin) } : {}),
+          fromLegacy: true,
+        },
+      };
+    } else {
+      record.keys[who] = { ...record.keys[who], fromLegacy: true };
+    }
+    await kvSet(keys.projectAiKeys(owner, repo), record);
+    // Moved rather than copied: two records of one key is a key its owner could
+    // remove from one place and still have running from the other.
+    await kvSet(keys.projectAiKey(owner, repo), null);
+    await addToList(keys.keysAddedBy(who), slug);
+  }
+  if (shared.length) await kvSet(keys.sharedProjects(id), { projects: [] });
+
+  const lent = (await kvGet(keys.lentProjects(id)))?.projects || [];
+  for (const slug of lent) {
+    const [owner, repo] = slug.split('/');
+    if (!owner || !repo) continue;
+    const cred = await kvGet(keys.projectGhCred(owner, repo));
+    if (!cred?.token || String(cred.lentById) !== id) continue;
+    if (!cred.lentByEmail) await kvSet(keys.projectGhCred(owner, repo), { ...cred, lentByEmail: who });
+    await addToList(keys.lentByAddress(who), slug);
+  }
+}
+
+/** Record that an address connected to a project, for the settings page. */
+export async function recordConnectedProject({ email, owner, repo } = {}) {
+  if (!email || !owner || !repo) return;
+  await addToList(keys.connectedProjects(norm(email)), `${owner}/${repo}`);
+}
+
+/** Every project an address is known to be on, for a Google sign-in's picker. */
+export async function projectsKnownFor(email) {
+  if (!email) return [];
+  const who = norm(email);
+  const lists = await Promise.all([
+    kvGet(keys.connectedProjects(who)), kvGet(keys.keysAddedBy(who)), kvGet(keys.lentByAddress(who)),
+  ]);
+  return [...new Set(lists.flatMap(l => l?.projects || []))].sort();
+}
+
