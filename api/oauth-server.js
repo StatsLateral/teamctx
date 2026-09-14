@@ -3,7 +3,9 @@ import { randomBytes } from 'crypto';
 import { mcpAuthRouter } from '@modelcontextprotocol/sdk/server/auth/router.js';
 import { providerFromEnv, oauthConfigStatus, GITHUB_SCOPES, OAuthCallbackError } from '../src/oauth/provider.js';
 import { kvGet, kvSet, kvTake, kvDelete, keys, TTL, isPersistent } from '../src/oauth/kv.js';
-import { googleAuthorizeUrl } from '../src/oauth/google.js';
+import { googleAuthorizeUrl, googleUserFromCode } from '../src/oauth/google.js';
+import { projectKeyDecision } from '../src/oauth/project-key-decision.js';
+import { readConfigJson } from '../src/oauth/member-access.js';
 import {
   readPersonalKey, writePersonalKey, addProjectKey, removeProjectKey, projectsKeyedBy,
 } from '../src/oauth/ai-keys.js';
@@ -63,7 +65,8 @@ app.get('/', async (req, res) => {
   const projects = user
     ? [...new Set([
         ...(await projectsKeyedBy({ email: user.email, githubId: user.id })),
-        ...((await kvGet(keys.lentProjects(user.id)))?.projects || []),
+        // Lending needs a GitHub sign-in, so a Google one has nothing lent.
+        ...(user.id ? (await kvGet(keys.lentProjects(user.id)))?.projects || [] : []),
       ])].sort()
     : [];
   res.send(homePage({ user, projects }));
@@ -167,6 +170,33 @@ app.get('/oauth/google/callback', async (req, res) => {
   const { code, state, error, error_description: errorDescription } = req.query;
   if (!state) return res.status(400).send(errorPage('Missing state parameter.'));
   if (!provider) return res.status(500).send(errorPage('OAuth is not configured on this deployment.'));
+
+  // Settings-page sign-in carries its own pending record, the same way the
+  // GitHub callback tells the two flows apart. Same redirect URI as the connector
+  // flow, so no second Google client has to be registered.
+  const settingsPending = await kvTake(keys.pending(`settings-google:${state}`));
+  if (settingsPending) {
+    if (error) return res.status(400).send(errorPage(`Google returned: ${error}`));
+    try {
+      const googleUser = await googleUserFromCode({
+        code: String(code),
+        clientId: provider.googleClientId,
+        clientSecret: provider.googleClientSecret,
+        redirectUri: provider.googleCallbackUrl,
+      });
+      // No GitHub id and no token: somebody signed in this way can manage keys
+      // stored by their address, and nothing that needs a GitHub credential.
+      const sid = randomBytes(24).toString('base64url');
+      await kvSet(keys.session(sid), {
+        id: null, login: null, name: googleUser.name, email: googleUser.email, token: null, source: 'google',
+      }, { ttlSeconds: TTL.session });
+      res.setHeader('Set-Cookie',
+        `teamctx_sid=${sid}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${TTL.session}`);
+      return res.redirect(303, settingsPending.returnTo || '/settings');
+    } catch (e) {
+      return res.status(400).send(errorPage(e.message));
+    }
+  }
   try {
     const redirectTo = await provider.handleGoogleCallback({
       code: code ? String(code) : null,
@@ -287,6 +317,26 @@ app.get('/settings', async (req, res) => {
   }));
 });
 
+/** Starts a Google login for the settings page. Only reached by clicking it. */
+app.get('/settings/signin/google', async (req, res) => {
+  if (!provider?.googleClientId) {
+    return res.status(503).send(errorPage('Google sign-in is not configured on this deployment.'));
+  }
+  const state = randomBytes(18).toString('base64url');
+  const requestedReturnTo = String(req.query.returnTo || '');
+  const returnTo = /^\/settings\/[a-z-]+$/.test(requestedReturnTo) ? requestedReturnTo : null;
+  await kvSet(
+    keys.pending(`settings-google:${state}`),
+    returnTo ? { kind: 'settings', returnTo } : { kind: 'settings' },
+    { ttlSeconds: TTL.pending },
+  );
+  res.redirect(googleAuthorizeUrl({
+    clientId: provider.googleClientId,
+    redirectUri: provider.googleCallbackUrl,
+    state,
+  }));
+});
+
 /** Starts the GitHub login. Only reached by clicking Sign in. */
 app.get('/settings/signin', async (req, res) => {
   const state = randomBytes(18).toString('base64url');
@@ -318,6 +368,8 @@ app.get('/settings/new-project', async (req, res) => {
   const user = await currentUser(req);
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
   if (!user) return res.redirect(303, '/settings/signin?returnTo=/settings/new-project');
+  // Creating a project creates a GitHub repository, so it needs a GitHub sign-in.
+  if (!user.id) return backToSettings(res, 'Creating a project creates a GitHub repository, so it needs a GitHub sign-in.');
   const orgs = await safeListOrgs(user.token);
   res.send(newProjectPage({ user, orgs, repos: await listPushableRepos(user.token) }));
 });
@@ -325,6 +377,7 @@ app.get('/settings/new-project', async (req, res) => {
 app.post('/settings/new-project', async (req, res) => {
   const user = await currentUser(req);
   if (!user) return res.redirect(303, '/settings/signin?returnTo=/settings/new-project');
+  if (!user.id) return backToSettings(res, 'Creating a project creates a GitHub repository, so it needs a GitHub sign-in.');
 
   const projectName = String(req.body?.projectName || '').trim();
   if (!projectName) {
@@ -458,26 +511,49 @@ app.post('/settings', async (req, res) => {
 });
 
 /**
- * Can this person actually share a key with this project?
+ * May this person add a key to this project?
  *
- * Without the check the first person to name `owner/repo` owns that slot, and
- * nothing stops someone claiming a project they have never worked on — either
- * squatting it before the manager gets there or writing a dead key over a
- * working one. Push access is the same bar the project itself uses, and it
- * doubles as typo-catching: a misspelled repo fails here instead of quietly
- * storing a key nobody will ever read.
+ * Anyone on the project — see src/oauth/project-key-decision.js for the rule.
+ * This only gathers what it needs. A GitHub sign-in is checked for push access
+ * as before, which also catches a misspelled repository before a key is stored
+ * against it; failing that, and for a Google sign-in, the project's own settings
+ * are read to find them on the gate or the roster.
+ *
+ * A Google sign-in has no GitHub credential of its own, so that read goes
+ * through the access the project lends. A project that has not lent any cannot
+ * be read on their behalf, and the answer says so rather than calling them a
+ * stranger.
  */
-async function canShareWith(token, owner, repo) {
-  const res = await fetch(`https://api.github.com/repos/${owner}/${repo}`, {
-    headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json' },
-  });
-  if (res.status === 404) return { ok: false, why: `No repository ${owner}/${repo}, or you cannot see it.` };
-  if (!res.ok) return { ok: false, why: `GitHub said ${res.status} for ${owner}/${repo}.` };
-  const body = await res.json().catch(() => ({}));
-  if (!body?.permissions?.push) {
-    return { ok: false, why: `You need write access to ${owner}/${repo} to share a key with it.` };
+async function mayAddProjectKey(user, ref) {
+  const slug = `${ref.owner}/${ref.repo}`;
+  let token = user.token;
+  let hasPush = false;
+
+  if (token) {
+    const res = await fetch(`https://api.github.com/repos/${ref.owner}/${ref.repo}`, {
+      headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json' },
+    });
+    if (res.status === 404) return { ok: false, why: `No repository ${slug}, or you cannot see it.` };
+    if (!res.ok) return { ok: false, why: `GitHub said ${res.status} for ${slug}.` };
+    const body = await res.json().catch(() => ({}));
+    hasPush = !!body?.permissions?.push;
+  } else {
+    const cred = await kvGet(keys.projectGhCred(ref.owner, ref.repo));
+    if (!cred?.token) {
+      return {
+        ok: false,
+        why: `${slug} has not lent GitHub access, so it cannot confirm people who signed in with Google. `
+          + 'Ask its manager to lend access, or sign in with GitHub.',
+      };
+    }
+    token = cred.token;
   }
-  return { ok: true };
+
+  let config = null;
+  if (!hasPush) {
+    try { config = await readConfigJson({ owner: ref.owner, repo: ref.repo, token }); } catch { config = null; }
+  }
+  return projectKeyDecision({ config, email: user.email, hasPush, slug });
 }
 
 function parseRepoRef(raw) {
@@ -516,7 +592,7 @@ app.post('/settings/share', async (req, res) => {
     provider_ = String(req.body?.provider || 'anthropic').trim();
   }
 
-  const allowed = await canShareWith(user.token, ref.owner, ref.repo);
+  const allowed = await mayAddProjectKey(user, ref);
   if (!allowed.ok) return backToSettings(res, allowed.why);
 
   // One key per person, recorded against who added it. Nobody's key displaces
@@ -619,14 +695,18 @@ app.post('/settings/lend', async (req, res) => {
   const ref = parseRepoRef(req.body?.project);
   if (!ref) return backToSettings(res, 'Write the project as owner/repo.');
 
-  // A session minted before this feature shipped carries no token, and every
-  // GitHub call below would 401. That surfaced as "you need admin access" to
-  // someone who owned the repository, which is the worst kind of wrong error:
+  // Lending hands the project a GitHub credential, which only a GitHub sign-in
+  // has. Asked first: a Google sign-in has no token either, and telling them
+  // their sign-in is out of date sends them round a loop that cannot end.
+  if (!user.id) return backToSettings(res, 'Lending GitHub access needs a GitHub sign-in.');
+
+  // A GitHub session minted before this feature shipped carries no token, and
+  // every GitHub call below would 401. That surfaced as "you need admin access"
+  // to someone who owned the repository, which is the worst kind of wrong error:
   // it names a cause the reader cannot act on and is not true.
   if (!user.token) {
     return backToSettings(res, 'Your sign-in predates this feature. Sign out and sign in again, then retry.');
   }
-
   const allowed = await mayLend(user, ref);
   if (!allowed.ok) return backToSettings(res, allowed.why);
 
@@ -646,6 +726,7 @@ app.post('/settings/unlend', async (req, res) => {
   const ref = parseRepoRef(req.body?.project);
   if (!ref) return backToSettings(res, 'Write the project as owner/repo.');
 
+  if (!user.id) return backToSettings(res, 'Lending GitHub access needs a GitHub sign-in.');
   const existing = await kvGet(keys.projectGhCred(ref.owner, ref.repo));
   if (existing?.lentById && existing.lentById !== user.id) {
     return backToSettings(res, 'That access was lent by someone else.');
@@ -741,7 +822,8 @@ ${error ? `<div class="bad">${esc(error)}</div>` : ''}
 <section class="card">
 <h2>Your AI key</h2>
 <p class="muted">Used only by the tools that call a model. Stored against your
-GitHub account, never written to your repo.</p>
+email address, so it is yours whether you sign in with GitHub or Google. Never
+written to your repo.</p>
 <form method="POST" action="/settings">
   <label for="provider">Provider</label>
   <select id="provider" name="provider">
@@ -757,14 +839,16 @@ GitHub account, never written to your repo.</p>
 </section>
 
 <section class="card">
-<h2>Share a key with a project</h2>
-<p class="muted">Used by anyone on the project who has no key of their own. Never
-overrides someone's own key. You pay for what the project spends.</p>
-${shared.length ? `<p class="muted">Sharing a key with:</p>${shared.map(slug => `
+<h2>Add a key to a project</h2>
+<p class="muted">Open to anyone on the project. The project runs on its primary
+manager's key for anyone who has no key of their own, never overriding someone's
+own. Yours is used if you become primary, and you pay for what the project spends
+while it is.</p>
+${shared.length ? `<p class="muted">You have added a key to:</p>${shared.map(slug => `
 <form method="POST" action="/settings/unshare" style="margin:.35rem 0">
   <input type="hidden" name="project" value="${esc(slug)}">
   <code>${esc(slug)}</code>
-  <button type="submit" class="link">Stop sharing</button>
+  <button type="submit" class="link">Remove my key</button>
 </form>`).join('')}` : ''}
 <form method="POST" action="/settings/share">
   <label for="project">Project</label>
@@ -788,7 +872,7 @@ ${hasKey ? `
     <label for="shareKey">API key to share</label>
     <input id="shareKey" name="apiKey" type="password" autocomplete="off" placeholder="sk-ant-…">
   </div>
-  <button type="submit">Share with project</button>
+  <button type="submit">Add to project</button>
 </form>
 
 </section>
@@ -804,11 +888,12 @@ ${lent.length ? `<p class="muted">Lending access to:</p>${lent.map(slug => `
   <code>${esc(slug)}</code>
   <button type="submit" class="link">Stop lending</button>
 </form>`).join('')}` : ''}
-<form method="POST" action="/settings/lend">
+${user.id ? `<form method="POST" action="/settings/lend">
   <label for="lendProject">Project</label>
   ${projectPicker('lendProject', repos)}
   <button type="submit">Lend GitHub access</button>
-</form>
+</form>` : `<p class="muted">Lending GitHub access needs a GitHub sign-in: it hands the
+project a GitHub credential, which a Google sign-in does not have.</p>`}
 </section>
 </div>`, { wide: true });
 
@@ -856,8 +941,8 @@ const navBar = ({ user, current }) => {
   <a href="/" class="brand">teamctx</a>
   ${link('/', 'Home')}
   ${user ? link('/settings', 'Settings') : ''}
-  ${user ? link('/settings/new-project', 'New project') : ''}
-  <span class="who muted">${user ? `${esc(user.login)}
+  ${user?.id ? link('/settings/new-project', 'New project') : ''}
+  <span class="who muted">${user ? `${esc(user.login || user.email || '')}
       <form method="POST" action="/settings/logout" style="display:inline;margin:0">
         <button type="submit" class="link">Sign out</button>
       </form>` : '<a href="/settings/signin">Sign in</a>'}</span>
@@ -986,7 +1071,10 @@ ${navBar({ user: null, current: '/settings' })}
 <h1>Sign in</h1>
 <p>Sign in with GitHub to set the API key used by the teamctx tools that call
 a model.</p>
-<p class="actions"><a class="btn" href="/settings/signin">Sign in with GitHub</a></p>
+<p class="actions"><a class="btn" href="/settings/signin">Sign in with GitHub</a>
+${provider?.googleClientId ? ' <a class="btn" href="/settings/signin/google">Continue with Google</a>' : ''}</p>
+<p class="muted">Use Google if you were added to a project by email. Both reach the
+same saved keys when they carry the same address.</p>
 <p class="muted">GitHub will not prompt you again if you have already
 authorised teamctx. To sign in as a different account, revoke teamctx under
 <a href="https://github.com/settings/applications" target="_blank" rel="noreferrer">GitHub &rarr; Authorized OAuth Apps</a> first.</p>`);
