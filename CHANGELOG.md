@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Documentation
+- **Where a team layer would go is written down.** The intended hierarchy is
+  team → project → workstream; today one team is one project.
+  `docs/proposals/team-layer.md` records where that layer would slot in —
+  inherited above the project the way a workstream inherits its project — why
+  it is deferred (a project is one repository, and a team context would span
+  several), and how it differs from cross-project links. The roadmap lists it
+  under Later. Closes #84.
+- **The roadmap no longer calls workstreams nestable.** Workstreams are peers
+  that each inherit the project's context; nesting was never built, and
+  `docs/workstreams.md` already says it is not supported.
+
 ### Added
 - **Nobody is brought onto a project with nothing in it.** A manager could
   invite somebody the moment a project existed; that person connected, their
