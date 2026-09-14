@@ -184,6 +184,12 @@ Recorded here so the commits and the pull request can cite them.
 12. On a deployed project, manager changes happen through the connector.
 13. Repair stays a separate command.
 14. Every change is one attributed commit that records the key check.
+15. Lending records the lender's address. An older lent record that cannot say
+    who lent it refuses a step-out, with the fix: lend it again to record it.
+16. A manager recorded before managers were identified by email is matched by
+    GitHub id or login in the step-out check, so they cannot slip past it.
+17. The primary manager cannot remove the key the project runs on until they
+    have handed the primary role over.
 
 ## Out of scope
 

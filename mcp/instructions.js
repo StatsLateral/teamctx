@@ -78,8 +78,16 @@ the team aligned on.
   against. If \`apply: true\` is refused, the caller is not actually the
   manager — that is the same gate working as \`review_approve\`, not an error to
   retry.
-- **Approving is the manager's alone.** If \`review_approve\` refuses, the
-  caller is not the manager — that is the gate working, not an error to retry.
+- **Approving is the managers' alone.** A project has a primary manager and
+  may have co-managers, who approve exactly as the primary does. If
+  \`review_approve\` refuses, the caller is not one of them — that is the gate
+  working, not an error to retry.
+- **Handing a project over is \`manager_transfer\`.** The project runs on its
+  primary manager's key, so the person taking over must first add a key of their
+  own to the project on the teamctx settings page, signed in as the address they
+  are being made manager with. If the transfer refuses for that reason, tell them
+  exactly that, and do not suggest sharing the old manager's key. A manager is
+  named by email address, never by username.
 - **\`get_status\` first, when you do not know where you are.** It answers who
   is calling, which project, and whether it is set up at all.
 - **Tools marked RISKY change or delete things.** Confirm with the user first,
