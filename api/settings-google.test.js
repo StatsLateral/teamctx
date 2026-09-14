@@ -218,7 +218,22 @@ describe('adding a key to a project', () => {
   });
 });
 
+describe('the home page for a Google sign-in', () => {
+  it('names them by address, not "null", and offers settings rather than a new project', async () => {
+    const { body } = await as(GOOGLE, '/');
+    expect(body).toContain('Signed in as <strong>dev@example.com</strong>');
+    expect(body).not.toContain('<strong>null</strong>');
+    expect(body).not.toContain('Create a new project');
+  });
+});
+
 describe('lending GitHub access', () => {
+  it('is refused when the sign-in revealed no address, since the lender is recorded by it', async () => {
+    const r = await as({ ...GITHUB, email: null }, '/settings/lend', { method: 'POST', form: { project: 'acme/ledger' } });
+    expect(decodeURIComponent(r.location)).toMatch(/did not reveal a verified email address/);
+    expect(await kvGet(keys.projectGhCred('acme', 'ledger'))).toBe(null);
+  });
+
   it('records the address of whoever lent it, so a manager can be matched to it', async () => {
     const real = globalThis.fetch;
     globalThis.fetch = async (u, o) => {
@@ -268,6 +283,16 @@ describe('the key a project runs on', () => {
       expect(r.location).toBe('/settings?saved=1');
     } finally { restore(); }
     expect((await readProjectKeys('acme', 'ledger')).byEmail).toEqual({});
+  });
+
+  it('warns a primary stored by GitHub id too', async () => {
+    const idConfig = { ...CONFIG, managerKey: 'github:7' };
+    const restore = stubGithub({ config: idConfig, push: true });
+    try {
+      await as(GITHUB, '/settings/share', { method: 'POST', form: { project: 'acme/ledger', apiKey: 'sk-dev' } });
+      const r = await as(GITHUB, '/settings/unshare', { method: 'POST', form: { project: 'acme/ledger' } });
+      expect(r.location).toBe('/settings?confirmRemove=acme%2Fledger');
+    } finally { restore(); }
   });
 
   it('can be removed by anyone who is not primary', async () => {

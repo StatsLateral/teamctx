@@ -22,7 +22,11 @@ const norm = email => String(email || '').trim().toLowerCase();
 export async function readPersonalKey({ email, githubId } = {}) {
   if (email) {
     const mine = await kvGet(keys.personalAiKey(norm(email)));
-    if (mine?.apiKey) return mine;
+    // A cleared key leaves a marker rather than nothing. Without it, clearing
+    // while signed in with Google — which has no GitHub id to clear the old
+    // record by — fell straight back to that old record, and the key the person
+    // had just removed carried on being used.
+    if (mine) return mine.apiKey ? mine : null;
   }
   if (githubId) {
     const legacy = await kvGet(keys.aiKey(String(githubId)));
@@ -40,7 +44,7 @@ export async function readPersonalKey({ email, githubId } = {}) {
 export async function writePersonalKey({ email, githubId, provider, apiKey } = {}) {
   if (!email) throw new Error('a verified email address is required to save a key');
   if (!apiKey) {
-    await kvSet(keys.personalAiKey(norm(email)), null);
+    await kvSet(keys.personalAiKey(norm(email)), { cleared: true, clearedAt: new Date().toISOString() });
     if (githubId) await kvSet(keys.aiKey(String(githubId)), null);
     return null;
   }
@@ -67,14 +71,20 @@ export async function readProjectKeys(owner, repo) {
   };
 }
 
-export async function addProjectKey({ owner, repo, email, provider, apiKey } = {}) {
+export async function addProjectKey({ owner, repo, email, provider, apiKey, githubId, githubLogin } = {}) {
   if (!email) throw new Error('a verified email address is required to add a project key');
   if (!apiKey) throw new Error('an API key is required');
   const who = norm(email);
   const record = (await kvGet(keys.projectAiKeys(owner, repo))) || { keys: {} };
   record.keys = {
     ...(record.keys || {}),
-    [who]: { provider: provider || 'anthropic', apiKey, addedBy: who, addedAt: new Date().toISOString() },
+    [who]: {
+      provider: provider || 'anthropic', apiKey, addedBy: who, addedAt: new Date().toISOString(),
+      // Recorded too, because some primary managers are stored by GitHub id or
+      // login rather than by address, and their key has to be findable by that.
+      ...(githubId ? { addedById: String(githubId) } : {}),
+      ...(githubLogin ? { addedByLogin: String(githubLogin) } : {}),
+    },
   };
   await kvSet(keys.projectAiKeys(owner, repo), record);
 
@@ -108,6 +118,26 @@ export async function projectsKeyedBy({ email, githubId } = {}) {
 // ---- which key a request runs on ----------------------------------------
 
 /**
+ * The project key that belongs to a manager, however the manager is written.
+ *
+ * Managers written from now on are `git:<email>`. Older ones can be
+ * `github:<id>` — the web flow writes that when a session revealed no address —
+ * or `@<login>`, and those have no address to look a key up by. Matching only
+ * by address left such a primary unable to have their own key used at all.
+ */
+export function entryFor(projectKeys, managerKey) {
+  const entries = Object.values(projectKeys?.byEmail || {});
+  const key = String(managerKey || '').trim();
+  const email = /^git:(.+)$/i.exec(key)?.[1];
+  if (email) return projectKeys?.byEmail?.[norm(email)] || null;
+  const id = /^github:(\d+)$/.exec(key)?.[1];
+  if (id) return entries.find(e => e.addedById === id) || null;
+  const login = /^@(.+)$/.exec(key)?.[1];
+  if (login) return entries.find(e => String(e.addedByLogin || '').toLowerCase() === login.toLowerCase()) || null;
+  return null;
+}
+
+/**
  * The project key a request falls back to when the caller brought none.
  *
  * The primary manager's. Other people's keys are stored but never used unless
@@ -117,8 +147,8 @@ export async function projectsKeyedBy({ email, githubId } = {}) {
  * A project from before this change has only its single shared record, and
  * keeps running on it until somebody adds a key under the new scheme.
  */
-export function pickProjectKey({ projectKeys, primaryEmail } = {}) {
-  const entry = primaryEmail ? projectKeys?.byEmail?.[norm(primaryEmail)] : null;
+export function pickProjectKey({ projectKeys, primaryKey } = {}) {
+  const entry = entryFor(projectKeys, primaryKey);
   if (entry?.apiKey) return { apiKey: entry.apiKey, provider: entry.provider || null, addedBy: entry.addedBy };
   if (projectKeys?.legacy?.apiKey) {
     return { apiKey: projectKeys.legacy.apiKey, provider: projectKeys.legacy.provider || null, addedBy: null };

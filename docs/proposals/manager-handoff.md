@@ -191,6 +191,14 @@ Recorded here so the commits and the pull request can cite them.
 17. The primary manager can remove the key the project runs on — it is theirs —
     but is warned first that everyone without a key of their own loses the
     model, and has to confirm.
+18. A project key records the GitHub id and login of whoever added it, so a
+    primary stored the older ways is still matched to their own key.
+19. A project created on the web records its `deployUrl`, and the terminal never
+    claims a project is undeployed — it says it cannot tell.
+20. Clearing a personal key leaves a marker, so an older GitHub-id record cannot
+    reappear when the key is cleared from a Google sign-in.
+21. Lending GitHub access requires a verified address, so every lent record can
+    be matched to the manager who lent it.
 
 ## Out of scope
 

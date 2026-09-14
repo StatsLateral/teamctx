@@ -31,6 +31,21 @@ describe('a person\'s own key', () => {
     expect((await readPersonalKey({ email: 'maya@example.com', githubId: '7' })).apiKey).toBe('sk-new');
   });
 
+  it('stays cleared when cleared from a sign-in that cannot reach the old record', async () => {
+    // Saved while signed in with GitHub before keys were stored by address, then
+    // cleared while signed in with Google — which has no GitHub id to clear the
+    // old record by. The old record must not come back through the fallback.
+    await kvSet(keys.aiKey('7'), { provider: 'anthropic', apiKey: 'sk-old' });
+    await writePersonalKey({ email: 'maya@example.com', apiKey: null });
+    expect(await readPersonalKey({ email: 'maya@example.com', githubId: '7' })).toBe(null);
+  });
+
+  it('can be saved again after being cleared', async () => {
+    await writePersonalKey({ email: 'maya@example.com', apiKey: null });
+    await writePersonalKey({ email: 'maya@example.com', apiKey: 'sk-new' });
+    expect((await readPersonalKey({ email: 'maya@example.com' })).apiKey).toBe('sk-new');
+  });
+
   it('clears the old record too, so a cleared key does not come back', async () => {
     await kvSet(keys.aiKey('7'), { provider: 'anthropic', apiKey: 'sk-old' });
     await writePersonalKey({ email: 'maya@example.com', githubId: '7', apiKey: null });
@@ -43,6 +58,12 @@ describe('a person\'s own key', () => {
 });
 
 describe('keys added to a project', () => {
+  it('records the GitHub identity of whoever added it, when there is one', async () => {
+    await addProjectKey({ owner: 'acme', repo: 'ledger', email: 'maya@example.com', apiKey: 'sk', githubId: 7, githubLogin: 'maya' });
+    expect((await readProjectKeys('acme', 'ledger')).byEmail['maya@example.com'])
+      .toMatchObject({ addedById: '7', addedByLogin: 'maya' });
+  });
+
   it('keeps one per person, recording who added each', async () => {
     await addProjectKey({ owner: 'acme', repo: 'ledger', email: 'maya@example.com', apiKey: 'sk-maya' });
     await addProjectKey({ owner: 'acme', repo: 'ledger', email: 'priya@example.com', provider: 'openai', apiKey: 'sk-priya' });
@@ -98,19 +119,37 @@ describe('picking the key a project runs on', () => {
   };
 
   it('is the primary manager\'s', () => {
-    expect(pickProjectKey({ projectKeys, primaryEmail: 'priya@example.com' }))
+    expect(pickProjectKey({ projectKeys, primaryKey: 'git:priya@example.com' }))
       .toEqual({ apiKey: 'sk-priya', provider: 'openai', addedBy: 'priya@example.com' });
   });
 
   it('matches the primary regardless of case', () => {
-    expect(pickProjectKey({ projectKeys, primaryEmail: 'MAYA@example.com' }).apiKey).toBe('sk-maya');
+    expect(pickProjectKey({ projectKeys, primaryKey: 'git:MAYA@example.com' }).apiKey).toBe('sk-maya');
   });
 
   it('falls back to the old single record when the primary has none', () => {
-    expect(pickProjectKey({ projectKeys, primaryEmail: 'dev@example.com' }).apiKey).toBe('sk-old');
+    expect(pickProjectKey({ projectKeys, primaryKey: 'git:dev@example.com' }).apiKey).toBe('sk-old');
   });
 
   it('is nothing when there is neither', () => {
-    expect(pickProjectKey({ projectKeys: { byEmail: {}, legacy: null }, primaryEmail: 'dev@example.com' })).toBe(null);
+    expect(pickProjectKey({ projectKeys: { byEmail: {}, legacy: null }, primaryKey: 'git:dev@example.com' })).toBe(null);
+  });
+
+  it('finds the key of a primary stored by GitHub id', () => {
+    // The web flow writes a GitHub id when a session revealed no address, and
+    // matching only by address meant that primary's own key was never used.
+    const keysWithId = {
+      byEmail: { 'maya@example.com': { apiKey: 'sk-maya', addedBy: 'maya@example.com', addedById: '7' } },
+      legacy: { apiKey: 'sk-old' },
+    };
+    expect(pickProjectKey({ projectKeys: keysWithId, primaryKey: 'github:7' }).apiKey).toBe('sk-maya');
+  });
+
+  it('finds the key of a primary stored by login', () => {
+    const keysWithLogin = {
+      byEmail: { 'maya@example.com': { apiKey: 'sk-maya', addedBy: 'maya@example.com', addedByLogin: 'Maya' } },
+      legacy: null,
+    };
+    expect(pickProjectKey({ projectKeys: keysWithLogin, primaryKey: '@maya' }).apiKey).toBe('sk-maya');
   });
 });

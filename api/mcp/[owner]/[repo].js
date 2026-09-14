@@ -4,7 +4,7 @@ import { runWithActor, actorFromGithubUser } from '../../../src/actor.js';
 import { providerFromEnv } from '../../../src/oauth/provider.js';
 import { readPersonalKey, readProjectKeys, pickProjectKey } from '../../../src/oauth/ai-keys.js';
 import { readConfig } from '../../../src/storage.js';
-import { managersOf, emailOfKey } from '../../../src/managers.js';
+import { managersOf } from '../../../src/managers.js';
 import { resolveGoogleMember } from '../../../src/oauth/member-access.js';
 import { primaryEmail } from '../../../src/oauth/github-identity.js';
 
@@ -63,7 +63,7 @@ export async function withSharedKey({ apiKey, aiProvider, owner, repo }) {
  */
 export function primaryManagerKey({ projectKeys, config }) {
   const { primary } = managersOf(config || {});
-  const picked = pickProjectKey({ projectKeys, primaryEmail: emailOfKey(primary) });
+  const picked = pickProjectKey({ projectKeys, primaryKey: primary });
   return picked ? { apiKey: picked.apiKey, provider: picked.provider } : null;
 }
 

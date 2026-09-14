@@ -90,9 +90,14 @@ describe('a project from before keys were stored by email', () => {
 });
 
 describe('a primary manager written the old way', () => {
-  it('has no address to look a key up by, and falls back to the old record', async () => {
+  it('runs on the key they added, found by their GitHub id', async () => {
     await kvSet(keys.projectAiKey(OWNER, REPO), { provider: 'anthropic', apiKey: 'sk-old' });
-    await addProjectKey({ owner: OWNER, repo: REPO, email: 'maya@example.com', apiKey: 'sk-maya' });
+    await addProjectKey({ owner: OWNER, repo: REPO, email: 'maya@example.com', apiKey: 'sk-maya', githubId: '7' });
+    expect((await keyFor({ cfg: config({ managerKey: 'github:7' }) })).apiKey).toBe('sk-maya');
+  });
+
+  it('falls back to the old record when they have added none', async () => {
+    await kvSet(keys.projectAiKey(OWNER, REPO), { provider: 'anthropic', apiKey: 'sk-old' });
     expect((await keyFor({ cfg: config({ managerKey: 'github:7' }) })).apiKey).toBe('sk-old');
   });
 });

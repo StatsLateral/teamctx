@@ -111,8 +111,8 @@ export function stepOutCheckFor({ owner, repo }) {
       return {
         ok: false,
         why: `${slug} lends GitHub access, and it was lent before teamctx recorded who by, so there is no `
-          + `way to tell whether it is ${leaving}'s. Whoever lent it can lend it again from the settings page `
-          + 'to record it, or somebody else can lend it in their place.',
+          + `way to tell whether it is ${leaving}'s. Whoever lent it can lend it again from the settings page, `
+          + 'which now records their address, or somebody who is staying can lend it in their place.',
       };
     }
     return { ok: true };

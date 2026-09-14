@@ -15,19 +15,20 @@ function fail(message) {
 /**
  * Say what the terminal cannot check, and ask before going on.
  *
- * Only reached on a project with no deployment — a deployed project is refused
- * by the core before this matters, because there the unchecked cases strand
- * people. Here there are no hosted keys or lent access to miss, but the person
- * running this should still know what was not looked at rather than assume it
- * was.
+ * Reached when the project records no deployment. That does not mean nobody
+ * uses it through the connector — a project created on the web before its
+ * deployment was recorded looks exactly the same from here — so this says what
+ * it cannot see rather than claiming there is nothing to see. A project that
+ * does record one is refused by the core instead.
  */
 async function confirm(what, opts) {
   console.log(`\n${what}`);
   console.log('\nFrom a clone, teamctx cannot check:');
   console.log('  - that the new manager has a working AI key of their own');
   console.log('  - whether anyone reaches the project through GitHub access this person lent');
-  console.log('This project has no deployment, so neither applies yet. If it is deployed later,');
-  console.log('make manager changes through the teamctx connector, where both are checked.\n');
+  console.log('\nIt also cannot tell whether anyone uses this project through the teamctx connector.');
+  console.log('If they do, this change can leave them without a model or without access. Make it');
+  console.log('through the connector instead, where both are checked.\n');
 
   if (opts.yes) return true;
   if (!process.stdin.isTTY) {

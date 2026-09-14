@@ -6,6 +6,7 @@ import { kvGet, kvSet, kvTake, kvDelete, keys, TTL, isPersistent } from '../src/
 import { googleAuthorizeUrl, googleUserFromCode } from '../src/oauth/google.js';
 import { projectKeyDecision } from '../src/oauth/project-key-decision.js';
 import { managersOf } from '../src/managers.js';
+import { matchesActor } from '../src/review.js';
 import { readConfigJson } from '../src/oauth/member-access.js';
 import {
   readPersonalKey, writePersonalKey, addProjectKey, removeProjectKey, projectsKeyedBy,
@@ -451,6 +452,10 @@ app.post('/settings/new-project', async (req, res) => {
       // they come back through GitHub or sign in with Google. Falls back to the
       // id only when the token would not reveal an address.
       managerKey: user.email ? `git:${user.email}` : `github:${user.id}`,
+      // Recorded so a clone knows this project is used through the connector.
+      // Without it the terminal took a web-created project for an undeployed one,
+      // and let manager changes through without the checks only the server runs.
+      deployUrl: baseUrlFor(req),
     }));
   } catch (e) {
     // Repo exists but isn't initialized. Don't strand the manager here —
@@ -524,7 +529,13 @@ async function isPrimaryManager(user, ref) {
   if (!token) return false;
   let config;
   try { config = await readConfigJson({ owner: ref.owner, repo: ref.repo, token }); } catch { return false; }
-  return managersOf(config).primary === `git:${String(user.email).toLowerCase()}`;
+  const { primary } = managersOf(config);
+  // Every form a manager can be written in. A primary stored by GitHub id — the
+  // web flow writes that when a session revealed no address — was never matched
+  // by address alone, and so was never warned.
+  const actor = { key: user.id ? `github:${user.id}` : `git:${String(user.email).toLowerCase()}`,
+    email: String(user.email || '').toLowerCase(), login: user.login || null };
+  return !!primary && matchesActor(primary, actor);
 }
 
 /**
@@ -615,7 +626,10 @@ app.post('/settings/share', async (req, res) => {
   // One key per person, recorded against who added it. Nobody's key displaces
   // anyone else's any more; which one a project runs on is decided by who its
   // primary manager is, not by who got here first.
-  await addProjectKey({ owner: ref.owner, repo: ref.repo, email: user.email, provider: provider_, apiKey });
+  await addProjectKey({
+    owner: ref.owner, repo: ref.repo, email: user.email, provider: provider_, apiKey,
+    githubId: user.id, githubLogin: user.login,
+  });
   backToSettings(res);
 });
 
@@ -732,6 +746,14 @@ app.post('/settings/lend', async (req, res) => {
   // it names a cause the reader cannot act on and is not true.
   if (!user.token) {
     return backToSettings(res, 'Your sign-in predates this feature. Sign out and sign in again, then retry.');
+  }
+
+  // The lender's address is what lets a manager be matched to access they lent.
+  // Lending without one wrote a record nobody could be matched to, which then
+  // blocked every manager from stepping out — with re-lending, the suggested
+  // fix, writing the same unmatchable record again.
+  if (!user.email) {
+    return backToSettings(res, 'Your GitHub sign-in did not reveal a verified email address, and lending records who lent access by address. Sign out and sign in again to grant it.');
   }
   const allowed = await mayLend(user, ref);
   if (!allowed.ok) return backToSettings(res, allowed.why);
@@ -881,8 +903,8 @@ written to your repo.</p>
 <h2>Add a key to a project</h2>
 <p class="muted">Open to anyone on the project. The project runs on its primary
 manager's key for anyone who has no key of their own, never overriding someone's
-own. Yours is used if you become primary, and you pay for what the project spends
-while it is.</p>
+own. Yours is used while you are its primary manager, and you pay for what the
+project spends while it is.</p>
 ${shared.length ? `<p class="muted">You have added a key to:</p>${shared.map(slug => `
 <form method="POST" action="/settings/unshare" style="margin:.35rem 0">
   <input type="hidden" name="project" value="${esc(slug)}">
@@ -1016,7 +1038,7 @@ context and their tasks, sends work back, and you review it on your own
 cadence.</p>
 
 <p class="actions">
-  <a class="btn" href="${user ? '/settings/new-project' : '/settings/signin'}">${user ? 'Create a new project' : 'Start here'}</a>
+  <a class="btn" href="${!user ? '/settings/signin' : user.id ? '/settings/new-project' : '/settings'}">${!user ? 'Start here' : user.id ? 'Create a new project' : 'Settings'}</a>
 </p>
 ${user ? '' : '<p class="muted">Signing in creates nothing on its own — you choose the project on the next screen.</p>'}
 ${user && projects.length ? `
@@ -1025,7 +1047,7 @@ ${user && projects.length ? `
 <ul style="line-height:1.9;padding-left:1.2rem">
   ${projects.map(p => `<li><code>${esc(p)}</code></li>`).join('')}
 </ul>` : ''}
-${user ? `<p class="muted" style="margin-top:2rem">Signed in as <strong>${esc(user.login)}</strong>.</p>` : ''}`);
+${user ? `<p class="muted" style="margin-top:2rem">Signed in as <strong>${esc(user.login || user.email || '')}</strong>.</p>` : ''}`);
 
 const newProjectPage = ({ user, orgs, projectName = '', orgLogin = '', error = null, suggestion = null, repos = [] }) => shell('New project', `
 ${navBar({ user, current: '/settings/new-project' })}
