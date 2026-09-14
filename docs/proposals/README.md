@@ -30,6 +30,7 @@ These are **contributor-facing write-ups** for the larger items on the
 | [Tasks over MCP](mcp-tasks.md) | Bring your own tools | Small (the core exists) |
 | [Project members](project-members.md) | Managers in control | Small–Medium (phase 3 deferred) |
 | [A team layer above the project](team-layer.md) | Structured workstreams | Deferred — a recorded seam, not a plan |
+| [Handing the manager role over, or sharing it](manager-handoff.md) | Managers in control | Medium (one gated write path, two surfaces) |
 | [Project context as a layer workstreams inherit](project-context-layer.md) | Structured workstreams · Managers in control | Large (a new tree, every compile path, a migration) |
 | [Nobody is brought onto an empty project](member-context-gate.md) | Managers in control | Small (one check, two call sites) |
 
