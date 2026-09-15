@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from 'crypto';
-import { kvGet, kvSet, kvDelete, keys } from './kv.js';
+import { kvGet, kvSet, kvDelete, kvIncr, keys } from './kv.js';
 
 /**
  * Tokens for unattended agents on the hosted connector.
@@ -74,23 +74,25 @@ export async function verifyAgentToken(token, { owner, repo } = {}) {
   return record;
 }
 
-/** Note that the agent was used, so a manager can tell a live job from a dead one. */
-export async function touchAgent(token, now = new Date()) {
-  const hash = hashToken(token);
-  const record = await kvGet(keys.agentToken(hash));
-  if (!record) return;
-  const at = now.toISOString();
-  await kvSet(keys.agentToken(hash), { ...record, lastUsedAt: at });
-  const list = (await kvGet(keys.projectAgents(record.owner, record.repo)))?.agents || [];
-  await kvSet(keys.projectAgents(record.owner, record.repo), {
-    agents: list.map(a => (a.hash === hash ? { ...a, lastUsedAt: at } : a)),
-  });
+/**
+ * Note that the agent was used, so a manager can tell a live job from a dead one.
+ *
+ * A single write to a record of its own. It used to read and rewrite the token
+ * record and the project's list, and a request that overlapped a revoke wrote
+ * the token back; one that overlapped a new agent wrote the list without it.
+ */
+export async function touchAgent(id, now = new Date()) {
+  if (!id) return;
+  await kvSet(keys.agentLastUsed(id), { at: now.toISOString() });
 }
 
 /** The agents issued for a project, without their hashes. */
 export async function listAgents(owner, repo) {
   const list = (await kvGet(keys.projectAgents(owner, repo)))?.agents || [];
-  return list.map(({ hash, ...agent }) => agent);
+  return Promise.all(list.map(async ({ hash, ...agent }) => ({
+    ...agent,
+    lastUsedAt: (await kvGet(keys.agentLastUsed(agent.id)))?.at || agent.lastUsedAt || null,
+  })));
 }
 
 /** Projects an address has issued agents for. */
@@ -110,6 +112,7 @@ export async function revokeAgent({ owner, repo, id } = {}) {
   if (!found) return null;
   await kvDelete(keys.agentToken(found.hash));
   await kvDelete(keys.agentAiKey(id));
+  await kvDelete(keys.agentLastUsed(id));
   await kvSet(keys.projectAgents(owner, repo), { agents: list.filter(a => a !== found) });
   const { hash, ...agent } = found;
   return agent;
@@ -124,12 +127,12 @@ export async function revokeAgent({ owner, repo, id } = {}) {
  */
 export async function takeDailyContribution({ id, limit = DAILY_CONTRIBUTION_LIMIT, now = new Date() } = {}) {
   const day = now.toISOString().slice(0, 10);
-  const key = keys.agentDaily(id, day);
-  const used = Number((await kvGet(key))?.count || 0);
   const resetsAt = new Date(Date.parse(`${day}T00:00:00Z`) + DAY_SECONDS * 1000).toISOString();
-  if (used >= limit) return { ok: false, used, limit, resetsAt };
-  await kvSet(key, { count: used + 1 }, { ttlSeconds: 2 * DAY_SECONDS });
-  return { ok: true, used: used + 1, limit, resetsAt };
+  // Counted atomically. Reading the count and writing it back let parallel
+  // calls each see room under the limit and all go through.
+  const used = await kvIncr(keys.agentDaily(id, day), { ttlSeconds: 2 * DAY_SECONDS });
+  if (used > limit) return { ok: false, used: limit, limit, resetsAt };
+  return { ok: true, used, limit, resetsAt };
 }
 
 /**

@@ -64,11 +64,26 @@ describe('checking a token', () => {
     expect(isAgentToken(null)).toBe(false);
   });
 
-  it('records when it was last used, on the record and in the list', async () => {
-    const { token } = await issue();
-    await touchAgent(token, new Date('2026-09-15T08:00:00Z'));
-    expect((await verifyAgentToken(token)).lastUsedAt).toBe('2026-09-15T08:00:00.000Z');
+  it('records when it was last used, for the list', async () => {
+    await issue();
+    await touchAgent('a1', new Date('2026-09-15T08:00:00Z'));
     expect((await listAgents('acme', 'ledger'))[0].lastUsedAt).toBe('2026-09-15T08:00:00.000Z');
+  });
+
+  it('cannot bring a revoked token back by noting a use', async () => {
+    // A request that was already under way when the token was revoked.
+    const { token } = await issue();
+    await revokeAgent({ owner: 'acme', repo: 'ledger', id: 'a1' });
+    await touchAgent('a1');
+    expect(await verifyAgentToken(token)).toBe(null);
+  });
+
+  it('never drops an agent from the list by noting a use', async () => {
+    await issue();
+    await touchAgent('a1');
+    await issue({ id: 'a2', name: 'Weekly digest' });
+    await touchAgent('a1');
+    expect((await listAgents('acme', 'ledger')).map(a => a.id)).toEqual(['a1', 'a2']);
   });
 });
 
@@ -118,6 +133,11 @@ describe('the daily contribution limit', () => {
     await takeDailyContribution({ id: 'a1', limit: 1, now: at });
     expect((await takeDailyContribution({ id: 'a1', limit: 1, now: at })).ok).toBe(false);
     expect((await takeDailyContribution({ id: 'a1', limit: 1, now: new Date('2026-09-16T00:01:00Z') })).ok).toBe(true);
+  });
+
+  it('holds when contributions arrive at the same time', async () => {
+    const results = await Promise.all(Array.from({ length: 25 }, () => takeDailyContribution({ id: 'a1', now: at })));
+    expect(results.filter(r => r.ok)).toHaveLength(DAILY_CONTRIBUTION_LIMIT);
   });
 
   it('counts each agent separately', async () => {

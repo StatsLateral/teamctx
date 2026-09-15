@@ -120,7 +120,7 @@ export default async function handler(req, res) {
     ghToken = lent.token;
     actor = actorFromAgent(record);
     agent = { id: record.id, name: record.name, dailyLimit: record.dailyLimit };
-    try { await touchAgent(bearer); } catch { /* when it was last used is a courtesy */ }
+    try { await touchAgent(record.id); } catch { /* when it was last used is a courtesy */ }
   }
 
   // 1 — OAuth bearer token
