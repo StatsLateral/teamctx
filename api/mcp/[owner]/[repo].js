@@ -2,7 +2,9 @@ import { handleMcpHttp } from '../../../mcp/http.js';
 import { runWithAiKey } from '../../../src/ai-context.js';
 import { runWithActor, actorFromGithubUser } from '../../../src/actor.js';
 import { providerFromEnv } from '../../../src/oauth/provider.js';
-import { readPersonalKey, readProjectKeys, pickProjectKey } from '../../../src/oauth/ai-keys.js';
+import {
+  readPersonalKey, readProjectKeys, pickProjectKey, recordConnectedProject,
+} from '../../../src/oauth/ai-keys.js';
 import { readConfig } from '../../../src/storage.js';
 import { managersOf } from '../../../src/managers.js';
 import { resolveGoogleMember } from '../../../src/oauth/member-access.js';
@@ -127,6 +129,11 @@ export default async function handler(req, res) {
         });
         ghToken = access.ghToken;
         actor = access.actor;
+        // Remembered against the address so the settings page can offer this
+        // project — a Google account has no repository list. Only here, once the
+        // roster has confirmed them: recorded at sign-in, any Google account
+        // could name any project and have it listed as theirs.
+        try { await recordConnectedProject({ email: googleUser.email, owner, repo }); } catch { /* best effort */ }
         // A Google sign-in never looked for a personal key before, because keys
         // were stored by GitHub id and a Google account has none.
         if (!apiKey) {

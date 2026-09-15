@@ -333,14 +333,13 @@ describe('AI key storage', () => {
   });
 });
 
-describe('connecting through Google remembers which project it was for', () => {
-  // A Google account has no repository list, so the settings page had nothing
-  // to offer a Google sign-in. The connector URL names the project; this is the
-  // one moment both it and the verified address are in hand.
+describe('signing in through Google does not claim a project', () => {
+  // The connector URL names a project, but nothing at sign-in says the person is
+  // on it. The project is recorded by the endpoint once the roster confirms them.
   beforeEach(() => __resetMemory());
   afterEach(() => vi.unstubAllGlobals());
 
-  it('records the project named by the connector URL against the address', async () => {
+  it('records nothing against the address at sign-in', async () => {
     const provider = new TeamctxOAuthProvider({
       githubClientId: 'gh-client', githubClientSecret: 'gh-secret', baseUrl: BASE,
       googleClientId: 'g-client', googleClientSecret: 'g-secret',
@@ -356,6 +355,6 @@ describe('connecting through Google remembers which project it was for', () => {
       return { ok: true, json: async () => ({ email: 'Priya@Example.com', email_verified: true, name: 'Priya' }) };
     }));
     await provider.handleGoogleCallback({ code: 'code', state });
-    expect(await kvGet(keys.connectedProjects('priya@example.com'))).toEqual({ projects: ['Acme/ledger'] });
+    expect(await kvGet(keys.connectedProjects('priya@example.com'))).toBe(null);
   });
 });

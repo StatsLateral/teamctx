@@ -3,7 +3,6 @@ import { InvalidGrantError, InvalidTokenError } from '@modelcontextprotocol/sdk/
 import { kvGet, kvSet, kvTake, kvDelete, keys, TTL } from './kv.js';
 import { googleUserFromCode, googleAuthorizeUrl } from './google.js';
 import { primaryEmail } from './github-identity.js';
-import { recordConnectedProject } from './ai-keys.js';
 
 /**
  * teamctx's OAuth 2.1 authorization server.
@@ -135,13 +134,6 @@ export class TeamctxOAuthProvider {
       clientSecret: this.googleClientSecret,
       redirectUri: this.googleCallbackUrl,
     });
-
-    // The connector URL names the project. Remembered against the address so the
-    // settings page can offer it — a Google account has no repository list.
-    const project = /\/mcp\/([^/]+)\/([^/?#]+)/.exec(String(pending.resource || ''));
-    if (project) {
-      try { await recordConnectedProject({ email: googleUser.email, owner: project[1], repo: project[2] }); } catch { /* best effort */ }
-    }
 
     const ourCode = newToken(24);
     await kvSet(keys.code(ourCode), {
