@@ -72,8 +72,11 @@ is `agent:<id>`, with its name, and `source: 'agent'`.
 - **It reads the repository through the project's lent GitHub access**, the way
   a member without GitHub does. A project that has not lent access cannot issue
   agent tokens, and the Settings page says so.
-- **It runs on the primary manager's project key.** An agent has no key of its
-  own.
+- **It runs on its own key, if it has one, and otherwise on the primary
+  manager's project key.** A manager may give an agent a key when creating it,
+  or later. If the provider rejects that key — revoked, out of credit, over its
+  quota — the call is retried once on the project key, and the Settings page
+  shows the manager that the agent's key stopped working.
 - **Its work is attributed to it.** Contributions and commits carry the agent's
   name, marked as an agent.
 
@@ -140,8 +143,11 @@ the agent's name, which `my_brief` already matches.
 
 A section on the deployment's **Settings** page, for managers of a project:
 
-- create an agent — name, workstreams — and copy its token, shown once;
-- the project's agents, each with who issued it and when it was last used;
+- create an agent — name, workstreams, optionally its own AI key — and copy its
+  token, shown once;
+- the project's agents, each with who issued it, when it was last used, and
+  which key it runs on;
+- give an agent its own key, replace it, or put it back on the project key;
 - revoke.
 
 ### 6. Documentation
@@ -157,7 +163,8 @@ Recorded here so the commits and the pull request can cite them.
 1. An agent holds a manager-issued, revocable token; only its hash is stored.
 2. An agent is its own identity, `agent:<id>`, and is never a manager.
 3. An agent reads the repository through the project's lent GitHub access.
-4. An agent runs on the primary manager's project key.
+4. An agent runs on its own key when it has one, and on the primary manager's
+   project key otherwise.
 5. An agent is recorded on the roster, marked as an agent, so the scope check
    and the repository's history cover it.
 6. An agent sees only its own tools in `tools/list`, with agent-specific
@@ -175,8 +182,15 @@ Recorded here so the commits and the pull request can cite them.
     there is no scope to hold it to, and an agent with no scope would reach the
     whole project.
 15. An agent request ignores the `x-github-token` and `x-api-key` headers. It
-    reads through the lent access and runs on the primary manager's key, nothing
-    it brings.
+    reads through the lent access, and its key is the one a manager set, never
+    one the request brings.
+16. An agent may have its own AI key, set by a manager on the Settings page and
+    optional. A key the provider rejects when it is saved is refused.
+17. When the provider rejects an agent's own key during a call, that call is
+    retried once on the primary manager's project key, and the failure is
+    recorded for the Settings page. A rate limit or an outage is not a rejected
+    key, and does not move the call.
+18. The daily contribution limit applies whichever key pays.
 
 ## Out of scope
 
