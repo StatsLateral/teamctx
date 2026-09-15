@@ -9,11 +9,19 @@ import { readConfig } from '../../../src/storage.js';
 import { managersOf } from '../../../src/managers.js';
 import { resolveGoogleMember } from '../../../src/oauth/member-access.js';
 import { primaryEmail } from '../../../src/oauth/github-identity.js';
+import { isAgentToken, verifyAgentToken, touchAgent } from '../../../src/oauth/agent-tokens.js';
+import { actorFromAgent } from '../../../src/agents.js';
+import { kvGet, keys } from '../../../src/oauth/kv.js';
 
 /**
  * Hosted MCP endpoint.  POST /api/mcp/<owner>/<repo>
  *
  * Credential resolution, in priority order:
+ *
+ *   0. `Authorization: Bearer tctx_agent_…` — an unattended agent's token, issued
+ *      by a manager on the settings page. It reads through the project's lent
+ *      GitHub access, runs on the primary manager's key, and nothing below is
+ *      consulted for it. See src/agents.js.
  *
  *   1. `Authorization: Bearer <token>` — the OAuth path. The token was minted
  *      by our authorization server; we look it up to recover the user's
@@ -90,10 +98,30 @@ export default async function handler(req, res) {
   let aiProvider = null;
   let actor = null;
   let googleUser = null;
+  let agent = null;
+
+  const bearer = readBearer(req);
+
+  // 0 — an agent token
+  if (bearer && isAgentToken(bearer)) {
+    const record = await verifyAgentToken(bearer, { owner, repo });
+    if (!record) {
+      return unauthorized(req, res, owner, repo, 'The agent token is not valid for this project, or has been revoked');
+    }
+    const lent = await kvGet(keys.projectGhCred(owner, repo));
+    if (!lent?.token) {
+      return unauthorized(req, res, owner, repo,
+        `${owner}/${repo} no longer lends GitHub access, which an agent reads the project through. `
+        + 'A manager can lend it again on the settings page.');
+    }
+    ghToken = lent.token;
+    actor = actorFromAgent(record);
+    agent = { id: record.id, name: record.name, dailyLimit: record.dailyLimit };
+    try { await touchAgent(bearer); } catch { /* when it was last used is a courtesy */ }
+  }
 
   // 1 — OAuth bearer token
-  const bearer = readBearer(req);
-  if (bearer) {
+  if (bearer && !agent) {
     const provider = providerFromEnv();
     if (!provider) return unauthorized(req, res, owner, repo, 'OAuth is not configured on this deployment');
     try {
@@ -147,12 +175,15 @@ export default async function handler(req, res) {
     }
   }
 
-  // 2 — request headers
-  if (!ghToken) ghToken = firstHeader(req, 'x-github-token');
-  if (!apiKey) apiKey = firstHeader(req, 'x-anthropic-api-key') || firstHeader(req, 'x-api-key');
+  // 2 — request headers. Never for an agent: it reads through the lent access
+  // and runs on the primary manager's key, nothing it brings.
+  if (!agent) {
+    if (!ghToken) ghToken = firstHeader(req, 'x-github-token');
+    if (!apiKey) apiKey = firstHeader(req, 'x-anthropic-api-key') || firstHeader(req, 'x-api-key');
+  }
 
   // 3 — query params (opt-in, local dev)
-  if (process.env.TEAMCTX_ALLOW_URL_TOKENS === '1') {
+  if (!agent && process.env.TEAMCTX_ALLOW_URL_TOKENS === '1') {
     if (!ghToken) ghToken = readParam(req, 'gh_token');
     if (!apiKey) apiKey = readParam(req, 'api_key');
   }
@@ -171,7 +202,11 @@ export default async function handler(req, res) {
   // arrives at the host it would name, so asking the config for it was asking
   // the wrong place — and a project created through the web flow has nothing
   // there, which made "invite someone" fail on every one of them.
-  const projectContext = { __backend: 'github', owner, repo, ref, ghToken, baseUrl: baseUrl(req) };
+  const projectContext = {
+    __backend: 'github', owner, repo, ref, ghToken, baseUrl: baseUrl(req),
+    // What holds an agent to its tools — see mcp/server.js.
+    ...(agent ? { agent } : {}),
+  };
 
   // Header-token mode (local dev, `static_headers`) carries no identity, so it
   // is resolved lazily: a GitHub round trip that most tool calls never need, run
