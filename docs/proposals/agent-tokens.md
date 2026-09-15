@@ -152,8 +152,7 @@ plain script sending `tools/call`. It names the three tools and the review rule.
 
 ## Decisions
 
-Recorded here so the commits and the pull request can cite them. Items marked
-*(proposed)* wait on confirmation.
+Recorded here so the commits and the pull request can cite them.
 
 1. An agent holds a manager-issued, revocable token; only its hash is stored.
 2. An agent is its own identity, `agent:<id>`, and is never a manager.
@@ -163,13 +162,21 @@ Recorded here so the commits and the pull request can cite them. Items marked
    and the repository's history cover it.
 6. An agent sees only its own tools in `tools/list`, with agent-specific
    instructions, and any other tool call is answered as unknown.
-7. The agent tools are `my_brief`, `contribute` and `task_done`. *(proposed)*
+7. The agent tools are `my_brief`, `contribute` and `task_done`.
 8. An agent's contributions always wait for review, whatever the policy.
 9. An agent can mark done only its own tasks, and cannot set an author.
 10. Tokens are issued on the Settings page, never returned by an MCP tool.
-    *(proposed)*
-11. Tokens last until revoked, and show when they were last used. *(proposed)*
-12. Each token has a daily contribution limit. *(proposed — default 20)*
+11. Tokens last until revoked, and show when they were last used.
+12. Each token has a daily limit of 20 contributions.
+13. An agent's name cannot be one already on the roster. `my_brief` finds a
+    caller's tasks by name as well as by identity, so an agent named after a
+    person would be handed that person's work.
+14. A token whose agent is no longer on the roster is refused. Without the entry
+    there is no scope to hold it to, and an agent with no scope would reach the
+    whole project.
+15. An agent request ignores the `x-github-token` and `x-api-key` headers. It
+    reads through the lent access and runs on the primary manager's key, nothing
+    it brings.
 
 ## Out of scope
 
