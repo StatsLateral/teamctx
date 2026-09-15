@@ -47,7 +47,13 @@ import {
 import { isProjectLevel, resolveTarget, targetLabel } from '../src/project-level.js';
 import { resolveActiveWorkstream, resolveIdentity, resolveDisplayName } from '../src/prefs.js';
 import { isBrokenGate } from '../src/manager-repair.js';
-import { INSTRUCTIONS } from './instructions.js';
+import { listManagers, addManager, removeManager, transferManager } from '../cli/commands/manager.core.js';
+import { keyCheckFor, lendCheckFor, stepOutCheckFor } from '../src/oauth/manager-checks.js';
+import { INSTRUCTIONS, AGENT_INSTRUCTIONS } from './instructions.js';
+import {
+  AGENT_TOOLS, agentOnRoster, agentOwnsTask, AgentRefusedError,
+} from '../src/agents.js';
+import { takeDailyContribution } from '../src/oauth/agent-tokens.js';
 
 export function resolveProjectDir(argv = process.argv.slice(2), env = process.env, cwd = process.cwd()) {
   const flagIdx = argv.findIndex(a => a === '--project' || a === '-p');
@@ -435,6 +441,41 @@ export const TOOLS = [
     },
   },
   {
+    name: 'manager_list',
+    description: "Who manages this project: the primary manager, whose project key the project runs on, and any co-managers, who approve exactly as the primary does. Read-only.",
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+  },
+  {
+    name: 'manager_add',
+    description: RISKY + "makes somebody a co-manager, and commits. Manager-gated. A manager is identified by email address, so they are recognised whether they sign in with GitHub or Google — a username is refused. A co-manager approves and rejects exactly as the primary does, but the project never runs on their key, so no key is needed. Confirm the person before calling." + REPORT,
+    inputSchema: {
+      type: 'object',
+      properties: { email: { type: 'string', description: 'Email address of the person to make a co-manager' } },
+      required: ['email'], additionalProperties: false,
+    },
+  },
+  {
+    name: 'manager_remove',
+    description: RISKY + "takes a co-manager off, and commits. Manager-gated. Removing yourself is stepping down. The primary manager cannot be removed this way — transfer the primary role first. Refused while the project's lent GitHub access is still that person's, because members who signed in with Google reach the project through it. Confirm before calling." + REPORT,
+    inputSchema: {
+      type: 'object',
+      properties: { email: { type: 'string', description: 'Email address of the co-manager to remove' } },
+      required: ['email'], additionalProperties: false,
+    },
+  },
+  {
+    name: 'manager_transfer',
+    description: RISKY + "hands the primary manager role to somebody else, and commits — the way a project is handed over. Only the primary manager can do this. The project then runs on the new primary's project key, so they must have added a working key to this project first; the transfer checks it and refuses without one. If the project lends GitHub access, the new primary must be the one lending it — they sign in to the settings page with GitHub and lend it, as a co-manager first if they are not a manager yet; the transfer refuses otherwise and says so. The outgoing primary stays on as a co-manager unless step_down is true, and a step-down is refused while the project's lent GitHub access is still theirs. Confirm the person and whether they are stepping down before calling." + REPORT,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        email: { type: 'string', description: 'Email address of the new primary manager' },
+        step_down: { type: 'boolean', description: 'Also remove the outgoing primary as a manager (default false)' },
+      },
+      required: ['email'], additionalProperties: false,
+    },
+  },
+  {
     name: 'repair_manager_gate',
     description: RISKY + "re-pins a manager gate that is a display name rather than an identity — projects created on the web before this was fixed carry one, and nobody can match it, so every approval fails. Refuses unless the gate is broken **and** the caller created the project, read from the commit that added .teamctx/config.json. Not a way to take over a project: against a working gate, or from anybody but the creator, it refuses." + REPORT,
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
@@ -577,6 +618,10 @@ export function makeHandlers(projectRoot) {
   // to anything that shells out to git.
   const gitCwd = isHosted ? undefined : projectRoot;
 
+  // Set only by the hosted endpoint, and only for a request that brought an
+  // agent token. See src/agents.js.
+  const agent = isHosted ? projectRoot.agent || null : null;
+
   const who = async (teamctxDir, config) => {
     const actor = await resolveActor({ config, cwd: gitCwd });
     const identity = await resolveIdentity({ actor, config, teamctxDir });
@@ -599,6 +644,10 @@ export function makeHandlers(projectRoot) {
    */
   const scope = async (teamctxDir, config) => {
     const actor = await resolveActor({ config, cwd: gitCwd });
+    // Never asked whether an agent can approve. A manager has no scope at all,
+    // and on a project with no gate everyone passes as one — as does an agent
+    // sharing the name of a display-name gate.
+    if (agent) return scopeFor(config, actor, { isManager: false });
     const displayName = await resolveDisplayName({ actor, config, teamctxDir });
     return scopeFor(config, actor, {
       isManager: canApprove(config, { actor, displayName }),
@@ -625,6 +674,21 @@ export function makeHandlers(projectRoot) {
     const chosen = resolveTarget(await resolveActiveWorkstream({ actor, config, teamctxDir }));
     return defaultWorkstream(allowed, chosen);
   };
+
+  /**
+   * The checks a change of manager needs, where they can run.
+   *
+   * Only the hosted server holds the project's keys and its lent access, so only
+   * there are the checks passed in. Elsewhere they are left out, and the manager
+   * core refuses a change on a deployed project rather than make it unguarded.
+   */
+  const managerChecks = () => (isHosted
+    ? {
+      checkKey: keyCheckFor({ owner: projectRoot.owner, repo: projectRoot.repo }),
+      checkLend: lendCheckFor({ owner: projectRoot.owner, repo: projectRoot.repo }),
+      checkStepOut: stepOutCheckFor({ owner: projectRoot.owner, repo: projectRoot.repo }),
+    }
+    : {});
 
   /**
    * A snapshot carries every tree at one moment, so handing one over whole is
@@ -807,6 +871,9 @@ export function makeHandlers(projectRoot) {
         // field exists to answer.
         manager: managerKeys(config)[0] || config.manager || null,
         managerDisplayName: config.manager || null,
+        // Everyone who can approve, not just the first. `manager` stays for
+        // callers that read it; this is the answer once there are co-managers.
+        managers: listManagers({ teamctxDir }),
         // Named here because this is where an agent orients, and a broken gate
         // is otherwise only discovered at the moment an approval is refused —
         // which is late, and reads as a bug rather than a fixable state.
@@ -1005,6 +1072,14 @@ export function makeHandlers(projectRoot) {
     async task_done(args = {}) {
       const teamctxDir = dir();
       await assertTaskInScope(teamctxDir, args.id);
+      if (agent) {
+        // Anyone may close any task; an agent only its own. Closing somebody
+        // else's work unattended is a mistake nobody is there to notice.
+        const actor = await resolveActor({ config: readConfig(teamctxDir), cwd: gitCwd });
+        if (!agentOwnsTask(getTask({ id: args.id, teamctxDir }), actor)) {
+          throw new AgentRefusedError(`Task ${args.id} is not assigned to this agent, so it cannot mark it done.`, 'AGENT_NOT_TASK_OWNER');
+        }
+      }
       const r = await setTaskStatus({
         id: args.id, status: 'done', teamctxDir, projectDir: gitCwd,
       });
@@ -1201,10 +1276,29 @@ export function makeHandlers(projectRoot) {
 
     async contribute(args) {
       const teamctxDir = dir();
+      // Worked out, and scope-checked, before anything is counted: a mistyped or
+      // out-of-scope workstream must not spend an agent's daily limit.
+      const workstreamId = await targetWorkstream(teamctxDir, readConfig(teamctxDir), args.workstream);
+      if (agent) {
+        if (args.apply) {
+          throw new AgentRefusedError("An agent's work always goes to review. Send it without apply.", 'AGENT_ALWAYS_REVIEWED');
+        }
+        // Before distilling, because distilling is the AI call the limit bounds.
+        const taken = await takeDailyContribution({ id: agent.id, limit: agent.dailyLimit });
+        if (!taken.ok) {
+          throw new AgentRefusedError(
+            `This agent has sent ${taken.limit} contributions today, its daily limit. It can send more after ${taken.resetsAt}.`,
+            'AGENT_DAILY_LIMIT',
+          );
+        }
+      }
       const r = await contributeCore({
         text: args.text,
-        author: args.author,
-        workstreamId: await targetWorkstream(teamctxDir, readConfig(teamctxDir), args.workstream),
+        // An agent writes as itself. A person's script may set an author on
+        // purpose; nobody is watching an agent do it.
+        author: agent ? undefined : args.author,
+        reviewRequired: !!agent,
+        workstreamId,
         decision: !!args.decision,
         apply: !!args.apply,
         source: 'mcp',
@@ -1358,6 +1452,34 @@ export function makeHandlers(projectRoot) {
       return textResult({ workstreamId: r.workstreamId, rolesRegenerated: r.rolesRegenerated, pushed: r.pushed, pushError: r.pushError, reportBack });
     },
 
+    async manager_list() {
+      return textResult(listManagers({ teamctxDir: dir() }));
+    },
+
+    async manager_add(args = {}) {
+      const r = await addManager({ ref: args.email, teamctxDir: dir(), projectDir: gitCwd, ...managerChecks() });
+      return textResult({
+        ...r,
+        reportBack: `Tell the user: ${args.email} is now a co-manager and can approve and reject.`,
+      });
+    },
+
+    async manager_remove(args = {}) {
+      const r = await removeManager({ ref: args.email, teamctxDir: dir(), projectDir: gitCwd, ...managerChecks() });
+      return textResult({ ...r, reportBack: `Tell the user: ${args.email} is no longer a manager of this project.` });
+    },
+
+    async manager_transfer(args = {}) {
+      const r = await transferManager({
+        ref: args.email, stepDown: !!args.step_down, teamctxDir: dir(), projectDir: gitCwd, ...managerChecks(),
+      });
+      return textResult({
+        ...r,
+        reportBack: `Tell the user: ${args.email} is now the primary manager, and the project runs on their key.`
+          + (args.step_down ? ' The previous primary has stepped down.' : ' The previous primary stays on as a co-manager.'),
+      });
+    },
+
     async repair_manager_gate() {
       const r = await repairManagerGate({ teamctxDir: dir(), projectDir: gitCwd });
       const c = await commitContext(`config: repair manager gate (via mcp)`,
@@ -1423,6 +1545,69 @@ export function makeHandlers(projectRoot) {
   };
 }
 
+/**
+ * The agent's own descriptions of its three tools.
+ *
+ * The person-facing ones talk about managers, founding contributions and
+ * `apply`, none of which an agent can act on; a description that offers a
+ * choice the server will refuse is an instruction to fail.
+ */
+const AGENT_TOOL_DEFS = {
+  my_brief: {
+    name: 'my_brief',
+    description: 'Call this first, every run. What this agent is assigned — its open tasks, grouped by where the work sits — and the compiled context for the part of the project it is on. Read it before doing any work. Read-only, and spends no AI call.',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+  },
+  contribute: {
+    name: 'contribute',
+    description: "Send finished work back to the project. It always goes to a manager for review; nothing lands without their approval. Each call spends an AI call on the project's key, and an agent has a daily limit, so send one contribution per piece of work rather than one per line. decision:true marks it as a decision the team is committing to. Returns { id, mode, summary, operations }.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        text: { type: 'string', description: 'The work, in plain prose' },
+        workstream: { type: 'string', description: "Which part of the project it belongs to. Omit for the agent's own." },
+        decision: { type: 'boolean' },
+      },
+      required: ['text'], additionalProperties: false,
+    },
+  },
+  task_done: {
+    name: 'task_done',
+    description: "Mark one of this agent's own tasks done, after contributing the work for it. A task assigned to anyone else is refused.",
+    inputSchema: {
+      type: 'object',
+      properties: { id: { type: 'string', description: 'Task id, from my_brief' } },
+      required: ['id'], additionalProperties: false,
+    },
+  },
+};
+
+/** What a caller is shown by `tools/list`. An agent sees only what it may call. */
+export function toolsFor(projectRoot) {
+  return projectRoot?.agent ? AGENT_TOOLS.map(name => AGENT_TOOL_DEFS[name]) : TOOLS;
+}
+
+/**
+ * Run one tool call, holding an agent to its tools.
+ *
+ * Hiding a tool from the list restricts nothing on its own — a script can send
+ * any name. So every call is checked against the same list, and a name that is
+ * not on it gets exactly the answer a tool that does not exist gets.
+ */
+export async function callTool(handlers, projectRoot, name, args = {}) {
+  const agent = projectRoot?.agent || null;
+  const handler = agent && !AGENT_TOOLS.includes(name) ? null : handlers[name];
+  if (!handler) throw new Error(`Unknown tool: ${name}`);
+  try {
+    if (agent && !agentOnRoster(readConfig(projectRoot), agent.id)) {
+      throw new AgentRefusedError('This agent is no longer on the project. Ask a manager to issue a new token.', 'AGENT_NOT_ON_ROSTER');
+    }
+    return await handler.call(handlers, args);
+  } catch (err) {
+    return { content: [{ type: 'text', text: `Error: ${err.message}` }], isError: true };
+  }
+}
+
 export function buildServer(projectRoot) {
   const handlers = makeHandlers(projectRoot);
 
@@ -1431,20 +1616,13 @@ export function buildServer(projectRoot) {
     // `instructions` reaches the model once, before any tool call. Without it a
     // host has the whole surface and no idea when to reach for any of it — see
     // mcp/instructions.js.
-    { capabilities: { tools: {} }, instructions: INSTRUCTIONS },
+    { capabilities: { tools: {} }, instructions: projectRoot?.agent ? AGENT_INSTRUCTIONS : INSTRUCTIONS },
   );
 
-  server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: TOOLS }));
+  server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: toolsFor(projectRoot) }));
 
-  server.setRequestHandler(CallToolRequestSchema, async (req) => {
-    const handler = handlers[req.params.name];
-    if (!handler) throw new Error(`Unknown tool: ${req.params.name}`);
-    try {
-      return await handler.call(handlers, req.params.arguments || {});
-    } catch (err) {
-      return { content: [{ type: 'text', text: `Error: ${err.message}` }], isError: true };
-    }
-  });
+  server.setRequestHandler(CallToolRequestSchema, async req =>
+    callTool(handlers, projectRoot, req.params.name, req.params.arguments || {}));
 
   return server;
 }

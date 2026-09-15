@@ -20,6 +20,63 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `docs/workstreams.md` already says it is not supported.
 
 ### Added
+- **Unattended agents on the hosted connector.** A job that runs with nobody
+  present — a nightly script, a scheduled agent — could only reach a project
+  through a person's browser sign-in, acting as that person with every tool they
+  had. A manager now issues an **agent token** on the settings page, per agent
+  and per project. The agent is its own identity, recorded on the member list,
+  and reads through the project's lent GitHub access. It runs on its own AI key
+  if a manager gives it one — and on the primary manager's key if it has none,
+  or if the provider rejects its own, which the settings page then flags. It sees and can call only `my_brief`, `contribute` and
+  `task_done`; its contributions always wait for review whatever the review
+  policy, it can close only its own tasks, and it sends at most 20 contributions
+  a day. Only the token's hash is stored, and revoking it takes effect on the
+  next request. See `docs/agents.md` and
+  [docs/proposals/agent-tokens.md](docs/proposals/agent-tokens.md). Closes #92.
+- **A project can be handed over, or managed by more than one person.** The
+  manager was whoever ran `init`, and nothing could change it: a builder could
+  not hand a project to a client, and nobody could cover for a manager on leave.
+  A project now has a **primary manager** and any number of **co-managers**, who
+  approve exactly as the primary does. `teamctx manager list | add | remove |
+  transfer`, and the `manager_list`, `manager_add`, `manager_remove` and
+  `manager_transfer` tools. Only a current manager can change the managers, only
+  the primary can hand the primary role over, the primary cannot simply be
+  removed, and a project is never left with none. Managers are identified by
+  email address, the one form a clone, a GitHub sign-in and a Google sign-in all
+  recognise. Existing projects need nothing: their manager is already the
+  primary. Closes #86.
+- **The project runs on its primary manager's key, and a new manager brings
+  their own.** Before anyone is made primary manager, they must have added a
+  working key to the project themselves; it is checked with the provider's
+  list-models endpoint, which spends nothing, and the result is recorded in the
+  commit. A co-manager needs no key. If the project lends GitHub access, the new
+  primary must also be the one lending it, so members who signed in with Google
+  never depend on somebody who is no longer in charge. A
+  request with no key of its own runs on the primary manager's project key, so
+  handing a project over changes whose key it runs on without moving a secret
+  between people. Nobody can step out while members still reach the project
+  through GitHub access they lent. The primary manager can still remove the key
+  the project runs on, since it is theirs, but is warned first that everyone
+  without a key of their own loses the model. On a deployed project, manager changes are made through the
+  connector, where these checks can run; from a clone they are refused with that
+  instruction.
+- **A manager who is not a repository admin can lend GitHub access.** Lending
+  matched the signed-in person against the managers by GitHub id alone, and
+  managers are identified by email, so only repository admins got through.
+- **Sign in to the settings page with Google.** It offered only GitHub, so
+  somebody added to a project by email could not save a key at all. Anyone on a
+  project — a manager, a roster member, or somebody with push access — can now
+  add a key to it, and a project holds one key per person instead of a single
+  slot the first sharer owned. Lending GitHub access and creating a project still
+  need a GitHub sign-in.
+
+### Changed
+- **AI keys on the hosted server are stored by verified email.** They were
+  stored by GitHub id, so a person who saved a key signed in with GitHub could
+  not find it signed in with Google. Keys saved under a GitHub id are still read,
+  so nothing saved before this change stops working.
+
+### Added
 - **Nobody is brought onto a project with nothing in it.** A manager could
   invite somebody the moment a project existed; that person connected, their
   assistant pulled their brief, and the brief said "No context yet" — the worst
@@ -60,6 +117,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and points here instead. Closes #83.
 
 ### Fixed
+- **Test files no longer count as serverless functions.** Vercel deploys every
+  `.js` file under `api/` as its own function, test files included, which put a
+  deployment at the Hobby plan's limit of 12 with only 5 real handlers. A
+  `.vercelignore` now leaves `api/**/*.test.js` out of the deployment.
 - **Adding someone to a project handed over nothing.** `member_add` wrote the
   roster entry and reported success; the link that person needs to reach the
   project took a second call, and on a real project that call was never made —

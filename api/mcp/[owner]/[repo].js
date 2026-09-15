@@ -2,14 +2,29 @@ import { handleMcpHttp } from '../../../mcp/http.js';
 import { runWithAiKey } from '../../../src/ai-context.js';
 import { runWithActor, actorFromGithubUser } from '../../../src/actor.js';
 import { providerFromEnv } from '../../../src/oauth/provider.js';
-import { kvGet, keys } from '../../../src/oauth/kv.js';
+import {
+  readPersonalKey, readProjectKeys, pickProjectKey, recordConnectedProject,
+} from '../../../src/oauth/ai-keys.js';
+import { readConfig } from '../../../src/storage.js';
+import { managersOf } from '../../../src/managers.js';
 import { resolveGoogleMember } from '../../../src/oauth/member-access.js';
 import { primaryEmail } from '../../../src/oauth/github-identity.js';
+import {
+  isAgentToken, verifyAgentToken, touchAgent, readAgentKey, markAgentKeyFailed,
+} from '../../../src/oauth/agent-tokens.js';
+import { actorFromAgent } from '../../../src/agents.js';
+import { kvGet, keys } from '../../../src/oauth/kv.js';
 
 /**
  * Hosted MCP endpoint.  POST /api/mcp/<owner>/<repo>
  *
  * Credential resolution, in priority order:
+ *
+ *   0. `Authorization: Bearer tctx_agent_…` — an unattended agent's token, issued
+ *      by a manager on the settings page. It reads through the project's lent
+ *      GitHub access, runs on its own key if a manager gave it one and on the
+ *      primary manager's key otherwise, and no credential header is consulted
+ *      for it. See src/agents.js.
  *
  *   1. `Authorization: Bearer <token>` — the OAuth path. The token was minted
  *      by our authorization server; we look it up to recover the user's
@@ -42,10 +57,27 @@ import { primaryEmail } from '../../../src/oauth/github-identity.js';
  * still works, it just charges the wrong person.
  */
 export async function withSharedKey({ apiKey, aiProvider, owner, repo }) {
-  if (apiKey) return { apiKey, aiProvider };
-  const shared = await kvGet(keys.projectAiKey(owner, repo));
-  if (!shared?.apiKey) return { apiKey, aiProvider };
-  return { apiKey: shared.apiKey, aiProvider: shared.provider ?? null };
+  if (apiKey) return { apiKey, aiProvider, resolve: null };
+  const projectKeys = await readProjectKeys(owner, repo);
+  return {
+    apiKey, aiProvider,
+    // Worked out on first use, from the config the request's session has already
+    // loaded: which key applies depends on who the primary manager is.
+    resolve: () => primaryManagerKey({ projectKeys, config: readConfig() }),
+  };
+}
+
+/**
+ * The primary manager's project key, for a request that brought none.
+ *
+ * Exported for tests. The primary is `managerKey`, and a manager is identified by
+ * email, so the key is looked up by that address. A project from before keys
+ * were stored by email keeps running on its single shared record.
+ */
+export function primaryManagerKey({ projectKeys, config }) {
+  const { primary } = managersOf(config || {});
+  const picked = pickProjectKey({ projectKeys, primaryKey: primary });
+  return picked ? { apiKey: picked.apiKey, provider: picked.provider } : null;
 }
 
 export default async function handler(req, res) {
@@ -69,10 +101,30 @@ export default async function handler(req, res) {
   let aiProvider = null;
   let actor = null;
   let googleUser = null;
+  let agent = null;
+
+  const bearer = readBearer(req);
+
+  // 0 — an agent token
+  if (bearer && isAgentToken(bearer)) {
+    const record = await verifyAgentToken(bearer, { owner, repo });
+    if (!record) {
+      return unauthorized(req, res, owner, repo, 'The agent token is not valid for this project, or has been revoked');
+    }
+    const lent = await kvGet(keys.projectGhCred(owner, repo));
+    if (!lent?.token) {
+      return unauthorized(req, res, owner, repo,
+        `${owner}/${repo} no longer lends GitHub access, which an agent reads the project through. `
+        + 'A manager can lend it again on the settings page.');
+    }
+    ghToken = lent.token;
+    actor = actorFromAgent(record);
+    agent = { id: record.id, name: record.name, dailyLimit: record.dailyLimit };
+    try { await touchAgent(record.id); } catch { /* when it was last used is a courtesy */ }
+  }
 
   // 1 — OAuth bearer token
-  const bearer = readBearer(req);
-  if (bearer) {
+  if (bearer && !agent) {
     const provider = providerFromEnv();
     if (!provider) return unauthorized(req, res, owner, repo, 'OAuth is not configured on this deployment');
     try {
@@ -82,8 +134,11 @@ export default async function handler(req, res) {
       // to and what the manager gate compares against, instead of the shared
       // `config.me` sitting in the repo.
       actor = actorFromGithubUser(auth.extra?.githubUser);
-      const stored = auth.extra?.githubUser?.id
-        ? await kvGet(keys.aiKey(auth.extra.githubUser.id))
+      // By verified email first, so a key saved while signed in through Google is
+      // found here too; the GitHub-id record from before is the fallback.
+      const githubUser = auth.extra?.githubUser;
+      const stored = githubUser?.id || githubUser?.email
+        ? await readPersonalKey({ email: githubUser.email, githubId: githubUser.id })
         : null;
       apiKey = stored?.apiKey ?? null;
       // The settings page stores the provider alongside the key. Dropping it
@@ -105,24 +160,59 @@ export default async function handler(req, res) {
         });
         ghToken = access.ghToken;
         actor = access.actor;
+        // Remembered against the address so the settings page can offer this
+        // project — a Google account has no repository list. Only here, once the
+        // roster has confirmed them: recorded at sign-in, any Google account
+        // could name any project and have it listed as theirs.
+        try { await recordConnectedProject({ email: googleUser.email, owner, repo }); } catch { /* best effort */ }
+        // A Google sign-in never looked for a personal key before, because keys
+        // were stored by GitHub id and a Google account has none.
+        if (!apiKey) {
+          const mine = await readPersonalKey({ email: googleUser.email });
+          apiKey = mine?.apiKey ?? null;
+          aiProvider = mine?.provider ?? null;
+        }
       } catch (err) {
         return unauthorized(req, res, owner, repo, err.message);
       }
     }
   }
 
-  // 2 — request headers
-  if (!ghToken) ghToken = firstHeader(req, 'x-github-token');
-  if (!apiKey) apiKey = firstHeader(req, 'x-anthropic-api-key') || firstHeader(req, 'x-api-key');
+  // 2 — request headers. Never for an agent: it reads through the lent access
+  // and runs on the primary manager's key, nothing it brings.
+  if (!agent) {
+    if (!ghToken) ghToken = firstHeader(req, 'x-github-token');
+    if (!apiKey) apiKey = firstHeader(req, 'x-anthropic-api-key') || firstHeader(req, 'x-api-key');
+  }
 
   // 3 — query params (opt-in, local dev)
-  if (process.env.TEAMCTX_ALLOW_URL_TOKENS === '1') {
+  if (!agent && process.env.TEAMCTX_ALLOW_URL_TOKENS === '1') {
     if (!ghToken) ghToken = readParam(req, 'gh_token');
     if (!apiKey) apiKey = readParam(req, 'api_key');
   }
 
-  // 4 — the project's shared key
-  ({ apiKey, aiProvider } = await withSharedKey({ apiKey, aiProvider, owner, repo }));
+  // 4 — the primary manager's project key, resolved on first use
+  let resolveKey = null;
+  let fallback = null;
+  let onFallback = null;
+  if (agent) {
+    // An agent runs on the key a manager gave it, if any. If the provider
+    // rejects that key, the call moves to the project key rather than the job
+    // stopping — and the manager is shown the key stopped working.
+    const own = await readAgentKey(agent.id);
+    const projectKeys = await readProjectKeys(owner, repo);
+    const projectKey = () => primaryManagerKey({ projectKeys, config: readConfig() });
+    if (own) {
+      apiKey = own.apiKey;
+      aiProvider = own.provider || 'anthropic';
+      fallback = projectKey;
+      onFallback = () => { markAgentKeyFailed(agent.id).catch(() => {}); };
+    } else {
+      resolveKey = projectKey;
+    }
+  } else {
+    ({ apiKey, aiProvider, resolve: resolveKey } = await withSharedKey({ apiKey, aiProvider, owner, repo }));
+  }
 
   if (!ghToken) {
     return unauthorized(req, res, owner, repo, 'Authentication required');
@@ -134,7 +224,11 @@ export default async function handler(req, res) {
   // arrives at the host it would name, so asking the config for it was asking
   // the wrong place — and a project created through the web flow has nothing
   // there, which made "invite someone" fail on every one of them.
-  const projectContext = { __backend: 'github', owner, repo, ref, ghToken, baseUrl: baseUrl(req) };
+  const projectContext = {
+    __backend: 'github', owner, repo, ref, ghToken, baseUrl: baseUrl(req),
+    // What holds an agent to its tools — see mcp/server.js.
+    ...(agent ? { agent } : {}),
+  };
 
   // Header-token mode (local dev, `static_headers`) carries no identity, so it
   // is resolved lazily: a GitHub round trip that most tool calls never need, run
@@ -142,7 +236,7 @@ export default async function handler(req, res) {
   const actorSeed = actor || (() => githubUserFromToken(ghToken).then(actorFromGithubUser));
 
   const dispatch = () => runWithActor(actorSeed, () => handleMcpHttp(req, res, projectContext));
-  if (apiKey) await runWithAiKey(apiKey, dispatch, aiProvider);
+  if (apiKey || resolveKey) await runWithAiKey(apiKey, dispatch, aiProvider, resolveKey, { fallback, onFallback });
   else await dispatch();
 }
 

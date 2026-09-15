@@ -1,74 +1,103 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { __resetMemory, kvGet, kvSet, keys } from './kv.js';
-import { withSharedKey } from '../../api/mcp/[owner]/[repo].js';
+import { __resetMemory, kvSet, keys } from './kv.js';
+import { withSharedKey, primaryManagerKey } from '../../api/mcp/[owner]/[repo].js';
+import { addProjectKey, readProjectKeys } from './ai-keys.js';
 
 const OWNER = 'acme';
 const REPO = 'ledger';
 
-const share = (value) => kvSet(keys.projectAiKey(OWNER, REPO), value);
+/** A project whose primary manager is Maya. */
+const config = (over = {}) => ({ project: 'Ledger', managerKey: 'git:maya@example.com', ...over });
+
+/** What a request that brought no key ends up running on. */
+async function keyFor({ apiKey = null, aiProvider = null, owner = OWNER, repo = REPO, cfg = config() } = {}) {
+  const r = await withSharedKey({ apiKey, aiProvider, owner, repo });
+  if (r.apiKey) return { apiKey: r.apiKey, provider: r.aiProvider };
+  const projectKeys = await readProjectKeys(owner, repo);
+  return primaryManagerKey({ projectKeys, config: cfg });
+}
 
 beforeEach(() => __resetMemory());
 
-describe('a key shared with a project', () => {
-  it('is used by someone who has no key of their own', async () => {
-    // The ordinary case, not the edge one: most people on a project reach it
-    // through an agent and never set a key up at all.
-    await share({ provider: 'anthropic', apiKey: 'sk-shared' });
-    const r = await withSharedKey({ apiKey: null, aiProvider: null, owner: OWNER, repo: REPO });
-    expect(r.apiKey).toBe('sk-shared');
-    expect(r.aiProvider).toBe('anthropic');
+describe('the key a request runs on when it brought none', () => {
+  it('is the primary manager\'s project key', async () => {
+    await addProjectKey({ owner: OWNER, repo: REPO, email: 'maya@example.com', provider: 'anthropic', apiKey: 'sk-maya' });
+    expect((await keyFor()).apiKey).toBe('sk-maya');
+  });
+
+  it('is not somebody else\'s key just because they added one too', async () => {
+    await addProjectKey({ owner: OWNER, repo: REPO, email: 'priya@example.com', apiKey: 'sk-priya' });
+    await addProjectKey({ owner: OWNER, repo: REPO, email: 'maya@example.com', apiKey: 'sk-maya' });
+    expect((await keyFor()).apiKey).toBe('sk-maya');
+  });
+
+  it('follows the primary role when it moves', async () => {
+    // Which is what makes a handoff a change of who is primary, rather than
+    // moving a secret from one person to another.
+    await addProjectKey({ owner: OWNER, repo: REPO, email: 'priya@example.com', apiKey: 'sk-priya' });
+    await addProjectKey({ owner: OWNER, repo: REPO, email: 'maya@example.com', apiKey: 'sk-maya' });
+    const r = await keyFor({ cfg: config({ managerKey: 'git:priya@example.com', managerKeys: ['git:maya@example.com'] }) });
+    expect(r.apiKey).toBe('sk-priya');
+  });
+
+  it('is nothing when the primary has added no key', async () => {
+    await addProjectKey({ owner: OWNER, repo: REPO, email: 'priya@example.com', apiKey: 'sk-priya' });
+    expect(await keyFor()).toBe(null);
+  });
+
+  it('carries the provider of the key, not the one the repo config names', async () => {
+    await addProjectKey({ owner: OWNER, repo: REPO, email: 'maya@example.com', provider: 'openai', apiKey: 'sk-maya' });
+    expect((await keyFor({ cfg: config({ provider: 'anthropic' }) })).provider).toBe('openai');
   });
 
   it('never overrides a key the caller already brought', async () => {
-    // The bug this guards against is silent: the tools still work, the manager
-    // just pays for a member who was paying for themselves.
-    await share({ provider: 'anthropic', apiKey: 'sk-shared' });
+    // Silent if it breaks: the tools still work, and the manager pays for
+    // somebody who was paying for themselves.
+    await addProjectKey({ owner: OWNER, repo: REPO, email: 'maya@example.com', apiKey: 'sk-maya' });
     const r = await withSharedKey({ apiKey: 'sk-mine', aiProvider: 'openai', owner: OWNER, repo: REPO });
-    expect(r.apiKey).toBe('sk-mine');
-    expect(r.aiProvider).toBe('openai');
-  });
-
-  it('carries its own provider, not the one the repo config names', async () => {
-    // Same trap the per-user key hit once: an OpenAI key handed to Anthropic.
-    await share({ provider: 'openai', apiKey: 'sk-openai' });
-    const r = await withSharedKey({ apiKey: null, aiProvider: null, owner: OWNER, repo: REPO });
-    expect(r.aiProvider).toBe('openai');
+    expect(r).toMatchObject({ apiKey: 'sk-mine', aiProvider: 'openai', resolve: null });
   });
 
   it('does not leak between projects', async () => {
-    await share({ provider: 'anthropic', apiKey: 'sk-shared' });
-    const r = await withSharedKey({ apiKey: null, aiProvider: null, owner: OWNER, repo: 'other' });
-    expect(r.apiKey).toBe(null);
+    await addProjectKey({ owner: OWNER, repo: REPO, email: 'maya@example.com', apiKey: 'sk-maya' });
+    expect(await keyFor({ repo: 'other' })).toBe(null);
   });
 
-  it('leaves the caller with nothing when no one has shared one', async () => {
-    const r = await withSharedKey({ apiKey: null, aiProvider: null, owner: OWNER, repo: REPO });
-    expect(r.apiKey).toBe(null);
-    expect(r.aiProvider).toBe(null);
-  });
-
-  it('is gone once it is unshared', async () => {
-    await share({ provider: 'anthropic', apiKey: 'sk-shared' });
-    await share(null);
-    expect(await kvGet(keys.projectAiKey(OWNER, REPO))).toBe(null);
-    const r = await withSharedKey({ apiKey: null, aiProvider: null, owner: OWNER, repo: REPO });
-    expect(r.apiKey).toBe(null);
+  it('matches when the settings form and the connector URL disagree on case', async () => {
+    await addProjectKey({ owner: 'Acme', repo: 'Ledger', email: 'maya@example.com', apiKey: 'sk-maya' });
+    expect((await keyFor({ owner: 'acme', repo: 'ledger' })).apiKey).toBe('sk-maya');
   });
 });
 
-describe('a project key found regardless of how the repo was typed', () => {
-  it('matches when the form and the URL disagree on case', async () => {
-    // Written from what the manager types on the settings page, read from
-    // what is in the connector URL. GitHub calls those the same repository;
-    // a string key does not, and the failure looked like nothing was saved.
-    await kvSet(keys.projectAiKey('Acme', 'Ledger'), { provider: 'anthropic', apiKey: 'sk-shared' });
-    const r = await withSharedKey({ apiKey: null, aiProvider: null, owner: 'acme', repo: 'ledger' });
-    expect(r.apiKey).toBe('sk-shared');
+describe('a project from before keys were stored by email', () => {
+  const legacy = value => kvSet(keys.projectAiKey(OWNER, REPO), value);
+
+  it('keeps running on its single shared key', async () => {
+    await legacy({ provider: 'anthropic', apiKey: 'sk-old', sharedById: '7', sharedByLogin: 'maya' });
+    expect((await keyFor()).apiKey).toBe('sk-old');
   });
 
-  it('still keeps different projects apart', async () => {
-    await kvSet(keys.projectAiKey('Acme', 'Ledger'), { provider: 'anthropic', apiKey: 'sk-shared' });
-    const r = await withSharedKey({ apiKey: null, aiProvider: null, owner: 'acme', repo: 'other' });
-    expect(r.apiKey).toBe(null);
+  it('moves to the primary manager\'s key once they add one', async () => {
+    await legacy({ provider: 'anthropic', apiKey: 'sk-old', sharedById: '7' });
+    await addProjectKey({ owner: OWNER, repo: REPO, email: 'maya@example.com', apiKey: 'sk-maya' });
+    expect((await keyFor()).apiKey).toBe('sk-maya');
+  });
+
+  it('matches the old record regardless of case too', async () => {
+    await kvSet(keys.projectAiKey('Acme', 'Ledger'), { provider: 'anthropic', apiKey: 'sk-old' });
+    expect((await keyFor({ owner: 'acme', repo: 'ledger' })).apiKey).toBe('sk-old');
+  });
+});
+
+describe('a primary manager written the old way', () => {
+  it('runs on the key they added, found by their GitHub id', async () => {
+    await kvSet(keys.projectAiKey(OWNER, REPO), { provider: 'anthropic', apiKey: 'sk-old' });
+    await addProjectKey({ owner: OWNER, repo: REPO, email: 'maya@example.com', apiKey: 'sk-maya', githubId: '7' });
+    expect((await keyFor({ cfg: config({ managerKey: 'github:7' }) })).apiKey).toBe('sk-maya');
+  });
+
+  it('falls back to the old record when they have added none', async () => {
+    await kvSet(keys.projectAiKey(OWNER, REPO), { provider: 'anthropic', apiKey: 'sk-old' });
+    expect((await keyFor({ cfg: config({ managerKey: 'github:7' }) })).apiKey).toBe('sk-old');
   });
 });
