@@ -117,6 +117,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and points here instead. Closes #83.
 
 ### Fixed
+- **Test files no longer count as serverless functions.** Vercel deploys every
+  `.js` file under `api/` as its own function, test files included, which put a
+  deployment at the Hobby plan's limit of 12 with only 5 real handlers. A
+  `.vercelignore` now leaves `api/**/*.test.js` out of the deployment.
 - **Adding someone to a project handed over nothing.** `member_add` wrote the
   roster entry and reported success; the link that person needs to reach the
   project took a second call, and on a real project that call was never made —

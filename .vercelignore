@@ -1,0 +1,4 @@
+# Tests live beside the code they test, but Vercel turns every .js file under
+# api/ into a serverless function, test files included — and the Hobby plan
+# allows 12. The deployment needs only the handlers.
+api/**/*.test.js
