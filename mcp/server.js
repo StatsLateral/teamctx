@@ -48,7 +48,7 @@ import { isProjectLevel, resolveTarget, targetLabel } from '../src/project-level
 import { resolveActiveWorkstream, resolveIdentity, resolveDisplayName } from '../src/prefs.js';
 import { isBrokenGate } from '../src/manager-repair.js';
 import { listManagers, addManager, removeManager, transferManager } from '../cli/commands/manager.core.js';
-import { keyCheckFor, stepOutCheckFor } from '../src/oauth/manager-checks.js';
+import { keyCheckFor, lendCheckFor, stepOutCheckFor } from '../src/oauth/manager-checks.js';
 import { INSTRUCTIONS } from './instructions.js';
 
 export function resolveProjectDir(argv = process.argv.slice(2), env = process.env, cwd = process.cwd()) {
@@ -461,7 +461,7 @@ export const TOOLS = [
   },
   {
     name: 'manager_transfer',
-    description: RISKY + "hands the primary manager role to somebody else, and commits — the way a project is handed over. Only the primary manager can do this. The project then runs on the new primary's project key, so they must have added a working key to this project first; the transfer checks it and refuses without one. The outgoing primary stays on as a co-manager unless step_down is true, and a step-down is refused while the project's lent GitHub access is still theirs. Confirm the person and whether they are stepping down before calling." + REPORT,
+    description: RISKY + "hands the primary manager role to somebody else, and commits — the way a project is handed over. Only the primary manager can do this. The project then runs on the new primary's project key, so they must have added a working key to this project first; the transfer checks it and refuses without one. If the project lends GitHub access, the new primary must be the one lending it — they sign in to the settings page with GitHub and lend it, as a co-manager first if they are not a manager yet; the transfer refuses otherwise and says so. The outgoing primary stays on as a co-manager unless step_down is true, and a step-down is refused while the project's lent GitHub access is still theirs. Confirm the person and whether they are stepping down before calling." + REPORT,
     inputSchema: {
       type: 'object',
       properties: {
@@ -673,6 +673,7 @@ export function makeHandlers(projectRoot) {
   const managerChecks = () => (isHosted
     ? {
       checkKey: keyCheckFor({ owner: projectRoot.owner, repo: projectRoot.repo }),
+      checkLend: lendCheckFor({ owner: projectRoot.owner, repo: projectRoot.repo }),
       checkStepOut: stepOutCheckFor({ owner: projectRoot.owner, repo: projectRoot.repo }),
     }
     : {});

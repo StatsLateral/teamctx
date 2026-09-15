@@ -86,6 +86,7 @@ export async function managerTransferCommand(email, opts = {}) {
   const what = `Make ${email} the primary manager${opts.stepDown ? ', and step down yourself' : ', staying on as a co-manager'}.`;
   const r = await run(what, opts, () => transferManager({ ref: email, stepDown: !!opts.stepDown }), [
     'that the new primary manager has a working AI key of their own',
+    'that they hold the GitHub access the project lends, if it lends any',
     ...(opts.stepDown ? ['whether anyone reaches the project through GitHub access you lent'] : []),
   ]);
   if (!r) return;

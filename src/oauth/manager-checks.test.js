@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { __resetMemory, kvSet, keys } from './kv.js';
 import { addProjectKey } from './ai-keys.js';
-import { verifyProviderKey, keyCheckFor, stepOutCheckFor } from './manager-checks.js';
+import { verifyProviderKey, keyCheckFor, lendCheckFor, stepOutCheckFor } from './manager-checks.js';
 
 const ok = () => vi.fn(async () => ({ ok: true, status: 200 }));
 const status = code => vi.fn(async () => ({ ok: false, status: code }));
@@ -85,6 +85,37 @@ describe('the key check before somebody becomes a manager', () => {
   it('finds the key regardless of how the address was capitalised', async () => {
     await addProjectKey({ owner: 'acme', repo: 'ledger', email: 'priya@example.com', apiKey: 'sk-p' });
     expect((await keyCheckFor({ owner: 'acme', repo: 'ledger' }, ok())({ email: 'Priya@Example.com' })).ok).toBe(true);
+  });
+});
+
+describe('the GitHub access check before somebody becomes primary', () => {
+  const check = lendCheckFor({ owner: 'acme', repo: 'ledger' });
+  const lend = record => kvSet(keys.projectGhCred('acme', 'ledger'), { token: 't', ...record });
+
+  it('passes a project that lends nothing, since nobody depends on it', async () => {
+    expect(await check({ email: 'priya@example.com' })).toEqual({ ok: true, note: 'no GitHub access lent' });
+  });
+
+  it('passes when the incoming primary is the one lending it, whatever the case', async () => {
+    await lend({ lentById: '9', lentByEmail: 'Priya@Example.com' });
+    expect(await check({ email: 'priya@example.com' })).toEqual({ ok: true, note: 'GitHub access lent by them' });
+  });
+
+  it('refuses when somebody else lends it, and says how to fix it', async () => {
+    await lend({ lentById: '7', lentByEmail: 'maya@example.com' });
+    const r = await check({ email: 'priya@example.com' });
+    expect(r.ok).toBe(false);
+    expect(r.why).toMatch(/primary manager has to be the one lending it/);
+    expect(r.why).toMatch(/add them as a co-manager/);
+    expect(r.why).toMatch(/sign in to the teamctx settings page with GitHub, as priya@example\.com/);
+    expect(r.why).toMatch(/a Google sign-in cannot lend/);
+  });
+
+  it('refuses an old record that cannot say who lent it', async () => {
+    await lend({ lentById: '9' });
+    const r = await check({ email: 'priya@example.com' });
+    expect(r.ok).toBe(false);
+    expect(r.why).toMatch(/lent before teamctx recorded who by/);
   });
 });
 

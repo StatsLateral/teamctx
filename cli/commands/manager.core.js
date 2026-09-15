@@ -24,6 +24,9 @@ import {
  *                             working project key? The project runs on it, so a
  *                             transfer without one is refused. A co-manager's key
  *                             is never used, and adding one checks nothing.
+ *   checkLend({ email })      before anyone becomes primary: if the project
+ *                             lends GitHub access, is it theirs? A transfer to
+ *                             somebody else is refused.
  *   checkStepOut({ email })   before anyone leaves: does the project still run
  *                             on something of theirs?
  *
@@ -65,11 +68,14 @@ async function runCheck(check, key, code) {
   return { ran: true, note: result.note || null };
 }
 
-/** What the commit says about the key check — including that it did not run. */
-function keyNote(check) {
-  if (!check) return '';
-  if (!check.ran) return ' (key not checked)';
-  return check.note ? ` (${check.note})` : ' (key verified)';
+/** What the commit says about the checks on a new primary — including any that did not run. */
+function checksNote(keyCheck, lendCheck) {
+  if (!keyCheck && !lendCheck) return '';
+  const parts = [
+    keyCheck && (keyCheck.ran ? (keyCheck.note || 'key verified') : 'key not checked'),
+    lendCheck && (lendCheck.ran ? (lendCheck.note || 'GitHub access checked') : 'GitHub access not checked'),
+  ].filter(Boolean);
+  return ` (${parts.join('; ')})`;
 }
 
 export function listManagers({ teamctxDir } = {}) {
@@ -87,31 +93,36 @@ export function listManagers({ teamctxDir } = {}) {
  * A project with no deployment has no hosted keys or lent access to check, so
  * there is nothing a missing check could miss.
  */
-function assertGuardable({ config, plan, checkKey, checkStepOut }) {
+function assertGuardable({ config, plan, checkKey, checkLend, checkStepOut }) {
   if (!config.deployUrl) return;
-  const missing = (plan.promotes && !checkKey) || (plan.leaves && !checkStepOut);
+  const missing = (plan.promotes && (!checkKey || !checkLend)) || (plan.leaves && !checkStepOut);
   if (!missing) return;
   throw new ManagerChangeError(
     `This project is deployed at ${config.deployUrl}, and changing its managers needs checks that only `
-    + 'the hosted server can run: that a new primary manager has a working key, and that nobody leaves while '
+    + 'the hosted server can run: that a new primary manager has a working key and holds the GitHub access '
+    + 'the project lends, and that nobody leaves while '
     + 'members still reach the project through access they lent. Ask your assistant to make this change '
     + 'through the teamctx connector instead.',
     'MANAGER_NEEDS_CONNECTOR',
   );
 }
 
-async function apply({ plan, config, message, who, teamctxDir, projectDir, checkKey, checkStepOut }) {
-  assertGuardable({ config, plan, checkKey, checkStepOut });
+async function apply({ plan, config, message, who, teamctxDir, projectDir, checkKey, checkLend, checkStepOut }) {
+  assertGuardable({ config, plan, checkKey, checkLend, checkStepOut });
   const keyCheck = plan.promotes
     ? await runCheck(checkKey, plan.promotes, 'MANAGER_KEY_CHECK')
+    : null;
+  const lendCheck = plan.promotes
+    ? await runCheck(checkLend, plan.promotes, 'MANAGER_LEND_CHECK')
     : null;
   if (plan.leaves) await runCheck(checkStepOut, plan.leaves, 'MANAGER_STEP_OUT');
 
   writeConfig(plan.next, teamctxDir);
-  const git = await commitAndPush(config, `${message} by ${who.displayName}${keyNote(keyCheck)}`, projectDir, who.actor);
+  const git = await commitAndPush(config, `${message} by ${who.displayName}${checksNote(keyCheck, lendCheck)}`, projectDir, who.actor);
   return {
     ...listManagersFrom(plan.next),
     keyChecked: keyCheck ? keyCheck.ran : null,
+    lendChecked: lendCheck ? lendCheck.ran : null,
     ...git,
   };
 }
@@ -145,13 +156,13 @@ export async function removeManager({ ref, teamctxDir, projectDir, actor, checkS
 }
 
 export async function transferManager({
-  ref, stepDown = false, teamctxDir, projectDir, actor, checkKey, checkStepOut,
+  ref, stepDown = false, teamctxDir, projectDir, actor, checkKey, checkLend, checkStepOut,
 } = {}) {
   const config = readConfig(teamctxDir);
   const who = await caller({ config, teamctxDir, projectDir, actor });
   const plan = planTransfer(config, ref, { actor: who.actor, stepDown });
   return apply({
-    plan, config, who, teamctxDir, projectDir, checkKey, checkStepOut,
+    plan, config, who, teamctxDir, projectDir, checkKey, checkLend, checkStepOut,
     message: `manager: transfer primary to ${emailOfKey(plan.key)}${stepDown ? ', stepping down' : ''}`,
   });
 }

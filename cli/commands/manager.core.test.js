@@ -85,13 +85,17 @@ describe('the key check before somebody becomes primary', () => {
   });
 
   it('records a passing check in the commit', async () => {
-    await transferManager({ ref: 'priya@example.com', checkKey: async () => ({ ok: true, note: 'key verified with anthropic' }) });
-    expect(message()).toBe('manager: transfer primary to priya@example.com by Maya (key verified with anthropic)');
+    await transferManager({
+      ref: 'priya@example.com',
+      checkKey: async () => ({ ok: true, note: 'key verified with anthropic' }),
+      checkLend: async () => ({ ok: true, note: 'GitHub access lent by them' }),
+    });
+    expect(message()).toBe('manager: transfer primary to priya@example.com by Maya (key verified with anthropic; GitHub access lent by them)');
   });
 
   it('says plainly in the commit when no check ran', async () => {
     await transferManager({ ref: 'priya@example.com' });
-    expect(message()).toMatch(/\(key not checked\)$/);
+    expect(message()).toMatch(/\(key not checked; GitHub access not checked\)$/);
   });
 
   it('does not run on a removal, which promotes nobody', async () => {
@@ -99,6 +103,33 @@ describe('the key check before somebody becomes primary', () => {
     const checkKey = vi.fn();
     await removeManager({ ref: 'priya@example.com', checkKey });
     expect(checkKey).not.toHaveBeenCalled();
+  });
+});
+
+describe('the GitHub access check before somebody becomes primary', () => {
+  it('runs against the incoming primary', async () => {
+    const checkLend = vi.fn(async () => ({ ok: true }));
+    await transferManager({ ref: 'priya@example.com', checkKey: async () => ({ ok: true }), checkLend });
+    expect(checkLend).toHaveBeenCalledWith({ email: 'priya@example.com', key: 'git:priya@example.com' });
+  });
+
+  it('refuses the transfer, and writes nothing, when it fails', async () => {
+    const checkLend = async () => ({ ok: false, why: 'acme/ledger lends GitHub access, and it is not theirs.' });
+    await expect(transferManager({ ref: 'priya@example.com', checkKey: async () => ({ ok: true }), checkLend }))
+      .rejects.toMatchObject({ code: 'MANAGER_LEND_CHECK' });
+    expect(writeConfig).not.toHaveBeenCalled();
+  });
+
+  it('does not run for a co-manager', async () => {
+    const checkLend = vi.fn(async () => ({ ok: false, why: 'no' }));
+    await addManager({ ref: 'priya@example.com', checkLend });
+    expect(checkLend).not.toHaveBeenCalled();
+  });
+
+  it('is required on a deployed project, like the key check', async () => {
+    readConfig.mockReturnValue(config({ deployUrl: 'https://team.vercel.app' }));
+    await expect(transferManager({ ref: 'priya@example.com', checkKey: async () => ({ ok: true }) }))
+      .rejects.toMatchObject({ code: 'MANAGER_NEEDS_CONNECTOR' });
   });
 });
 
@@ -136,7 +167,7 @@ describe('what is written and committed', () => {
     const r = await transferManager({ ref: 'priya@example.com', checkKey: async () => ({ ok: true }) });
     expect(written()).toMatchObject({ managerKey: 'git:priya@example.com', managerKeys: ['git:maya@example.com'] });
     expect(r.primary.email).toBe('priya@example.com');
-    expect(message()).toBe('manager: transfer primary to priya@example.com by Maya (key verified)');
+    expect(message()).toBe('manager: transfer primary to priya@example.com by Maya (key verified; GitHub access not checked)');
   });
 
   it('names a step-down in the commit', async () => {
@@ -192,7 +223,7 @@ describe('a deployed project, changed from somewhere the checks cannot run', () 
 
   it('goes through when the checks are supplied, as they are on the hosted server', async () => {
     readConfig.mockReturnValue(deployed());
-    await transferManager({ ref: 'priya@example.com', checkKey: async () => ({ ok: true }) });
+    await transferManager({ ref: 'priya@example.com', checkKey: async () => ({ ok: true }), checkLend: async () => ({ ok: true }) });
     expect(writeConfig).toHaveBeenCalled();
   });
 

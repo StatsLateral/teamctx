@@ -1396,6 +1396,32 @@ describe('changing who manages a project, over the server', () => {
     } finally { restore(); }
     expect(s.configJson().managerKey).toBe('git:priya@example.com');
     expect(s.configJson().managerKeys).toEqual(['github:1001']);
+    expect(s.commits.at(-1)).toMatch(/\(key verified with anthropic; no GitHub access lent\)$/);
+  });
+
+  it('refuses to hand a project that lends GitHub access to somebody not lending it', async () => {
+    const s = fakeSession();
+    await addProjectKey({ owner: OWNER, repo: REPO, email: 'priya@example.com', apiKey: 'sk-priya' });
+    await kvSet(keys.projectGhCred(OWNER, REPO), { token: 't', lentById: '1001', lentByEmail: 'alice@example.com' });
+    const restore = providerAnswers(200);
+    try {
+      await expect(asUser(s, ALICE, h => h.manager_transfer({ email: 'priya@example.com' })))
+        .rejects.toThrow(/primary manager has to be the one lending it/);
+    } finally { restore(); }
+    expect(s.configJson().managerKey).toBe('github:1001');
+    expect(s.commits).toEqual([]);
+  });
+
+  it('hands it over once the incoming primary lends the access themselves', async () => {
+    const s = fakeSession();
+    await addProjectKey({ owner: OWNER, repo: REPO, email: 'priya@example.com', apiKey: 'sk-priya' });
+    await kvSet(keys.projectGhCred(OWNER, REPO), { token: 't', lentById: '9', lentByEmail: 'priya@example.com' });
+    const restore = providerAnswers(200);
+    try {
+      await asUser(s, ALICE, h => json(h.manager_transfer({ email: 'priya@example.com', step_down: true })));
+    } finally { restore(); }
+    expect(s.configJson().managerKey).toBe('git:priya@example.com');
+    expect(s.commits.at(-1)).toMatch(/GitHub access lent by them\)$/);
   });
 
   it('does not let somebody who is not a manager change the managers', async () => {

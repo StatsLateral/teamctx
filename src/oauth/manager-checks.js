@@ -69,6 +69,47 @@ export function keyCheckFor({ owner, repo }, fetchImpl) {
 }
 
 /**
+ * Before somebody becomes primary: is the project's lent GitHub access theirs?
+ *
+ * Members who signed in with Google — and agents — reach the project through
+ * access one person lent. If that person is not the primary manager, the project
+ * depends on somebody who can walk away with it, or who already has. So a
+ * project that lends access can only be handed to the person lending it.
+ *
+ * A project that lends nothing has nothing here to depend on anyone, and passes.
+ * Lending needs a GitHub sign-in, so an incoming primary without one cannot pass
+ * on a project that lends; the refusal says so rather than pretending otherwise.
+ */
+export function lendCheckFor({ owner, repo }) {
+  const slug = `${owner}/${repo}`;
+  return async ({ email }) => {
+    const lent = await kvGet(keys.projectGhCred(owner, repo));
+    if (!lent?.token) return { ok: true, note: 'no GitHub access lent' };
+    const incoming = String(email || '').toLowerCase();
+    if (incoming && String(lent.lentByEmail || '').toLowerCase() === incoming) {
+      return { ok: true, note: 'GitHub access lent by them' };
+    }
+    const steps = `${email} lends it themselves first: if they are not a manager yet, add them as a co-manager; `
+      + `then they sign in to the teamctx settings page with GitHub, as ${email}, and use Let members join `
+      + 'without GitHub → Lend GitHub access. Lending needs a GitHub account with write access to the '
+      + 'repository — a Google sign-in cannot lend. Then transfer again.';
+    if (!lent.lentByEmail) {
+      return {
+        ok: false,
+        why: `${slug} lends GitHub access, and it was lent before teamctx recorded who by. The primary manager `
+          + `has to be the one lending it, so ${steps}`,
+      };
+    }
+    return {
+      ok: false,
+      why: `${slug} lends GitHub access, and members who signed in with Google reach the project through it. `
+        + `The primary manager has to be the one lending it, so the project does not depend on someone else — `
+        + `so ${steps}`,
+    };
+  };
+}
+
+/**
  * Before somebody leaves: does the project still run on something of theirs?
  *
  * Lent GitHub access belongs to whoever lent it, and only they can withdraw it.

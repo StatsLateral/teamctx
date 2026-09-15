@@ -45,6 +45,7 @@ describe('on a project with no deployment', () => {
     await managerTransferCommand('priya@example.com');
     expect(printed()).toMatch(/cannot check/);
     expect(printed()).toMatch(/new primary manager has a working AI key/);
+    expect(printed()).toMatch(/hold the GitHub access the project lends/);
   });
 
   it('changes nothing when the answer is no', async () => {
