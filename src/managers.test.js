@@ -75,8 +75,8 @@ describe('adding a co-manager', () => {
     expect(() => planAdd({ managerKey: 'name:Maya' }, 'priya@example.com')).toThrow(/Repair it first/);
   });
 
-  it('names who is being promoted, so a key check knows whom to test', () => {
-    expect(planAdd(project(), 'priya@example.com').promotes).toBe('git:priya@example.com');
+  it('promotes nobody to primary, so no key check runs for a co-manager', () => {
+    expect(planAdd(project(), 'priya@example.com').promotes).toBeUndefined();
   });
 });
 

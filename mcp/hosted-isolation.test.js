@@ -1348,24 +1348,19 @@ describe('changing who manages a project, over the server', () => {
     return () => { globalThis.fetch = real; };
   };
 
-  it('refuses to promote somebody who has added no key, and writes nothing', async () => {
+  it('adds a co-manager who has added no key, since the project never runs on it', async () => {
     const s = fakeSession();
-    await expect(asUser(s, ALICE, h => h.manager_add({ email: 'priya@example.com' })))
-      .rejects.toThrow(/priya@example\.com has not added a key to acme\/ledger/);
-    expect(s.configJson().managerKeys).toBeUndefined();
-    expect(s.commits).toEqual([]);
+    const r = await asUser(s, ALICE, h => json(h.manager_add({ email: 'priya@example.com' })));
+    expect(r.coManagers.map(m => m.email)).toEqual(['priya@example.com']);
+    expect(s.commits.at(-1)).toMatch(/manager: add priya@example\.com as co-manager by [^(]*$/);
   });
 
-  it('promotes somebody whose own key passes the check, and records it in the commit', async () => {
+  it('refuses to make somebody primary who has added no key, and writes nothing', async () => {
     const s = fakeSession();
-    await addProjectKey({ owner: OWNER, repo: REPO, email: 'priya@example.com', provider: 'anthropic', apiKey: 'sk-priya' });
-    const restore = providerAnswers(200);
-    try {
-      const r = await asUser(s, ALICE, h => json(h.manager_add({ email: 'priya@example.com' })));
-      expect(r.coManagers.map(m => m.email)).toEqual(['priya@example.com']);
-    } finally { restore(); }
-    expect(s.configJson().managerKeys).toEqual(['git:priya@example.com']);
-    expect(s.commits.at(-1)).toMatch(/manager: add priya@example\.com as co-manager by .*\(key verified with anthropic\)/);
+    await expect(asUser(s, ALICE, h => h.manager_transfer({ email: 'priya@example.com' })))
+      .rejects.toThrow(/priya@example\.com has not added a key to acme\/ledger/);
+    expect(s.configJson().managerKey).toBe('github:1001');
+    expect(s.commits).toEqual([]);
   });
 
   it('refuses a key the provider rejects', async () => {
@@ -1373,19 +1368,15 @@ describe('changing who manages a project, over the server', () => {
     await addProjectKey({ owner: OWNER, repo: REPO, email: 'priya@example.com', apiKey: 'sk-bad' });
     const restore = providerAnswers(401);
     try {
-      await expect(asUser(s, ALICE, h => h.manager_add({ email: 'priya@example.com' })))
+      await expect(asUser(s, ALICE, h => h.manager_transfer({ email: 'priya@example.com' })))
         .rejects.toThrow(/did not pass a check/);
     } finally { restore(); }
-    expect(s.configJson().managerKeys).toBeUndefined();
+    expect(s.configJson().managerKey).toBe('github:1001');
   });
 
-  it('lets a co-manager promoted by address approve when they sign in with Google', async () => {
+  it('lets a co-manager added by address approve when they sign in with Google', async () => {
     const s = fakeSession();
-    await addProjectKey({ owner: OWNER, repo: REPO, email: 'priya@example.com', apiKey: 'sk-priya' });
-    const restore = providerAnswers(200);
-    try {
-      await asUser(s, ALICE, h => json(h.manager_add({ email: 'priya@example.com' })));
-    } finally { restore(); }
+    await asUser(s, ALICE, h => json(h.manager_add({ email: 'priya@example.com' })));
     const r = await asUser(s, PRIYA_GOOGLE, h => json(h.set_review_policy({ policy: 'all' })));
     expect(r.to).toBe('all');
   });

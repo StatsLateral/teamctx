@@ -57,18 +57,25 @@ describe('who may change the managers', () => {
   });
 });
 
-describe('the key check before a promotion', () => {
-  it('runs against the person being promoted', async () => {
+describe('the key check before somebody becomes primary', () => {
+  it('runs against the incoming primary', async () => {
     const checkKey = vi.fn(async () => ({ ok: true }));
-    await addManager({ ref: 'priya@example.com', checkKey });
+    await transferManager({ ref: 'priya@example.com', checkKey });
     expect(checkKey).toHaveBeenCalledWith({ email: 'priya@example.com', key: 'git:priya@example.com' });
   });
 
-  it('refuses the promotion, and writes nothing, when it fails', async () => {
+  it('refuses the transfer, and writes nothing, when it fails', async () => {
     const checkKey = async () => ({ ok: false, why: 'priya@example.com has not added a project key.' });
-    await expect(addManager({ ref: 'priya@example.com', checkKey })).rejects.toThrow(/has not added a project key/);
+    await expect(transferManager({ ref: 'priya@example.com', checkKey })).rejects.toThrow(/has not added a project key/);
     expect(writeConfig).not.toHaveBeenCalled();
     expect(commitContext).not.toHaveBeenCalled();
+  });
+
+  it('does not run for a co-manager, whose key the project never runs on', async () => {
+    const checkKey = vi.fn(async () => ({ ok: false, why: 'no key' }));
+    await addManager({ ref: 'priya@example.com', checkKey });
+    expect(checkKey).not.toHaveBeenCalled();
+    expect(message()).toBe('manager: add priya@example.com as co-manager by Maya');
   });
 
   it('carries the failure as a manager change error with its own code', async () => {
@@ -78,12 +85,12 @@ describe('the key check before a promotion', () => {
   });
 
   it('records a passing check in the commit', async () => {
-    await addManager({ ref: 'priya@example.com', checkKey: async () => ({ ok: true, note: 'key verified with anthropic' }) });
-    expect(message()).toBe('manager: add priya@example.com as co-manager by Maya (key verified with anthropic)');
+    await transferManager({ ref: 'priya@example.com', checkKey: async () => ({ ok: true, note: 'key verified with anthropic' }) });
+    expect(message()).toBe('manager: transfer primary to priya@example.com by Maya (key verified with anthropic)');
   });
 
   it('says plainly in the commit when no check ran', async () => {
-    await addManager({ ref: 'priya@example.com' });
+    await transferManager({ ref: 'priya@example.com' });
     expect(message()).toMatch(/\(key not checked\)$/);
   });
 
@@ -163,12 +170,18 @@ describe('what is written and committed', () => {
 describe('a deployed project, changed from somewhere the checks cannot run', () => {
   const deployed = (over = {}) => config({ deployUrl: 'https://team.vercel.app', ...over });
 
-  it('refuses a promotion without the key check, and points at the connector', async () => {
+  it('refuses a transfer without the key check, and points at the connector', async () => {
     readConfig.mockReturnValue(deployed());
-    await expect(addManager({ ref: 'priya@example.com' }))
+    await expect(transferManager({ ref: 'priya@example.com' }))
       .rejects.toMatchObject({ code: 'MANAGER_NEEDS_CONNECTOR' });
-    await expect(addManager({ ref: 'priya@example.com' })).rejects.toThrow(/through the teamctx connector/);
+    await expect(transferManager({ ref: 'priya@example.com' })).rejects.toThrow(/through the teamctx connector/);
     expect(writeConfig).not.toHaveBeenCalled();
+  });
+
+  it('adds a co-manager from anywhere, since there is nothing to check', async () => {
+    readConfig.mockReturnValue(deployed());
+    await addManager({ ref: 'priya@example.com' });
+    expect(writeConfig).toHaveBeenCalled();
   });
 
   it('refuses a step-out without the step-out check', async () => {
@@ -179,12 +192,12 @@ describe('a deployed project, changed from somewhere the checks cannot run', () 
 
   it('goes through when the checks are supplied, as they are on the hosted server', async () => {
     readConfig.mockReturnValue(deployed());
-    await addManager({ ref: 'priya@example.com', checkKey: async () => ({ ok: true }) });
+    await transferManager({ ref: 'priya@example.com', checkKey: async () => ({ ok: true }) });
     expect(writeConfig).toHaveBeenCalled();
   });
 
   it('allows the same change on a project with no deployment, where there is nothing to check', async () => {
-    await addManager({ ref: 'priya@example.com' });
+    await transferManager({ ref: 'priya@example.com' });
     expect(writeConfig).toHaveBeenCalled();
   });
 });

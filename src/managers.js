@@ -101,10 +101,11 @@ export function planAdd(config, ref) {
   if (sameKey(key, primary) || coManagers.some(k => sameKey(k, key))) {
     throw new ManagerChangeError(`${emailOfKey(key)} is already a manager.`, 'MANAGER_EXISTS');
   }
+  // No `promotes`: a co-manager approves, but the project never runs on their
+  // key, so there is nothing about them for a key check to test.
   return {
     key,
     next: withManagers(config, { primary, coManagers: [...coManagers, key] }),
-    promotes: key,
   };
 }
 

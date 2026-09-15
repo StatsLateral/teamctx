@@ -40,49 +40,56 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 
 describe('on a project with no deployment', () => {
-  it('says what it cannot check before changing anything', async () => {
+  it('says what it cannot check before a transfer', async () => {
     ask.mockResolvedValue('y');
-    await managerAddCommand('priya@example.com');
+    await managerTransferCommand('priya@example.com');
     expect(printed()).toMatch(/cannot check/);
-    expect(printed()).toMatch(/working AI key/);
+    expect(printed()).toMatch(/new primary manager has a working AI key/);
   });
 
   it('changes nothing when the answer is no', async () => {
     ask.mockResolvedValue('n');
-    await managerAddCommand('priya@example.com');
-    expect(core.addManager).not.toHaveBeenCalled();
+    await managerTransferCommand('priya@example.com');
+    expect(core.transferManager).not.toHaveBeenCalled();
     expect(printed()).toMatch(/Nothing changed/);
   });
 
   it('goes ahead on yes', async () => {
     ask.mockResolvedValue('y');
-    await managerAddCommand('priya@example.com');
-    expect(core.addManager).toHaveBeenCalledWith({ ref: 'priya@example.com' });
+    await managerTransferCommand('priya@example.com');
+    expect(core.transferManager).toHaveBeenCalledWith({ ref: 'priya@example.com', stepDown: false });
   });
 
   it('skips the question with --yes', async () => {
-    await managerAddCommand('priya@example.com', { yes: true });
+    await managerTransferCommand('priya@example.com', { yes: true });
     expect(ask).not.toHaveBeenCalled();
-    expect(core.addManager).toHaveBeenCalled();
+    expect(core.transferManager).toHaveBeenCalled();
   });
 
   it('refuses without --yes when there is no terminal to ask', async () => {
     Object.defineProperty(process.stdin, 'isTTY', { value: false, configurable: true });
-    await expect(managerAddCommand('priya@example.com')).rejects.toThrow(/exit 1/);
-    expect(core.addManager).not.toHaveBeenCalled();
+    await expect(managerTransferCommand('priya@example.com')).rejects.toThrow(/exit 1/);
+    expect(core.transferManager).not.toHaveBeenCalled();
   });
 
   it('passes a step-down through to the transfer', async () => {
     await managerTransferCommand('priya@example.com', { yes: true, stepDown: true });
     expect(core.transferManager).toHaveBeenCalledWith({ ref: 'priya@example.com', stepDown: true });
   });
+
+  it('adds a co-manager without asking, since there is nothing it cannot check', async () => {
+    Object.defineProperty(process.stdin, 'isTTY', { value: false, configurable: true });
+    await managerAddCommand('priya@example.com');
+    expect(ask).not.toHaveBeenCalled();
+    expect(core.addManager).toHaveBeenCalledWith({ ref: 'priya@example.com' });
+  });
 });
 
 describe('on a deployed project', () => {
   it('does not ask, and leaves the refusal to the core', async () => {
     readConfig.mockReturnValue({ project: 'Ledger', deployUrl: 'https://team.vercel.app' });
-    core.addManager.mockRejectedValueOnce(new core.ManagerChangeError('through the teamctx connector', 'MANAGER_NEEDS_CONNECTOR'));
-    await expect(managerAddCommand('priya@example.com')).rejects.toThrow(/exit 1/);
+    core.transferManager.mockRejectedValueOnce(new core.ManagerChangeError('through the teamctx connector', 'MANAGER_NEEDS_CONNECTOR'));
+    await expect(managerTransferCommand('priya@example.com')).rejects.toThrow(/exit 1/);
     expect(ask).not.toHaveBeenCalled();
   });
 });

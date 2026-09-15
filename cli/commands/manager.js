@@ -21,11 +21,10 @@ function fail(message) {
  * it cannot see rather than claiming there is nothing to see. A project that
  * does record one is refused by the core instead.
  */
-async function confirm(what, opts) {
+async function confirm(what, opts, cannotCheck) {
   console.log(`\n${what}`);
   console.log('\nFrom a clone, teamctx cannot check:');
-  console.log('  - that the new manager has a working AI key of their own');
-  console.log('  - whether anyone reaches the project through GitHub access this person lent');
+  for (const line of cannotCheck) console.log(`  - ${line}`);
   console.log('\nIt also cannot tell whether anyone uses this project through the teamctx connector.');
   console.log('If they do, this change can leave them without a model or without access. Make it');
   console.log('through the connector instead, where both are checked.\n');
@@ -37,11 +36,12 @@ async function confirm(what, opts) {
   return (await ask('Go ahead? (y/n)', 'n')).toLowerCase() === 'y';
 }
 
-async function run(what, opts, change) {
+async function run(what, opts, change, cannotCheck = []) {
   const config = readConfig();
   // A deployed project is refused by the core with the reason and the way
-  // forward. Asking first and refusing after would waste the answer.
-  if (!config.deployUrl && !(await confirm(what, opts))) {
+  // forward. Asking first and refusing after would waste the answer. A change
+  // with nothing to check — adding a co-manager — needs no question at all.
+  if (cannotCheck.length && !config.deployUrl && !(await confirm(what, opts, cannotCheck))) {
     console.log('\nNothing changed.\n');
     return null;
   }
@@ -73,7 +73,9 @@ export async function managerAddCommand(email, opts = {}) {
 }
 
 export async function managerRemoveCommand(email, opts = {}) {
-  const r = await run(`Remove ${email} as a manager of this project.`, opts, () => removeManager({ ref: email }));
+  const r = await run(`Remove ${email} as a manager of this project.`, opts, () => removeManager({ ref: email }), [
+    'whether anyone reaches the project through GitHub access this person lent',
+  ]);
   if (!r) return;
   console.log(`\n✓ ${email} is no longer a manager — committed.\n`);
   printManagers(r);
@@ -82,7 +84,10 @@ export async function managerRemoveCommand(email, opts = {}) {
 
 export async function managerTransferCommand(email, opts = {}) {
   const what = `Make ${email} the primary manager${opts.stepDown ? ', and step down yourself' : ', staying on as a co-manager'}.`;
-  const r = await run(what, opts, () => transferManager({ ref: email, stepDown: !!opts.stepDown }));
+  const r = await run(what, opts, () => transferManager({ ref: email, stepDown: !!opts.stepDown }), [
+    'that the new primary manager has a working AI key of their own',
+    ...(opts.stepDown ? ['whether anyone reaches the project through GitHub access you lent'] : []),
+  ]);
   if (!r) return;
   console.log(`\n✓ ${email} is now the primary manager — committed.\n`);
   printManagers(r);

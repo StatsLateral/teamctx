@@ -443,7 +443,7 @@ export const TOOLS = [
   },
   {
     name: 'manager_add',
-    description: RISKY + "makes somebody a co-manager, and commits. Manager-gated. A manager is identified by email address, so they are recognised whether they sign in with GitHub or Google — a username is refused. Before it completes, checks that the person has added a working key to this project themselves, on the teamctx settings page signed in as that address; without one the promotion is refused and says how to add it. Confirm the person before calling." + REPORT,
+    description: RISKY + "makes somebody a co-manager, and commits. Manager-gated. A manager is identified by email address, so they are recognised whether they sign in with GitHub or Google — a username is refused. A co-manager approves and rejects exactly as the primary does, but the project never runs on their key, so no key is needed. Confirm the person before calling." + REPORT,
     inputSchema: {
       type: 'object',
       properties: { email: { type: 'string', description: 'Email address of the person to make a co-manager' } },
@@ -1420,8 +1420,7 @@ export function makeHandlers(projectRoot) {
       const r = await addManager({ ref: args.email, teamctxDir: dir(), projectDir: gitCwd, ...managerChecks() });
       return textResult({
         ...r,
-        reportBack: `Tell the user: ${args.email} is now a co-manager and can approve and reject.`
-          + (r.keyChecked ? ' Their key was checked and works.' : ''),
+        reportBack: `Tell the user: ${args.email} is now a co-manager and can approve and reject.`,
       });
     },
 

@@ -20,8 +20,10 @@ import {
  * Two checks are passed in rather than performed here, because only the hosted
  * server can run them — a clone cannot read the hosted key store:
  *
- *   checkKey({ email })       before anyone is promoted: do they have a working
- *                             project key? A promotion without one is refused.
+ *   checkKey({ email })       before anyone becomes primary: do they have a
+ *                             working project key? The project runs on it, so a
+ *                             transfer without one is refused. A co-manager's key
+ *                             is never used, and adding one checks nothing.
  *   checkStepOut({ email })   before anyone leaves: does the project still run
  *                             on something of theirs?
  *
@@ -91,7 +93,7 @@ function assertGuardable({ config, plan, checkKey, checkStepOut }) {
   if (!missing) return;
   throw new ManagerChangeError(
     `This project is deployed at ${config.deployUrl}, and changing its managers needs checks that only `
-    + 'the hosted server can run: that the new manager has a working key, and that nobody leaves while '
+    + 'the hosted server can run: that a new primary manager has a working key, and that nobody leaves while '
     + 'members still reach the project through access they lent. Ask your assistant to make this change '
     + 'through the teamctx connector instead.',
     'MANAGER_NEEDS_CONNECTOR',
@@ -122,12 +124,12 @@ function listManagersFrom(config) {
   };
 }
 
-export async function addManager({ ref, teamctxDir, projectDir, actor, checkKey } = {}) {
+export async function addManager({ ref, teamctxDir, projectDir, actor } = {}) {
   const config = readConfig(teamctxDir);
   const who = await caller({ config, teamctxDir, projectDir, actor });
   const plan = planAdd(config, ref);
   return apply({
-    plan, config, who, teamctxDir, projectDir, checkKey,
+    plan, config, who, teamctxDir, projectDir,
     message: `manager: add ${emailOfKey(plan.key)} as co-manager`,
   });
 }
