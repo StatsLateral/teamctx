@@ -1,7 +1,7 @@
 # Recipes: bring your own agent
 
-Copy-paste prompts you can feed into your AI tool of choice to do the two
-things teamctx users do most often. Recipes are tool-agnostic; each tool has
+Copy-paste prompts you can feed into your AI tool of choice for the things
+teamctx users do most often. Recipes are tool-agnostic; each tool has
 a short guide for how to invoke them.
 
 ## Recipes
@@ -10,6 +10,7 @@ a short guide for how to invoke them.
 |---|---|
 | [`author-contribution.md`](author-contribution.md) | You know something the team should know, but you're not sure how to phrase it as a `teamctx contribute` argument. |
 | [`cleanup-context.md`](cleanup-context.md) | The shared tree has grown noisy or repetitive and you want a human-in-the-loop pass before running `teamctx reflect`. |
+| [`hand-off-to-a-client.md`](hand-off-to-a-client.md) | You built a project for a client team and want them to keep running it — with you staying on as manager, or handing the project over. |
 
 ## Use with your tool
 
@@ -20,7 +21,7 @@ a short guide for how to invoke them.
 | ChatGPT | [`chatgpt/`](chatgpt/README.md) — copy-paste the recipe and inputs, then paste output back into your terminal. A client with MCP connector support can skip the paste entirely. |
 
 Working with a different tool (Windsurf, Zed, a local model, an agent SDK)?
-The two recipes are plain markdown with `<PASTE …>` placeholders — they
+The recipes are plain markdown with `<PASTE …>` placeholders — they
 should work anywhere. PRs adding a new tool guide are welcome; see
 [CONTRIBUTING.md](../CONTRIBUTING.md).
 

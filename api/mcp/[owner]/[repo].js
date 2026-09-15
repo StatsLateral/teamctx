@@ -2,7 +2,11 @@ import { handleMcpHttp } from '../../../mcp/http.js';
 import { runWithAiKey } from '../../../src/ai-context.js';
 import { runWithActor, actorFromGithubUser } from '../../../src/actor.js';
 import { providerFromEnv } from '../../../src/oauth/provider.js';
-import { kvGet, keys } from '../../../src/oauth/kv.js';
+import {
+  readPersonalKey, readProjectKeys, pickProjectKey, recordConnectedProject,
+} from '../../../src/oauth/ai-keys.js';
+import { readConfig } from '../../../src/storage.js';
+import { managersOf } from '../../../src/managers.js';
 import { resolveGoogleMember } from '../../../src/oauth/member-access.js';
 import { primaryEmail } from '../../../src/oauth/github-identity.js';
 
@@ -42,10 +46,27 @@ import { primaryEmail } from '../../../src/oauth/github-identity.js';
  * still works, it just charges the wrong person.
  */
 export async function withSharedKey({ apiKey, aiProvider, owner, repo }) {
-  if (apiKey) return { apiKey, aiProvider };
-  const shared = await kvGet(keys.projectAiKey(owner, repo));
-  if (!shared?.apiKey) return { apiKey, aiProvider };
-  return { apiKey: shared.apiKey, aiProvider: shared.provider ?? null };
+  if (apiKey) return { apiKey, aiProvider, resolve: null };
+  const projectKeys = await readProjectKeys(owner, repo);
+  return {
+    apiKey, aiProvider,
+    // Worked out on first use, from the config the request's session has already
+    // loaded: which key applies depends on who the primary manager is.
+    resolve: () => primaryManagerKey({ projectKeys, config: readConfig() }),
+  };
+}
+
+/**
+ * The primary manager's project key, for a request that brought none.
+ *
+ * Exported for tests. The primary is `managerKey`, and a manager is identified by
+ * email, so the key is looked up by that address. A project from before keys
+ * were stored by email keeps running on its single shared record.
+ */
+export function primaryManagerKey({ projectKeys, config }) {
+  const { primary } = managersOf(config || {});
+  const picked = pickProjectKey({ projectKeys, primaryKey: primary });
+  return picked ? { apiKey: picked.apiKey, provider: picked.provider } : null;
 }
 
 export default async function handler(req, res) {
@@ -82,8 +103,11 @@ export default async function handler(req, res) {
       // to and what the manager gate compares against, instead of the shared
       // `config.me` sitting in the repo.
       actor = actorFromGithubUser(auth.extra?.githubUser);
-      const stored = auth.extra?.githubUser?.id
-        ? await kvGet(keys.aiKey(auth.extra.githubUser.id))
+      // By verified email first, so a key saved while signed in through Google is
+      // found here too; the GitHub-id record from before is the fallback.
+      const githubUser = auth.extra?.githubUser;
+      const stored = githubUser?.id || githubUser?.email
+        ? await readPersonalKey({ email: githubUser.email, githubId: githubUser.id })
         : null;
       apiKey = stored?.apiKey ?? null;
       // The settings page stores the provider alongside the key. Dropping it
@@ -105,6 +129,18 @@ export default async function handler(req, res) {
         });
         ghToken = access.ghToken;
         actor = access.actor;
+        // Remembered against the address so the settings page can offer this
+        // project — a Google account has no repository list. Only here, once the
+        // roster has confirmed them: recorded at sign-in, any Google account
+        // could name any project and have it listed as theirs.
+        try { await recordConnectedProject({ email: googleUser.email, owner, repo }); } catch { /* best effort */ }
+        // A Google sign-in never looked for a personal key before, because keys
+        // were stored by GitHub id and a Google account has none.
+        if (!apiKey) {
+          const mine = await readPersonalKey({ email: googleUser.email });
+          apiKey = mine?.apiKey ?? null;
+          aiProvider = mine?.provider ?? null;
+        }
       } catch (err) {
         return unauthorized(req, res, owner, repo, err.message);
       }
@@ -121,8 +157,9 @@ export default async function handler(req, res) {
     if (!apiKey) apiKey = readParam(req, 'api_key');
   }
 
-  // 4 — the project's shared key
-  ({ apiKey, aiProvider } = await withSharedKey({ apiKey, aiProvider, owner, repo }));
+  // 4 — the primary manager's project key, resolved on first use
+  let resolveKey = null;
+  ({ apiKey, aiProvider, resolve: resolveKey } = await withSharedKey({ apiKey, aiProvider, owner, repo }));
 
   if (!ghToken) {
     return unauthorized(req, res, owner, repo, 'Authentication required');
@@ -142,7 +179,7 @@ export default async function handler(req, res) {
   const actorSeed = actor || (() => githubUserFromToken(ghToken).then(actorFromGithubUser));
 
   const dispatch = () => runWithActor(actorSeed, () => handleMcpHttp(req, res, projectContext));
-  if (apiKey) await runWithAiKey(apiKey, dispatch, aiProvider);
+  if (apiKey || resolveKey) await runWithAiKey(apiKey, dispatch, aiProvider, resolveKey);
   else await dispatch();
 }
 
