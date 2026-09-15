@@ -25,8 +25,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   through a person's browser sign-in, acting as that person with every tool they
   had. A manager now issues an **agent token** on the settings page, per agent
   and per project. The agent is its own identity, recorded on the member list,
-  reads through the project's lent GitHub access and runs on the primary
-  manager's key. It sees and can call only `my_brief`, `contribute` and
+  and reads through the project's lent GitHub access. It runs on its own AI key
+  if a manager gives it one — and on the primary manager's key if it has none,
+  or if the provider rejects its own, which the settings page then flags. It sees and can call only `my_brief`, `contribute` and
   `task_done`; its contributions always wait for review whatever the review
   policy, it can close only its own tasks, and it sends at most 20 contributions
   a day. Only the token's hash is stored, and revoking it takes effect on the

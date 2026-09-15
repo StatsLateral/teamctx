@@ -19,8 +19,9 @@ already has what it needs: `teamctx contribute` with the clone's push access.
   GitHub access**.
 - **The project has something written down.** An agent with nothing to read is
   refused, as a person would be.
-- **The primary manager has added a project key.** An agent has no AI key of its
-  own; each contribution it sends spends one AI call on that key.
+- **An AI key it can run on.** Either give the agent its own key (step 1), or make
+  sure the primary manager has added a project key. Each contribution it sends
+  spends one AI call.
 
 ## 1. Create the agent
 
@@ -31,7 +32,9 @@ On the **Settings** page, under **Agents**:
    project, because tasks are found by name.
 3. Optionally, list the workstreams it may reach. Leave it empty for the whole
    project.
-4. **Create agent.**
+4. Optionally, pick a provider and paste the agent's own AI key. Leave it empty
+   to run on the project key. A key the provider rejects is not saved.
+5. **Create agent.**
 
 The page shows the agent's **token** and the **connector URL**. Copy the token
 now: it is shown once and cannot be read back. Keep it wherever your job keeps
@@ -94,10 +97,26 @@ Any other tool name is answered as a tool that does not exist.
 - **Its workstreams only**, if it was given some.
 - **It is never a manager**, and cannot approve, add people, or change settings.
 
+## Its AI key
+
+The agent's row on the **Settings** page says which key it runs on.
+
+- **Its own key**, if a manager gave it one — at creation, or later under **Give
+  it its own key** / **Change its key**.
+- **The project key** otherwise: the primary manager's.
+
+If the provider rejects the agent's own key during a run — revoked, out of
+credit, over quota — that call is retried on the project key, the job carries
+on, and the agent's row shows the date it happened. Replace the key, or choose
+**Put it on the project key**. A rate limit or an outage does not move it.
+
+The daily limit of 20 contributions applies whichever key pays.
+
 ## Revoking
 
 On the **Settings** page, **Revoke** beside the agent. The token stops working on
-its next request, and the agent comes off the member list.
+its next request, the agent comes off the member list, and its own key, if it had
+one, is deleted.
 
 A token also stops working if:
 
