@@ -151,6 +151,8 @@ describe('creating an agent', () => {
     const r = await as({ id: '7', login: 'maya', name: 'Maya', email: 'maya@example.com', token: 'gho' },
       '/settings/agents', { method: 'POST', form: { project: 'acme/ledger', agentName: 'Nightly report' } });
     expect(r.status).toBe(200);
+    // The identity the gate recognised, so the roster write recognises it too.
+    expect(addAgent).toHaveBeenCalledWith(expect.objectContaining({ actor: expect.objectContaining({ key: 'github:7' }) }));
   });
 });
 
@@ -161,6 +163,15 @@ describe('the list and revoking', () => {
     const { body } = await as(MAYA_GOOGLE, '/settings');
     expect(body).toContain('Nightly report');
     expect(body).toContain('never used');
+  });
+
+  it('does not show a project\'s agents to someone on it who is not a manager', async () => {
+    await lend();
+    await createAgentToken({ owner: 'acme', repo: 'ledger', id: 'a1', name: 'Nightly report', issuedBy: 'maya@example.com' });
+    await kvSet(keys.connectedProjects('sam@example.com'), { projects: ['acme/ledger'] });
+    const { body } = await as(SAM_GOOGLE, '/settings');
+    expect(body).not.toContain('name="id" value="a1"');
+    expect(body).not.toContain('issued by maya@example.com');
   });
 
   it('revokes the token and takes the agent off the roster', async () => {

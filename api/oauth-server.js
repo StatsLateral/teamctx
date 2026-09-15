@@ -355,10 +355,8 @@ async function renderSettings(req, res, user, { newAgent = null } = {}) {
 }
 
 /**
- * The agents on projects this person issued agents for or is known to be on.
- *
- * Listing only needs to find them; revoking one checks the person is still a
- * manager of that project.
+ * The agents on projects this person manages, among those they issued agents for
+ * or are known to be on.
  */
 async function agentsFor(user) {
   if (!user.email) return [];
@@ -370,8 +368,13 @@ async function agentsFor(user) {
   for (const slug of projects) {
     const [owner, repo] = slug.split('/');
     const list = await listAgents(owner, repo);
+    if (!list.length) continue;
+    // Only a manager sees a project's agents. The projects above are ones this
+    // address is known to be on, and being on a project does not entitle
+    // anyone to who issued its agents or which keys they run on.
+    if (!(await agentManagerAccess(user, { owner, repo })).ok) continue;
     for (const agent of list) agent.key = await agentKeyStatus(agent.id);
-    if (list.length) out.push({ project: slug, agents: list });
+    out.push({ project: slug, agents: list });
   }
   return out;
 }
@@ -895,10 +898,15 @@ async function agentManagerAccess(user, ref) {
   const managers = managerKeys(config);
   if (!managers.length) return { ok: false, why: `${slug} has no manager on record, so nobody can issue agents for it.` };
   const byId = user.id ? { ...actor, key: `github:${user.id}` } : null;
-  if (!managers.some(k => matchesActor(k, actor) || (byId && matchesActor(k, byId)))) {
+  // Whichever identity the gate recognised is the one handed on. A manager
+  // recorded as github:<id> passed here but was refused by the roster write,
+  // which checks the gate again with the actor it is given.
+  const matched = managers.some(k => matchesActor(k, actor)) ? actor
+    : (byId && managers.some(k => matchesActor(k, byId)) ? byId : null);
+  if (!matched) {
     return { ok: false, why: `Only a manager of ${slug} can issue or revoke its agents.` };
   }
-  return { ok: true, actor, token: lent.token };
+  return { ok: true, actor: matched, token: lent.token };
 }
 
 /** Run a roster change against the repository, as the manager, through the lent access. */
