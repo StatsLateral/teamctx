@@ -24,16 +24,21 @@ part of the work, and one of two arrangements:
 ## Before you start
 
 **The client needs one GitHub account.** Not everyone on their team — one
-person, usually whoever looks after their tools. The project lives in a GitHub
-repository, and handing it over means that repository belongs to the client.
-Everyone else can stay on a Google sign-in; they never need GitHub.
+person. The project lives in a GitHub repository, and handing it over means that
+repository belongs to the client. Everyone else can stay on a Google sign-in;
+they never need GitHub.
+
+If anyone on the client's team signs in with Google, that GitHub account has to
+be the lead's — the person taking over. People on Google reach the project
+through GitHub access one person lends, and a project that lends access can only
+be handed to the person lending it.
 
 If you are staying on as manager, the client needs no GitHub account at all.
 
-**Whoever becomes manager brings their own AI key.** Your key stays yours. The
-client does not depend on it, and you do not keep paying for their usage. A
-person cannot be made manager until their own key has been added to the project
-and checked.
+**Whoever takes over brings their own AI key.** Your key stays yours. The client
+does not depend on it, and you do not keep paying for their usage. Nobody can be
+made primary manager until their own key has been added to the project and
+checked.
 
 ---
 
@@ -161,15 +166,29 @@ teamctx review reject <id> --reason "<WHY>"
 
 Do these in order. A step that is out of order is refused rather than half-done.
 
-**a. The client's lead adds their own AI key.** They must already be a member
-(step 4). They sign in to your deployment's **Settings** page — with Google or
-GitHub — and use **Add a key to a project**. Signing in with Google works only
-once you have lent the project GitHub access (step 4).
+**a. Give the client's lead access to your repository.** On GitHub, **Settings →
+Collaborators**, invite the lead's GitHub account with write access. Make sure
+they are also a member (step 4).
 
-**b. Make them the primary manager, while the repository is still yours.** Do
+**b. Make them a co-manager.**
+
+```
+teamctx manager add lead@client.com
+```
+
+**c. The lead adds their own AI key, and takes over the GitHub access.** They sign
+in to your deployment's **Settings** page with GitHub and:
+
+- use **Add a key to a project**;
+- if anyone signs in with Google, use **Let members join without GitHub → Lend
+  GitHub access**. This replaces the access you lent.
+
+**d. Make them the primary manager, while the repository is still yours.** Do
 this through your AI tool's teamctx connector, not the terminal — a deployed
-project only accepts manager changes there, where the key can be checked. Ask
-your AI to transfer the manager role to their email address.
+project only accepts this there, where the checks can run. Ask your AI to
+transfer the manager role to their email address. It is refused, and says why,
+if their key does not work or if the project lends GitHub access they did not
+lend.
 
 On a project that is not deployed, the terminal works:
 
@@ -180,21 +199,20 @@ teamctx manager list
 
 You stay on as a co-manager for now. Don't step down yet.
 
-**c. Transfer the repository to the client.** On GitHub, **Settings → Transfer
+**e. Transfer the repository to the client.** On GitHub, **Settings → Transfer
 ownership**, to the client's GitHub account or organisation. Their GitHub owner
 accepts. The managers and the member list live inside the repository, so they
 move with it.
 
-**d. Set the hosted side up again under the new address.** The hosted server
+**f. Set the hosted side up again under the new address.** The hosted server
 knows a project by its GitHub address, so after a transfer it treats the
-project as new. This is expected, and it means:
+project as new. This is expected, and it means the lead, signed in with GitHub:
 
-- **The client's GitHub owner lends GitHub access** — on the **Settings** page,
-  **Let members join without GitHub → Lend GitHub access**. Only needed if
-  anyone signs in with Google, and it comes first if the lead does: the page
-  cannot confirm a Google sign-in on a project that has not lent access.
-- **The client's lead adds their AI key again** — step **a**, on the new
-  project.
+- **adds their AI key again** — **Add a key to a project**, on the new address;
+- **lends GitHub access again** — only needed if anyone signs in with Google.
+
+And:
+
 - **Everyone reconnects with a new link.** The old one points at the old
   address. On a clone, point it at the new repository first, then print the
   link:
@@ -207,7 +225,7 @@ project as new. This is expected, and it means:
 - **Personal settings** — display name, which part of the project someone was
   working in — start fresh.
 
-**e. Step out.** Ask your AI to remove your email from the managers, or from a
+**g. Step out.** Ask your AI to remove your email from the managers, or from a
 clone of a project that is not deployed:
 
 ```
@@ -215,8 +233,8 @@ teamctx manager remove you@builder.com
 ```
 
 This is refused while members still reach the project through GitHub access you
-lent — that is the reason for step **d**. Finally, the client removes you as a
-collaborator on the repository in GitHub.
+lent — steps **c** and **f** hand that to the lead. Finally, the client removes
+you as a collaborator on the repository in GitHub.
 
 ---
 
@@ -224,13 +242,15 @@ collaborator on the repository in GitHub.
 
 What to expect when a project is handed to you:
 
-- **Before the handover,** once the builder has added you as a member, add your
-  own AI key to the project on the **Settings** page. The handover cannot finish
-  without it.
+- **Before the handover,** once the builder has made you a co-manager, sign in to
+  the **Settings** page with GitHub and add your own AI key to the project. If
+  anyone on your team signs in with Google, lend the project GitHub access there
+  too. The handover cannot finish without either.
 - **After the handover,** you approve your team's updates. Ask your AI what is
   waiting for review.
-- **One person on your side needs a GitHub account** to own the repository and,
-  if anyone signs in with Google, to lend it GitHub access. Nobody else does.
+- **One person on your side needs a GitHub account** to own the repository. If
+  anyone signs in with Google, it has to be yours, because you lend them access.
+  Nobody else needs one.
 - **Everyone reconnects once,** with the new link from after the repository
   moved.
 - **Each person's first step** is to ask their AI what they are working on. It
