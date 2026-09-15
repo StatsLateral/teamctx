@@ -77,6 +77,19 @@ function sameKey(a, b) {
 }
 
 /**
+ * A gate entry named exactly as stored, when it is not an address.
+ *
+ * `github:<id>` and `@login` entries predate managers being identified by email,
+ * and nothing adds them now. Without this they could never be taken off: every
+ * other way in turns the reference into an address first, and they have none.
+ */
+function legacyEntry(keys, ref) {
+  const s = String(ref ?? '').trim();
+  if (!/^github:\d+$/i.test(s) && !/^@[^@\s]+$/.test(s)) return null;
+  return keys.find(k => sameKey(k, s)) || null;
+}
+
+/**
  * Refuse to change a gate that is not really a gate.
  *
  * A display-name gate matches nobody, so the caller passed `assertManager` only
@@ -119,8 +132,8 @@ export function planAdd(config, ref) {
  */
 export function planRemove(config, ref) {
   assertRealGate(config);
-  const key = managerKeyFor(ref);
   const { primary, coManagers } = managersOf(config);
+  const key = legacyEntry(coManagers, ref) || managerKeyFor(ref);
   if (sameKey(key, primary)) {
     throw new ManagerChangeError(
       `${emailOfKey(key)} is the primary manager and cannot simply be removed. `
@@ -161,7 +174,14 @@ export function planTransfer(config, ref, { actor, stepDown = false } = {}) {
   if (sameKey(key, primary)) {
     throw new ManagerChangeError(`${emailOfKey(key)} is already the primary manager.`, 'MANAGER_EXISTS');
   }
-  const others = coManagers.filter(k => !sameKey(k, key));
+  // Stepping down takes every identity the outgoing primary is on the gate
+  // under, not only `managerKey`. Before managers were identified by email, one
+  // manager's other identities — `git:<email>`, `@login` — were kept beside the
+  // primary in `managerKeys`; leaving those behind left the person who stepped
+  // down still able to approve.
+  const others = coManagers
+    .filter(k => !sameKey(k, key))
+    .filter(k => !(stepDown && matchesActor(k, actor)));
   return {
     key,
     next: withManagers(config, {

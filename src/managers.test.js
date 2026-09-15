@@ -80,6 +80,35 @@ describe('adding a co-manager', () => {
   });
 });
 
+describe('a gate written before managers were identified by email', () => {
+  // One manager's other identities were kept beside the primary.
+  const legacy = () => ({
+    project: 'Ledger', managerKey: 'github:123', managerKeys: ['git:alice@x.com', '@alice', 'git:priya@example.com'],
+  });
+  const ALICE_HOSTED = { key: 'github:123', email: 'alice@x.com', login: 'alice' };
+
+  it('takes every identity of the outgoing primary off the gate when they step down', () => {
+    const { next } = planTransfer(legacy(), 'bob@x.com', { actor: ALICE_HOSTED, stepDown: true });
+    expect(managersOf(next)).toEqual({ primary: 'git:bob@x.com', coManagers: ['git:priya@example.com'] });
+  });
+
+  it('keeps them, beside the old primary, when the outgoing primary stays on', () => {
+    const { next } = planTransfer(legacy(), 'bob@x.com', { actor: ALICE_HOSTED });
+    expect(managersOf(next).coManagers).toEqual(['git:alice@x.com', '@alice', 'git:priya@example.com', 'github:123']);
+  });
+
+  it('lets a leftover identity that is not an address be removed as written', () => {
+    const { next } = planRemove(legacy(), '@alice');
+    expect(managersOf(next).coManagers).toEqual(['git:alice@x.com', 'git:priya@example.com']);
+    expect(managersOf(planRemove({ managerKey: 'git:a@x.com', managerKeys: ['github:9'] }, 'github:9').next).coManagers)
+      .toEqual([]);
+  });
+
+  it('still refuses a GitHub id or login that is not on the gate', () => {
+    expect(() => planRemove(legacy(), '@nobody')).toThrow(/not an email address/);
+  });
+});
+
 describe('removing a co-manager', () => {
   const withPriya = () => project({ managerKeys: ['git:priya@example.com'] });
 
