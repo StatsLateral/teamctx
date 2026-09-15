@@ -6,7 +6,7 @@ import { kvGet, kvSet, kvTake, kvDelete, keys, TTL, isPersistent } from '../src/
 import { googleAuthorizeUrl, googleUserFromCode } from '../src/oauth/google.js';
 import { projectKeyDecision } from '../src/oauth/project-key-decision.js';
 import { managersOf } from '../src/managers.js';
-import { matchesActor } from '../src/review.js';
+import { matchesActor, managerKeys } from '../src/review.js';
 import { readConfigJson } from '../src/oauth/member-access.js';
 import {
   readPersonalKey, writePersonalKey, addProjectKey, removeProjectKey, projectsKeyedBy,
@@ -17,6 +17,10 @@ import { lendDecision } from '../src/oauth/lend-decision.js';
 import { GithubSession, listUserOrgs, createRepo, slugifyProjectName, suggestAvailableName, listPushableRepos } from '../src/adapters/github.js';
 import { runWithSession } from '../src/session-context.js';
 import { initProject } from '../cli/commands/init.core.js';
+import { addAgent, removeAgent, MemberNotFoundError } from '../cli/commands/member.core.js';
+import {
+  createAgentToken, listAgents, revokeAgent, projectsWithAgentsBy,
+} from '../src/oauth/agent-tokens.js';
 
 /**
  * Single Vercel function serving every OAuth surface. `vercel.json` rewrites
@@ -306,6 +310,18 @@ app.get('/settings', async (req, res) => {
   // so an automatic redirect here would sign the user back in the instant
   // they landed — making "signed out" a state you could never actually see.
   if (!user) return res.send(signInPage());
+  await renderSettings(req, res, user);
+});
+
+/**
+ * The settings page, with whatever a POST needs to show once.
+ *
+ * Shared so a freshly issued agent token can be rendered into the page instead
+ * of carried through a redirect, where it would sit in the address bar and the
+ * browser's history.
+ */
+async function renderSettings(req, res, user, { newAgent = null } = {}) {
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
 
   // A GitHub sign-in is the one place both the id and the address are known, so
   // it is where records saved under the id are carried over to the address —
@@ -326,13 +342,36 @@ app.get('/settings', async (req, res) => {
     ...(user.id ? (await kvGet(keys.lentProjects(user.id)))?.projects || [] : []),
     ...(user.email ? (await kvGet(keys.lentByAddress(user.email)))?.projects || [] : []),
   ])].sort();
+  const agents = await agentsFor(user);
+  if (newAgent) res.setHeader('Cache-Control', 'no-store');
   res.send(settingsPage({
-    user, hasKey: !!existing, shared, lent, repos,
+    user, hasKey: !!existing, shared, lent, repos, agents, newAgent,
     saved: req.query.saved === '1',
     error: req.query.error ? String(req.query.error) : null,
     confirmRemove: req.query.confirmRemove ? String(req.query.confirmRemove) : null,
   }));
-});
+}
+
+/**
+ * The agents on projects this person issued agents for or is known to be on.
+ *
+ * Listing only needs to find them; revoking one checks the person is still a
+ * manager of that project.
+ */
+async function agentsFor(user) {
+  if (!user.email) return [];
+  const projects = [...new Set([
+    ...(await projectsWithAgentsBy(user.email)),
+    ...(await projectsKnownFor(user.email)),
+  ].map(p => p.toLowerCase()))].sort();
+  const out = [];
+  for (const slug of projects) {
+    const [owner, repo] = slug.split('/');
+    const list = await listAgents(owner, repo);
+    if (list.length) out.push({ project: slug, agents: list });
+  }
+  return out;
+}
 
 /** Starts a Google login for the settings page. Only reached by clicking it. */
 app.get('/settings/signin/google', async (req, res) => {
@@ -821,6 +860,108 @@ app.post('/settings/unlend', async (req, res) => {
   backToSettings(res);
 });
 
+/**
+ * Is this person a manager of this project, and can an agent reach it?
+ *
+ * Read through the project's lent GitHub access, because that is what an agent
+ * reads through: a project that lends none could issue a token that never
+ * works. A manager is matched by every form one is written in. A project with
+ * no manager on record is refused outright — with no gate, everyone passes as
+ * a manager, and issuing an agent is not something everyone should do.
+ */
+async function agentManagerAccess(user, ref) {
+  const slug = `${ref.owner}/${ref.repo}`;
+  if (!user.email) {
+    return { ok: false, why: 'Your sign-in did not come with a verified email address, so an agent could not be recorded against you. Sign out and sign in again.' };
+  }
+  const lent = await kvGet(keys.projectGhCred(ref.owner, ref.repo));
+  if (!lent?.token) {
+    return { ok: false, why: `${slug} does not lend GitHub access, and an agent reads the project through it. Lend it first, below.` };
+  }
+  let config;
+  try { config = await readConfigJson({ owner: ref.owner, repo: ref.repo, token: lent.token }); } catch (e) {
+    return { ok: false, why: e.message };
+  }
+  const actor = {
+    key: `git:${String(user.email).toLowerCase()}`,
+    name: user.name || user.login || user.email,
+    email: String(user.email).toLowerCase(),
+    login: user.login || null,
+    source: user.id ? 'github' : 'google',
+  };
+  const managers = managerKeys(config);
+  if (!managers.length) return { ok: false, why: `${slug} has no manager on record, so nobody can issue agents for it.` };
+  const byId = user.id ? { ...actor, key: `github:${user.id}` } : null;
+  if (!managers.some(k => matchesActor(k, actor) || (byId && matchesActor(k, byId)))) {
+    return { ok: false, why: `Only a manager of ${slug} can issue or revoke its agents.` };
+  }
+  return { ok: true, actor, token: lent.token };
+}
+
+/** Run a roster change against the repository, as the manager, through the lent access. */
+async function asManagerOnRepo(ref, access, fn) {
+  const session = new GithubSession({ owner: ref.owner, repo: ref.repo, ghToken: access.token });
+  await session.prefetch();
+  return runWithSession(session, fn);
+}
+
+/** Issue an agent: its roster entry first, then the token, shown once. */
+app.post('/settings/agents', async (req, res) => {
+  const user = await currentUser(req);
+  if (!user) return res.redirect(303, '/settings');
+  const ref = parseRepoRef(req.body?.project);
+  if (!ref) return backToSettings(res, 'Pick a project first.');
+  const name = String(req.body?.agentName || '').trim();
+  if (!name) return backToSettings(res, 'Give the agent a name.');
+  const workstreams = String(req.body?.agentWorkstreams || '')
+    .split(',').map(w => w.trim()).filter(Boolean);
+
+  const access = await agentManagerAccess(user, ref);
+  if (!access.ok) return backToSettings(res, access.why);
+
+  const id = randomBytes(6).toString('hex');
+  // The roster entry before the token. A token whose entry failed to write
+  // would be refused on every call, which is a credential that only looks live.
+  try {
+    await asManagerOnRepo(ref, access, () => addAgent({
+      id, name, workstreams: workstreams.length ? workstreams : undefined, actor: access.actor,
+    }));
+  } catch (e) {
+    return backToSettings(res, e.message);
+  }
+  const { token } = await createAgentToken({ owner: ref.owner, repo: ref.repo, id, name, issuedBy: user.email });
+  await renderSettings(req, res, user, {
+    newAgent: {
+      name, token, project: `${ref.owner}/${ref.repo}`,
+      url: `${baseUrlFor(req)}/api/mcp/${ref.owner}/${ref.repo}`,
+    },
+  });
+});
+
+/** Revoke an agent: the token first, so it stops working even if the roster write fails. */
+app.post('/settings/agents/revoke', async (req, res) => {
+  const user = await currentUser(req);
+  if (!user) return res.redirect(303, '/settings');
+  const ref = parseRepoRef(req.body?.project);
+  const id = String(req.body?.id || '').trim();
+  if (!ref || !id) return backToSettings(res, 'Pick the agent to revoke.');
+
+  const access = await agentManagerAccess(user, ref);
+  if (!access.ok) return backToSettings(res, access.why);
+
+  const revoked = await revokeAgent({ owner: ref.owner, repo: ref.repo, id });
+  try {
+    await asManagerOnRepo(ref, access, () => removeAgent({ id, actor: access.actor }));
+  } catch (e) {
+    // Already off the roster is the state this was after.
+    if (!(e instanceof MemberNotFoundError)) {
+      return backToSettings(res, `The token is revoked, but its roster entry could not be removed: ${e.message}`);
+    }
+  }
+  if (!revoked) return backToSettings(res, 'No such agent on that project — it may already be revoked.');
+  backToSettings(res);
+});
+
 // ---- The SDK's OAuth server: metadata, /authorize, /token, /register --
 
 if (provider) {
@@ -896,7 +1037,9 @@ button.link{background:none;border:0;padding:0;margin:0;color:var(--dim);
 code{background:#8881;padding:.1rem .3rem;border-radius:.2rem}
 </style></head><body${wide ? ' class="wide"' : ''}>${body}</body></html>`;
 
-const settingsPage = ({ user, hasKey, saved, error, confirmRemove = null, shared = [], lent = [], repos = [] }) => shell('Settings', `
+const settingsPage = ({
+  user, hasKey, saved, error, confirmRemove = null, shared = [], lent = [], repos = [], agents = [], newAgent = null,
+}) => shell('Settings', `
 ${navBar({ user, current: '/settings' })}
 <h1>Settings</h1>
 ${saved ? '<div class="ok">Saved.</div>' : ''}
@@ -911,6 +1054,15 @@ To stop paying without that, hand the primary role to someone else first.</p>
   <button type="submit">Remove it anyway</button>
   <a href="/settings">Keep it</a>
 </form>
+</div>` : ''}
+${newAgent ? `<div class="ok">
+<p><strong>${esc(newAgent.name)} can now reach ${esc(newAgent.project)}.</strong> Copy its
+token now — it is not shown again, and it is not stored anywhere it can be read back.</p>
+<label for="newAgentToken">Token</label>
+<input id="newAgentToken" type="text" readonly value="${esc(newAgent.token)}" onfocus="this.select()">
+<label for="newAgentUrl">Connector URL</label>
+<input id="newAgentUrl" type="text" readonly value="${esc(newAgent.url)}" onfocus="this.select()">
+<p class="muted">Send requests to the URL with <code>Authorization: Bearer &lt;token&gt;</code>.</p>
 </div>` : ''}
 
 <div class="cols">
@@ -989,6 +1141,33 @@ ${user.id ? `<form method="POST" action="/settings/lend">
   <button type="submit">Lend GitHub access</button>
 </form>` : `<p class="muted">Lending GitHub access needs a GitHub sign-in: it hands the
 project a GitHub credential, which a Google sign-in does not have.</p>`}
+</section>
+
+<section class="card">
+<h2>Agents</h2>
+<p class="muted">A token for a job that runs with nobody present. An agent can read
+what it is assigned, send work for review, and close its own tasks — nothing else.
+Its work always waits for a manager's approval, it spends up to 20 contributions a
+day on the project's key, and it reads through the GitHub access the project lends.
+Managers only.</p>
+${agents.map(group => `<p class="muted"><code>${esc(group.project)}</code></p>${group.agents.map(a => `
+<form method="POST" action="/settings/agents/revoke" style="margin:.35rem 0">
+  <input type="hidden" name="project" value="${esc(group.project)}">
+  <input type="hidden" name="id" value="${esc(a.id)}">
+  ${esc(a.name)} <span class="muted">— issued by ${esc(a.issuedBy)} on ${esc(String(a.createdAt).slice(0, 10))},
+  ${a.lastUsedAt ? `last used ${esc(String(a.lastUsedAt).slice(0, 10))}` : 'never used'}</span>
+  <button type="submit" class="link">Revoke</button>
+</form>`).join('')}`).join('')}
+<form method="POST" action="/settings/agents">
+  <label for="agentProject">Project</label>
+  ${projectPicker('agentProject', repos)}
+  <label for="agentName">Name</label>
+  <input id="agentName" name="agentName" placeholder="Nightly report" maxlength="60" required>
+  <label for="agentWorkstreams">Workstreams (optional)</label>
+  <input id="agentWorkstreams" name="agentWorkstreams" placeholder="pricing, onboarding — leave empty for the whole project">
+  <p class="muted">Give it work by assigning tasks to this name.</p>
+  <button type="submit">Create agent</button>
+</form>
 </section>
 </div>`, { wide: true });
 
