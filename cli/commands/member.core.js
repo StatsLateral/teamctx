@@ -251,6 +251,13 @@ export async function addMember({
   const members = config.members || [];
   const existing = findMember(members, login || email);
   if (existing) throw new MemberExistsError(existing);
+  // An agent's tasks are found by its name, so a person sharing it would be
+  // handed the agent's work, and the agent theirs.
+  const agentNamed = members.find(m => m.kind === 'agent'
+    && [name, login].some(v => v && String(v).trim().toLowerCase() === String(m.name).toLowerCase()));
+  if (agentNamed) {
+    throw new MemberNameIsAgentError(agentNamed.name);
+  }
 
   // Checked against the project's own workstreams, because a typo here is
   // silent and expensive: it produces a member scoped to a workstream that does
@@ -315,6 +322,14 @@ export async function removeMember({ ref, teamctxDir, projectDir, actor } = {}) 
   writeConfig({ ...config, members: members.filter(m => m !== member) }, teamctxDir);
   const git = await commitAndPush(config, `member: remove ${member.name} by ${displayName}`, projectDir, resolved);
   return { member, stillHasRepoAccess: !!member.login, ...git };
+}
+
+export class MemberNameIsAgentError extends Error {
+  constructor(name) {
+    super(`"${name}" is the name of an agent on this project. Give this person a different name — `
+      + 'tasks are found by name, so they would be handed the agent\'s work.');
+    this.code = 'MEMBER_NAME_IS_AGENT';
+  }
 }
 
 export class AgentNameTakenError extends Error {

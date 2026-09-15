@@ -26,7 +26,9 @@ vi.mock('../../src/prefs.js', () => ({
 import { readConfig, writeConfig, readProject } from '../../src/storage.js';
 import { resolveActor } from '../../src/actor.js';
 import { commitContext } from '../../src/git.js';
-import { addAgent, removeAgent, AgentNameTakenError, MemberNotFoundError } from './member.core.js';
+import {
+  addAgent, removeAgent, addMember, AgentNameTakenError, MemberNotFoundError, MemberNameIsAgentError,
+} from './member.core.js';
 import { ManagerGateError } from './review.core.js';
 import { EmptyContextError } from '../../src/context-gate.js';
 
@@ -92,6 +94,28 @@ describe('adding an agent', () => {
   it('refuses an empty or overlong name', async () => {
     await expect(addAgent({ id: 'a1', name: '  ' })).rejects.toThrow(/needs a name/);
     await expect(addAgent({ id: 'a1', name: 'x'.repeat(61) })).rejects.toThrow(/60 characters/);
+  });
+});
+
+describe('adding a person beside an agent', () => {
+  const withAgent = () => config({ members: [{ key: 'agent:a1', name: 'Nightly report', kind: 'agent' }] });
+
+  it('refuses a person given the agent\'s name, whatever the case', async () => {
+    readConfig.mockReturnValue(withAgent());
+    await expect(addMember({ ref: 'dev@example.com', name: 'nightly report' })).rejects.toBeInstanceOf(MemberNameIsAgentError);
+    expect(writeConfig).not.toHaveBeenCalled();
+  });
+
+  it('refuses a GitHub login that is the agent\'s name', async () => {
+    readConfig.mockReturnValue(config({ members: [{ key: 'agent:a1', name: 'nightly', kind: 'agent' }] }));
+    await expect(addMember({ ref: 'nightly' })).rejects.toThrow();
+    expect(writeConfig).not.toHaveBeenCalled();
+  });
+
+  it('adds anyone else as before', async () => {
+    readConfig.mockReturnValue(withAgent());
+    await addMember({ ref: 'dev@example.com', name: 'Dev' });
+    expect(written().members.map(m => m.name)).toEqual(['Nightly report', 'Dev']);
   });
 });
 
