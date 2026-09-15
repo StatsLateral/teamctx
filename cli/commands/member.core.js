@@ -6,6 +6,7 @@ import { resolveActor } from '../../src/actor.js';
 import { resolveDisplayName } from '../../src/prefs.js';
 import { assertManager } from './review.core.js';
 import { assertJoinableContext } from '../../src/context-gate.js';
+import { agentKey, agentOnRoster } from '../../src/agents.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -314,4 +315,71 @@ export async function removeMember({ ref, teamctxDir, projectDir, actor } = {}) 
   writeConfig({ ...config, members: members.filter(m => m !== member) }, teamctxDir);
   const git = await commitAndPush(config, `member: remove ${member.name} by ${displayName}`, projectDir, resolved);
   return { member, stillHasRepoAccess: !!member.login, ...git };
+}
+
+export class AgentNameTakenError extends Error {
+  constructor(name) {
+    super(`"${name}" is already somebody on this project. Give the agent a name of its own — `
+      + 'its tasks are found by name, so it would be handed theirs.');
+    this.code = 'AGENT_NAME_TAKEN';
+  }
+}
+
+/**
+ * Put an unattended agent on the roster.
+ *
+ * The roster, not the token store, is what holds an agent to its workstreams:
+ * the scope check reads it for everyone alike, and the entry lands in the
+ * repository's history where the rest of the team can see it. The token never
+ * touches the repository.
+ *
+ * Gated like `member add`, and refused on an empty project for the same reason:
+ * there is nothing for it to read.
+ */
+export async function addAgent({
+  id, name, workstreams, teamctxDir, projectDir, actor,
+} = {}) {
+  const config = readConfig(teamctxDir);
+  const resolved = actor || await resolveActor({ config, cwd: projectDir });
+  const displayName = await resolveDisplayName({ actor: resolved, config, teamctxDir });
+  assertManager(config, { actor: resolved, displayName });
+
+  const trimmed = String(name ?? '').trim();
+  if (!trimmed) throw new Error('an agent needs a name');
+  if (trimmed.length > 60) throw new Error('an agent\'s name must be 60 characters or fewer');
+  if (!id) throw new Error('an agent needs an id');
+
+  const members = config.members || [];
+  if (findMember(members, trimmed)) throw new AgentNameTakenError(trimmed);
+
+  const scope = normaliseScope(workstreams, config);
+  assertJoinableContext({ config, scope, who: trimmed, teamctxDir });
+
+  const agent = {
+    key: agentKey(id),
+    name: trimmed,
+    kind: 'agent',
+    ...(scope ? { workstreams: scope } : {}),
+    addedBy: resolved.key,
+    addedAt: new Date().toISOString().slice(0, 10),
+  };
+  writeConfig({ ...config, members: [...members, agent] }, teamctxDir);
+  const git = await commitAndPush(config, `agent: add ${agent.name} by ${displayName}`, projectDir, resolved);
+  return { agent, ...git };
+}
+
+/** Take an agent off the roster. Its token, if still live, is refused from then on. */
+export async function removeAgent({ id, teamctxDir, projectDir, actor } = {}) {
+  const config = readConfig(teamctxDir);
+  const resolved = actor || await resolveActor({ config, cwd: projectDir });
+  const displayName = await resolveDisplayName({ actor: resolved, config, teamctxDir });
+  assertManager(config, { actor: resolved, displayName });
+
+  const members = config.members || [];
+  const agent = agentOnRoster(config, id);
+  if (!agent) throw new MemberNotFoundError(id);
+
+  writeConfig({ ...config, members: members.filter(m => m !== agent) }, teamctxDir);
+  const git = await commitAndPush(config, `agent: remove ${agent.name} by ${displayName}`, projectDir, resolved);
+  return { agent, ...git };
 }
