@@ -203,6 +203,16 @@ describe('contribute for an agent', () => {
     expect(r.isError).toBe(true);
     expect(updateShared).not.toHaveBeenCalled();
   });
+
+  it('does not count a refused workstream against its daily limit', async () => {
+    const session = fakeSession(baseConfig({
+      members: [{ key: 'agent:a1', name: 'Nightly report', kind: 'agent', workstreams: ['pricing'] }],
+    }));
+    const root = { ...ROOT, agent: { ...AGENT, dailyLimit: 1 } };
+    await asAgent(session, 'contribute', { text: 'x', workstream: 'hiring' }, root);
+    await asAgent(session, 'contribute', { text: 'x', workstream: 'nope' }, root);
+    expect(json(await asAgent(session, 'contribute', { text: 'real work' }, root)).mode).toBe('queued');
+  });
 });
 
 describe('task_done for an agent', () => {
@@ -223,7 +233,7 @@ describe('the store the limit is kept in', () => {
   it('is the hosted one, so a limit holds across requests', async () => {
     const session = fakeSession();
     const root = { ...ROOT, agent: { ...AGENT, dailyLimit: 1 } };
-    await kvSet(keys.agentDaily('a1', new Date().toISOString().slice(0, 10)), { count: 1 });
+    await kvSet(keys.agentDaily('a1', new Date().toISOString().slice(0, 10)), 1);
     expect(text(await asAgent(session, 'contribute', { text: 'x' }, root))).toMatch(/daily limit/);
   });
 });

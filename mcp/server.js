@@ -1276,6 +1276,9 @@ export function makeHandlers(projectRoot) {
 
     async contribute(args) {
       const teamctxDir = dir();
+      // Worked out, and scope-checked, before anything is counted: a mistyped or
+      // out-of-scope workstream must not spend an agent's daily limit.
+      const workstreamId = await targetWorkstream(teamctxDir, readConfig(teamctxDir), args.workstream);
       if (agent) {
         if (args.apply) {
           throw new AgentRefusedError("An agent's work always goes to review. Send it without apply.", 'AGENT_ALWAYS_REVIEWED');
@@ -1295,7 +1298,7 @@ export function makeHandlers(projectRoot) {
         // purpose; nobody is watching an agent do it.
         author: agent ? undefined : args.author,
         reviewRequired: !!agent,
-        workstreamId: await targetWorkstream(teamctxDir, readConfig(teamctxDir), args.workstream),
+        workstreamId,
         decision: !!args.decision,
         apply: !!args.apply,
         source: 'mcp',
