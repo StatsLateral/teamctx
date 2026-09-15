@@ -9,6 +9,9 @@ For end-user setup, see the "Use teamctx from your AI tool (MCP)" section in the
 [docs/mcp-manager-guide.md](mcp-manager-guide.md). This file is the technical
 reference for every tool exposed.
 
+An unattended agent on the hosted connector sees only `my_brief`, `contribute`
+and `task_done` — see [docs/agents.md](agents.md).
+
 ## Design principle
 
 Tools are organized into three tiers by blast radius. Every tool that mutates
