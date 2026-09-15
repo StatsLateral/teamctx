@@ -4,6 +4,7 @@ import {
   createAgentToken, verifyAgentToken, touchAgent, listAgents, revokeAgent,
   takeDailyContribution, projectsWithAgentsBy, hashToken, isAgentToken,
   AGENT_TOKEN_PREFIX, DAILY_CONTRIBUTION_LIMIT,
+  setAgentKey, clearAgentKey, readAgentKey, agentKeyStatus, markAgentKeyFailed,
 } from './agent-tokens.js';
 
 const issue = (over = {}) => createAgentToken({
@@ -122,5 +123,52 @@ describe('the daily contribution limit', () => {
   it('counts each agent separately', async () => {
     await takeDailyContribution({ id: 'a1', limit: 1, now: at });
     expect((await takeDailyContribution({ id: 'a2', limit: 1, now: at })).ok).toBe(true);
+  });
+});
+
+describe('an agent\'s own key', () => {
+  it('is optional: an agent starts with none', async () => {
+    await issue();
+    expect(await readAgentKey('a1')).toBe(null);
+    expect(await agentKeyStatus('a1')).toBe(null);
+  });
+
+  it('is stored with its provider and who set it', async () => {
+    await setAgentKey({ id: 'a1', provider: 'openai', apiKey: 'sk-agent', setBy: 'Maya@Example.com' });
+    expect(await readAgentKey('a1')).toMatchObject({ provider: 'openai', apiKey: 'sk-agent', setBy: 'maya@example.com' });
+  });
+
+  it('is never part of what a manager is shown', async () => {
+    await setAgentKey({ id: 'a1', apiKey: 'sk-agent', setBy: 'maya@example.com' });
+    const status = await agentKeyStatus('a1');
+    expect(status).toMatchObject({ provider: 'anthropic' });
+    expect(JSON.stringify(status)).not.toContain('sk-agent');
+    await issue();
+    expect(JSON.stringify(await listAgents('acme', 'ledger'))).not.toContain('sk-agent');
+  });
+
+  it('records when the provider rejected it, and a new key clears that', async () => {
+    await setAgentKey({ id: 'a1', apiKey: 'sk-old' });
+    await markAgentKeyFailed('a1', new Date('2026-09-15T06:00:00Z'));
+    expect((await agentKeyStatus('a1')).failedAt).toBe('2026-09-15T06:00:00.000Z');
+    await setAgentKey({ id: 'a1', apiKey: 'sk-new' });
+    expect((await agentKeyStatus('a1')).failedAt).toBe(null);
+  });
+
+  it('can be cleared, back to the project key', async () => {
+    await setAgentKey({ id: 'a1', apiKey: 'sk-agent' });
+    await clearAgentKey('a1');
+    expect(await readAgentKey('a1')).toBe(null);
+  });
+
+  it('goes when the agent is revoked', async () => {
+    await issue();
+    await setAgentKey({ id: 'a1', apiKey: 'sk-agent' });
+    await revokeAgent({ owner: 'acme', repo: 'ledger', id: 'a1' });
+    expect(await readAgentKey('a1')).toBe(null);
+  });
+
+  it('refuses to store nothing', async () => {
+    await expect(setAgentKey({ id: 'a1', apiKey: '' })).rejects.toThrow(/no key/);
   });
 });

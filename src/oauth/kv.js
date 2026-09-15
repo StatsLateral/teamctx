@@ -212,6 +212,12 @@ export const keys = {
   projectAgents: (owner, repo) => `teamctx:agent:project:${slug(owner, repo)}`,
   /** Projects this address has issued an agent for, so the page can list them. */
   agentsIssuedBy: email => `teamctx:agent:issued-by:${String(email).toLowerCase()}`,
+  /**
+   * An agent's own AI key, set by a manager, and when the provider last rejected
+   * it. Kept apart from the token record so nothing that lists agents can carry
+   * the key along by accident. Long-lived, until cleared or the agent is revoked.
+   */
+  agentAiKey: id => `teamctx:agent:aikey:${id}`,
   /** How many contributions an agent has sent on one UTC day. 2 days. */
   agentDaily: (id, day) => `teamctx:agent:daily:${id}:${day}`,
   /** Browser session for the settings page. 1 hour. */

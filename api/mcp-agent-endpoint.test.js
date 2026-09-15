@@ -11,10 +11,16 @@ const seen = vi.hoisted(() => ({ calls: [] }));
 
 vi.mock('../mcp/http.js', async () => {
   const { resolveActor } = await import('../src/actor.js');
-  const { getRequestAiKey } = await import('../src/ai-context.js');
+  const { getRequestAiKey, getRequestAiProvider, fallBackFromOwnKey } = await import('../src/ai-context.js');
   return {
     handleMcpHttp: vi.fn(async (req, res, ctx) => {
-      seen.calls.push({ ctx, actor: await resolveActor({}), apiKey: getRequestAiKey() });
+      const call = { ctx, actor: await resolveActor({}), apiKey: getRequestAiKey(), provider: getRequestAiProvider() };
+      // What a rejected key does inside a tool call.
+      if (seen.rejectOwnKey) {
+        call.movedOff = fallBackFromOwnKey();
+        call.afterFallback = { apiKey: getRequestAiKey(), provider: getRequestAiProvider() };
+      }
+      seen.calls.push(call);
       res.statusCode = 200;
       res.end('{}');
     }),
@@ -28,7 +34,9 @@ vi.mock('../src/storage.js', async (orig) => ({
 
 const { default: handler } = await import('./mcp/[owner]/[repo].js');
 const { __resetMemory, kvSet, keys } = await import('../src/oauth/kv.js');
-const { createAgentToken, revokeAgent, listAgents } = await import('../src/oauth/agent-tokens.js');
+const {
+  createAgentToken, revokeAgent, listAgents, setAgentKey, agentKeyStatus,
+} = await import('../src/oauth/agent-tokens.js');
 const { addProjectKey } = await import('../src/oauth/ai-keys.js');
 
 function call({ token, owner = 'acme', repo = 'ledger', headers = {} } = {}) {
@@ -49,6 +57,7 @@ let token;
 beforeEach(async () => {
   __resetMemory();
   seen.calls = [];
+  seen.rejectOwnKey = false;
   ({ token } = await createAgentToken({ owner: 'acme', repo: 'ledger', id: 'a1', name: 'Nightly report', issuedBy: 'maya@example.com' }));
   await kvSet(keys.projectGhCred('acme', 'ledger'), { token: 'gh-lent', lentByEmail: 'maya@example.com' });
   await addProjectKey({ owner: 'acme', repo: 'ledger', email: 'maya@example.com', apiKey: 'sk-maya' });
@@ -109,6 +118,31 @@ describe('a request with an agent token', () => {
       delete process.env.GITHUB_OAUTH_CLIENT_ID;
       delete process.env.GITHUB_OAUTH_CLIENT_SECRET;
     }
+  });
+});
+
+describe('an agent with its own key', () => {
+  it("runs on its own key and provider, not the project's", async () => {
+    await setAgentKey({ id: 'a1', provider: 'openai', apiKey: 'sk-agent' });
+    await call({ token });
+    expect(seen.calls[0]).toMatchObject({ apiKey: 'sk-agent', provider: 'openai' });
+  });
+
+  it("moves to the primary manager's key when its own is rejected, and records it", async () => {
+    await setAgentKey({ id: 'a1', provider: 'openai', apiKey: 'sk-agent' });
+    seen.rejectOwnKey = true;
+    await call({ token });
+    expect(seen.calls[0].movedOff).toBe(true);
+    expect(seen.calls[0].afterFallback).toEqual({ apiKey: 'sk-maya', provider: 'anthropic' });
+    await new Promise(r => setTimeout(r, 0));
+    expect((await agentKeyStatus('a1')).failedAt).toMatch(/^\d{4}-/);
+  });
+
+  it('has nothing to move to without a key of its own — it is already on the project key', async () => {
+    seen.rejectOwnKey = true;
+    await call({ token });
+    expect(seen.calls[0].movedOff).toBe(false);
+    expect(seen.calls[0].apiKey).toBe('sk-maya');
   });
 });
 

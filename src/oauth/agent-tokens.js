@@ -109,6 +109,7 @@ export async function revokeAgent({ owner, repo, id } = {}) {
   const found = list.find(a => a.id === id);
   if (!found) return null;
   await kvDelete(keys.agentToken(found.hash));
+  await kvDelete(keys.agentAiKey(id));
   await kvSet(keys.projectAgents(owner, repo), { agents: list.filter(a => a !== found) });
   const { hash, ...agent } = found;
   return agent;
@@ -129,4 +130,44 @@ export async function takeDailyContribution({ id, limit = DAILY_CONTRIBUTION_LIM
   if (used >= limit) return { ok: false, used, limit, resetsAt };
   await kvSet(key, { count: used + 1 }, { ttlSeconds: 2 * DAY_SECONDS });
   return { ok: true, used: used + 1, limit, resetsAt };
+}
+
+/**
+ * Give an agent its own AI key, replacing any it had.
+ *
+ * Optional: an agent without one runs on the primary manager's project key. A
+ * new key clears any earlier failure, since the failure was about the old one.
+ */
+export async function setAgentKey({ id, provider = 'anthropic', apiKey, setBy, now = new Date() } = {}) {
+  if (!id) throw new Error("an agent key needs the agent's id");
+  if (!apiKey) throw new Error('there is no key to set');
+  await kvSet(keys.agentAiKey(id), {
+    provider, apiKey, setBy: setBy ? String(setBy).toLowerCase() : null, setAt: now.toISOString(), failedAt: null,
+  });
+}
+
+/** Put the agent back on the project key. */
+export async function clearAgentKey(id) {
+  await kvDelete(keys.agentAiKey(id));
+}
+
+/** The agent's own key, for the request that runs on it. Never for display. */
+export async function readAgentKey(id) {
+  const record = await kvGet(keys.agentAiKey(id));
+  return record?.apiKey ? record : null;
+}
+
+/** What a manager is shown about an agent's key: never the key itself. */
+export async function agentKeyStatus(id) {
+  const record = await readAgentKey(id);
+  if (!record) return null;
+  const { apiKey, ...status } = record;
+  return status;
+}
+
+/** The provider rejected the agent's own key; the call moved to the project key. */
+export async function markAgentKeyFailed(id, now = new Date()) {
+  const record = await readAgentKey(id);
+  if (!record) return;
+  await kvSet(keys.agentAiKey(id), { ...record, failedAt: now.toISOString() });
 }
