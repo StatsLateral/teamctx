@@ -739,7 +739,13 @@ async function mayLend(user, ref) {
 
   // The same shape resolveActor produces, so the manager gate is matched by the
   // one function that knows every form an identity takes.
-  const actor = { key: `github:${user.id}`, name: user.name || user.login, login: user.login, source: 'github' };
+  // With the address: managers are identified by email, and without it a manager
+  // who is not a repository admin was never matched — which refused the lead a
+  // project is being handed to, exactly the person who has to lend.
+  const actor = {
+    key: `github:${user.id}`, name: user.name || user.login, login: user.login,
+    email: user.email ? String(user.email).toLowerCase() : null, source: 'github',
+  };
   return lendDecision({ config, actor, isAdmin: !!info?.permissions?.admin, slug: `${ref.owner}/${ref.repo}` });
 }
 

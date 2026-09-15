@@ -252,6 +252,29 @@ describe('lending GitHub access', () => {
     } finally { globalThis.fetch = real; }
     expect(await kvGet(keys.projectGhCred('acme', 'ledger'))).toMatchObject({ lentByEmail: 'maya@example.com', lentById: '7' });
   });
+
+  it('lets a manager identified by email lend without being a repository admin', async () => {
+    // A lead being handed a project is usually a collaborator, not an admin, and
+    // is written as git:<email>. Matched by GitHub id alone, they were refused.
+    const real = globalThis.fetch;
+    globalThis.fetch = async (u, o) => {
+      const url = String(u);
+      if (url.includes('/contents/.teamctx/config.json')) {
+        return { ok: true, status: 200, json: async () => ({ content: b64({ ...CONFIG, managerKeys: ['git:dev@example.com'] }) }) };
+      }
+      if (url.includes('api.github.com/repos/')) {
+        return { ok: true, status: 200, json: async () => ({ permissions: { admin: false, push: true } }) };
+      }
+      if (url.includes('api.github.com')) return { ok: true, status: 200, json: async () => ([]) };
+      return real(u, o);
+    };
+    let r;
+    try {
+      r = await as(GITHUB, '/settings/lend', { method: 'POST', form: { project: 'acme/ledger' } });
+    } finally { globalThis.fetch = real; }
+    expect(r.location).toBe('/settings?saved=1');
+    expect(await kvGet(keys.projectGhCred('acme', 'ledger'))).toMatchObject({ lentByEmail: 'dev@example.com' });
+  });
 });
 
 describe('the key a project runs on', () => {
