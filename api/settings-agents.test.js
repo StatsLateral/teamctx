@@ -21,7 +21,9 @@ vi.mock('../src/adapters/github.js', async (orig) => ({
 
 const { kvGet, kvSet, keys, __resetMemory } = await import('../src/oauth/kv.js');
 const { addAgent, removeAgent, MemberNotFoundError } = await import('../cli/commands/member.core.js');
-const { createAgentToken, listAgents, verifyAgentToken, hashToken } = await import('../src/oauth/agent-tokens.js');
+const {
+  createAgentToken, listAgents, verifyAgentToken, hashToken, readAgentKey, setAgentKey, markAgentKeyFailed,
+} = await import('../src/oauth/agent-tokens.js');
 
 let server, base;
 beforeAll(async () => {
@@ -36,10 +38,17 @@ const MAYA_GOOGLE = { id: null, login: null, name: 'Maya', email: 'maya@example.
 const SAM_GOOGLE = { id: null, login: null, name: 'Sam', email: 'sam@example.com', token: null, source: 'google' };
 const b64 = obj => Buffer.from(JSON.stringify(obj)).toString('base64');
 
+/** What the providers' free model-list endpoints answer for a key. */
+const provider = { status: 200, seen: [] };
+
 function stubGithub(config = { project: 'Ledger', managerKey: 'git:maya@example.com' }) {
   const real = globalThis.fetch;
   globalThis.fetch = async (u, o) => {
     const url = String(u);
+    if (/api\.anthropic\.com|api\.openai\.com|generativelanguage\.googleapis\.com/.test(url)) {
+      provider.seen.push(url);
+      return { ok: provider.status === 200, status: provider.status, json: async () => ({}) };
+    }
     if (url.includes('/contents/.teamctx/config.json')) {
       return { ok: true, status: 200, json: async () => ({ content: b64(config) }) };
     }
@@ -68,6 +77,8 @@ let restore;
 beforeEach(async () => {
   __resetMemory();
   vi.clearAllMocks();
+  provider.status = 200;
+  provider.seen = [];
   restore?.();
   restore = stubGithub();
 });
@@ -176,5 +187,112 @@ describe('the list and revoking', () => {
     const r = await as(SAM_GOOGLE, '/settings/agents/revoke', { method: 'POST', form: { project: 'acme/ledger', id: 'a1' } });
     expect(r.location).toMatch(/Only a manager/);
     expect(await verifyAgentToken(token)).toBeTruthy();
+  });
+});
+
+describe("an agent's own key", () => {
+  const create = form => as(MAYA_GOOGLE, '/settings/agents', {
+    method: 'POST', form: { project: 'acme/ledger', agentName: 'Nightly report', ...form },
+  });
+  const idOf = async () => (await listAgents('acme', 'ledger'))[0].id;
+
+  it('is optional when creating an agent', async () => {
+    await lend();
+    expect((await create({})).status).toBe(200);
+    expect(await readAgentKey(await idOf())).toBe(null);
+    expect(provider.seen).toEqual([]);
+  });
+
+  it('is checked with the provider and saved when given', async () => {
+    await lend();
+    await create({ agentProvider: 'openai', agentApiKey: 'sk-agent' });
+    expect(provider.seen).toEqual(['https://api.openai.com/v1/models']);
+    expect(await readAgentKey(await idOf())).toMatchObject({ provider: 'openai', apiKey: 'sk-agent', setBy: 'maya@example.com' });
+  });
+
+  it('refuses a key the provider rejects, and creates no agent', async () => {
+    await lend();
+    provider.status = 401;
+    const r = await create({ agentApiKey: 'sk-bad' });
+    expect(r.location).toMatch(/That key was not saved: anthropic rejected the key/);
+    expect(addAgent).not.toHaveBeenCalled();
+    expect(await listAgents('acme', 'ledger')).toEqual([]);
+  });
+
+  it('accepts a key when the provider cannot be reached to check it', async () => {
+    await lend();
+    provider.status = 503;
+    expect((await create({ agentApiKey: 'sk-agent' })).status).toBe(200);
+    expect(await readAgentKey(await idOf())).toMatchObject({ apiKey: 'sk-agent' });
+  });
+
+  it('never appears on the page', async () => {
+    await lend();
+    const created = await create({ agentApiKey: 'sk-agent-secret' });
+    expect(created.body).not.toContain('sk-agent-secret');
+    const { body } = await as(MAYA_GOOGLE, '/settings');
+    expect(body).not.toContain('sk-agent-secret');
+    expect(body).toContain('Runs on its own Anthropic key, set by maya@example.com');
+  });
+
+  it('shows which key an agent without one runs on', async () => {
+    await lend();
+    await create({});
+    expect((await as(MAYA_GOOGLE, '/settings')).body).toContain('Runs on the project key.');
+  });
+
+  it('tells the manager when the provider rejected it', async () => {
+    await lend();
+    await create({ agentApiKey: 'sk-agent' });
+    await markAgentKeyFailed(await idOf(), new Date('2026-09-15T06:00:00Z'));
+    const { body } = await as(MAYA_GOOGLE, '/settings');
+    expect(body).toMatch(/Anthropic rejected its own key on\s+2026-09-15, so it ran on the project key/);
+  });
+});
+
+describe("changing an agent's key later", () => {
+  const setKey = (user, form) => as(user, '/settings/agents/key', { method: 'POST', form: { project: 'acme/ledger', id: 'a1', ...form } });
+
+  beforeEach(async () => {
+    await lend();
+    await createAgentToken({ owner: 'acme', repo: 'ledger', id: 'a1', name: 'Nightly report', issuedBy: 'maya@example.com' });
+  });
+
+  it('gives it one', async () => {
+    expect((await setKey(MAYA_GOOGLE, { provider: 'gemini', apiKey: 'g-key' })).location).toBe('/settings?saved=1');
+    expect(await readAgentKey('a1')).toMatchObject({ provider: 'gemini', apiKey: 'g-key' });
+  });
+
+  it('replaces one, clearing an earlier failure', async () => {
+    await setAgentKey({ id: 'a1', apiKey: 'sk-old' });
+    await markAgentKeyFailed('a1');
+    await setKey(MAYA_GOOGLE, { apiKey: 'sk-new' });
+    expect(await readAgentKey('a1')).toMatchObject({ apiKey: 'sk-new', failedAt: null });
+  });
+
+  it('puts it back on the project key', async () => {
+    await setAgentKey({ id: 'a1', apiKey: 'sk-old' });
+    await setKey(MAYA_GOOGLE, { clear: '1' });
+    expect(await readAgentKey('a1')).toBe(null);
+  });
+
+  it('refuses a rejected key and keeps the one it had', async () => {
+    await setAgentKey({ id: 'a1', apiKey: 'sk-old' });
+    provider.status = 403;
+    const r = await setKey(MAYA_GOOGLE, { apiKey: 'sk-bad' });
+    expect(r.location).toMatch(/not saved/);
+    expect(await readAgentKey('a1')).toMatchObject({ apiKey: 'sk-old' });
+  });
+
+  it('is refused for someone who is not a manager', async () => {
+    const r = await setKey(SAM_GOOGLE, { apiKey: 'sk-sam' });
+    expect(r.location).toMatch(/Only a manager/);
+    expect(await readAgentKey('a1')).toBe(null);
+  });
+
+  it('is refused for an agent the project does not have', async () => {
+    const r = await setKey(MAYA_GOOGLE, { id: 'nope', apiKey: 'sk' });
+    expect(r.location).toMatch(/No such agent/);
+    expect(await readAgentKey('nope')).toBe(null);
   });
 });

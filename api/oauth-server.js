@@ -20,7 +20,9 @@ import { initProject } from '../cli/commands/init.core.js';
 import { addAgent, removeAgent, MemberNotFoundError } from '../cli/commands/member.core.js';
 import {
   createAgentToken, listAgents, revokeAgent, projectsWithAgentsBy,
+  setAgentKey, clearAgentKey, agentKeyStatus,
 } from '../src/oauth/agent-tokens.js';
+import { verifyProviderKey } from '../src/oauth/manager-checks.js';
 
 /**
  * Single Vercel function serving every OAuth surface. `vercel.json` rewrites
@@ -368,6 +370,7 @@ async function agentsFor(user) {
   for (const slug of projects) {
     const [owner, repo] = slug.split('/');
     const list = await listAgents(owner, repo);
+    for (const agent of list) agent.key = await agentKeyStatus(agent.id);
     if (list.length) out.push({ project: slug, agents: list });
   }
   return out;
@@ -905,6 +908,20 @@ async function asManagerOnRepo(ref, access, fn) {
   return runWithSession(session, fn);
 }
 
+/**
+ * Check a key a manager is giving an agent, with the provider's free model list.
+ *
+ * A key the provider rejects is refused, since the agent would fall back on
+ * every call and the manager would think it was running on its own key. A
+ * provider that cannot be reached just now is no reason to refuse a key that
+ * may well work, so that one is accepted.
+ */
+async function checkAgentKey({ provider, apiKey }) {
+  const checked = await verifyProviderKey({ provider, apiKey });
+  if (checked.ok || checked.transient) return { ok: true };
+  return { ok: false, why: `That key was not saved: ${checked.why}` };
+}
+
 /** Issue an agent: its roster entry first, then the token, shown once. */
 app.post('/settings/agents', async (req, res) => {
   const user = await currentUser(req);
@@ -919,6 +936,15 @@ app.post('/settings/agents', async (req, res) => {
   const access = await agentManagerAccess(user, ref);
   if (!access.ok) return backToSettings(res, access.why);
 
+  // Optional. Checked before anything is written, so a rejected key leaves no
+  // agent behind to clean up.
+  const apiKey = String(req.body?.agentApiKey || '').trim();
+  const keyProvider = String(req.body?.agentProvider || 'anthropic').trim();
+  if (apiKey) {
+    const checked = await checkAgentKey({ provider: keyProvider, apiKey });
+    if (!checked.ok) return backToSettings(res, checked.why);
+  }
+
   const id = randomBytes(6).toString('hex');
   // The roster entry before the token. A token whose entry failed to write
   // would be refused on every call, which is a credential that only looks live.
@@ -930,12 +956,40 @@ app.post('/settings/agents', async (req, res) => {
     return backToSettings(res, e.message);
   }
   const { token } = await createAgentToken({ owner: ref.owner, repo: ref.repo, id, name, issuedBy: user.email });
+  if (apiKey) await setAgentKey({ id, provider: keyProvider, apiKey, setBy: user.email });
   await renderSettings(req, res, user, {
     newAgent: {
       name, token, project: `${ref.owner}/${ref.repo}`,
       url: `${baseUrlFor(req)}/api/mcp/${ref.owner}/${ref.repo}`,
     },
   });
+});
+
+/** Give an agent its own key, replace it, or put it back on the project key. */
+app.post('/settings/agents/key', async (req, res) => {
+  const user = await currentUser(req);
+  if (!user) return res.redirect(303, '/settings');
+  const ref = parseRepoRef(req.body?.project);
+  const id = String(req.body?.id || '').trim();
+  if (!ref || !id) return backToSettings(res, 'Pick the agent first.');
+
+  const access = await agentManagerAccess(user, ref);
+  if (!access.ok) return backToSettings(res, access.why);
+  if (!(await listAgents(ref.owner, ref.repo)).some(a => a.id === id)) {
+    return backToSettings(res, 'No such agent on that project — it may have been revoked.');
+  }
+
+  if (req.body?.clear) {
+    await clearAgentKey(id);
+    return backToSettings(res);
+  }
+  const apiKey = String(req.body?.apiKey || '').trim();
+  const keyProvider = String(req.body?.provider || 'anthropic').trim();
+  if (!apiKey) return backToSettings(res, 'Paste the key to give the agent.');
+  const checked = await checkAgentKey({ provider: keyProvider, apiKey });
+  if (!checked.ok) return backToSettings(res, checked.why);
+  await setAgentKey({ id, provider: keyProvider, apiKey, setBy: user.email });
+  backToSettings(res);
 });
 
 /** Revoke an agent: the token first, so it stops working even if the roster write fails. */
@@ -1147,17 +1201,41 @@ project a GitHub credential, which a Google sign-in does not have.</p>`}
 <h2>Agents</h2>
 <p class="muted">A token for a job that runs with nobody present. An agent can read
 what it is assigned, send work for review, and close its own tasks — nothing else.
-Its work always waits for a manager's approval, it spends up to 20 contributions a
-day on the project's key, and it reads through the GitHub access the project lends.
-Managers only.</p>
+Its work always waits for a manager's approval, it sends at most 20 contributions a
+day, and it reads through the GitHub access the project lends. It runs on its own AI
+key if you give it one, and on the project key otherwise. Managers only.</p>
 ${agents.map(group => `<p class="muted"><code>${esc(group.project)}</code></p>${group.agents.map(a => `
-<form method="POST" action="/settings/agents/revoke" style="margin:.35rem 0">
-  <input type="hidden" name="project" value="${esc(group.project)}">
-  <input type="hidden" name="id" value="${esc(a.id)}">
+<div style="margin:.5rem 0 .9rem">
   ${esc(a.name)} <span class="muted">— issued by ${esc(a.issuedBy)} on ${esc(String(a.createdAt).slice(0, 10))},
   ${a.lastUsedAt ? `last used ${esc(String(a.lastUsedAt).slice(0, 10))}` : 'never used'}</span>
-  <button type="submit" class="link">Revoke</button>
-</form>`).join('')}`).join('')}
+  <div class="muted">Runs on ${a.key
+    ? `its own ${esc(providerLabel(a.key.provider))} key, set by ${esc(a.key.setBy || 'a manager')} on ${esc(String(a.key.setAt).slice(0, 10))}`
+    : 'the project key'}.</div>
+  ${a.key?.failedAt ? `<div class="bad">${esc(providerLabel(a.key.provider))} rejected its own key on
+  ${esc(String(a.key.failedAt).slice(0, 10))}, so it ran on the project key. Replace the key, or put it on the project key.</div>` : ''}
+  <details>
+    <summary class="muted">${a.key ? 'Change its key' : 'Give it its own key'}</summary>
+    <form method="POST" action="/settings/agents/key">
+      <input type="hidden" name="project" value="${esc(group.project)}">
+      <input type="hidden" name="id" value="${esc(a.id)}">
+      ${providerSelect(`agentKeyProvider-${esc(a.id)}`, 'provider')}
+      <label for="agentKey-${esc(a.id)}">API key</label>
+      <input id="agentKey-${esc(a.id)}" name="apiKey" type="password" autocomplete="off" required>
+      <button type="submit">Save key</button>
+    </form>
+    ${a.key ? `<form method="POST" action="/settings/agents/key">
+      <input type="hidden" name="project" value="${esc(group.project)}">
+      <input type="hidden" name="id" value="${esc(a.id)}">
+      <input type="hidden" name="clear" value="1">
+      <button type="submit" class="link">Put it on the project key</button>
+    </form>` : ''}
+  </details>
+  <form method="POST" action="/settings/agents/revoke" style="margin:.2rem 0">
+    <input type="hidden" name="project" value="${esc(group.project)}">
+    <input type="hidden" name="id" value="${esc(a.id)}">
+    <button type="submit" class="link">Revoke</button>
+  </form>
+</div>`).join('')}`).join('')}
 <form method="POST" action="/settings/agents">
   <label for="agentProject">Project</label>
   ${projectPicker('agentProject', repos)}
@@ -1166,6 +1244,10 @@ ${agents.map(group => `<p class="muted"><code>${esc(group.project)}</code></p>${
   <label for="agentWorkstreams">Workstreams (optional)</label>
   <input id="agentWorkstreams" name="agentWorkstreams" placeholder="pricing, onboarding — leave empty for the whole project">
   <p class="muted">Give it work by assigning tasks to this name.</p>
+  ${providerSelect('agentProvider', 'agentProvider')}
+  <label for="agentApiKey">Its own AI key (optional)</label>
+  <input id="agentApiKey" name="agentApiKey" type="password" autocomplete="off" placeholder="Leave empty to run on the project key">
+  <p class="muted">If the provider ever rejects it, the agent runs on the project key and this page says so.</p>
   <button type="submit">Create agent</button>
 </form>
 </section>
@@ -1187,6 +1269,14 @@ in with that same address. Use GitHub if you work on the repository directly.</p
  * Falls back to a text field when the listing failed or is empty — a dropdown
  * with nothing in it is worse than the field it replaced.
  */
+const PROVIDER_LABELS = { anthropic: 'Anthropic', openai: 'OpenAI', gemini: 'Google Gemini' };
+const providerLabel = id => PROVIDER_LABELS[id] || id || 'Anthropic';
+
+const providerSelect = (id, name) => `<label for="${id}">Provider</label>
+  <select id="${id}" name="${name}">
+    ${Object.entries(PROVIDER_LABELS).map(([value, label]) => `<option value="${value}">${label}</option>`).join('')}
+  </select>`;
+
 const projectPicker = (id, repos) => (repos.length
   // A `select` only jumps to the first letter, so finding one repo among
   // dozens means scrolling. A datalist filters on any part of what you type,
