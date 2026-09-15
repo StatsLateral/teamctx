@@ -2,7 +2,7 @@
 
 **Status:** Proposal · **Serves:** Managers in control ·
 **Rough size:** Large — a gated write path for managers, keys stored by email,
-Google sign-in on the settings page, and a key check before promotion ·
+Google sign-in on the settings page, and checks before a new primary ·
 **Issue:** [#86](https://github.com/StatsLateral/teamctx/issues/86)
 · **Unblocks:** [#87](https://github.com/StatsLateral/teamctx/issues/87) (the handoff recipe)
 
@@ -89,7 +89,8 @@ Surfaces: `teamctx manager list | add | remove | transfer`, and MCP tools
   treats it as no gate, and lets anyone approve.
 - **The primary cannot leave without a successor.** Removing the primary is
   refused; `transfer` is the way out.
-- **Nobody becomes a manager without a working key** — section 7.
+- **Nobody becomes primary without a working key, or without holding the GitHub
+  access the project lends** — section 7.
 - **Nobody steps out while the project still runs on them** — section 8.
 
 ### 5. Keys stored by email
@@ -122,14 +123,26 @@ Otherwise **the primary manager's project key**. Other people's project keys are
 stored but not used unless that person becomes primary — which is what makes a
 handoff a matter of changing who is primary, rather than moving a secret.
 
-### 7. The key check before becoming a manager
+### 7. The checks before becoming primary
 
-Before `add` or `transfer` completes, the person being promoted must have added a
-project key, and that key is tested with the provider's **list-models** endpoint.
-It confirms the key works and spends no tokens. A missing or failing key refuses
-the promotion and says which.
+Both run on `transfer`, against the incoming primary. Adding a co-manager runs
+neither: a co-manager approves, but the project never runs on anything of theirs.
 
-The result is written into the commit that changes the gate.
+**A working key.** The incoming primary must have added a project key, and that
+key is tested with the provider's **list-models** endpoint. It confirms the key
+works and spends no tokens. A missing or failing key refuses the transfer and
+says which.
+
+**The GitHub access the project lends.** Members who signed in with Google reach
+the project through access one person lent. If the project lends access, the
+incoming primary must be the one lending it — otherwise the project depends on
+somebody who is not its primary, and may leave. The refusal gives the steps: make
+them a co-manager if they are not one, they sign in with GitHub and lend access,
+then transfer again. Lending needs a GitHub sign-in, so a primary who has only a
+Google account can take over a project that lends nothing, but not one that
+lends. A project that lends nothing passes.
+
+Both results are written into the commit that changes the gate.
 
 ### 8. Nobody steps out while the project still runs on them
 
@@ -179,7 +192,8 @@ Recorded here so the commits and the pull request can cite them.
 8. Anyone on the project may add a project key; the settings page gains Google
    sign-in.
 9. A request runs on the caller's own key, then the primary manager's project key.
-10. Promotion requires a project key that passes a free list-models check.
+10. Becoming primary requires a project key that passes a free list-models check.
+    Adding a co-manager checks no key.
 11. Lent GitHub access stays GitHub-only; a manager cannot step out while it is theirs.
 12. On a deployed project, manager changes happen through the connector.
 13. Repair stays a separate command.
@@ -199,6 +213,10 @@ Recorded here so the commits and the pull request can cite them.
     reappear when the key is cleared from a Google sign-in.
 21. Lending GitHub access requires a verified address, so every lent record can
     be matched to the manager who lent it.
+22. When a project lends GitHub access, it can be transferred only to the person
+    lending it. A project that lends nothing needs no such check.
+23. Lending matches the signed-in person against the managers by their verified
+    address, so a manager who is not a repository admin can lend.
 
 ## Out of scope
 
@@ -211,8 +229,10 @@ Recorded here so the commits and the pull request can cite them.
 - A manager written by email approves from a clone, a GitHub sign-in and a
   Google sign-in. A username or GitHub id is refused as a manager.
 - The gate is never left empty, and the primary cannot be removed.
-- A promotion is refused without a project key, and refused when that key fails
-  the list-models check; neither writes anything.
+- A transfer is refused without a project key, and refused when that key fails
+  the list-models check; neither writes anything. Adding a co-manager needs no key.
+- A transfer of a project that lends GitHub access is refused unless the incoming
+  primary lent it, and says how to fix it.
 - A request with no personal key runs on the primary manager's project key, and
   changes key when the primary changes.
 - A Google sign-in on the settings page reaches the same keys as a GitHub sign-in
@@ -221,4 +241,4 @@ Recorded here so the commits and the pull request can cite them.
 - A manager cannot step down while the lent GitHub access is theirs.
 - On a deployed project the terminal refuses and points at the connector.
 - Keys saved under a GitHub id before this change still work.
-- Every change is one attributed commit recording the key check.
+- Every change is one attributed commit recording the checks on a new primary.

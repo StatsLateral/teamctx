@@ -33,9 +33,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   recognise. Existing projects need nothing: their manager is already the
   primary. Closes #86.
 - **The project runs on its primary manager's key, and a new manager brings
-  their own.** Before anyone is made a manager, they must have added a working
-  key to the project themselves; it is checked with the provider's list-models
-  endpoint, which spends nothing, and the result is recorded in the commit. A
+  their own.** Before anyone is made primary manager, they must have added a
+  working key to the project themselves; it is checked with the provider's
+  list-models endpoint, which spends nothing, and the result is recorded in the
+  commit. A co-manager needs no key. If the project lends GitHub access, the new
+  primary must also be the one lending it, so members who signed in with Google
+  never depend on somebody who is no longer in charge. A
   request with no key of its own runs on the primary manager's project key, so
   handing a project over changes whose key it runs on without moving a secret
   between people. Nobody can step out while members still reach the project
@@ -44,6 +47,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   without a key of their own loses the model. On a deployed project, manager changes are made through the
   connector, where these checks can run; from a clone they are refused with that
   instruction.
+- **A manager who is not a repository admin can lend GitHub access.** Lending
+  matched the signed-in person against the managers by GitHub id alone, and
+  managers are identified by email, so only repository admins got through.
 - **Sign in to the settings page with Google.** It offered only GitHub, so
   somebody added to a project by email could not save a key at all. Anyone on a
   project — a manager, a roster member, or somebody with push access — can now

@@ -85,9 +85,11 @@ the team aligned on.
 - **Handing a project over is \`manager_transfer\`.** The project runs on its
   primary manager's key, so the person taking over must first add a key of their
   own to the project on the teamctx settings page, signed in as the address they
-  are being made manager with. If the transfer refuses for that reason, tell them
-  exactly that, and do not suggest sharing the old manager's key. A manager is
-  named by email address, never by username.
+  are being made manager with. If the project lends GitHub access, they must also
+  be the one lending it: made a co-manager first if they are not one, they sign in
+  to the settings page with GitHub and lend it. If the transfer refuses for either
+  reason, tell them exactly that, and do not suggest sharing the old manager's key
+  or access. A manager is named by email address, never by username.
 - **\`get_status\` first, when you do not know where you are.** It answers who
   is calling, which project, and whether it is set up at all.
 - **Tools marked RISKY change or delete things.** Confirm with the user first,
