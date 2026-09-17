@@ -59,7 +59,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the project runs on, since it is theirs, but is warned first that everyone
   without a key of their own loses the model. On a deployed project, manager changes are made through the
   connector, where these checks can run; from a clone they are refused with that
-  instruction.
+  instruction. Because the terminal tells a deployed project by its `deployUrl`,
+  only a manager can change that value, and once recorded it cannot be cleared.
 - **A manager who is not a repository admin can lend GitHub access.** Lending
   matched the signed-in person against the managers by GitHub id alone, and
   managers are identified by email, so only repository admins got through.
