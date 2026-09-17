@@ -487,7 +487,7 @@ export const TOOLS = [
   },
   {
     name: 'config_set',
-    description: RISKY + "writes a single config key. Project-wide keys: provider, model, githubRawBase, managerEmail, deployUrl, autoPush — these change the project for everyone. Personal key: name — the display name used on the caller's own contributions, stored against them and never written to the repo. Who may approve is fixed at init and cannot be changed here. Changing `provider` may reset `model`." + REPORT,
+    description: RISKY + "writes a single config key. Project-wide keys: provider, model, githubRawBase, managerEmail, deployUrl, autoPush — these change the project for everyone. Personal key: name — the display name used on the caller's own contributions, stored against them and never written to the repo. Who may approve is fixed at init and cannot be changed here. `deployUrl` is the managers' to change, and once recorded it cannot be cleared — it is how the terminal knows manager changes need the hosted checks. Changing `provider` may reset `model`." + REPORT,
     inputSchema: {
       type: 'object',
       properties: {

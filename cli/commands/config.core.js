@@ -245,6 +245,23 @@ export async function setConfig({ key, value, teamctxDir, projectDir } = {}) {
       notes.push('a display name is not a secure gate — anyone can set that name as their own. Prefer `managerKey` (or `manager --me`).');
       if (you !== raw) notes.push(`your current identity (${you}) will no longer be able to approve/reject.`);
     }
+  } else if (key === 'deployUrl') {
+    // The terminal decides whether a manager change needs the checks only the
+    // hosted server can run by whether this is set. So it is a manager's to
+    // change, and once recorded it cannot be cleared: clearing it was enough to
+    // make the terminal treat a deployed project as undeployed, and let a
+    // handover through with no key, lending or step-out check.
+    const actor = await resolveActor({ config, cwd: projectDir });
+    if (managerKeys(config).length > 0 || config.manager) {
+      assertManager(config, { actor, displayName: await resolveDisplayName({ actor, config, teamctxDir }) });
+    }
+    const v = String(value ?? '').trim();
+    if (!v && String(config.deployUrl || '').trim()) {
+      throw new InvalidConfigValueError(
+        'deployUrl cannot be cleared once it is recorded: it is how the terminal knows manager changes on this '
+        + 'project need the checks the hosted server runs. If the deployment moved, set its new address instead.');
+    }
+    next.deployUrl = v;
   } else if (key === 'autoPush') {
     next.autoPush = value === true || value === 'true' || value === 'y' || value === 'yes' || value === 1;
   } else {
