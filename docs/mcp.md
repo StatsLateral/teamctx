@@ -85,7 +85,7 @@ marked *(manager-gated)* require the caller to pass `author` matching
 | `snapshot_approve({id, author})` | *(manager-gated)* Approve and set current pointer. |
 | `snapshot_reject({id, reason?, author})` | *(manager-gated)* Reject a pending snapshot. |
 | `reflect({workstream?})` | AI-rewrite a workstream's tree. Can meaningfully change how context reads. |
-| `config_set({key, value})` | Write a single config key. Whitelisted keys only: `provider`, `model`, `githubRawBase`, `manager`, `managerEmail`, `deployUrl`, `autoPush`. |
+| `config_set({key, value})` | Write a single config key. Whitelisted keys only: `provider`, `model`, `githubRawBase`, `managerEmail`, `deployUrl`, `autoPush`. `deployUrl` is manager-only, and cannot be cleared once recorded. |
 
 ## Manager gate
 
