@@ -780,7 +780,7 @@ export function makeHandlers(projectRoot) {
         activeWorkstream: await targetWorkstream(teamctxDir, config, undefined),
         teamctxDir, projectDir: gitCwd, actor,
       });
-      return textResult({ ...brief, reportBack: `Tell the user: ${brief.frame}` });
+      return textResult({ ...brief, reportBack: `Tell the user: they are ${brief.me} on this project. ${brief.frame}` });
     },
 
     async get_status() {

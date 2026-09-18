@@ -60,6 +60,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and points here instead. Closes #83.
 
 ### Fixed
+- **A member who signs in with GitHub is called what the manager named them.**
+  They were named after their GitHub login instead, even when their verified
+  address matched their roster entry. Tasks assigned to their roster name never
+  reached them, their work was credited to the login, and an assistant — left to
+  guess who that login was — could take it for someone else's name in the
+  project. A Google sign-in was already named from the roster; a GitHub sign-in
+  now is too, matched by address or login, and a name they set for themselves
+  still wins. `my_brief` also states who the caller is.
 - **Adding someone to a project handed over nothing.** `member_add` wrote the
   roster entry and reported success; the link that person needs to reach the
   project took a second call, and on a real project that call was never made —
