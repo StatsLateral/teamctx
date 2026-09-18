@@ -60,6 +60,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and points here instead. Closes #83.
 
 ### Fixed
+- **The roster records who added a member by email, not GitHub id.** A member
+  added by somebody signed in with GitHub was recorded as added by
+  `github:<id>` — meaningless to anyone reading the roster, and not the form
+  managers are identified by. It is now their verified address, `git:<email>`,
+  whichever way they signed in; the GitHub id is kept only when a sign-in carried
+  no address. Existing entries are left as they were written.
 - **A member who signs in with GitHub is called what the manager named them.**
   They were named after their GitHub login instead, even when their verified
   address matched their roster entry. Tasks assigned to their roster name never

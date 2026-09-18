@@ -3,6 +3,7 @@ import { promisify } from 'util';
 import { readConfig, writeConfig } from '../../src/storage.js';
 import { commitContext, pushContext } from '../../src/git.js';
 import { resolveActor } from '../../src/actor.js';
+import { recordedKey } from '../../src/recorded-key.js';
 import { resolveDisplayName } from '../../src/prefs.js';
 import { assertManager } from './review.core.js';
 import { assertJoinableContext } from '../../src/context-gate.js';
@@ -271,7 +272,8 @@ export async function addMember({
     // Absent rather than empty for a project-wide member, so a roster written
     // before scopes existed and one written after are the same shape.
     ...(scope ? { workstreams: scope } : {}),
-    addedBy: resolved.key,
+    // By address, like managers — see recordedKey.
+    addedBy: recordedKey(resolved),
     addedAt: new Date().toISOString().slice(0, 10),
   };
 
