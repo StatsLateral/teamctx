@@ -41,12 +41,12 @@ describe('the settings page has a shape', () => {
 
   it('gives every section its own heading', async () => {
     // The AI-key section had none, so it read as a continuation of the header.
-    expect(count(await settings(), /<h2>/g)).toBe(3);
+    expect(count(await settings(), /<h2>/g)).toBe(4);
   });
 
   it('separates sections with cards rather than rules', async () => {
     const body = await settings();
-    expect(count(body, /class="card"/g)).toBe(3);
+    expect(count(body, /class="card"/g)).toBe(4);
     expect(count(body, /<hr/g)).toBe(0);
   });
 

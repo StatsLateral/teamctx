@@ -65,6 +65,9 @@ async function commitAndOptionallyPush(config, msg, projectDir) {
 export async function contributeCore({
   text, author, workstreamId, decision = false, apply = false,
   source = 'cli', teamctxDir, projectDir,
+  // Review whatever the project's policy says. An unattended agent has earned
+  // none of the trust `additive` extends to a person adding context.
+  reviewRequired = false,
   // Forwarded to the distiller. `import` sets intent:'document' so prose is
   // read for durable context rather than treated as a deliberate update.
   intent, avoid,
@@ -123,7 +126,7 @@ export async function contributeCore({
   // shared context, and the terminal was asking "submit for manager approval?"
   // before it knew that — so somebody answering yes was told their work had
   // gone to a queue it never entered.
-  const willQueue = !apply && needsReview(config, operations);
+  const willQueue = !apply && (reviewRequired || needsReview(config, operations));
   if (onProposed && (await onProposed({ summary, operations, willQueue })) === false) {
     return {
       id: contribution.id, workstream: targetId, author: actor, source,
@@ -136,7 +139,7 @@ export async function contributeCore({
   // the project requires review of these operations at all — a member whose
   // contribution only adds is not acting as the manager by skipping a queue the
   // project does not want.
-  if (!apply && needsReview(config, operations)) {
+  if (willQueue) {
     writeQueueItem({
       id: contribution.id, status: 'pending', createdAt: contribution.ts,
       author: contribution.author, source, workstream: targetId,
