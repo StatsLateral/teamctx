@@ -4,6 +4,7 @@ import { getCurrentSession } from './session-context.js';
 import { getTeamctxDir } from './storage.js';
 import { kvGet, kvSet, keys } from './oauth/kv.js';
 import { isProjectLevel } from './project-level.js';
+import { rosterEntry } from './member-scope.js';
 
 /**
  * Per-user settings.
@@ -169,6 +170,15 @@ export async function resolveActiveWorkstream({ actor, config, teamctxDir } = {}
 export async function resolveIdentity({ actor, config, teamctxDir } = {}) {
   const prefs = await readPrefs(actor, teamctxDir);
   if (prefs.name) return { name: prefs.name, source: 'override' };
+  // A GitHub sign-in that the roster names is called what the manager called
+  // them, not their GitHub login. A Google sign-in already is — its identity is
+  // the roster entry — and a member named one way through Google and another
+  // through GitHub was two people: tasks assigned to "Ashutosh" never reached
+  // "satyagya1", and an assistant filled the gap by guessing from the project.
+  if (actor?.source === 'github') {
+    const member = rosterEntry(config, actor);
+    if (member?.name) return { name: member.name, source: 'roster' };
+  }
   if (actor?.name) return { name: actor.name, source: actor.source };
   if (config?.me) return { name: config.me, source: 'config' };
   return { name: 'unknown', source: 'fallback' };

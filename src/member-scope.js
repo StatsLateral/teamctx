@@ -42,7 +42,13 @@ export function memberWorkstreams(member) {
   return ids.length ? [...new Set(ids)] : null;
 }
 
-function rosterEntry(config, actor) {
+/**
+ * The roster entry that is this caller, or null.
+ *
+ * Matched by key, by verified address, or by GitHub login — every form one person
+ * arrives in. Exported so the display name can come from the entry too.
+ */
+export function rosterEntry(config, actor) {
   const members = config?.members || [];
   if (!members.length || !actor) return null;
   const key = String(actor.key || '').toLowerCase();
