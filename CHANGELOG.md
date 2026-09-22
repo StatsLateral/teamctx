@@ -122,6 +122,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `.js` file under `api/` as its own function, test files included, which put a
   deployment at the Hobby plan's limit of 12 with only 5 real handlers. A
   `.vercelignore` now leaves `api/**/*.test.js` out of the deployment.
+- **The roster records who added a member by email, not GitHub id.** A member
+  added by somebody signed in with GitHub was recorded as added by
+  `github:<id>` — meaningless to anyone reading the roster, and not the form
+  managers are identified by. It is now their verified address, `git:<email>`,
+  whichever way they signed in; the GitHub id is kept only when a sign-in carried
+  no address. Existing entries are left as they were written.
+- **A member who signs in with GitHub is called what the manager named them.**
+  They were named after their GitHub login instead, even when their verified
+  address matched their roster entry. Tasks assigned to their roster name never
+  reached them, their work was credited to the login, and an assistant — left to
+  guess who that login was — could take it for someone else's name in the
+  project. A Google sign-in was already named from the roster; a GitHub sign-in
+  now is too, matched by address or login, and a name they set for themselves
+  still wins. `my_brief` also states who the caller is.
 - **Adding someone to a project handed over nothing.** `member_add` wrote the
   roster entry and reported success; the link that person needs to reach the
   project took a second call, and on a real project that call was never made —

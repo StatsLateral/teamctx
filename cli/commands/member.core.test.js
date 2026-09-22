@@ -111,6 +111,13 @@ describe('adding', () => {
     expect(r.member.addedAt).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
 
+  it('records who added them by address when the sign-in carried one, not by GitHub id', async () => {
+    // Managers are identified by email; a roster that said "added by
+    // github:123818561" named nobody a reader could recognise.
+    const r = await addMember({ ref: 'priyar', actor: { ...MANAGER, email: 'Maya@Example.com' } });
+    expect(r.member.addedBy).toBe('git:maya@example.com');
+  });
+
   it('keys a member the same way the actor system does', async () => {
     // Sharing the key is what joins a member up with the contributions they
     // have already made, and with the authorKey grouping stats counts by.
