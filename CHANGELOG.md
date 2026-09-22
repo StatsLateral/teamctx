@@ -70,6 +70,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   add a key to it, and a project holds one key per person instead of a single
   slot the first sharer owned. Lending GitHub access and creating a project still
   need a GitHub sign-in.
+- **A recipe for building a project for a client, then handing it over.**
+  `recipes/hand-off-to-a-client.md` walks a builder through seeding a project
+  from the documents a client signed off on, adding the reasoning behind them,
+  and bringing in the client's people — then either staying on as manager or
+  handing over, repository and all. It tells the client what to expect,
+  including the one GitHub account a handover needs. Closes #87.
 
 ### Changed
 - **AI keys on the hosted server are stored by verified email.** They were
