@@ -126,6 +126,9 @@ export async function buildBrief({
 
   return {
     me,
+    // Who this is, stated, so an assistant never has to infer it from whatever
+    // names the project's context happens to mention.
+    you: { name: me, email: resolved.email ? String(resolved.email).toLowerCase() : null },
     project: config.project,
     where: places,
     frame,
