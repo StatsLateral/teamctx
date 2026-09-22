@@ -49,7 +49,11 @@ import { resolveActiveWorkstream, resolveIdentity, resolveDisplayName } from '..
 import { isBrokenGate } from '../src/manager-repair.js';
 import { listManagers, addManager, removeManager, transferManager } from '../cli/commands/manager.core.js';
 import { keyCheckFor, lendCheckFor, stepOutCheckFor } from '../src/oauth/manager-checks.js';
-import { INSTRUCTIONS } from './instructions.js';
+import { INSTRUCTIONS, AGENT_INSTRUCTIONS } from './instructions.js';
+import {
+  AGENT_TOOLS, agentOnRoster, agentOwnsTask, AgentRefusedError,
+} from '../src/agents.js';
+import { takeDailyContribution } from '../src/oauth/agent-tokens.js';
 
 export function resolveProjectDir(argv = process.argv.slice(2), env = process.env, cwd = process.cwd()) {
   const flagIdx = argv.findIndex(a => a === '--project' || a === '-p');
@@ -614,6 +618,10 @@ export function makeHandlers(projectRoot) {
   // to anything that shells out to git.
   const gitCwd = isHosted ? undefined : projectRoot;
 
+  // Set only by the hosted endpoint, and only for a request that brought an
+  // agent token. See src/agents.js.
+  const agent = isHosted ? projectRoot.agent || null : null;
+
   const who = async (teamctxDir, config) => {
     const actor = await resolveActor({ config, cwd: gitCwd });
     const identity = await resolveIdentity({ actor, config, teamctxDir });
@@ -636,6 +644,10 @@ export function makeHandlers(projectRoot) {
    */
   const scope = async (teamctxDir, config) => {
     const actor = await resolveActor({ config, cwd: gitCwd });
+    // Never asked whether an agent can approve. A manager has no scope at all,
+    // and on a project with no gate everyone passes as one — as does an agent
+    // sharing the name of a display-name gate.
+    if (agent) return scopeFor(config, actor, { isManager: false });
     const displayName = await resolveDisplayName({ actor, config, teamctxDir });
     return scopeFor(config, actor, {
       isManager: canApprove(config, { actor, displayName }),
@@ -1060,6 +1072,14 @@ export function makeHandlers(projectRoot) {
     async task_done(args = {}) {
       const teamctxDir = dir();
       await assertTaskInScope(teamctxDir, args.id);
+      if (agent) {
+        // Anyone may close any task; an agent only its own. Closing somebody
+        // else's work unattended is a mistake nobody is there to notice.
+        const actor = await resolveActor({ config: readConfig(teamctxDir), cwd: gitCwd });
+        if (!agentOwnsTask(getTask({ id: args.id, teamctxDir }), actor)) {
+          throw new AgentRefusedError(`Task ${args.id} is not assigned to this agent, so it cannot mark it done.`, 'AGENT_NOT_TASK_OWNER');
+        }
+      }
       const r = await setTaskStatus({
         id: args.id, status: 'done', teamctxDir, projectDir: gitCwd,
       });
@@ -1256,10 +1276,29 @@ export function makeHandlers(projectRoot) {
 
     async contribute(args) {
       const teamctxDir = dir();
+      // Worked out, and scope-checked, before anything is counted: a mistyped or
+      // out-of-scope workstream must not spend an agent's daily limit.
+      const workstreamId = await targetWorkstream(teamctxDir, readConfig(teamctxDir), args.workstream);
+      if (agent) {
+        if (args.apply) {
+          throw new AgentRefusedError("An agent's work always goes to review. Send it without apply.", 'AGENT_ALWAYS_REVIEWED');
+        }
+        // Before distilling, because distilling is the AI call the limit bounds.
+        const taken = await takeDailyContribution({ id: agent.id, limit: agent.dailyLimit });
+        if (!taken.ok) {
+          throw new AgentRefusedError(
+            `This agent has sent ${taken.limit} contributions today, its daily limit. It can send more after ${taken.resetsAt}.`,
+            'AGENT_DAILY_LIMIT',
+          );
+        }
+      }
       const r = await contributeCore({
         text: args.text,
-        author: args.author,
-        workstreamId: await targetWorkstream(teamctxDir, readConfig(teamctxDir), args.workstream),
+        // An agent writes as itself. A person's script may set an author on
+        // purpose; nobody is watching an agent do it.
+        author: agent ? undefined : args.author,
+        reviewRequired: !!agent,
+        workstreamId,
         decision: !!args.decision,
         apply: !!args.apply,
         source: 'mcp',
@@ -1506,6 +1545,69 @@ export function makeHandlers(projectRoot) {
   };
 }
 
+/**
+ * The agent's own descriptions of its three tools.
+ *
+ * The person-facing ones talk about managers, founding contributions and
+ * `apply`, none of which an agent can act on; a description that offers a
+ * choice the server will refuse is an instruction to fail.
+ */
+const AGENT_TOOL_DEFS = {
+  my_brief: {
+    name: 'my_brief',
+    description: 'Call this first, every run. What this agent is assigned — its open tasks, grouped by where the work sits — and the compiled context for the part of the project it is on. Read it before doing any work. Read-only, and spends no AI call.',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+  },
+  contribute: {
+    name: 'contribute',
+    description: "Send finished work back to the project. It always goes to a manager for review; nothing lands without their approval. Each call spends an AI call on the project's key, and an agent has a daily limit, so send one contribution per piece of work rather than one per line. decision:true marks it as a decision the team is committing to. Returns { id, mode, summary, operations }.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        text: { type: 'string', description: 'The work, in plain prose' },
+        workstream: { type: 'string', description: "Which part of the project it belongs to. Omit for the agent's own." },
+        decision: { type: 'boolean' },
+      },
+      required: ['text'], additionalProperties: false,
+    },
+  },
+  task_done: {
+    name: 'task_done',
+    description: "Mark one of this agent's own tasks done, after contributing the work for it. A task assigned to anyone else is refused.",
+    inputSchema: {
+      type: 'object',
+      properties: { id: { type: 'string', description: 'Task id, from my_brief' } },
+      required: ['id'], additionalProperties: false,
+    },
+  },
+};
+
+/** What a caller is shown by `tools/list`. An agent sees only what it may call. */
+export function toolsFor(projectRoot) {
+  return projectRoot?.agent ? AGENT_TOOLS.map(name => AGENT_TOOL_DEFS[name]) : TOOLS;
+}
+
+/**
+ * Run one tool call, holding an agent to its tools.
+ *
+ * Hiding a tool from the list restricts nothing on its own — a script can send
+ * any name. So every call is checked against the same list, and a name that is
+ * not on it gets exactly the answer a tool that does not exist gets.
+ */
+export async function callTool(handlers, projectRoot, name, args = {}) {
+  const agent = projectRoot?.agent || null;
+  const handler = agent && !AGENT_TOOLS.includes(name) ? null : handlers[name];
+  if (!handler) throw new Error(`Unknown tool: ${name}`);
+  try {
+    if (agent && !agentOnRoster(readConfig(projectRoot), agent.id)) {
+      throw new AgentRefusedError('This agent is no longer on the project. Ask a manager to issue a new token.', 'AGENT_NOT_ON_ROSTER');
+    }
+    return await handler.call(handlers, args);
+  } catch (err) {
+    return { content: [{ type: 'text', text: `Error: ${err.message}` }], isError: true };
+  }
+}
+
 export function buildServer(projectRoot) {
   const handlers = makeHandlers(projectRoot);
 
@@ -1514,20 +1616,13 @@ export function buildServer(projectRoot) {
     // `instructions` reaches the model once, before any tool call. Without it a
     // host has the whole surface and no idea when to reach for any of it — see
     // mcp/instructions.js.
-    { capabilities: { tools: {} }, instructions: INSTRUCTIONS },
+    { capabilities: { tools: {} }, instructions: projectRoot?.agent ? AGENT_INSTRUCTIONS : INSTRUCTIONS },
   );
 
-  server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: TOOLS }));
+  server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: toolsFor(projectRoot) }));
 
-  server.setRequestHandler(CallToolRequestSchema, async (req) => {
-    const handler = handlers[req.params.name];
-    if (!handler) throw new Error(`Unknown tool: ${req.params.name}`);
-    try {
-      return await handler.call(handlers, req.params.arguments || {});
-    } catch (err) {
-      return { content: [{ type: 'text', text: `Error: ${err.message}` }], isError: true };
-    }
-  });
+  server.setRequestHandler(CallToolRequestSchema, async req =>
+    callTool(handlers, projectRoot, req.params.name, req.params.arguments || {}));
 
   return server;
 }

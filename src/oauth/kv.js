@@ -96,6 +96,27 @@ export async function kvDelete(key, env = process.env) {
 }
 
 /**
+ * Add one to a counter and return the new count, atomically.
+ *
+ * A read followed by a write lets two concurrent callers read the same count
+ * and both go under a limit. `INCR` is one step in Redis; the expiry is set when
+ * the counter is first created, so it lasts from its first use.
+ */
+export async function kvIncr(key, { ttlSeconds } = {}, env = process.env) {
+  const cfg = restConfig(env);
+  if (!cfg) {
+    // In-memory: read and write happen in one synchronous turn.
+    const current = Number(memGet(key) || 0) + 1;
+    const rec = memory.get(key);
+    memory.set(key, { value: current, expiresAt: rec?.expiresAt ?? (ttlSeconds ? Date.now() + ttlSeconds * 1000 : null) });
+    return current;
+  }
+  const count = Number(await restCommand(cfg, ['INCR', key]));
+  if (count === 1 && ttlSeconds) await restCommand(cfg, ['EXPIRE', key, String(ttlSeconds)]);
+  return count;
+}
+
+/**
  * Read-and-delete. Used for one-shot artefacts (authorization codes,
  * pending-authorization state) so they can't be replayed.
  */
@@ -202,6 +223,30 @@ export const keys = {
    * config.json — see src/prefs.js. Long-lived.
    */
   prefs: (actorKey, owner, repo) => `teamctx:prefs:${actorKey}:${owner}/${repo}`,
+  /**
+   * An agent token, by the SHA-256 of the token. The token itself is shown to
+   * the manager once and never stored, so a read of the store hands nobody a
+   * working credential. Long-lived, until revoked.
+   */
+  agentToken: hash => `teamctx:agent:token:${hash}`,
+  /** The agents issued for one project, for listing and revoking. */
+  projectAgents: (owner, repo) => `teamctx:agent:project:${slug(owner, repo)}`,
+  /** Projects this address has issued an agent for, so the page can list them. */
+  agentsIssuedBy: email => `teamctx:agent:issued-by:${String(email).toLowerCase()}`,
+  /**
+   * An agent's own AI key, set by a manager, and when the provider last rejected
+   * it. Kept apart from the token record so nothing that lists agents can carry
+   * the key along by accident. Long-lived, until cleared or the agent is revoked.
+   */
+  agentAiKey: id => `teamctx:agent:aikey:${id}`,
+  /**
+   * When an agent last made a request. Its own record, so noting it never
+   * rewrites the token or the project's list — rewriting those on every request
+   * raced a revoke and brought the token back. Long-lived.
+   */
+  agentLastUsed: id => `teamctx:agent:last-used:${id}`,
+  /** How many contributions an agent has sent on one UTC day. 2 days. */
+  agentDaily: (id, day) => `teamctx:agent:daily:${id}:${day}`,
   /** Browser session for the settings page. 1 hour. */
   session: sid => `teamctx:session:${sid}`,
 };

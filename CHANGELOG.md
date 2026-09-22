@@ -20,6 +20,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `docs/workstreams.md` already says it is not supported.
 
 ### Added
+- **Unattended agents on the hosted connector.** A job that runs with nobody
+  present — a nightly script, a scheduled agent — could only reach a project
+  through a person's browser sign-in, acting as that person with every tool they
+  had. A manager now issues an **agent token** on the settings page, per agent
+  and per project. The agent is its own identity, recorded on the member list,
+  and reads through the project's lent GitHub access. It runs on its own AI key
+  if a manager gives it one — and on the primary manager's key if it has none,
+  or if the provider rejects its own, which the settings page then flags. It sees and can call only `my_brief`, `contribute` and
+  `task_done`; its contributions always wait for review whatever the review
+  policy, it can close only its own tasks, and it sends at most 20 contributions
+  a day. Only the token's hash is stored, and revoking it takes effect on the
+  next request. See `docs/agents.md` and
+  [docs/proposals/agent-tokens.md](docs/proposals/agent-tokens.md). Closes #92.
 - **A project can be handed over, or managed by more than one person.** The
   manager was whoever ran `init`, and nothing could change it: a builder could
   not hand a project to a client, and nobody could cover for a manager on leave.
@@ -111,6 +124,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and points here instead. Closes #83.
 
 ### Fixed
+- **Test files no longer count as serverless functions.** Vercel deploys every
+  `.js` file under `api/` as its own function, test files included, which put a
+  deployment at the Hobby plan's limit of 12 with only 5 real handlers. A
+  `.vercelignore` now leaves `api/**/*.test.js` out of the deployment.
 - **The roster records who added a member by email, not GitHub id.** A member
   added by somebody signed in with GitHub was recorded as added by
   `github:<id>` — meaningless to anyone reading the roster, and not the form
