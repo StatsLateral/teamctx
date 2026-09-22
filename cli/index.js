@@ -22,6 +22,9 @@ import { DEFAULT_WINDOW_DAYS } from '../src/metrics.js';
 import { configManagerCommand, configModelCommand, configGithubRawBaseCommand, configManagerEmailCommand, configDeployUrlCommand, configProviderCommand, configNameCommand, configReviewPolicyCommand } from './commands/config.js';
 import { reviewListCommand, reviewApproveCommand, reviewRejectCommand } from './commands/review.js';
 import {
+  managerListCommand, managerAddCommand, managerRemoveCommand, managerTransferCommand,
+} from './commands/manager.js';
+import {
   snapshotCreateCommand, snapshotListCommand, snapshotShowCommand,
   snapshotApproveCommand, snapshotRejectCommand, snapshotCurrentCommand,
 } from './commands/snapshot.js';
@@ -109,6 +112,19 @@ program.command('mcp').description('Start MCP server over stdio (for Claude Code
   .option('-p, --project <path>', 'Absolute path to the teamctx project (defaults to $TEAMCTX_PROJECT_DIR or cwd)')
   .action(mcpCommand);
 
+const manager = program.command('manager').description('Who manages this project: a primary manager and co-managers');
+manager.command('list').description('Show the primary manager and co-managers').action(managerListCommand);
+manager.command('add <email>').description('Make someone a co-manager (manager only)')
+  .option('--yes', 'Skip the confirmation')
+  .action(managerAddCommand);
+manager.command('remove <email>').description('Remove a co-manager; removing yourself is stepping down (manager only)')
+  .option('--yes', 'Skip the confirmation')
+  .action(managerRemoveCommand);
+manager.command('transfer <email>').description('Hand the primary manager role to someone else (primary only)')
+  .option('--step-down', 'Also stop being a manager yourself')
+  .option('--yes', 'Skip the confirmation')
+  .action(managerTransferCommand);
+
 const member = program.command('member').description('Who is on this project');
 member.command('add <username-or-email>').description('Add someone to the project (manager only)')
   .option('--name <name>', 'Display name, if different from the handle')
@@ -184,7 +200,7 @@ config.command('name [value]').description('Get or set your own display name on 
 config.command('provider [value]').description('Get or set the AI provider (anthropic|openai|gemini)').action(configProviderCommand);
 config.command('model [value]').description('Get or set the AI model').action(configModelCommand);
 config.command('github-raw-base [value]').description('Get or set the GitHub raw base URL').action(configGithubRawBaseCommand);
-config.command('manager').description('Show who may approve or reject (pinned at init, not settable)')
+config.command('manager').description('Show who may approve or reject; change it with `teamctx manager`')
   .option('--repair', 'Re-pin a display-name gate that nobody can match to your own identity')
   .action(configManagerCommand);
 config.command('review-policy [value]').description('Show or set how much of a contribution needs manager approval (manager only)')

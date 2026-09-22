@@ -47,6 +47,8 @@ import {
 import { isProjectLevel, resolveTarget, targetLabel } from '../src/project-level.js';
 import { resolveActiveWorkstream, resolveIdentity, resolveDisplayName } from '../src/prefs.js';
 import { isBrokenGate } from '../src/manager-repair.js';
+import { listManagers, addManager, removeManager, transferManager } from '../cli/commands/manager.core.js';
+import { keyCheckFor, lendCheckFor, stepOutCheckFor } from '../src/oauth/manager-checks.js';
 import { INSTRUCTIONS } from './instructions.js';
 
 export function resolveProjectDir(argv = process.argv.slice(2), env = process.env, cwd = process.cwd()) {
@@ -435,6 +437,41 @@ export const TOOLS = [
     },
   },
   {
+    name: 'manager_list',
+    description: "Who manages this project: the primary manager, whose project key the project runs on, and any co-managers, who approve exactly as the primary does. Read-only.",
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+  },
+  {
+    name: 'manager_add',
+    description: RISKY + "makes somebody a co-manager, and commits. Manager-gated. A manager is identified by email address, so they are recognised whether they sign in with GitHub or Google — a username is refused. A co-manager approves and rejects exactly as the primary does, but the project never runs on their key, so no key is needed. Confirm the person before calling." + REPORT,
+    inputSchema: {
+      type: 'object',
+      properties: { email: { type: 'string', description: 'Email address of the person to make a co-manager' } },
+      required: ['email'], additionalProperties: false,
+    },
+  },
+  {
+    name: 'manager_remove',
+    description: RISKY + "takes a co-manager off, and commits. Manager-gated. Removing yourself is stepping down. The primary manager cannot be removed this way — transfer the primary role first. Refused while the project's lent GitHub access is still that person's, because members who signed in with Google reach the project through it. Confirm before calling." + REPORT,
+    inputSchema: {
+      type: 'object',
+      properties: { email: { type: 'string', description: 'Email address of the co-manager to remove' } },
+      required: ['email'], additionalProperties: false,
+    },
+  },
+  {
+    name: 'manager_transfer',
+    description: RISKY + "hands the primary manager role to somebody else, and commits — the way a project is handed over. Only the primary manager can do this. The project then runs on the new primary's project key, so they must have added a working key to this project first; the transfer checks it and refuses without one. If the project lends GitHub access, the new primary must be the one lending it — they sign in to the settings page with GitHub and lend it, as a co-manager first if they are not a manager yet; the transfer refuses otherwise and says so. The outgoing primary stays on as a co-manager unless step_down is true, and a step-down is refused while the project's lent GitHub access is still theirs. Confirm the person and whether they are stepping down before calling." + REPORT,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        email: { type: 'string', description: 'Email address of the new primary manager' },
+        step_down: { type: 'boolean', description: 'Also remove the outgoing primary as a manager (default false)' },
+      },
+      required: ['email'], additionalProperties: false,
+    },
+  },
+  {
     name: 'repair_manager_gate',
     description: RISKY + "re-pins a manager gate that is a display name rather than an identity — projects created on the web before this was fixed carry one, and nobody can match it, so every approval fails. Refuses unless the gate is broken **and** the caller created the project, read from the commit that added .teamctx/config.json. Not a way to take over a project: against a working gate, or from anybody but the creator, it refuses." + REPORT,
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
@@ -450,7 +487,7 @@ export const TOOLS = [
   },
   {
     name: 'config_set',
-    description: RISKY + "writes a single config key. Project-wide keys: provider, model, githubRawBase, managerEmail, deployUrl, autoPush — these change the project for everyone. Personal key: name — the display name used on the caller's own contributions, stored against them and never written to the repo. Who may approve is fixed at init and cannot be changed here. Changing `provider` may reset `model`." + REPORT,
+    description: RISKY + "writes a single config key. Project-wide keys: provider, model, githubRawBase, managerEmail, deployUrl, autoPush — these change the project for everyone. Personal key: name — the display name used on the caller's own contributions, stored against them and never written to the repo. Who may approve is fixed at init and cannot be changed here. `deployUrl` is the managers' to change, and once recorded it cannot be cleared — it is how the terminal knows manager changes need the hosted checks. Changing `provider` may reset `model`." + REPORT,
     inputSchema: {
       type: 'object',
       properties: {
@@ -625,6 +662,21 @@ export function makeHandlers(projectRoot) {
     const chosen = resolveTarget(await resolveActiveWorkstream({ actor, config, teamctxDir }));
     return defaultWorkstream(allowed, chosen);
   };
+
+  /**
+   * The checks a change of manager needs, where they can run.
+   *
+   * Only the hosted server holds the project's keys and its lent access, so only
+   * there are the checks passed in. Elsewhere they are left out, and the manager
+   * core refuses a change on a deployed project rather than make it unguarded.
+   */
+  const managerChecks = () => (isHosted
+    ? {
+      checkKey: keyCheckFor({ owner: projectRoot.owner, repo: projectRoot.repo }),
+      checkLend: lendCheckFor({ owner: projectRoot.owner, repo: projectRoot.repo }),
+      checkStepOut: stepOutCheckFor({ owner: projectRoot.owner, repo: projectRoot.repo }),
+    }
+    : {});
 
   /**
    * A snapshot carries every tree at one moment, so handing one over whole is
@@ -807,6 +859,9 @@ export function makeHandlers(projectRoot) {
         // field exists to answer.
         manager: managerKeys(config)[0] || config.manager || null,
         managerDisplayName: config.manager || null,
+        // Everyone who can approve, not just the first. `manager` stays for
+        // callers that read it; this is the answer once there are co-managers.
+        managers: listManagers({ teamctxDir }),
         // Named here because this is where an agent orients, and a broken gate
         // is otherwise only discovered at the moment an approval is refused —
         // which is late, and reads as a bug rather than a fixable state.
@@ -1356,6 +1411,34 @@ export function makeHandlers(projectRoot) {
       });
       const reportBack = `Tell the user: reflected ${targetLabel(r.workstreamId, readConfig(teamctxDir).project)}${r.rolesRegenerated.length ? `; regenerated roles: ${r.rolesRegenerated.join(', ')}` : ''}${r.pushed ? '; pushed' : ''}.`;
       return textResult({ workstreamId: r.workstreamId, rolesRegenerated: r.rolesRegenerated, pushed: r.pushed, pushError: r.pushError, reportBack });
+    },
+
+    async manager_list() {
+      return textResult(listManagers({ teamctxDir: dir() }));
+    },
+
+    async manager_add(args = {}) {
+      const r = await addManager({ ref: args.email, teamctxDir: dir(), projectDir: gitCwd, ...managerChecks() });
+      return textResult({
+        ...r,
+        reportBack: `Tell the user: ${args.email} is now a co-manager and can approve and reject.`,
+      });
+    },
+
+    async manager_remove(args = {}) {
+      const r = await removeManager({ ref: args.email, teamctxDir: dir(), projectDir: gitCwd, ...managerChecks() });
+      return textResult({ ...r, reportBack: `Tell the user: ${args.email} is no longer a manager of this project.` });
+    },
+
+    async manager_transfer(args = {}) {
+      const r = await transferManager({
+        ref: args.email, stepDown: !!args.step_down, teamctxDir: dir(), projectDir: gitCwd, ...managerChecks(),
+      });
+      return textResult({
+        ...r,
+        reportBack: `Tell the user: ${args.email} is now the primary manager, and the project runs on their key.`
+          + (args.step_down ? ' The previous primary has stepped down.' : ' The previous primary stays on as a co-manager.'),
+      });
     },
 
     async repair_manager_gate() {

@@ -10,15 +10,36 @@ import { AsyncLocalStorage } from 'async_hooks';
  * URL / header. `runWithAiKey` puts the caller's key into an AsyncLocalStorage
  * context so `getRequestAiKey()` returns it for anything the request runs,
  * without ever mutating `process.env` (safe for concurrent requests).
+ *
+ * A request with no key of its own can be given `resolve` instead: a function
+ * that works the key out the first time a model is actually called. The project
+ * key a request falls back to depends on who the primary manager is, which is in
+ * the project's config — and that config is only in hand once the request's
+ * session has loaded it. Resolving lazily means no extra fetch, and no work at
+ * all for the many tool calls that never reach a model.
  */
 const store = new AsyncLocalStorage();
 
-export function runWithAiKey(apiKey, fn, provider = null) {
-  return store.run({ apiKey, provider }, fn);
+export function runWithAiKey(apiKey, fn, provider = null, resolve = null) {
+  return store.run({ apiKey, provider, resolve, resolved: undefined }, fn);
+}
+
+function current() {
+  const s = store.getStore();
+  if (!s) return null;
+  if (s.apiKey) return { apiKey: s.apiKey, provider: s.provider };
+  if (!s.resolve) return null;
+  if (s.resolved === undefined) {
+    // Once per request. A resolver that throws leaves the caller with no key,
+    // which surfaces as the ordinary "no key configured" message rather than an
+    // error about something the caller never asked for.
+    try { s.resolved = s.resolve() || null; } catch { s.resolved = null; }
+  }
+  return s.resolved;
 }
 
 export function getRequestAiKey() {
-  return store.getStore()?.apiKey || null;
+  return current()?.apiKey || null;
 }
 
 /**
@@ -27,5 +48,5 @@ export function getRequestAiKey() {
  * read from the project's shared config.
  */
 export function getRequestAiProvider() {
-  return store.getStore()?.provider || null;
+  return current()?.provider || null;
 }

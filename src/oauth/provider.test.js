@@ -332,3 +332,29 @@ describe('AI key storage', () => {
     expect(await kvGet(keys.aiKey('9999'))).toBeNull();
   });
 });
+
+describe('signing in through Google does not claim a project', () => {
+  // The connector URL names a project, but nothing at sign-in says the person is
+  // on it. The project is recorded by the endpoint once the roster confirms them.
+  beforeEach(() => __resetMemory());
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('records nothing against the address at sign-in', async () => {
+    const provider = new TeamctxOAuthProvider({
+      githubClientId: 'gh-client', githubClientSecret: 'gh-secret', baseUrl: BASE,
+      googleClientId: 'g-client', googleClientSecret: 'g-secret',
+    });
+    const res = fakeRes();
+    await provider.authorize(CLIENT, {
+      redirectUri: CLIENT.redirect_uris[0], codeChallenge: 'c', state: 's', scopes: ['mcp:tools'],
+      resource: new URL(`${BASE}/api/mcp/Acme/ledger`),
+    }, res);
+    const state = new URL(res.redirectedTo).searchParams.get('state');
+    vi.stubGlobal('fetch', vi.fn(async (url) => {
+      if (String(url).includes('oauth2.googleapis.com/token')) return { ok: true, json: async () => ({ access_token: 'g' }) };
+      return { ok: true, json: async () => ({ email: 'Priya@Example.com', email_verified: true, name: 'Priya' }) };
+    }));
+    await provider.handleGoogleCallback({ code: 'code', state });
+    expect(await kvGet(keys.connectedProjects('priya@example.com'))).toBe(null);
+  });
+});

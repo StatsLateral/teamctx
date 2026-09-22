@@ -3,7 +3,15 @@ import { randomBytes } from 'crypto';
 import { mcpAuthRouter } from '@modelcontextprotocol/sdk/server/auth/router.js';
 import { providerFromEnv, oauthConfigStatus, GITHUB_SCOPES, OAuthCallbackError } from '../src/oauth/provider.js';
 import { kvGet, kvSet, kvTake, kvDelete, keys, TTL, isPersistent } from '../src/oauth/kv.js';
-import { googleAuthorizeUrl } from '../src/oauth/google.js';
+import { googleAuthorizeUrl, googleUserFromCode } from '../src/oauth/google.js';
+import { projectKeyDecision } from '../src/oauth/project-key-decision.js';
+import { managersOf } from '../src/managers.js';
+import { matchesActor } from '../src/review.js';
+import { readConfigJson } from '../src/oauth/member-access.js';
+import {
+  readPersonalKey, writePersonalKey, addProjectKey, removeProjectKey, projectsKeyedBy,
+  adoptGithubRecords, projectsKnownFor,
+} from '../src/oauth/ai-keys.js';
 import { primaryEmail } from '../src/oauth/github-identity.js';
 import { lendDecision } from '../src/oauth/lend-decision.js';
 import { GithubSession, listUserOrgs, createRepo, slugifyProjectName, suggestAvailableName, listPushableRepos } from '../src/adapters/github.js';
@@ -59,8 +67,9 @@ app.get('/', async (req, res) => {
   // settings page, so every one of them links to the same place.
   const projects = user
     ? [...new Set([
-        ...((await kvGet(keys.sharedProjects(user.id)))?.projects || []),
-        ...((await kvGet(keys.lentProjects(user.id)))?.projects || []),
+        ...(await projectsKeyedBy({ email: user.email, githubId: user.id })),
+        ...(user.id ? (await kvGet(keys.lentProjects(user.id)))?.projects || [] : []),
+        ...(await projectsKnownFor(user.email)),
       ])].sort()
     : [];
   res.send(homePage({ user, projects }));
@@ -164,6 +173,33 @@ app.get('/oauth/google/callback', async (req, res) => {
   const { code, state, error, error_description: errorDescription } = req.query;
   if (!state) return res.status(400).send(errorPage('Missing state parameter.'));
   if (!provider) return res.status(500).send(errorPage('OAuth is not configured on this deployment.'));
+
+  // Settings-page sign-in carries its own pending record, the same way the
+  // GitHub callback tells the two flows apart. Same redirect URI as the connector
+  // flow, so no second Google client has to be registered.
+  const settingsPending = await kvTake(keys.pending(`settings-google:${state}`));
+  if (settingsPending) {
+    if (error) return res.status(400).send(errorPage(`Google returned: ${error}`));
+    try {
+      const googleUser = await googleUserFromCode({
+        code: String(code),
+        clientId: provider.googleClientId,
+        clientSecret: provider.googleClientSecret,
+        redirectUri: provider.googleCallbackUrl,
+      });
+      // No GitHub id and no token: somebody signed in this way can manage keys
+      // stored by their address, and nothing that needs a GitHub credential.
+      const sid = randomBytes(24).toString('base64url');
+      await kvSet(keys.session(sid), {
+        id: null, login: null, name: googleUser.name, email: googleUser.email, token: null, source: 'google',
+      }, { ttlSeconds: TTL.session });
+      res.setHeader('Set-Cookie',
+        `teamctx_sid=${sid}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${TTL.session}`);
+      return res.redirect(303, settingsPending.returnTo || '/settings');
+    } catch (e) {
+      return res.status(400).send(errorPage(e.message));
+    }
+  }
   try {
     const redirectTo = await provider.handleGoogleCallback({
       code: code ? String(code) : null,
@@ -271,16 +307,50 @@ app.get('/settings', async (req, res) => {
   // they landed — making "signed out" a state you could never actually see.
   if (!user) return res.send(signInPage());
 
-  const existing = await kvGet(keys.aiKey(user.id));
-  const shared = (await kvGet(keys.sharedProjects(user.id)))?.projects || [];
+  // A GitHub sign-in is the one place both the id and the address are known, so
+  // it is where records saved under the id are carried over to the address —
+  // after which a Google sign-in with the same address finds them too.
+  if (user.id && user.email) {
+    try { await adoptGithubRecords({ email: user.email, githubId: user.id, githubLogin: user.login }); } catch { /* best effort */ }
+  }
+  const existing = await readPersonalKey({ email: user.email, githubId: user.id });
+  const shared = await projectsKeyedBy({ email: user.email, githubId: user.id });
   // A dropdown instead of free text: nobody should have to remember the exact
-  // spelling of a repository they already chose once.
-  const repos = user.token ? await listPushableRepos(user.token) : [];
-  const lent = (await kvGet(keys.lentProjects(user.id)))?.projects || [];
+  // spelling of a repository they already chose once. A Google sign-in has no
+  // repository list, so it is offered the projects that address is known to be
+  // on — connected to, added a key to, or lent access to.
+  const repos = user.token
+    ? await listPushableRepos(user.token)
+    : (await projectsKnownFor(user.email)).map(fullName => ({ fullName, private: true }));
+  const lent = [...new Set([
+    ...(user.id ? (await kvGet(keys.lentProjects(user.id)))?.projects || [] : []),
+    ...(user.email ? (await kvGet(keys.lentByAddress(user.email)))?.projects || [] : []),
+  ])].sort();
   res.send(settingsPage({
     user, hasKey: !!existing, shared, lent, repos,
     saved: req.query.saved === '1',
     error: req.query.error ? String(req.query.error) : null,
+    confirmRemove: req.query.confirmRemove ? String(req.query.confirmRemove) : null,
+  }));
+});
+
+/** Starts a Google login for the settings page. Only reached by clicking it. */
+app.get('/settings/signin/google', async (req, res) => {
+  if (!provider?.googleClientId) {
+    return res.status(503).send(errorPage('Google sign-in is not configured on this deployment.'));
+  }
+  const state = randomBytes(18).toString('base64url');
+  const requestedReturnTo = String(req.query.returnTo || '');
+  const returnTo = /^\/settings\/[a-z-]+$/.test(requestedReturnTo) ? requestedReturnTo : null;
+  await kvSet(
+    keys.pending(`settings-google:${state}`),
+    returnTo ? { kind: 'settings', returnTo } : { kind: 'settings' },
+    { ttlSeconds: TTL.pending },
+  );
+  res.redirect(googleAuthorizeUrl({
+    clientId: provider.googleClientId,
+    redirectUri: provider.googleCallbackUrl,
+    state,
   }));
 });
 
@@ -315,6 +385,8 @@ app.get('/settings/new-project', async (req, res) => {
   const user = await currentUser(req);
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
   if (!user) return res.redirect(303, '/settings/signin?returnTo=/settings/new-project');
+  // Creating a project creates a GitHub repository, so it needs a GitHub sign-in.
+  if (!user.id) return backToSettings(res, 'Creating a project creates a GitHub repository, so it needs a GitHub sign-in.');
   const orgs = await safeListOrgs(user.token);
   res.send(newProjectPage({ user, orgs, repos: await listPushableRepos(user.token) }));
 });
@@ -322,6 +394,7 @@ app.get('/settings/new-project', async (req, res) => {
 app.post('/settings/new-project', async (req, res) => {
   const user = await currentUser(req);
   if (!user) return res.redirect(303, '/settings/signin?returnTo=/settings/new-project');
+  if (!user.id) return backToSettings(res, 'Creating a project creates a GitHub repository, so it needs a GitHub sign-in.');
 
   const projectName = String(req.body?.projectName || '').trim();
   if (!projectName) {
@@ -393,6 +466,10 @@ app.post('/settings/new-project', async (req, res) => {
       // they come back through GitHub or sign in with Google. Falls back to the
       // id only when the token would not reveal an address.
       managerKey: user.email ? `git:${user.email}` : `github:${user.id}`,
+      // Recorded so a clone knows this project is used through the connector.
+      // Without it the terminal took a web-created project for an undeployed one,
+      // and let manager changes through without the checks only the server runs.
+      deployUrl: baseUrlFor(req),
     }));
   } catch (e) {
     // Repo exists but isn't initialized. Don't strand the manager here —
@@ -437,38 +514,88 @@ app.post('/settings', async (req, res) => {
   const apiKey = String(req.body?.apiKey || '').trim();
   const provider_ = String(req.body?.provider || 'anthropic').trim();
 
+  // Keys are stored by verified email, so the same person finds them whether
+  // they signed in with GitHub or Google. Without an address there is nothing
+  // to store them under that another sign-in could ever find.
+  if (!user.email) {
+    return backToSettings(res, 'Your sign-in did not come with a verified email address, so there is nowhere to keep a key. Sign out and sign in again.');
+  }
   if (apiKey === '__clear__') {
-    await kvSet(keys.aiKey(user.id), null);
+    await writePersonalKey({ email: user.email, githubId: user.id, apiKey: null });
     return res.redirect(303, '/settings?saved=1');
   }
   if (!apiKey) {
     return res.status(400).send(errorPage('Paste a key, or leave the page.'));
   }
-  await kvSet(keys.aiKey(user.id), { provider: provider_, apiKey });
+  await writePersonalKey({ email: user.email, githubId: user.id, provider: provider_, apiKey });
   res.redirect(303, '/settings?saved=1');
 });
 
 /**
- * Can this person actually share a key with this project?
+ * Is this person the primary manager of this project?
  *
- * Without the check the first person to name `owner/repo` owns that slot, and
- * nothing stops someone claiming a project they have never worked on — either
- * squatting it before the manager gets there or writing a dead key over a
- * working one. Push access is the same bar the project itself uses, and it
- * doubles as typo-catching: a misspelled repo fails here instead of quietly
- * storing a key nobody will ever read.
+ * Read with their own GitHub credential, or the project's lent one for a Google
+ * sign-in. A project that cannot be read answers no: this only ever stands in
+ * the way of removing a key, and a key is the person's own to remove.
  */
-async function canShareWith(token, owner, repo) {
-  const res = await fetch(`https://api.github.com/repos/${owner}/${repo}`, {
-    headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json' },
-  });
-  if (res.status === 404) return { ok: false, why: `No repository ${owner}/${repo}, or you cannot see it.` };
-  if (!res.ok) return { ok: false, why: `GitHub said ${res.status} for ${owner}/${repo}.` };
-  const body = await res.json().catch(() => ({}));
-  if (!body?.permissions?.push) {
-    return { ok: false, why: `You need write access to ${owner}/${repo} to share a key with it.` };
+async function isPrimaryManager(user, ref) {
+  const token = user.token || (await kvGet(keys.projectGhCred(ref.owner, ref.repo)))?.token;
+  if (!token) return false;
+  let config;
+  try { config = await readConfigJson({ owner: ref.owner, repo: ref.repo, token }); } catch { return false; }
+  const { primary } = managersOf(config);
+  // Every form a manager can be written in. A primary stored by GitHub id — the
+  // web flow writes that when a session revealed no address — was never matched
+  // by address alone, and so was never warned.
+  const actor = { key: user.id ? `github:${user.id}` : `git:${String(user.email).toLowerCase()}`,
+    email: String(user.email || '').toLowerCase(), login: user.login || null };
+  return !!primary && matchesActor(primary, actor);
+}
+
+/**
+ * May this person add a key to this project?
+ *
+ * Anyone on the project — see src/oauth/project-key-decision.js for the rule.
+ * This only gathers what it needs. A GitHub sign-in is checked for push access
+ * as before, which also catches a misspelled repository before a key is stored
+ * against it; failing that, and for a Google sign-in, the project's own settings
+ * are read to find them on the gate or the roster.
+ *
+ * A Google sign-in has no GitHub credential of its own, so that read goes
+ * through the access the project lends. A project that has not lent any cannot
+ * be read on their behalf, and the answer says so rather than calling them a
+ * stranger.
+ */
+async function mayAddProjectKey(user, ref) {
+  const slug = `${ref.owner}/${ref.repo}`;
+  let token = user.token;
+  let hasPush = false;
+
+  if (token) {
+    const res = await fetch(`https://api.github.com/repos/${ref.owner}/${ref.repo}`, {
+      headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json' },
+    });
+    if (res.status === 404) return { ok: false, why: `No repository ${slug}, or you cannot see it.` };
+    if (!res.ok) return { ok: false, why: `GitHub said ${res.status} for ${slug}.` };
+    const body = await res.json().catch(() => ({}));
+    hasPush = !!body?.permissions?.push;
+  } else {
+    const cred = await kvGet(keys.projectGhCred(ref.owner, ref.repo));
+    if (!cred?.token) {
+      return {
+        ok: false,
+        why: `${slug} has not lent GitHub access, so it cannot confirm people who signed in with Google. `
+          + 'Ask its manager to lend access, or sign in with GitHub.',
+      };
+    }
+    token = cred.token;
   }
-  return { ok: true };
+
+  let config = null;
+  if (!hasPush) {
+    try { config = await readConfigJson({ owner: ref.owner, repo: ref.repo, token }); } catch { config = null; }
+  }
+  return projectKeyDecision({ config, email: user.email, hasPush, slug });
 }
 
 function parseRepoRef(raw) {
@@ -491,8 +618,11 @@ app.post('/settings/share', async (req, res) => {
   // has it to hand would otherwise be unable to share the very key they already
   // gave us — so reuse it rather than asking them to produce it again.
   let apiKey, provider_;
+  if (!user.email) {
+    return backToSettings(res, 'Your sign-in did not come with a verified email address, so a key added now could not be attributed to you. Sign out and sign in again.');
+  }
   if (req.body?.useMyKey) {
-    const mine = await kvGet(keys.aiKey(user.id));
+    const mine = await readPersonalKey({ email: user.email, githubId: user.id });
     if (!mine?.apiKey) {
       return backToSettings(res, 'You have no saved key to share — paste one below instead.');
     }
@@ -504,22 +634,16 @@ app.post('/settings/share', async (req, res) => {
     provider_ = String(req.body?.provider || 'anthropic').trim();
   }
 
-  const allowed = await canShareWith(user.token, ref.owner, ref.repo);
+  const allowed = await mayAddProjectKey(user, ref);
   if (!allowed.ok) return backToSettings(res, allowed.why);
 
-  const slug = `${ref.owner}/${ref.repo}`;
-  const existing = await kvGet(keys.projectAiKey(ref.owner, ref.repo));
-  if (existing && existing.sharedById && existing.sharedById !== user.id) {
-    return backToSettings(res, `${existing.sharedByLogin || 'Someone else'} already shares a key with ${slug}. They need to stop sharing first.`);
-  }
-
-  await kvSet(keys.projectAiKey(ref.owner, ref.repo), {
-    provider: provider_, apiKey, sharedById: user.id, sharedByLogin: user.login,
+  // One key per person, recorded against who added it. Nobody's key displaces
+  // anyone else's any more; which one a project runs on is decided by who its
+  // primary manager is, not by who got here first.
+  await addProjectKey({
+    owner: ref.owner, repo: ref.repo, email: user.email, provider: provider_, apiKey,
+    githubId: user.id, githubLogin: user.login,
   });
-  const list = (await kvGet(keys.sharedProjects(user.id)))?.projects || [];
-  if (!list.includes(slug)) {
-    await kvSet(keys.sharedProjects(user.id), { projects: [...list, slug] });
-  }
   backToSettings(res);
 });
 
@@ -531,15 +655,32 @@ app.post('/settings/unshare', async (req, res) => {
   if (!ref) return backToSettings(res, 'Write the project as owner/repo.');
 
   const slug = `${ref.owner}/${ref.repo}`;
-  const existing = await kvGet(keys.projectAiKey(ref.owner, ref.repo));
-  // Only the person who put the key there can take it away; anyone else with
-  // push access could otherwise drop a key that is not theirs.
-  if (existing && existing.sharedById && existing.sharedById !== user.id) {
-    return backToSettings(res, `That key was shared by someone else.`);
+
+  // Warned, not refused. The key is theirs to remove, but if they are the
+  // primary manager the project runs on it, and everyone without a key of their
+  // own loses the model the moment it goes. So the first attempt stops to say so,
+  // and a second, deliberate one goes through.
+  if (!req.body?.confirm && user.email && await isPrimaryManager(user, ref)) {
+    return res.redirect(303, `/settings?confirmRemove=${encodeURIComponent(slug)}`);
   }
-  await kvSet(keys.projectAiKey(ref.owner, ref.repo), null);
-  const list = (await kvGet(keys.sharedProjects(user.id)))?.projects || [];
-  await kvSet(keys.sharedProjects(user.id), { projects: list.filter(p => p !== slug) });
+
+  // Only the person who added a key can take it away — keyed by their own
+  // address, so there is no path to anybody else's.
+  const removed = user.email
+    ? await removeProjectKey({ owner: ref.owner, repo: ref.repo, email: user.email })
+    : false;
+
+  // The single shared record from before this change, if it is theirs.
+  const legacy = await kvGet(keys.projectAiKey(ref.owner, ref.repo));
+  const legacyIsMine = legacy?.sharedById && legacy.sharedById === user.id;
+  if (legacyIsMine) {
+    await kvSet(keys.projectAiKey(ref.owner, ref.repo), null);
+    const list = (await kvGet(keys.sharedProjects(user.id)))?.projects || [];
+    await kvSet(keys.sharedProjects(user.id), { projects: list.filter(p => p !== slug) });
+  }
+  if (!removed && !legacyIsMine) {
+    return backToSettings(res, `You have not added a key to ${slug}.`);
+  }
   backToSettings(res);
 });
 
@@ -598,7 +739,13 @@ async function mayLend(user, ref) {
 
   // The same shape resolveActor produces, so the manager gate is matched by the
   // one function that knows every form an identity takes.
-  const actor = { key: `github:${user.id}`, name: user.name || user.login, login: user.login, source: 'github' };
+  // With the address: managers are identified by email, and without it a manager
+  // who is not a repository admin was never matched — which refused the lead a
+  // project is being handed to, exactly the person who has to lend.
+  const actor = {
+    key: `github:${user.id}`, name: user.name || user.login, login: user.login,
+    email: user.email ? String(user.email).toLowerCase() : null, source: 'github',
+  };
   return lendDecision({ config, actor, isAdmin: !!info?.permissions?.admin, slug: `${ref.owner}/${ref.repo}` });
 }
 
@@ -608,23 +755,39 @@ app.post('/settings/lend', async (req, res) => {
   const ref = parseRepoRef(req.body?.project);
   if (!ref) return backToSettings(res, 'Write the project as owner/repo.');
 
-  // A session minted before this feature shipped carries no token, and every
-  // GitHub call below would 401. That surfaced as "you need admin access" to
-  // someone who owned the repository, which is the worst kind of wrong error:
+  // Lending hands the project a GitHub credential, which only a GitHub sign-in
+  // has. Asked first: a Google sign-in has no token either, and telling them
+  // their sign-in is out of date sends them round a loop that cannot end.
+  if (!user.id) return backToSettings(res, 'Lending GitHub access needs a GitHub sign-in.');
+
+  // A GitHub session minted before this feature shipped carries no token, and
+  // every GitHub call below would 401. That surfaced as "you need admin access"
+  // to someone who owned the repository, which is the worst kind of wrong error:
   // it names a cause the reader cannot act on and is not true.
   if (!user.token) {
     return backToSettings(res, 'Your sign-in predates this feature. Sign out and sign in again, then retry.');
   }
 
+  // The lender's address is what lets a manager be matched to access they lent.
+  // Lending without one wrote a record nobody could be matched to, which then
+  // blocked every manager from stepping out — with re-lending, the suggested
+  // fix, writing the same unmatchable record again.
+  if (!user.email) {
+    return backToSettings(res, 'Your GitHub sign-in did not reveal a verified email address, and lending records who lent access by address. Sign out and sign in again to grant it.');
+  }
   const allowed = await mayLend(user, ref);
   if (!allowed.ok) return backToSettings(res, allowed.why);
 
   const slug = `${ref.owner}/${ref.repo}`;
   await kvSet(keys.projectGhCred(ref.owner, ref.repo), {
-    token: user.token, lentById: user.id, lentByLogin: user.login,
+    // The address is recorded so a manager can be matched to access they lent:
+    // managers are identified by email, and a GitHub id says nothing about one.
+    token: user.token, lentById: user.id, lentByLogin: user.login, lentByEmail: user.email || null,
   });
   const list = (await kvGet(keys.lentProjects(user.id)))?.projects || [];
   if (!list.includes(slug)) await kvSet(keys.lentProjects(user.id), { projects: [...list, slug] });
+  const byAddress = (await kvGet(keys.lentByAddress(user.email)))?.projects || [];
+  if (!byAddress.includes(slug)) await kvSet(keys.lentByAddress(user.email), { projects: [...byAddress, slug] });
   backToSettings(res);
 });
 
@@ -635,13 +798,26 @@ app.post('/settings/unlend', async (req, res) => {
   const ref = parseRepoRef(req.body?.project);
   if (!ref) return backToSettings(res, 'Write the project as owner/repo.');
 
+  // Withdrawing needs no GitHub credential — only to be the person who lent it,
+  // recognised by GitHub id or by address. Somebody who lent access signed in
+  // with GitHub can withdraw it signed in with Google.
+  const slug = `${ref.owner}/${ref.repo}`;
   const existing = await kvGet(keys.projectGhCred(ref.owner, ref.repo));
-  if (existing?.lentById && existing.lentById !== user.id) {
-    return backToSettings(res, 'That access was lent by someone else.');
-  }
+  const mine = existing && (
+    (user.id && String(existing.lentById) === String(user.id))
+    || (user.email && existing.lentByEmail && String(existing.lentByEmail).toLowerCase() === String(user.email).toLowerCase())
+  );
+  if (existing && !mine) return backToSettings(res, 'That access was lent by someone else.');
   await kvSet(keys.projectGhCred(ref.owner, ref.repo), null);
-  const list = (await kvGet(keys.lentProjects(user.id)))?.projects || [];
-  await kvSet(keys.lentProjects(user.id), { projects: list.filter(p => p !== `${ref.owner}/${ref.repo}`) });
+  const lender = existing?.lentById || user.id;
+  if (lender) {
+    const list = (await kvGet(keys.lentProjects(lender)))?.projects || [];
+    await kvSet(keys.lentProjects(lender), { projects: list.filter(p => p !== slug) });
+  }
+  if (user.email) {
+    const byAddress = (await kvGet(keys.lentByAddress(user.email)))?.projects || [];
+    await kvSet(keys.lentByAddress(user.email), { projects: byAddress.filter(p => p !== slug) });
+  }
   backToSettings(res);
 });
 
@@ -720,17 +896,29 @@ button.link{background:none;border:0;padding:0;margin:0;color:var(--dim);
 code{background:#8881;padding:.1rem .3rem;border-radius:.2rem}
 </style></head><body${wide ? ' class="wide"' : ''}>${body}</body></html>`;
 
-const settingsPage = ({ user, hasKey, saved, error, shared = [], lent = [], repos = [] }) => shell('Settings', `
+const settingsPage = ({ user, hasKey, saved, error, confirmRemove = null, shared = [], lent = [], repos = [] }) => shell('Settings', `
 ${navBar({ user, current: '/settings' })}
 <h1>Settings</h1>
 ${saved ? '<div class="ok">Saved.</div>' : ''}
 ${error ? `<div class="bad">${esc(error)}</div>` : ''}
+${confirmRemove ? `<div class="bad">
+<p><strong>${esc(confirmRemove)} runs on this key.</strong> You are its primary manager, so
+anyone on it without a key of their own will lose the model as soon as it is removed.
+To stop paying without that, hand the primary role to someone else first.</p>
+<form method="POST" action="/settings/unshare" style="margin:.35rem 0">
+  <input type="hidden" name="project" value="${esc(confirmRemove)}">
+  <input type="hidden" name="confirm" value="1">
+  <button type="submit">Remove it anyway</button>
+  <a href="/settings">Keep it</a>
+</form>
+</div>` : ''}
 
 <div class="cols">
 <section class="card">
 <h2>Your AI key</h2>
 <p class="muted">Used only by the tools that call a model. Stored against your
-GitHub account, never written to your repo.</p>
+email address, so it is yours whether you sign in with GitHub or Google. Never
+written to your repo.</p>
 <form method="POST" action="/settings">
   <label for="provider">Provider</label>
   <select id="provider" name="provider">
@@ -746,14 +934,16 @@ GitHub account, never written to your repo.</p>
 </section>
 
 <section class="card">
-<h2>Share a key with a project</h2>
-<p class="muted">Used by anyone on the project who has no key of their own. Never
-overrides someone's own key. You pay for what the project spends.</p>
-${shared.length ? `<p class="muted">Sharing a key with:</p>${shared.map(slug => `
+<h2>Add a key to a project</h2>
+<p class="muted">Open to anyone on the project. The project runs on its primary
+manager's key for anyone who has no key of their own, never overriding someone's
+own. Yours is used while you are its primary manager, and you pay for what the
+project spends while it is.</p>
+${shared.length ? `<p class="muted">You have added a key to:</p>${shared.map(slug => `
 <form method="POST" action="/settings/unshare" style="margin:.35rem 0">
   <input type="hidden" name="project" value="${esc(slug)}">
   <code>${esc(slug)}</code>
-  <button type="submit" class="link">Stop sharing</button>
+  <button type="submit" class="link">Remove my key</button>
 </form>`).join('')}` : ''}
 <form method="POST" action="/settings/share">
   <label for="project">Project</label>
@@ -777,7 +967,7 @@ ${hasKey ? `
     <label for="shareKey">API key to share</label>
     <input id="shareKey" name="apiKey" type="password" autocomplete="off" placeholder="sk-ant-…">
   </div>
-  <button type="submit">Share with project</button>
+  <button type="submit">Add to project</button>
 </form>
 
 </section>
@@ -793,11 +983,12 @@ ${lent.length ? `<p class="muted">Lending access to:</p>${lent.map(slug => `
   <code>${esc(slug)}</code>
   <button type="submit" class="link">Stop lending</button>
 </form>`).join('')}` : ''}
-<form method="POST" action="/settings/lend">
+${user.id ? `<form method="POST" action="/settings/lend">
   <label for="lendProject">Project</label>
   ${projectPicker('lendProject', repos)}
   <button type="submit">Lend GitHub access</button>
-</form>
+</form>` : `<p class="muted">Lending GitHub access needs a GitHub sign-in: it hands the
+project a GitHub credential, which a Google sign-in does not have.</p>`}
 </section>
 </div>`, { wide: true });
 
@@ -845,8 +1036,8 @@ const navBar = ({ user, current }) => {
   <a href="/" class="brand">teamctx</a>
   ${link('/', 'Home')}
   ${user ? link('/settings', 'Settings') : ''}
-  ${user ? link('/settings/new-project', 'New project') : ''}
-  <span class="who muted">${user ? `${esc(user.login)}
+  ${user?.id ? link('/settings/new-project', 'New project') : ''}
+  <span class="who muted">${user ? `${esc(user.login || user.email || '')}
       <form method="POST" action="/settings/logout" style="display:inline;margin:0">
         <button type="submit" class="link">Sign out</button>
       </form>` : '<a href="/settings/signin">Sign in</a>'}</span>
@@ -881,7 +1072,7 @@ context and their tasks, sends work back, and you review it on your own
 cadence.</p>
 
 <p class="actions">
-  <a class="btn" href="${user ? '/settings/new-project' : '/settings/signin'}">${user ? 'Create a new project' : 'Start here'}</a>
+  <a class="btn" href="${!user ? '/settings/signin' : user.id ? '/settings/new-project' : '/settings'}">${!user ? 'Start here' : user.id ? 'Create a new project' : 'Settings'}</a>
 </p>
 ${user ? '' : '<p class="muted">Signing in creates nothing on its own — you choose the project on the next screen.</p>'}
 ${user && projects.length ? `
@@ -890,7 +1081,7 @@ ${user && projects.length ? `
 <ul style="line-height:1.9;padding-left:1.2rem">
   ${projects.map(p => `<li><code>${esc(p)}</code></li>`).join('')}
 </ul>` : ''}
-${user ? `<p class="muted" style="margin-top:2rem">Signed in as <strong>${esc(user.login)}</strong>.</p>` : ''}`);
+${user ? `<p class="muted" style="margin-top:2rem">Signed in as <strong>${esc(user.login || user.email || '')}</strong>.</p>` : ''}`);
 
 const newProjectPage = ({ user, orgs, projectName = '', orgLogin = '', error = null, suggestion = null, repos = [] }) => shell('New project', `
 ${navBar({ user, current: '/settings/new-project' })}
@@ -975,7 +1166,10 @@ ${navBar({ user: null, current: '/settings' })}
 <h1>Sign in</h1>
 <p>Sign in with GitHub to set the API key used by the teamctx tools that call
 a model.</p>
-<p class="actions"><a class="btn" href="/settings/signin">Sign in with GitHub</a></p>
+<p class="actions"><a class="btn" href="/settings/signin">Sign in with GitHub</a>
+${provider?.googleClientId ? ' <a class="btn" href="/settings/signin/google">Continue with Google</a>' : ''}</p>
+<p class="muted">Use Google if you were added to a project by email. Both reach the
+same saved keys when they carry the same address.</p>
 <p class="muted">GitHub will not prompt you again if you have already
 authorised teamctx. To sign in as a different account, revoke teamctx under
 <a href="https://github.com/settings/applications" target="_blank" rel="noreferrer">GitHub &rarr; Authorized OAuth Apps</a> first.</p>`);

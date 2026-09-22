@@ -69,6 +69,10 @@ marked *(manager-gated)* require the caller to pass `author` matching
 | `member_add({ref, name?, workstreams?, invite?, permission?})` | Add someone to the roster and commit. **Manager-gated.** `ref` is a GitHub username or an email — only a username can be invited, since GitHub's collaborator endpoint takes no email. `invite: true` also sends a repository invitation, which they must accept. `workstreams` puts them on named parts of the work instead of the whole project. Refused while the project has nothing written in it, or while a named workstream has nothing of its own — somebody arriving must have something to read. That check holds on every path the product offers; it is a guardrail against a manager moving fast, not a wall against somebody hand-editing the roster in a clone. |
 | `member_rm({ref})` | Remove from the roster and commit. **Manager-gated.** Does **not** revoke GitHub access. |
 | `member_scope({ref, workstreams?})` | Change which workstreams an existing member may reach, and commit. **Manager-gated.** Omit `workstreams` to return them to the whole project. Enforced for somebody who signs in with Google and reaches the project through the server; advisory for a GitHub collaborator, who holds a clone. Refused while a named workstream has nothing written in it. |
+| `manager_list()` | The primary manager, whose project key the project runs on, and any co-managers, who approve exactly as the primary does. Read-only. |
+| `manager_add({email})` | Make somebody a co-manager, and commit. **Manager-gated.** Identified by email address; a username is refused. Needs no key: the project never runs on a co-manager's. |
+| `manager_remove({email})` | Take a co-manager off, and commit. **Manager-gated.** Removing yourself is stepping down. The primary cannot be removed this way. Refused while the project's lent GitHub access is still that person's. |
+| `manager_transfer({email, step_down?})` | Hand the primary manager role over, and commit. **Primary only.** The new primary needs a working key of their own on this project, checked with the provider's list-models call, which spends nothing. If the project lends GitHub access, the new primary must be the one lending it. The outgoing primary stays a co-manager unless `step_down`, which is refused while the project's lent GitHub access is still theirs. |
 | `task_rm({id})` | Permanently delete a task and its compiled prompt, then commit. No undo short of a git revert. |
 | `task_compile({id, role?, force?})` | **Spends an AI call.** Builds a prompt from the workstream tree, the role and recent decisions; overwrites any existing prompt and commits. **Returns the markdown itself**, not just a path — the caller usually cannot read the file. Skips the call and returns the cached prompt with `alreadyCompiled: true` when the workstream's Whys are unchanged; `force: true` regenerates anyway. Not for loops. |
 | `role_add({name, responsibilities, ...})` | Create a role, generate its context file, commit. |
@@ -81,7 +85,7 @@ marked *(manager-gated)* require the caller to pass `author` matching
 | `snapshot_approve({id, author})` | *(manager-gated)* Approve and set current pointer. |
 | `snapshot_reject({id, reason?, author})` | *(manager-gated)* Reject a pending snapshot. |
 | `reflect({workstream?})` | AI-rewrite a workstream's tree. Can meaningfully change how context reads. |
-| `config_set({key, value})` | Write a single config key. Whitelisted keys only: `provider`, `model`, `githubRawBase`, `manager`, `managerEmail`, `deployUrl`, `autoPush`. |
+| `config_set({key, value})` | Write a single config key. Whitelisted keys only: `provider`, `model`, `githubRawBase`, `managerEmail`, `deployUrl`, `autoPush`. `deployUrl` is manager-only, and cannot be cleared once recorded. |
 
 ## Manager gate
 

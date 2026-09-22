@@ -29,7 +29,7 @@ export class MemberAccessError extends Error {
   }
 }
 
-async function readConfigJson({ owner, repo, token, ref }) {
+export async function readConfigJson({ owner, repo, token, ref }) {
   const url = new URL(`https://api.github.com/repos/${owner}/${repo}/contents/.teamctx/config.json`);
   if (ref) url.searchParams.set('ref', ref);
   const res = await fetch(url, {
