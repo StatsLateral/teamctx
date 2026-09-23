@@ -6,7 +6,7 @@ import { listMembers, memberByEmail } from '../../cli/commands/member.core.js';
 import { listPendingReviews } from '../../cli/commands/review.core.js';
 import { scopeFor, inScope } from '../member-scope.js';
 import { resolveTarget, targetLabel } from '../project-level.js';
-import { canApprove } from '../review.js';
+import { managerKeys, matchesActor } from '../review.js';
 import { kvGet, keys } from './kv.js';
 
 /**
@@ -88,7 +88,11 @@ export async function readProjectView({ owner, repo, user }) {
 
   return runWithSession(session, async () => {
     const config = readConfig();
-    const isManager = canApprove(config, { actor, displayName: actor.name });
+    // Matched against the gate itself, never `canApprove`: that answers yes to
+    // everyone on a project with no gate, and matches a legacy display-name gate
+    // against a name the caller chose for themselves — and this answer decides
+    // whether the roster check below runs at all.
+    const isManager = managerKeys(config).some(k => matchesActor(k, actor));
     // A sign-in with no GitHub account of its own reads through the credential
     // the project lends, so the roster is what stands in front of it. Without
     // this, any Google account anywhere could read any project that lends one.

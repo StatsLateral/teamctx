@@ -171,6 +171,41 @@ describe('a member looking at the same project', () => {
   });
 });
 
+describe('who counts as the manager', () => {
+  it('is nobody, on a project with no gate — the roster still decides', async () => {
+    // `canApprove` answers yes to everyone where no gate is pinned. Used here,
+    // that let any Google account read any project that lends access.
+    repo.files.set('.teamctx/config.json', JSON.stringify({ ...CONFIG, managerKey: undefined, members: [] }));
+    await lend();
+    const { status, body } = await visit('/project/acme/ledger', { ...MEMBER_GOOGLE, email: 'stranger@example.com' });
+    expect(status).toBe(403);
+    expect(body).toMatch(/not on the acme\/ledger roster/);
+  });
+
+  it('is not somebody who named themselves after a legacy display-name gate', async () => {
+    repo.files.set('.teamctx/config.json', JSON.stringify({ ...CONFIG, managerKey: undefined, manager: 'Maya', members: [] }));
+    await lend();
+    const { status } = await visit('/project/acme/ledger', { ...MEMBER_GOOGLE, name: 'Maya', email: 'stranger@example.com' });
+    expect(status).toBe(403);
+  });
+
+  it('is the address on the gate, however they signed in', async () => {
+    await lend();
+    const { body } = await visit('/project/acme/ledger', { ...MEMBER_GOOGLE, email: 'maya@example.com' });
+    expect(body).toContain('you manage this project');
+    expect(body).toContain('Waiting on you');
+  });
+});
+
+describe('what the page does with what the repo says', () => {
+  it("escapes a project name, which is somebody else's text", async () => {
+    repo.files.set('.teamctx/config.json', JSON.stringify({ ...CONFIG, project: '</title><script>alert(1)</script>' }));
+    const { body } = await visit('/project/acme/ledger', MANAGER);
+    expect(body).not.toContain('<script>alert(1)</script>');
+    expect(body).toContain('&lt;/title&gt;&lt;script&gt;');
+  });
+});
+
 describe('getting there', () => {
   it('lists the projects somebody is on', async () => {
     await kvSet(keys.connectedProjects('maya@example.com'), { projects: ['acme/ledger'] });
@@ -180,6 +215,11 @@ describe('getting there', () => {
 
   it('says so when there are none yet', async () => {
     expect((await visit('/projects', MANAGER)).body).toMatch(/Nothing here yet/);
+  });
+
+  it('leads back to the list from a project', async () => {
+    const { body } = await visit('/project/acme/ledger', MANAGER);
+    expect(body).toContain('href="/projects">← All projects');
   });
 
   it('sends a signed-out visitor to sign in, and back again', async () => {

@@ -1085,7 +1085,7 @@ const esc = (v) => String(v).replace(/[<>&"]/g, c => ({ '<': '&lt;', '>': '&gt;'
 
 const shell = (title, body, { wide = false } = {}) => `<!doctype html><html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${title} — teamctx</title><style>
+<title>${esc(title)} — teamctx</title><style>
 :root{color-scheme:light dark;--accent:#2f6feb;--line:#8883;--dim:#888}
 @media(prefers-color-scheme:dark){:root{--accent:#6ea8fe}}
 body{font-family:ui-sans-serif,system-ui,-apple-system,sans-serif;max-width:34rem;margin:4rem auto;padding:0 1.25rem;line-height:1.55}
@@ -1312,6 +1312,7 @@ add a key to it, or lend it GitHub access.</p>`}`);
 /** One page, three answers: what the parts are, what is open, what is waiting. */
 const projectPage = ({ user, view }) => shell(view.project || 'Project', `
 ${navBar({ user, current: '/projects' })}
+<p><a href="/projects">← All projects</a></p>
 <h1>${esc(view.project || `${view.owner}/${view.repo}`)}</h1>
 <p class="muted"><code>${esc(view.owner)}/${esc(view.repo)}</code> ·
 ${view.isManager ? 'you manage this project' : 'you are on this project'}${view.scopedTo ? ` · you see ${view.scopedTo.map(esc).join(', ')}` : ''}</p>
