@@ -586,7 +586,14 @@ function reportBackContribute(r) {
   const where = r.workstream === null ? 'the project' : `workstream "${r.workstream}"`;
   if (r.mode === 'no-op') return `Tell the user: contribution logged for ${where} but the AI proposed no changes to the tree.`;
   if (r.mode === 'queued') return `Tell the user: contribution ${r.id} queued for manager approval on ${where} (${r.operations.length} op${r.operations.length === 1 ? '' : 's'}). Manager must run \`teamctx review approve ${r.id}\` or call the review_approve tool.`;
-  return `Tell the user: contribution ${r.id} applied to ${where} (${r.operations.length} op${r.operations.length === 1 ? '' : 's'})${r.rolesRegenerated?.length ? `, regenerated roles: ${r.rolesRegenerated.join(', ')}` : ''}${r.pushed ? ', committed and pushed' : ', committed'}.`;
+  const applied = `Tell the user: contribution ${r.id} applied to ${where} (${r.operations.length} op${r.operations.length === 1 ? '' : 's'})${r.rolesRegenerated?.length ? `, regenerated roles: ${r.rolesRegenerated.join(', ')}` : ''}${r.pushed ? ', committed and pushed' : ', committed'}.`;
+  if (!r.founding) return applied;
+  // The project's context started here, out of a conversation the person is
+  // about to leave. Read it back while they can still correct it — this is the
+  // only contribution that gets this, and it is a summary, not a recital.
+  return `${applied} This founded the project's context, so summarise what is now in it from \`digest\`: `
+    + `its ${r.digest.totals.whys} goal${r.digest.totals.whys === 1 ? '' : 's'}, in a few sentences of your own words, `
+    + 'and ask whether anything is missing or wrong. Do not read the tree out item by item.';
 }
 
 export function makeHandlers(projectRoot) {

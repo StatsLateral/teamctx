@@ -1,5 +1,6 @@
 import { readProject, readConfig, readTree, writeTree, writeTreeMd, appendContribution, writeRoleFile, writeQueueItem, readContributions, listWorkstreamIds } from '../../src/storage.js';
 import { resolveTarget, isProjectLevel } from '../../src/project-level.js';
+import { digestTree } from '../../src/tree-digest.js';
 import { recompileInheritors } from '../../src/recompile.js';
 import { updateShared, generateRoleFile, serializeToMd } from '../../src/context.js';
 import { commitContext, pushContext } from '../../src/git.js';
@@ -107,6 +108,10 @@ export async function contributeCore({
   }
 
   const workstream = readTree(targetId, teamctxDir);
+  // Nothing was written here before this: the contribution that founds a
+  // project's context, and the one moment the person who wrote it should be
+  // told what it became. See src/tree-digest.js.
+  const founding = (workstream?.whys || []).length === 0;
   const tagged = decision ? 'decision' : null;
   const contribution = newContribution({ text, author: actor, authorKey, tagged, source, workstream: targetId });
   appendContribution(contribution, teamctxDir);
@@ -192,5 +197,8 @@ export async function contributeCore({
   return {
     id: contribution.id, workstream: targetId, author: actor, source,
     mode: 'applied', summary, operations, rolesRegenerated, pushed, pushError,
+    // Only on the founding one. Every contribution after it lands beside
+    // context the team already knows, and a digest each time would be noise.
+    ...(founding ? { founding: true, digest: digestTree(updated) } : {}),
   };
 }
