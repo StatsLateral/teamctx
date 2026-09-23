@@ -20,6 +20,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `docs/workstreams.md` already says it is not supported.
 
 ### Added
+- **A read-only view of where a project stands.** The only way to see the state
+  of a project was to ask an assistant for it, which asks a non-technical manager
+  to know what to ask. `/projects` lists the projects you are on, and
+  `/project/<owner>/<repo>` answers the three questions people actually have: what
+  the parts of the work are and who is on each, what is open and who has it, and
+  what is waiting on the manager. Read-only — approving still happens where it
+  already does. A member sees only the workstreams they are scoped to, and the
+  review queue is shown to managers alone. A GitHub sign-in reads with its own
+  token; a sign-in without one reads through the access the project lends, after
+  the roster confirms the address.
 - **Unattended agents on the hosted connector.** A job that runs with nobody
   present — a nightly script, a scheduled agent — could only reach a project
   through a person's browser sign-in, acting as that person with every tool they
