@@ -1,6 +1,7 @@
 import { readProject, readConfig, readTree, writeTree, writeTreeMd, appendContribution, writeRoleFile, writeQueueItem, readContributions, listWorkstreamIds } from '../../src/storage.js';
 import { resolveTarget, isProjectLevel } from '../../src/project-level.js';
 import { digestTree } from '../../src/tree-digest.js';
+import { projectIsEmpty } from '../../src/context-gate.js';
 import { recompileInheritors } from '../../src/recompile.js';
 import { updateShared, generateRoleFile, serializeToMd } from '../../src/context.js';
 import { commitContext, pushContext } from '../../src/git.js';
@@ -108,10 +109,12 @@ export async function contributeCore({
   }
 
   const workstream = readTree(targetId, teamctxDir);
-  // Nothing was written here before this: the contribution that founds a
-  // project's context, and the one moment the person who wrote it should be
-  // told what it became. See src/tree-digest.js.
-  const founding = (workstream?.whys || []).length === 0;
+  // The project holds nothing at all yet — its own tree and every workstream's,
+  // the sum `get_status` reports as `totalWhys`. Asking only whether *this* tree
+  // is empty called a new workstream on a running project "the project's first
+  // context", which is an ordinary thing to do and not that. See
+  // src/tree-digest.js.
+  const founding = projectIsEmpty(teamctxDir);
   const tagged = decision ? 'decision' : null;
   const contribution = newContribution({ text, author: actor, authorKey, tagged, source, workstream: targetId });
   appendContribution(contribution, teamctxDir);
