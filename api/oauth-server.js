@@ -147,11 +147,26 @@ app.get('/.well-known/oauth-protected-resource/*splat', (req, res) => {
  * made "get a GitHub account" the first step of joining, which is the blocker
  * this page exists to remove.
  */
-app.get('/oauth/choose', (req, res) => {
+app.get('/oauth/choose', async (req, res) => {
   const state = String(req.query.state || '');
   if (!state) return res.status(400).send(errorPage('Missing state parameter.'));
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
-  res.send(choosePage(state));
+
+  // Which project this connection is for, and whether it can accept a Google
+  // sign-in at all. Google members reach a project only through the GitHub
+  // access it lends, so offering that button on a project that lends none sends
+  // somebody through a sign-in that ends in a refusal.
+  const pending = await kvGet(keys.pending(state));
+  const project = /\/mcp\/([^/]+)\/([^/?#]+)/.exec(String(pending?.resource || ''));
+  const lends = project
+    ? !!(await kvGet(keys.projectGhCred(project[1], project[2])))?.token
+    : true;   // Nothing to go on: offer both rather than hide a way in.
+  res.send(choosePage({
+    state,
+    project: project ? `${project[1]}/${project[2]}` : null,
+    google: !!provider?.googleClientId && lends,
+    lends,
+  }));
 });
 
 app.get('/oauth/choose/github', (req, res) => {
@@ -1261,15 +1276,35 @@ ${agents.map(group => `<p class="muted"><code>${esc(group.project)}</code></p>${
 </section>
 </div>`, { wide: true });
 
-const choosePage = (state) => shell('Connect', `
-<h1>Connect to teamctx</h1>
-<p>How do you sign in?</p>
-<p><a href="/oauth/choose/google?state=${encodeURIComponent(state)}">
-  <button type="button">Continue with Google</button></a></p>
-<p><a href="/oauth/choose/github?state=${encodeURIComponent(state)}">
-  <button type="button">Continue with GitHub</button></a></p>
-<p class="muted">Use Google if someone invited you to a project by email — sign
-in with that same address. Use GitHub if you work on the repository directly.</p>`);
+/**
+ * The one screen somebody sees while connecting their AI client.
+ *
+ * Both ways in used to sit side by side under one question, with the difference
+ * between them in small print underneath — so the manager, who needs GitHub,
+ * had to read a footnote to find that out. Each choice now says who it is for
+ * where it is made, and Google is not offered at all on a project that lends no
+ * GitHub access, because it could only end in a refusal.
+ */
+const choosePage = ({ state, project = null, google = true, lends = true }) => shell('Connect', `
+<h1>Connect${project ? ` to ${esc(project)}` : ' to teamctx'}</h1>
+<p>Sign in so teamctx knows who you are. It is how your work is attributed, and
+what decides which part of the project you see.</p>
+
+<section class="card">
+<h2>Continue with GitHub</h2>
+<p class="muted">For the manager, and anyone who works in the repository. Sign in
+with the GitHub account that can see it.</p>
+<p><a class="btn" href="/oauth/choose/github?state=${encodeURIComponent(state)}">Continue with GitHub</a></p>
+</section>
+
+${google ? `<section class="card">
+<h2>Continue with Google</h2>
+<p class="muted">For anyone invited to the project by email, with no GitHub
+account. Sign in with that same address — another one is not recognised.</p>
+<p><a class="btn" href="/oauth/choose/google?state=${encodeURIComponent(state)}">Continue with Google</a></p>
+</section>` : `<p class="muted">Signing in with Google is not available for this
+project${lends ? ' on this deployment' : ': it has not lent GitHub access, which is how members without a GitHub account reach it'}.
+Its manager can turn that on from the settings page.</p>`}`);
 
 /**
  * Pick a project rather than spell one.
