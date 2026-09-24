@@ -1,5 +1,7 @@
 import { readProject, readConfig, readTree, writeTree, writeTreeMd, appendContribution, writeRoleFile, writeQueueItem, readContributions, listWorkstreamIds } from '../../src/storage.js';
 import { resolveTarget, isProjectLevel } from '../../src/project-level.js';
+import { digestTree } from '../../src/tree-digest.js';
+import { projectIsEmpty } from '../../src/context-gate.js';
 import { recompileInheritors } from '../../src/recompile.js';
 import { updateShared, generateRoleFile, serializeToMd } from '../../src/context.js';
 import { commitContext, pushContext } from '../../src/git.js';
@@ -107,6 +109,12 @@ export async function contributeCore({
   }
 
   const workstream = readTree(targetId, teamctxDir);
+  // The project holds nothing at all yet — its own tree and every workstream's,
+  // the sum `get_status` reports as `totalWhys`. Asking only whether *this* tree
+  // is empty called a new workstream on a running project "the project's first
+  // context", which is an ordinary thing to do and not that. See
+  // src/tree-digest.js.
+  const founding = projectIsEmpty(teamctxDir);
   const tagged = decision ? 'decision' : null;
   const contribution = newContribution({ text, author: actor, authorKey, tagged, source, workstream: targetId });
   appendContribution(contribution, teamctxDir);
@@ -192,5 +200,8 @@ export async function contributeCore({
   return {
     id: contribution.id, workstream: targetId, author: actor, source,
     mode: 'applied', summary, operations, rolesRegenerated, pushed, pushError,
+    // Only on the founding one. Every contribution after it lands beside
+    // context the team already knows, and a digest each time would be noise.
+    ...(founding ? { founding: true, digest: digestTree(updated) } : {}),
   };
 }
