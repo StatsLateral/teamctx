@@ -20,6 +20,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `docs/workstreams.md` already says it is not supported.
 
 ### Added
+- **A read-only view of where a project stands.** The only way to see the state
+  of a project was to ask an assistant for it, which asks a non-technical manager
+  to know what to ask. `/projects` lists the projects you are on, and
+  `/project/<owner>/<repo>` answers the three questions people actually have: what
+  the parts of the work are and who is on each, what is open and who has it, and
+  what is waiting on the manager. Read-only — approving still happens where it
+  already does. A member sees only the workstreams they are scoped to, and the
+  review queue is shown to managers alone. A GitHub sign-in reads with its own
+  token; a sign-in without one reads through the access the project lends, after
+  the roster confirms the address.
 - **The first contribution reads the project's context back.** A project's
   context usually starts as one long conversation pasted in at once, and what
   came back said only what changed — a summary line and a list of typed edits.

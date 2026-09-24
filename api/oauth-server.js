@@ -17,6 +17,7 @@ import { lendDecision } from '../src/oauth/lend-decision.js';
 import { GithubSession, listUserOrgs, createRepo, slugifyProjectName, suggestAvailableName, listPushableRepos } from '../src/adapters/github.js';
 import { runWithSession } from '../src/session-context.js';
 import { initProject } from '../cli/commands/init.core.js';
+import { readProjectView, ProjectViewError } from '../src/oauth/project-view.js';
 import { addAgent, removeAgent, MemberNotFoundError } from '../cli/commands/member.core.js';
 import {
   createAgentToken, listAgents, revokeAgent, projectsWithAgentsBy,
@@ -401,7 +402,7 @@ app.get('/settings/signin/google', async (req, res) => {
   }
   const state = randomBytes(18).toString('base64url');
   const requestedReturnTo = String(req.query.returnTo || '');
-  const returnTo = /^\/settings\/[a-z-]+$/.test(requestedReturnTo) ? requestedReturnTo : null;
+  const returnTo = RETURN_TO.test(requestedReturnTo) ? requestedReturnTo : null;
   await kvSet(
     keys.pending(`settings-google:${state}`),
     returnTo ? { kind: 'settings', returnTo } : { kind: 'settings' },
@@ -417,11 +418,8 @@ app.get('/settings/signin/google', async (req, res) => {
 /** Starts the GitHub login. Only reached by clicking Sign in. */
 app.get('/settings/signin', async (req, res) => {
   const state = randomBytes(18).toString('base64url');
-  // Allow-listed rather than trusted: this is the only place a client-
-  // supplied path could end up driving a redirect, so anything outside
-  // /settings/<word> is dropped rather than carried through.
   const requestedReturnTo = String(req.query.returnTo || '');
-  const returnTo = /^\/settings\/[a-z-]+$/.test(requestedReturnTo) ? requestedReturnTo : null;
+  const returnTo = RETURN_TO.test(requestedReturnTo) ? requestedReturnTo : null;
   await kvSet(
     keys.pending(`settings:${state}`),
     returnTo ? { kind: 'settings', returnTo } : { kind: 'settings' },
@@ -1039,6 +1037,43 @@ app.post('/settings/agents/revoke', async (req, res) => {
   backToSettings(res);
 });
 
+/**
+ * Where a sign-in may send somebody afterwards.
+ *
+ * Allow-listed rather than trusted, because this is the one place a path from
+ * the query string drives a redirect.
+ */
+const RETURN_TO = /^\/(?:settings\/[a-z-]+|projects|project\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+)$/;
+
+const signInFor = (res, path) => res.redirect(303, `/settings/signin?returnTo=${encodeURIComponent(path)}`);
+
+/** The projects this person is on, as somewhere to start looking. */
+app.get('/projects', async (req, res) => {
+  const user = await currentUser(req);
+  if (!user) return signInFor(res, '/projects');
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  const projects = user.email ? await projectsKnownFor(user.email) : [];
+  res.send(projectsPage({ user, projects }));
+});
+
+/**
+ * Where one project stands: its parts, its tasks, and what is waiting on the
+ * manager. Read-only — see src/oauth/project-view.js.
+ */
+app.get('/project/:owner/:repo', async (req, res) => {
+  const user = await currentUser(req);
+  const owner = String(req.params.owner || '');
+  const repo = String(req.params.repo || '');
+  if (!user) return signInFor(res, `/project/${owner}/${repo}`);
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  try {
+    res.send(projectPage({ user, view: await readProjectView({ owner, repo, user }) }));
+  } catch (e) {
+    const denied = e instanceof ProjectViewError || e.code === 'MEMBER_ACCESS_DENIED';
+    res.status(denied ? 403 : 500).send(errorPage(e.message));
+  }
+});
+
 // ---- The SDK's OAuth server: metadata, /authorize, /token, /register --
 
 if (provider) {
@@ -1065,7 +1100,7 @@ const esc = (v) => String(v).replace(/[<>&"]/g, c => ({ '<': '&lt;', '>': '&gt;'
 
 const shell = (title, body, { wide = false } = {}) => `<!doctype html><html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${title} — teamctx</title><style>
+<title>${esc(title)} — teamctx</title><style>
 :root{color-scheme:light dark;--accent:#2f6feb;--line:#8883;--dim:#888}
 @media(prefers-color-scheme:dark){:root{--accent:#6ea8fe}}
 body{font-family:ui-sans-serif,system-ui,-apple-system,sans-serif;max-width:34rem;margin:4rem auto;padding:0 1.25rem;line-height:1.55}
@@ -1112,6 +1147,10 @@ a{color:var(--accent)}
 button.link{background:none;border:0;padding:0;margin:0;color:var(--dim);
   font-size:.85rem;text-decoration:underline;cursor:pointer}
 code{background:#8881;padding:.1rem .3rem;border-radius:.2rem}
+table{width:100%;border-collapse:collapse;font-size:.95rem}
+th{text-align:left;font-weight:600;color:#888;font-size:.8rem;text-transform:uppercase;letter-spacing:.03em}
+th,td{padding:.4rem .5rem .4rem 0;border-bottom:1px solid var(--line);vertical-align:top}
+tr:last-child td{border-bottom:0}
 </style></head><body${wide ? ' class="wide"' : ''}>${body}</body></html>`;
 
 const settingsPage = ({
@@ -1276,6 +1315,67 @@ ${agents.map(group => `<p class="muted"><code>${esc(group.project)}</code></p>${
 </section>
 </div>`, { wide: true });
 
+const projectsPage = ({ user, projects }) => shell('Projects', `
+${navBar({ user, current: '/projects' })}
+<h1>Your projects</h1>
+${projects.length ? `<p class="muted">Where each one stands, without asking your assistant for it.</p>
+<ul style="line-height:2;padding-left:1.2rem">
+  ${projects.map(slug => `<li><a href="/project/${esc(slug)}">${esc(slug)}</a></li>`).join('')}
+</ul>` : `<p class="muted">Nothing here yet. A project appears once you connect to it,
+add a key to it, or lend it GitHub access.</p>`}`);
+
+/** One page, three answers: what the parts are, what is open, what is waiting. */
+const projectPage = ({ user, view }) => shell(view.project || 'Project', `
+${navBar({ user, current: '/projects' })}
+<p><a href="/projects">← All projects</a></p>
+<h1>${esc(view.project || `${view.owner}/${view.repo}`)}</h1>
+<p class="muted"><code>${esc(view.owner)}/${esc(view.repo)}</code> ·
+${view.isManager ? 'you manage this project' : 'you are on this project'}${view.scopedTo ? ` · you see ${view.scopedTo.map(esc).join(', ')}` : ''}</p>
+
+<div class="cols">
+<section class="card">
+<h2>The work</h2>
+${view.workstreams.length ? `<table>
+  <tr><th>Part</th><th>Who is on it</th><th>Goals</th></tr>
+  ${view.workstreams.map(w => `<tr>
+    <td>${esc(w.name)}</td>
+    <td class="muted">${w.members.length ? w.members.map(esc).join(', ') : '—'}</td>
+    <td class="muted">${w.whyCount}</td>
+  </tr>`).join('')}
+</table>` : `<p class="muted">This project has not been split into parts. Its context
+holds ${view.projectWhys} goal${view.projectWhys === 1 ? '' : 's'}.</p>`}
+${view.members.length ? `<p class="muted" style="margin-top:1rem">On the project:
+${view.members.map(m => esc(m.name)).join(', ')}${view.agents.length ? `, and ${view.agents.map(a => esc(a.name)).join(', ')} (agents)` : ''}.</p>` : ''}
+</section>
+
+<section class="card">
+<h2>Open tasks</h2>
+${view.tasks.open.length ? `<table>
+  <tr><th>Task</th><th>Who has it</th><th>Where</th></tr>
+  ${view.tasks.open.map(t => `<tr>
+    <td>${esc(t.title)}</td>
+    <td class="muted">${t.owner ? esc(t.owner) : 'nobody yet'}</td>
+    <td class="muted">${esc(t.where)}</td>
+  </tr>`).join('')}
+</table>` : '<p class="muted">Nothing open.</p>'}
+${view.tasks.done.length ? `<p class="muted" style="margin-top:1rem">${view.tasks.done.length}
+task${view.tasks.done.length === 1 ? '' : 's'} already done.</p>` : ''}
+</section>
+
+${view.pending ? `<section class="card">
+<h2>Waiting on you</h2>
+${view.pending.length ? `<p class="muted">Work your team has sent for review. Approve or reject it from your assistant, or with <code>teamctx review</code>.</p>
+<table>
+  <tr><th>From</th><th>What</th><th>Where</th></tr>
+  ${view.pending.map(q => `<tr>
+    <td>${esc(q.author)}</td>
+    <td>${esc(q.summary || '(no summary)')}</td>
+    <td class="muted">${esc(q.where)}</td>
+  </tr>`).join('')}
+</table>` : '<p class="muted">Nothing is waiting for review.</p>'}
+</section>` : ''}
+</div>`, { wide: true });
+
 /**
  * The one screen somebody sees while connecting their AI client.
  *
@@ -1347,6 +1447,7 @@ const navBar = ({ user, current }) => {
   return `<nav class="bar">
   <a href="/" class="brand">teamctx</a>
   ${link('/', 'Home')}
+  ${user ? link('/projects', 'Projects') : ''}
   ${user ? link('/settings', 'Settings') : ''}
   ${user?.id ? link('/settings/new-project', 'New project') : ''}
   <span class="who muted">${user ? `${esc(user.login || user.email || '')}
