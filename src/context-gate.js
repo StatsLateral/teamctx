@@ -1,4 +1,4 @@
-import { readProject, readWorkstream } from './storage.js';
+import { readProject, readWorkstream, listWorkstreamIds } from './storage.js';
 
 /**
  * Nobody is brought onto an empty project.
@@ -76,4 +76,19 @@ export function assertJoinableContext({ config, scope, who, teamctxDir } = {}) {
       { scope: 'workstream', workstream: id },
     );
   }
+}
+
+/**
+ * Does this project hold nothing at all yet?
+ *
+ * The project's own tree and every workstream's, the same sum `get_status`
+ * reports as `totalWhys`. One tree being empty says nothing: a new workstream on
+ * a running project starts empty and is not the project starting.
+ */
+export function projectIsEmpty(teamctxDir) {
+  if (hasContext(readProject(teamctxDir))) return false;
+  for (const id of listWorkstreamIds(teamctxDir)) {
+    if (hasContext(readWorkstream(id, teamctxDir))) return false;
+  }
+  return true;
 }
