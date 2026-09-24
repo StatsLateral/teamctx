@@ -30,6 +30,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   review queue is shown to managers alone. A GitHub sign-in reads with its own
   token; a sign-in without one reads through the access the project lends, after
   the roster confirms the address.
+- **The first contribution reads the project's context back.** A project's
+  context usually starts as one long conversation pasted in at once, and what
+  came back said only what changed — a summary line and a list of typed edits.
+  The person who wrote it had no way to see what the context now *was*, at the
+  one moment when correcting it is cheap. The founding contribution now carries
+  a digest of the whole tree, trimmed to what can be read back in a few
+  sentences: the connector is told to summarise it and ask what is missing, and
+  the terminal prints it. Every contribution after it is unchanged.
+- **The connector sign-in says who each way in is for.** Google and GitHub sat
+  side by side under one question, with the difference between them in small
+  print underneath, so the manager — who needs GitHub — had to read a footnote
+  to find that out. Each choice now carries its own explanation, GitHub first,
+  and the page names the project being connected to. Google is not offered at
+  all on a project that lends no GitHub access, since that is the only way a
+  member without a GitHub account reaches one; the page says so instead of
+  sending them through a sign-in that ends in a refusal.
 - **Unattended agents on the hosted connector.** A job that runs with nobody
   present — a nightly script, a scheduled agent — could only reach a project
   through a person's browser sign-in, acting as that person with every tool they

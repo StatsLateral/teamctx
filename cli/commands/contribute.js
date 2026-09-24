@@ -70,6 +70,31 @@ export async function contributeCommand(text, opts = {}) {
     console.log(`\n→ Regenerated ${r.rolesRegenerated.length} role file${r.rolesRegenerated.length !== 1 ? 's' : ''}: ${r.rolesRegenerated.join(', ')}`);
   }
   console.log(`\n✓ Applied${where} — committed.${pushNote(r)}`);
+  if (r.founding) printFounding(r.digest);
+}
+
+/**
+ * What the project's context now holds, printed once.
+ *
+ * This contribution founded it, usually out of a conversation the person is
+ * about to leave, and they should see what it became while correcting it is
+ * still cheap.
+ */
+function printFounding(digest) {
+  if (!digest) return;
+  const { whys, totals, more } = digest;
+  const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+  console.log(`\nThis is the project's first context. It now holds ${plural(totals.whys, 'goal')}, `
+    + `${plural(totals.whats, 'requirement')} and ${plural(totals.hows, 'step')}:\n`);
+  for (const why of whys) {
+    console.log(`  • ${why.text}`);
+    for (const what of why.whats) {
+      console.log(`      - ${what.text}`);
+      for (const how of what.hows) console.log(`          · ${how}`);
+    }
+  }
+  if (more) console.log('\n  (trimmed — `teamctx context <role>` prints all of it)');
+  console.log('\nRead it over: correcting it now is cheaper than later.');
 }
 
 function pushNote(r) {
