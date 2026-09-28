@@ -61,6 +61,16 @@ describe('choosing how to sign in', () => {
     expect(body).toContain('/oauth/choose/github');
   });
 
+  it('leaves the shut option on the page, greyed, rather than dropping it', async () => {
+    // A way in that is simply absent reads as a broken deployment: nothing on
+    // screen says it exists, so nobody knows there is anything to turn on.
+    await pending();
+    const { body } = await get('/oauth/choose?state=s1');
+    expect(body).toContain('Continue with Google');
+    expect(body).toContain('class="btn off"');
+    expect(body).toContain('aria-disabled="true"');
+  });
+
   it('offers both when it cannot tell which project this is', async () => {
     // An expired or unfamiliar authorization: hiding a way in would be worse
     // than offering one that may not apply.

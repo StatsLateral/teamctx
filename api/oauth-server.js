@@ -1126,6 +1126,9 @@ h2{font-size:1rem;margin:0 0 .3rem}
    stretched control with whatever follows crowding it. */
 .btn{display:inline-block;background:var(--accent);color:#fff;text-decoration:none;padding:.6rem 1.4rem;border-radius:.4rem}
 .btn:hover{filter:brightness(1.08)}
+/* A way in that is shut stays on the page, greyed, with the reason under it: a
+   button that is simply absent reads as a bug, and leaves nothing to fix. */
+.btn.off{background:#8881;color:var(--dim);cursor:not-allowed}
 .actions{display:flex;align-items:center;gap:1.25rem;margin-top:2rem}
 .bar h1{margin:0}
 .card label:first-of-type{margin-top:.75rem}
@@ -1385,26 +1388,48 @@ ${view.pending.length ? `<p class="muted">Work your team has sent for review. Ap
  * where it is made, and Google is not offered at all on a project that lends no
  * GitHub access, because it could only end in a refusal.
  */
+/**
+ * The two ways in, said the same way wherever they are offered.
+ *
+ * GitHub first, because it is the one the manager needs. Google is always on
+ * the page: when it cannot be used it is greyed out with the reason beneath it,
+ * because a button that is simply missing looks like a broken deployment and
+ * tells nobody what to fix.
+ */
+const waysInCards = ({ github, google, googleWhy }) => `
+<section class="card">
+<h2>Continue with GitHub</h2>
+<p class="muted">For the manager, and anyone who works in the repository. Sign in
+with the GitHub account that can see it.</p>
+<p><a class="btn" href="${github}">Continue with GitHub</a></p>
+</section>
+
+<section class="card">
+<h2>Continue with Google</h2>
+<p class="muted">For anyone invited to the project by email, with no GitHub
+account. Sign in with that same address — another one is not recognised.</p>
+${google
+    ? `<p><a class="btn" href="${google}">Continue with Google</a></p>`
+    : `<p><span class="btn off" aria-disabled="true">Continue with Google</span></p>
+<p class="muted">${esc(googleWhy || 'Google sign-in is not available here.')}</p>`}
+</section>`;
+
+const lendsNothing = (project) => `${project} has not lent GitHub access, which is how `
+  + 'somebody without a GitHub account reaches it. Its manager can turn that on from their '
+  + 'settings page.';
+
 const choosePage = ({ state, project = null, google = true, lends = true }) => shell('Connect', `
 <h1>Connect${project ? ` to ${esc(project)}` : ' to teamctx'}</h1>
 <p>Sign in so teamctx knows who you are. It is how your work is attributed, and
 what decides which part of the project you see.</p>
 
-<section class="card">
-<h2>Continue with GitHub</h2>
-<p class="muted">For the manager, and anyone who works in the repository. Sign in
-with the GitHub account that can see it.</p>
-<p><a class="btn" href="/oauth/choose/github?state=${encodeURIComponent(state)}">Continue with GitHub</a></p>
-</section>
-
-${google ? `<section class="card">
-<h2>Continue with Google</h2>
-<p class="muted">For anyone invited to the project by email, with no GitHub
-account. Sign in with that same address — another one is not recognised.</p>
-<p><a class="btn" href="/oauth/choose/google?state=${encodeURIComponent(state)}">Continue with Google</a></p>
-</section>` : `<p class="muted">Signing in with Google is not available for this
-project${lends ? ' on this deployment' : ': it has not lent GitHub access, which is how members without a GitHub account reach it'}.
-Its manager can turn that on from the settings page.</p>`}`);
+${waysInCards({
+    github: `/oauth/choose/github?state=${encodeURIComponent(state)}`,
+    google: google ? `/oauth/choose/google?state=${encodeURIComponent(state)}` : null,
+    googleWhy: lends
+      ? 'Google sign-in is not set up on this deployment.'
+      : lendsNothing(project || 'This project'),
+  })}`);
 
 /**
  * Pick a project rather than spell one.
