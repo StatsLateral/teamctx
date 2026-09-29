@@ -225,7 +225,7 @@ describe('getting there', () => {
   it('sends a signed-out visitor to sign in, and back again', async () => {
     const r = await visit('/project/acme/ledger');
     expect(r.status).toBe(303);
-    expect(r.location).toBe('/settings/signin?returnTo=/project/acme/ledger');
+    expect(r.location).toBe('/signin?returnTo=/project/acme/ledger');
   });
 
   it('reports a repository it cannot read, rather than failing silently', async () => {
