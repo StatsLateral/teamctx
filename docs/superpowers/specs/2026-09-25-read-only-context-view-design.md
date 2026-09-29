@@ -184,10 +184,27 @@ No extra GitHub requests: `session.prefetch()` already loads these files.
 - Existing `home.test.js`, `settings-*.test.js`, `connect-signin.test.js` pass
   after the move to `api/views/`; `cli/loads.test.js` covers new files.
 
+### 8. Existing open source first
+
+Per #106. What this reuses, and what is left for teamctx to build:
+
+| Piece | Use | Build ourselves? |
+|---|---|---|
+| Look and layout | git-for-non-tech-teams `src/index.css` (tokens, tree/chip/drawer styles); Google Fonts | No — port it |
+| Page rendering | teamctx's existing server-rendered `shell()` templates; no framework, no build step | No |
+| Page interactivity (view toggle, drawer, copy prompt, open linked item) | Plain JS under ~100 lines using `navigator.clipboard` and `URLSearchParams`. If it grows past that, use [Alpine.js](https://alpinejs.dev) (CDN, no build) instead of growing hand-written JS | Only the small script |
+| Link building/parsing | Platform `URL` / `URLSearchParams` | Only the parameter rules in `src/view-url.js` |
+| Sign-in and `returnTo` round trip | Already built (#104); MCP side uses the MCP SDK's `mcpAuthRouter` | No |
+| Tree and data reads | teamctx's own storage and scoping (`readProject`, `readWorkstream`, `inScope`) | **Yes — the product:** a scoped, read-only view of governed context, plus deep links from chat tools |
+
+Considered and rejected: tree/UI component libraries (e.g. react-arborist) —
+they need React and a build pipeline, rejected with approach B, for a tree that
+is three levels deep.
+
 ## Dependencies and sequencing
 
-1. **#102** (sign-in chooser, `returnTo` through Google) — land first or
-   together; §3's signed-out path relies on it.
+1. **#102** (sign-in chooser, `returnTo` through Google) — **done in #104**
+   (merged 2026-09-29); §3's signed-out path relies on it.
 2. Theme + view split (no behaviour change) — reviewable on its own.
 3. Project page tree view + data.
 4. Deep links: `src/view-url.js`, `RETURN_TO`, MCP `viewUrl`.
