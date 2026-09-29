@@ -323,11 +323,11 @@ app.get('/settings', async (req, res) => {
   const user = await currentUser(req);
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
 
-  // Signed out renders a sign-in page rather than redirecting straight to
-  // GitHub. GitHub re-approves an already-authorised app without prompting,
-  // so an automatic redirect here would sign the user back in the instant
-  // they landed — making "signed out" a state you could never actually see.
-  if (!user) return res.send(signInPage());
+  // Signed out goes to the sign-in screen, never straight to a provider.
+  // GitHub re-approves an already-authorised app without prompting, so a
+  // redirect into GitHub here would sign the user back in the instant they
+  // landed — making "signed out" a state you could never actually see.
+  if (!user) return signInFor(res, '/settings');
   await renderSettings(req, res, user);
 });
 
@@ -395,6 +395,59 @@ async function agentsFor(user) {
   return out;
 }
 
+/**
+ * Which ways in this destination has, and why any of them is shut.
+ *
+ * One answer, in one place, for every screen that offers a sign-in. The rule
+ * used to be written three times — the home page and the settings pages
+ * redirected straight into GitHub, the connector weighed up lent access — so
+ * the same person met a different set of buttons depending on where they
+ * landed, with nothing on screen to say why.
+ */
+const NEEDS_GITHUB = ['/settings/new-project'];
+
+async function waysInFor(returnTo) {
+  if (!provider?.googleClientId) {
+    return { google: false, why: 'Google sign-in is not set up on this deployment.' };
+  }
+  if (NEEDS_GITHUB.includes(returnTo)) {
+    return {
+      google: false,
+      why: 'Creating a project creates a GitHub repository, so that step needs a GitHub account.',
+    };
+  }
+  // A project is reachable without GitHub only through the access it lends,
+  // which is the connector's rule — applied here too, rather than sending
+  // somebody through a sign-in that ends in a refusal.
+  const project = /^\/project\/([^/]+)\/([^/]+)$/.exec(returnTo || '');
+  if (project && !(await kvGet(keys.projectGhCred(project[1], project[2])))?.token) {
+    return { google: false, why: lendsNothing(`${project[1]}/${project[2]}`) };
+  }
+  return { google: true, why: null };
+}
+
+const lendsNothing = (project) => `${project} has not lent GitHub access, which is how `
+  + 'somebody without a GitHub account reaches it. Its manager can turn that on from their '
+  + 'settings page.';
+
+/**
+ * The one screen that offers a sign-in.
+ *
+ * Every "Sign in" in the product leads here and nowhere else. It used to lead
+ * to `/settings/signin`, which is not a screen at all — it is the GitHub
+ * kickoff, a redirect to github.com — so a member invited by email was thrown
+ * at an account they do not have, with no sign that another way in existed.
+ */
+app.get('/signin', async (req, res) => {
+  const user = await currentUser(req);
+  const requestedReturnTo = String(req.query.returnTo || '');
+  const returnTo = RETURN_TO.test(requestedReturnTo) ? requestedReturnTo : null;
+  // Somebody already signed in has nothing to do here.
+  if (user) return res.redirect(303, returnTo || '/settings');
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.send(signInPage({ returnTo, ways: await waysInFor(returnTo) }));
+});
+
 /** Starts a Google login for the settings page. Only reached by clicking it. */
 app.get('/settings/signin/google', async (req, res) => {
   if (!provider?.googleClientId) {
@@ -442,7 +495,7 @@ async function safeListOrgs(token) {
 app.get('/settings/new-project', async (req, res) => {
   const user = await currentUser(req);
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
-  if (!user) return res.redirect(303, '/settings/signin?returnTo=/settings/new-project');
+  if (!user) return signInFor(res, '/settings/new-project');
   // Creating a project creates a GitHub repository, so it needs a GitHub sign-in.
   if (!user.id) return backToSettings(res, 'Creating a project creates a GitHub repository, so it needs a GitHub sign-in.');
   const orgs = await safeListOrgs(user.token);
@@ -451,7 +504,7 @@ app.get('/settings/new-project', async (req, res) => {
 
 app.post('/settings/new-project', async (req, res) => {
   const user = await currentUser(req);
-  if (!user) return res.redirect(303, '/settings/signin?returnTo=/settings/new-project');
+  if (!user) return signInFor(res, '/settings/new-project');
   if (!user.id) return backToSettings(res, 'Creating a project creates a GitHub repository, so it needs a GitHub sign-in.');
 
   const projectName = String(req.body?.projectName || '').trim();
@@ -1043,9 +1096,9 @@ app.post('/settings/agents/revoke', async (req, res) => {
  * Allow-listed rather than trusted, because this is the one place a path from
  * the query string drives a redirect.
  */
-const RETURN_TO = /^\/(?:settings\/[a-z-]+|projects|project\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+)$/;
+const RETURN_TO = /^\/(?:settings(?:\/[a-z-]+)?|projects|project\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+)$/;
 
-const signInFor = (res, path) => res.redirect(303, `/settings/signin?returnTo=${encodeURIComponent(path)}`);
+const signInFor = (res, path) => res.redirect(303, `/signin?returnTo=${encodeURIComponent(path)}`);
 
 /** The projects this person is on, as somewhere to start looking. */
 app.get('/projects', async (req, res) => {
@@ -1126,6 +1179,9 @@ h2{font-size:1rem;margin:0 0 .3rem}
    stretched control with whatever follows crowding it. */
 .btn{display:inline-block;background:var(--accent);color:#fff;text-decoration:none;padding:.6rem 1.4rem;border-radius:.4rem}
 .btn:hover{filter:brightness(1.08)}
+/* A way in that is shut stays on the page, greyed, with the reason under it: a
+   button that is simply absent reads as a bug, and leaves nothing to fix. */
+.btn.off{background:#8881;color:var(--dim);cursor:not-allowed}
 .actions{display:flex;align-items:center;gap:1.25rem;margin-top:2rem}
 .bar h1{margin:0}
 .card label:first-of-type{margin-top:.75rem}
@@ -1385,26 +1441,44 @@ ${view.pending.length ? `<p class="muted">Work your team has sent for review. Ap
  * where it is made, and Google is not offered at all on a project that lends no
  * GitHub access, because it could only end in a refusal.
  */
+/**
+ * The two ways in, said the same way wherever they are offered.
+ *
+ * GitHub first, because it is the one the manager needs. Google is always on
+ * the page: when it cannot be used it is greyed out with the reason beneath it,
+ * because a button that is simply missing looks like a broken deployment and
+ * tells nobody what to fix.
+ */
+const waysInCards = ({ github, google, googleWhy }) => `
+<section class="card">
+<h2>Continue with GitHub</h2>
+<p class="muted">For the manager, and anyone who works in the repository. Sign in
+with the GitHub account that can see it.</p>
+<p><a class="btn" href="${github}">Continue with GitHub</a></p>
+</section>
+
+<section class="card">
+<h2>Continue with Google</h2>
+<p class="muted">For anyone invited to the project by email, with no GitHub
+account. Sign in with that same address — another one is not recognised.</p>
+${google
+    ? `<p><a class="btn" href="${google}">Continue with Google</a></p>`
+    : `<p><span class="btn off" aria-disabled="true">Continue with Google</span></p>
+<p class="muted">${esc(googleWhy || 'Google sign-in is not available here.')}</p>`}
+</section>`;
+
 const choosePage = ({ state, project = null, google = true, lends = true }) => shell('Connect', `
 <h1>Connect${project ? ` to ${esc(project)}` : ' to teamctx'}</h1>
 <p>Sign in so teamctx knows who you are. It is how your work is attributed, and
 what decides which part of the project you see.</p>
 
-<section class="card">
-<h2>Continue with GitHub</h2>
-<p class="muted">For the manager, and anyone who works in the repository. Sign in
-with the GitHub account that can see it.</p>
-<p><a class="btn" href="/oauth/choose/github?state=${encodeURIComponent(state)}">Continue with GitHub</a></p>
-</section>
-
-${google ? `<section class="card">
-<h2>Continue with Google</h2>
-<p class="muted">For anyone invited to the project by email, with no GitHub
-account. Sign in with that same address — another one is not recognised.</p>
-<p><a class="btn" href="/oauth/choose/google?state=${encodeURIComponent(state)}">Continue with Google</a></p>
-</section>` : `<p class="muted">Signing in with Google is not available for this
-project${lends ? ' on this deployment' : ': it has not lent GitHub access, which is how members without a GitHub account reach it'}.
-Its manager can turn that on from the settings page.</p>`}`);
+${waysInCards({
+    github: `/oauth/choose/github?state=${encodeURIComponent(state)}`,
+    google: google ? `/oauth/choose/google?state=${encodeURIComponent(state)}` : null,
+    googleWhy: lends
+      ? 'Google sign-in is not set up on this deployment.'
+      : lendsNothing(project || 'This project'),
+  })}`);
 
 /**
  * Pick a project rather than spell one.
@@ -1453,7 +1527,7 @@ const navBar = ({ user, current }) => {
   <span class="who muted">${user ? `${esc(user.login || user.email || '')}
       <form method="POST" action="/settings/logout" style="display:inline;margin:0">
         <button type="submit" class="link">Sign out</button>
-      </form>` : '<a href="/settings/signin">Sign in</a>'}</span>
+      </form>` : '<a href="/signin">Sign in</a>'}</span>
 </nav>`;
 };
 
@@ -1485,7 +1559,7 @@ context and their tasks, sends work back, and you review it on your own
 cadence.</p>
 
 <p class="actions">
-  <a class="btn" href="${!user ? '/settings/signin' : user.id ? '/settings/new-project' : '/settings'}">${!user ? 'Start here' : user.id ? 'Create a new project' : 'Settings'}</a>
+  <a class="btn" href="${!user ? '/signin' : user.id ? '/settings/new-project' : '/settings'}">${!user ? 'Start here' : user.id ? 'Create a new project' : 'Settings'}</a>
 </p>
 ${user ? '' : '<p class="muted">Signing in creates nothing on its own — you choose the project on the next screen.</p>'}
 ${user && projects.length ? `
@@ -1574,18 +1648,26 @@ won't create a second repository.</p>
   <button type="submit">Try again</button>
 </form>`);
 
-const signInPage = () => shell('Sign in', `
-${navBar({ user: null, current: '/settings' })}
+const signInPage = ({ returnTo = null, ways = { google: true, why: null } } = {}) => {
+  // Carried through the provider and back, so signing in returns somebody to
+  // the page that asked for it rather than dropping them on settings.
+  const back = returnTo ? `?returnTo=${encodeURIComponent(returnTo)}` : '';
+  return shell('Sign in', `
+${navBar({ user: null, current: '/signin' })}
 <h1>Sign in</h1>
-<p>Sign in with GitHub to set the API key used by the teamctx tools that call
-a model.</p>
-<p class="actions"><a class="btn" href="/settings/signin">Sign in with GitHub</a>
-${provider?.googleClientId ? ' <a class="btn" href="/settings/signin/google">Continue with Google</a>' : ''}</p>
-<p class="muted">Use Google if you were added to a project by email. Both reach the
-same saved keys when they carry the same address.</p>
+<p>Sign in so teamctx knows who you are. It is how your work is attributed, and
+what decides which part of a project you see.</p>
+${waysInCards({
+    github: `/settings/signin${back}`,
+    google: ways.google ? `/settings/signin/google${back}` : null,
+    googleWhy: ways.why,
+  })}
+<p class="muted">Both reach the same saved keys, and the same projects, when they
+carry the same address.</p>
 <p class="muted">GitHub will not prompt you again if you have already
 authorised teamctx. To sign in as a different account, revoke teamctx under
 <a href="https://github.com/settings/applications" target="_blank" rel="noreferrer">GitHub &rarr; Authorized OAuth Apps</a> first.</p>`);
+};
 
 const errorPage = (message) => shell('Error', `
 ${navBar({ user: null, current: null })}

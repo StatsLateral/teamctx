@@ -104,6 +104,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   including the one GitHub account a handover needs. Closes #87.
 
 ### Changed
+- **Signing in works the same way wherever you are asked to.** "Sign in" led
+  straight into GitHub from the home page, the nav bar, the new-project page and
+  the project pages — so somebody invited to a project by email was thrown at an
+  account they do not have, with nothing on screen to say another way in existed.
+  Settings and the connector each drew their own sign-in screen with their own
+  rule. There is one screen now, at `/signin`, and every door leads to it
+  carrying where you were going. Google is offered unless the deployment has no
+  Google client, the step needs a GitHub account of its own, or the project has
+  lent no GitHub access; when it cannot be used it stays on the page, greyed out,
+  with the reason under it rather than simply missing.
 - **AI keys on the hosted server are stored by verified email.** They were
   stored by GitHub id, so a person who saved a key signed in with GitHub could
   not find it signed in with Google. Keys saved under a GitHub id are still read,

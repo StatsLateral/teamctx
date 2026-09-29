@@ -59,8 +59,10 @@ describe('the front door', () => {
   });
 
   it('sends a signed-out visitor to sign in', async () => {
+    // To the screen that offers both ways in, never straight at GitHub.
     const { body } = await get('/');
-    expect(body).toContain('/settings/signin');
+    expect(body).toContain('href="/signin"');
+    expect(body).not.toContain('href="/settings/signin"');
     expect(body).toContain('Start here');
   });
 
@@ -74,7 +76,7 @@ describe('the front door', () => {
     // hallway with no door to settings sends people back to a URL they have to
     // remember.
     const { body } = await get('/');
-    expect(body).toContain('/settings/signin');
+    expect(body).toContain('/signin');
   });
 
   it('styles its call to action as a link, not a button inside one', async () => {
@@ -159,7 +161,7 @@ describe('a signed-out visitor is never cornered', () => {
     // means doing the navigation again.
     const r = await fetch(base + '/settings/new-project', { redirect: 'manual' });
     expect(r.status).toBe(303);
-    expect(r.headers.get('location')).toContain('returnTo=/settings/new-project');
+    expect(decodeURIComponent(r.headers.get('location'))).toBe('/signin?returnTo=/settings/new-project');
   });
 
   it('can get back out of an error page', async () => {
