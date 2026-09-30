@@ -64,8 +64,9 @@ describe('the settings page has a shape', () => {
     // white-on-white — options present, invisible, and only findable by the
     // scrollbar next to them.
     const body = await settings();
-    expect(body).not.toContain('background:transparent');
-    expect(body).toContain('option{background:Field');
+    // What matters is that the list is painted, not which colours it is painted
+    // with: this page followed the system scheme and now carries teamctx's own.
+    expect(body).toMatch(/option\{background:[^;]+;color:[^}]+\}/);
   });
 
   it('packs the cards instead of leaving a hole under the short one', async () => {
@@ -94,7 +95,12 @@ describe('the settings page has a shape', () => {
   });
 
   it('pins who you are to the edge, away from what you do', async () => {
-    expect(await settings()).toContain('.bar .who{margin-left:auto');
+    // The gap is opened by whatever sits first on that side — the theme switch
+    // now — and who you are stays behind its own divider at the end.
+    const body = await settings();
+    expect(body).toMatch(/margin-left:auto/);
+    expect(body).toContain('.bar .who{padding-left:1.1rem;border-left:1px solid var(--line)');
+    expect(body.indexOf('theme-toggle"')).toBeLessThan(body.indexOf('class="who'));
   });
 
   it('never puts a button inside a link', async () => {

@@ -10,3 +10,7 @@ docs/private/
 # Per-user teamctx preferences — never shared
 .teamctx/.local/
 .gstack/
+
+# Screenshots dropped in the root for review — never part of the project.
+image*.png
+/*.png
