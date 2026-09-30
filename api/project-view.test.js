@@ -271,10 +271,29 @@ describe('the tree the page draws', () => {
     expect(body).toMatch(/data-summary="how we price"/);
   });
 
-  it('numbers the statements the way the drawer quotes them', async () => {
+  it('numbers the statements on screen', async () => {
     const { body } = await visit('/project/acme/ledger', MANAGER);
     expect(body).toMatch(/class="num">1</);
-    expect(body).toMatch(/Tell me more about &quot;1 ship it&quot;/);
+  });
+
+  it('writes a prompt a fresh chat can act on', async () => {
+    // Beside the page, "tell me more about X in Y" reads fine. Pasted into a
+    // new conversation it names nothing an assistant can act on — which of
+    // several projects, and with what.
+    const { body } = await visit('/project/acme/ledger?ws=product', MANAGER);
+    const prompt = /data-prompt="([^"]+)"/.exec(body)[1];
+    expect(prompt).toContain('teamctx project acme/ledger');
+    expect(prompt).toContain('your connector may be named something else');
+    expect(prompt).toContain('the part of the work called &quot;Product&quot;');
+    expect(prompt).toContain('this why: &quot;price it&quot;');
+    expect(prompt).toMatch(/get_workstream|my_brief/);
+  });
+
+  it('says so plainly when the statement belongs to the project itself', async () => {
+    const { body } = await visit('/project/acme/ledger', MANAGER);
+    const prompt = /data-prompt="([^"]+)"/.exec(body)[1];
+    expect(prompt).toContain('the project context itself');
+    expect(prompt).toContain('acme/ledger');
   });
 
   it('shows the project context above a workstream, as inherited', async () => {

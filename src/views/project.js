@@ -191,9 +191,35 @@ const whoTouched = (node, contributions) => [...new Set(
   (node.sourceContributionIds || []).map(id => contributions[id]?.author).filter(Boolean),
 )];
 
-function itemButton({ row, contributions, where, project, marked }) {
+/**
+ * What to paste into a fresh chat.
+ *
+ * The first version read "Tell me more about X in Y on Z", which makes sense
+ * beside the page and almost none in a new conversation: an assistant is not
+ * told what X, Y and Z are, which of several teamctx projects is meant, or that
+ * it has tools for any of this. On a project whose workstream shares its name it
+ * came out as "in vietnam trip on vietnam trip".
+ *
+ * So it says the repository rather than the project's display name — a
+ * connector can be called anything, and two people's are rarely called the same
+ * thing, but the repository is the project's one stable name — and it names the
+ * tool to start from, because an assistant that has to guess will guess.
+ */
+function promptFor({ node, tier, where, isProject, owner, repo }) {
+  const place = isProject
+    ? 'the project context itself'
+    : `the part of the work called "${where}"`;
+  return [
+    `In the teamctx project ${owner}/${repo} (that is the repository — your connector may be named something else),`,
+    `look at ${place} and tell me more about this ${tier}: "${node.text}".`,
+    'Start with get_workstream or my_brief so you are answering from what the project actually says,',
+    'and tell me why it is there, what it requires, and what is still open.',
+  ].join(' ');
+}
+
+function itemButton({ row, contributions, where, project, marked, isProject, owner, repo }) {
   const { node, tier, n } = row;
-  const prompt = `Tell me more about "${n} ${node.text}" in ${where} on ${project}.`;
+  const prompt = promptFor({ node, tier, where, isProject, owner, repo });
   const who = whoTouched(node, contributions);
   return `<button class="item tier-${tier}${marked ? ' marked' : ''}" id="i-${esc(node.id)}"
   data-text="${esc(node.text)}" data-kind="${esc(`${tier} ${n}`)}"
@@ -205,21 +231,21 @@ function itemButton({ row, contributions, where, project, marked }) {
 </button>`;
 }
 
-const columns = ({ rows, contributions, where, project, item }) => `<div class="columns">
+const columns = ({ rows, contributions, where, project, item, isProject, owner, repo }) => `<div class="columns">
   ${['why', 'what', 'how'].map(tier => `<section class="col">
     <div class="col-head">${tier === 'why' ? 'Why' : tier === 'what' ? 'What' : 'How'}</div>
     <div class="col-body">
       ${rows.filter(r => r.tier === tier).map(row => itemButton({
-    row, contributions, where, project, marked: row.node.id === item,
+    row, contributions, where, project, isProject, owner, repo, marked: row.node.id === item,
   })).join('')
     || '<p class="muted" style="margin:6px 8px">Nothing here yet.</p>'}
     </div>
   </section>`).join('')}
 </div>`;
 
-const list = ({ rows, contributions, where, project, item }) => `<div class="list">
+const list = ({ rows, contributions, where, project, item, isProject, owner, repo }) => `<div class="list">
   ${rows.map(row => itemButton({
-    row, contributions, where, project, marked: row.node.id === item,
+    row, contributions, where, project, isProject, owner, repo, marked: row.node.id === item,
   })).join('')}
 </div>`;
 
@@ -291,7 +317,16 @@ ${note ? `<p class="note">${esc(note)}</p>` : ''}
     </div>
     ${inherited}
     ${rows.length
-    ? (viewMode === 'list' ? list : columns)({ rows, contributions: view.contributions, where, project: view.project || view.repo, item })
+    ? (viewMode === 'list' ? list : columns)({
+      rows,
+      contributions: view.contributions,
+      where,
+      project: view.project || view.repo,
+      item,
+      isProject,
+      owner: view.owner,
+      repo: view.repo,
+    })
     : '<p class="empty">Nothing written here yet — ask your assistant to add context.</p>'}
 
     <section style="margin-top:2rem">
