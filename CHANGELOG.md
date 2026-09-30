@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **The web pages carry one look, and it is the one people liked.** teamctx's
+  own screens were system fonts on white; the tree view people asked for lives
+  in a different app. The tokens, fonts and component styles from
+  `git-for-non-tech-teams` are now teamctx's own, so the home page, sign-in,
+  the project list, settings and the error page read as one product. Dark mode
+  is new — the old app had none — and a switch in the corner of every page lets
+  a reader override what their machine prefers. The page templates moved out of
+  `api/oauth-server.js` into `src/views/`, which leaves that file with the
+  routes it is named for; no page does anything it did not do before.
+
 ### Documentation
 - **Where a team layer would go is written down.** The intended hierarchy is
   team → project → workstream; today one team is one project.
