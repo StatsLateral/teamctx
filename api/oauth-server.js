@@ -10,7 +10,7 @@ import { matchesActor, managerKeys } from '../src/review.js';
 import { readConfigJson } from '../src/oauth/member-access.js';
 import {
   readPersonalKey, writePersonalKey, addProjectKey, removeProjectKey, projectsKeyedBy,
-  adoptGithubRecords, projectsKnownFor,
+  adoptGithubRecords, projectsKnownFor, recordConnectedProject,
 } from '../src/oauth/ai-keys.js';
 import { primaryEmail } from '../src/oauth/github-identity.js';
 import { lendDecision } from '../src/oauth/lend-decision.js';
@@ -1139,6 +1139,13 @@ app.get('/project/:owner/:repo', async (req, res) => {
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
   try {
     const view = await readProjectView({ owner, repo, user });
+    // Remembered now that the project has let them in, so the next visit starts
+    // from the list rather than from the link. A person who arrives by clicking
+    // one has never "added" anything, and being able to read a project is the
+    // only thing that ever qualified it for their list.
+    if (user.email) {
+      try { await recordConnectedProject({ email: user.email, owner, repo }); } catch { /* best effort */ }
+    }
     // Which part of the work to open, and what to point at inside it. Anything
     // unknown or out of scope falls back to the nearest thing that does exist,
     // with a quiet note — and the value asked for is never echoed back.
