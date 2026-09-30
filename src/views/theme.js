@@ -57,7 +57,7 @@ body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--font-bo
   line-height:1.55;-webkit-font-smoothing:antialiased;overflow-x:hidden}
 /* A page starts near the top of the window. Two and a half rems above the nav
    read as a gap somebody forgot to fill rather than as breathing room. */
-.page{max-width:34rem;margin:0 auto;padding:1.1rem 1.25rem 3rem}
+.page{max-width:34rem;margin:0 auto;padding:0 1.25rem 3rem}
 /* The marker stays on <body>, where it has always been. */
 body.wide .page{max-width:72rem}
 h1{font-family:var(--font-display);font-weight:600;font-size:1.5rem;margin:0 0 .35rem}
@@ -76,7 +76,7 @@ const CHROME = `
    column the page is read in. That column is 34rem on most pages, which the bar
    outgrew the moment it gained a switch — and a navigation that wraps onto two
    lines on some pages and not others is two navigations. */
-.topbar{width:100vw;margin-left:calc(50% - 50vw);margin-top:-1.1rem;margin-bottom:1.5rem;
+.topbar{width:100vw;margin-left:calc(50% - 50vw);margin-bottom:1rem;
   border-bottom:1px solid var(--line);background:var(--paper)}
 .bar{display:flex;align-items:center;gap:1.1rem;font-size:.9rem;
   max-width:72rem;margin:0 auto;padding:.65rem 1.25rem}
