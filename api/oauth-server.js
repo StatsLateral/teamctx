@@ -20,7 +20,6 @@ import { initProject } from '../cli/commands/init.core.js';
 import { readProjectView, ProjectViewError } from '../src/oauth/project-view.js';
 // Page templates. They used to sit at the bottom of this file, which left it
 // mostly HTML with the routes buried in it — see #103 part 1.
-import { shell, navBar, esc } from '../src/views/theme.js';
 import { settingsPage } from '../src/views/settings.js';
 import { projectsPage } from '../src/views/projects.js';
 import { projectPage } from '../src/views/project.js';
@@ -1126,7 +1125,22 @@ app.get('/project/:owner/:repo', async (req, res) => {
   if (!user) return signInFor(res, `/project/${owner}/${repo}`);
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
   try {
-    res.send(projectPage({ user, view: await readProjectView({ owner, repo, user }) }));
+    const view = await readProjectView({ owner, repo, user });
+    // Which part of the work to open, and what to point at inside it. Anything
+    // unknown or out of scope falls back to the nearest thing that does exist,
+    // with a quiet note — and the value asked for is never echoed back.
+    const askedWs = String(req.query.ws || '');
+    const known = view.workstreams.some(w => w.id === askedWs);
+    const selected = known ? askedWs : null;
+    const item = String(req.query.item || req.query.task || req.query.review || '') || null;
+    res.send(projectPage({
+      user,
+      view,
+      selected,
+      viewMode: req.query.view === 'list' ? 'list' : 'columns',
+      item,
+      note: askedWs && !known ? 'That part of the work is not here, or not yours to see.' : null,
+    }));
   } catch (e) {
     const denied = e instanceof ProjectViewError || e.code === 'MEMBER_ACCESS_DENIED';
     res.status(denied ? 403 : 500).send(errorPage(e.message));

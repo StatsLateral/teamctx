@@ -1,6 +1,6 @@
 import { GithubSession } from '../adapters/github.js';
 import { runWithSession } from '../session-context.js';
-import { readConfig, readProject, listTasks } from '../storage.js';
+import { readConfig, readProject, readWorkstream, listTasks, readContributions } from '../storage.js';
 import { listAllWorkstreams } from '../../cli/commands/workstream.core.js';
 import { listMembers, memberByEmail } from '../../cli/commands/member.core.js';
 import { listPendingReviews } from '../../cli/commands/review.core.js';
@@ -109,6 +109,21 @@ export async function readProjectView({ owner, repo, user }) {
       .filter(w => inScope(allowed, w.id))
       .map(w => ({ ...w, members: membersOn(members, w.id).map(m => m.name) }));
 
+    // The trees themselves, which is what the page exists to show.
+    //
+    // Only the ones this person may see: an out-of-scope tree must not be in the
+    // payload at all, rather than sent and hidden by the page. A reader who opens
+    // the network tab is still a reader, and scope that only holds in the markup
+    // is not scope.
+    const projectTree = readProject();
+    const trees = Object.fromEntries(
+      // `readWorkstream`, not `readTree`: a project part-way through the project
+      // layer migration can still declare a workstream called `main`, and
+      // `readTree` resolves that name to the project itself — so its lane would
+      // have shown the project's Whys, twice, and its own file not at all.
+      workstreams.map(w => [w.id, readWorkstream(w.id) || { id: w.id, name: w.name, whys: [] }]),
+    );
+
     const tasks = listTasks({}, undefined)
       .filter(t => inScope(allowed, resolveTarget(t.workstream)))
       .map(t => ({
@@ -136,7 +151,13 @@ export async function readProjectView({ owner, repo, user }) {
       repo,
       isManager,
       scopedTo: allowed,
-      projectWhys: (readProject().whys || []).length,
+      projectWhys: (projectTree.whys || []).length,
+      projectTree,
+      trees,
+      // Who wrote what, for the source dots and the drawer's names — and only
+      // for the statements in the trees above, so nothing travels that the page
+      // has no use for.
+      contributions: contributionsBehind([projectTree, ...Object.values(trees)]),
       workstreams,
       members: members.map(m => ({
         name: m.name,
@@ -153,3 +174,28 @@ export async function readProjectView({ owner, repo, user }) {
   });
 }
 
+
+/**
+ * The contributions the given trees point at.
+ *
+ * Every statement carries the ids of the contributions that touched it, and the
+ * page needs two things from each: who wrote it, for the drawer, and what kind
+ * of source it was, for the dot. Nothing else — not the text somebody submitted,
+ * not the contributions behind trees this reader cannot see.
+ */
+export function contributionsBehind(trees) {
+  const wanted = new Set();
+  for (const tree of trees) {
+    for (const why of tree?.whys || []) {
+      for (const node of [why, ...(why.whats || []).flatMap(w => [w, ...(w.hows || [])])]) {
+        for (const id of node.sourceContributionIds || []) wanted.add(id);
+      }
+    }
+  }
+  if (wanted.size === 0) return {};
+  return Object.fromEntries(
+    readContributions()
+      .filter(c => wanted.has(c.id))
+      .map(c => [c.id, { id: c.id, author: c.author || null, source: c.source || null }]),
+  );
+}

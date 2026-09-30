@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **The project page shows the context, not a table about it.** The Why → What
+  → How tree is what teamctx keeps, and the only way to read it was to ask an
+  assistant — which asks a non-technical manager to know what to ask for. The
+  page now has a sidebar of the parts of the work somebody may see, the tree in
+  numbered Why / What / How columns with a list toggle, the project's own goals
+  above a workstream's as inherited context, a dot for where each statement came
+  from, and a drawer with the statement, its summary, who wrote it and a prompt
+  to paste into an assistant. Read-only: adding context and approving it already
+  have a place. A part of the work somebody is not on is absent from what the
+  page is sent, not hidden once it arrives.
+
 ### Changed
 - **The web pages carry one look, and it is the one people liked.** teamctx's
   own screens were system fonts on white; the tree view people asked for lives
