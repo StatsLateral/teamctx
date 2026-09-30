@@ -46,22 +46,30 @@ const CSS = `
   border:1px solid transparent;background:none;text-align:left;width:100%;font:inherit;cursor:pointer}
 .item:hover{background:var(--paper);border-color:var(--line)}
 .item.marked{border-color:var(--accent);background:var(--accent-soft)}
+/* A task or a review pointed at by a link is a row, not a statement — it gets
+   the same emphasis without pretending it can open the drawer. */
+tr.marked td{background:var(--accent-soft)}
+tr.marked td:first-child{box-shadow:inset 3px 0 0 var(--accent)}
 .item .text{flex:1;line-height:1.45;font-size:14px}
 .item.tier-why .text{font-weight:600;font-family:var(--font-display)}
 .item.tier-what .text{font-weight:500}
 .item.tier-how .text{color:var(--soft)}
 .num{font-family:var(--font-mono);font-size:11px;color:var(--faint);min-width:30px;margin-top:3px}
 .dot{flex-shrink:0;width:10px;height:10px;border-radius:99px;margin-top:6px;background:var(--faint)}
-.dot.human{background:var(--ink)}
-.dot.human-ai{background:var(--accent)}
-.dot.ai-service{background:var(--amber)}
-.dot.tool{background:var(--indigo)}
+.dot.cli{background:var(--ink)}
+.dot.mcp{background:var(--accent)}
+.dot.web{background:var(--grey)}
+.dot.imported{background:var(--indigo)}
 .list .item{margin-left:0}
 .list .tier-what{margin-left:26px}
 .list .tier-how{margin-left:52px}
 .inherited{border:1px dashed var(--line);border-radius:var(--radius-sm);padding:8px 10px;margin-bottom:10px;
   background:var(--accent-soft)}
 .inherited .section-title{margin-bottom:6px}
+/* Read here, opened where it lives: these belong to the project, and the drawer
+   for them is on the project's own lane. */
+.inherit-row{display:flex;align-items:flex-start;gap:8px;padding:5px 8px}
+.inherit-row .text{flex:1;font-family:var(--font-display);font-weight:600;font-size:14px}
 .empty{color:var(--faint);font-style:italic;font-size:13px;padding:14px;border:1px dashed var(--line);
   border-radius:var(--radius-sm);text-align:center}
 
@@ -104,8 +112,13 @@ const SCRIPT = `
     document.getElementById('d-who').textContent = el.dataset.who || 'Nobody recorded.';
     document.getElementById('copy').dataset.prompt = el.dataset.prompt;
     drawer.classList.add('open'); backdrop.classList.add('on');
+    drawer.setAttribute('aria-hidden', 'false');
+    document.getElementById('d-close').focus();
   }
-  function close() { drawer.classList.remove('open'); backdrop.classList.remove('on'); }
+  function close() {
+    drawer.classList.remove('open'); backdrop.classList.remove('on');
+    drawer.setAttribute('aria-hidden', 'true');
+  }
   document.querySelectorAll('.item').forEach(function (el) {
     el.addEventListener('click', function () { open(el); });
   });
@@ -114,14 +127,29 @@ const SCRIPT = `
   document.addEventListener('keydown', function (e) { if (e.key === 'Escape') close(); });
   document.getElementById('copy').addEventListener('click', function () {
     var b = this;
+    var back = function () { b.textContent = 'Copy a prompt for your assistant'; };
+    // The clipboard API does not exist on a plain-http deployment, and the
+    // failure is silent unless it is caught: the button appears to do nothing.
+    if (!navigator.clipboard) {
+      b.textContent = 'Select the text above to copy it'; setTimeout(back, 2500); return;
+    }
     navigator.clipboard.writeText(b.dataset.prompt).then(function () {
-      b.textContent = 'Copied'; setTimeout(function () { b.textContent = 'Copy a prompt for your assistant'; }, 1500);
+      b.textContent = 'Copied'; setTimeout(back, 1500);
+    }, function () {
+      b.textContent = 'Could not copy'; setTimeout(back, 2500);
     });
   });
-  var marked = document.querySelector('.marked');
-  if (marked) { marked.scrollIntoView({ block: 'center' }); open(marked); }
+  // Only a statement opens the drawer. A task or a review row carries the same
+  // marker but none of the statement's data, and reading it would have put the
+  // word "undefined" in the drawer and then on somebody's clipboard.
+  var statement = document.querySelector('.item.marked');
+  var row = document.querySelector('.marked');
+  if (row) row.scrollIntoView({ block: 'center' });
+  if (statement) open(statement);
+  // With JavaScript the picker moves on choosing; without it, the form's own
+  // button does the same thing — the small screen is not a worse place to read.
   var pick = document.getElementById('lane-pick');
-  if (pick) pick.addEventListener('change', function () { window.location.href = this.value; });
+  if (pick) pick.addEventListener('change', function () { this.form.submit(); });
 }());`;
 
 /** `1`, `1.2`, `1.2.3` — what the columns number each row with. */
@@ -139,16 +167,23 @@ const numbering = (tree) => {
   return rows;
 };
 
-/** The kind of the most recent contribution behind a statement, for its dot. */
+/**
+ * Where the most recent contribution behind a statement came from.
+ *
+ * The old app coloured these by `human` / `human+AI` / `ai-service`, which its
+ * own data model recorded. teamctx records something different and more
+ * reliable: which surface the contribution arrived through — `cli`, `mcp`,
+ * `web`, or a connector's own name when it was imported. Mapping the old names
+ * onto these would have been a guess dressed as provenance, and one of the three
+ * colours could never have been reached at all.
+ */
 function kindOf(node, contributions) {
   const ids = node.sourceContributionIds || [];
-  const last = ids.length ? contributions[ids[ids.length - 1]] : null;
-  const source = last?.source || '';
-  if (source === 'human' || source === 'cli' || source === 'web') return 'human';
-  if (source === 'human+AI' || source === 'mcp') return 'human-ai';
-  if (source === 'ai-service' || source === 'agent') return 'ai-service';
-  if (source) return 'tool';
-  return '';
+  const source = (ids.length ? contributions[ids[ids.length - 1]]?.source : '') || '';
+  if (source === 'cli') return 'cli';
+  if (source === 'mcp') return 'mcp';
+  if (source === 'web') return 'web';
+  return source ? 'imported' : '';
 }
 
 /** Everybody whose contribution touched a statement, by name. */
@@ -197,6 +232,9 @@ export const projectPage = ({ user, view, selected, viewMode = 'columns', item =
   const laneHref = (ws) => `${base}?${new URLSearchParams(ws === null ? {} : { ws }).toString()}`;
   const modeHref = (mode) => {
     const q = new URLSearchParams(selected === null ? {} : { ws: selected });
+    // Whatever the link pointed at survives the toggle — losing the highlight on
+    // the first click defeats having landed on it.
+    if (item) q.set('item', item);
     if (mode === 'list') q.set('view', 'list');
     return `${base}${q.toString() ? `?${q}` : ''}`;
   };
@@ -206,7 +244,7 @@ export const projectPage = ({ user, view, selected, viewMode = 'columns', item =
   const inherited = !isProject && (view.projectTree?.whys || []).length
     ? `<div class="inherited">
       <div class="section-title">Project context — inherited</div>
-      ${(view.projectTree.whys || []).map(w => `<div class="item tier-why" style="cursor:default">
+      ${(view.projectTree.whys || []).map(w => `<div class="inherit-row">
         <span class="dot ${kindOf(w, view.contributions)}"></span>
         <span class="text">${esc(w.text)}</span>
       </div>`).join('')}
@@ -233,10 +271,14 @@ ${note ? `<p class="note">${esc(note)}</p>` : ''}
       ${lane(null, view.project || 'Project', [], (view.projectTree?.whys || []).length, isProject)}
       ${view.workstreams.map(w => lane(w.id, w.name, w.members, (view.trees[w.id]?.whys || []).length, w.id === selected)).join('')}
     </div>
-    <select id="lane-pick" class="lane-pick">
-      <option value="${laneHref(null)}"${isProject ? ' selected' : ''}>${esc(view.project || 'Project')}</option>
-      ${view.workstreams.map(w => `<option value="${laneHref(w.id)}"${w.id === selected ? ' selected' : ''}>${esc(w.name)}</option>`).join('')}
-    </select>
+<form class="lane-pick" method="GET" action="${base}">
+      ${viewMode === 'list' ? '<input type="hidden" name="view" value="list">' : ''}
+      <select id="lane-pick" name="ws">
+        <option value=""${isProject ? ' selected' : ''}>${esc(view.project || 'Project')}</option>
+        ${view.workstreams.map(w => `<option value="${esc(w.id)}"${w.id === selected ? ' selected' : ''}>${esc(w.name)}</option>`).join('')}
+      </select>
+      <button type="submit">Open</button>
+    </form>
   </aside>
 
   <main>

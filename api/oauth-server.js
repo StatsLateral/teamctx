@@ -20,7 +20,6 @@ import { initProject } from '../cli/commands/init.core.js';
 import { readProjectView, ProjectViewError } from '../src/oauth/project-view.js';
 // Page templates. They used to sit at the bottom of this file, which left it
 // mostly HTML with the routes buried in it — see #103 part 1.
-import { shell, navBar, esc } from '../src/views/theme.js';
 import { settingsPage } from '../src/views/settings.js';
 import { projectsPage } from '../src/views/projects.js';
 import { projectPage } from '../src/views/project.js';

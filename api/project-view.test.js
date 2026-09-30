@@ -265,7 +265,9 @@ describe('the tree the page draws', () => {
   it('names who wrote a statement, and what kind of source it came from', async () => {
     const { body } = await visit('/project/acme/ledger?ws=product', MANAGER);
     expect(body).toMatch(/data-who="Priya"/);
-    expect(body).toMatch(/class="dot human-ai"/);
+    // The dot says where it came through — teamctx records the surface, not
+    // whether a person or a model wrote the words.
+    expect(body).toMatch(/class="dot mcp"/);
     expect(body).toMatch(/data-summary="how we price"/);
   });
 
@@ -350,5 +352,37 @@ describe('what the data function hands back', () => {
     await lend();
     const view = await readProjectView({ owner: 'acme', repo: 'ledger', user: MEMBER_GOOGLE });
     expect(Object.keys(view.contributions)).toEqual(['c-prod']);
+  });
+});
+
+describe('what a link may and may not open', () => {
+  it('opens the drawer for a statement it pointed at', async () => {
+    const { body } = await visit('/project/acme/ledger?ws=product&item=w1', MANAGER);
+    expect(body).toMatch(/class="item tier-why marked"/);
+  });
+
+  it('marks a task without pretending it is a statement', async () => {
+    // A row carries none of a statement's data; opening the drawer on it put
+    // the word "undefined" on screen and then on somebody's clipboard.
+    const { body } = await visit('/project/acme/ledger?ws=product&task=pricing-page', MANAGER);
+    expect(body).toMatch(/<tr id="t-pricing-page" class="marked">/);
+    expect(body).not.toMatch(/class="item[^"]*marked"/);
+  });
+
+  it('gives a marked row something to look at', async () => {
+    const { body } = await visit('/project/acme/ledger?ws=product&task=pricing-page', MANAGER);
+    expect(body).toContain('tr.marked td');
+  });
+
+  it('keeps what was pointed at when the view is switched', async () => {
+    const { body } = await visit('/project/acme/ledger?ws=product&item=w1', MANAGER);
+    expect(body).toMatch(/href="[^"]*ws=product[^"]*item=w1[^"]*view=list"/);
+  });
+
+  it('does not make inherited project context look clickable', async () => {
+    // Those rows belong to the project's own lane and carry no statement data.
+    const { body } = await visit('/project/acme/ledger?ws=product', MANAGER);
+    const band = body.slice(body.indexOf('inherited'), body.indexOf('tree-head'));
+    expect(band).not.toContain('class="item');
   });
 });

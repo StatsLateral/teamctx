@@ -1,7 +1,6 @@
 import { GithubSession } from '../adapters/github.js';
 import { runWithSession } from '../session-context.js';
-import { readConfig, readProject, readTree, listTasks, readContributions } from '../storage.js';
-import { PROJECT_LEVEL } from '../project-level.js';
+import { readConfig, readProject, readWorkstream, listTasks, readContributions } from '../storage.js';
 import { listAllWorkstreams } from '../../cli/commands/workstream.core.js';
 import { listMembers, memberByEmail } from '../../cli/commands/member.core.js';
 import { listPendingReviews } from '../../cli/commands/review.core.js';
@@ -118,7 +117,11 @@ export async function readProjectView({ owner, repo, user }) {
     // is not scope.
     const projectTree = readProject();
     const trees = Object.fromEntries(
-      workstreams.map(w => [w.id, readTree(w.id) || { id: w.id, name: w.name, whys: [] }]),
+      // `readWorkstream`, not `readTree`: a project part-way through the project
+      // layer migration can still declare a workstream called `main`, and
+      // `readTree` resolves that name to the project itself — so its lane would
+      // have shown the project's Whys, twice, and its own file not at all.
+      workstreams.map(w => [w.id, readWorkstream(w.id) || { id: w.id, name: w.name, whys: [] }]),
     );
 
     const tasks = listTasks({}, undefined)

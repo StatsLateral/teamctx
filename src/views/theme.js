@@ -27,6 +27,9 @@ const FONTS = 'https://fonts.googleapis.com/css2'
  */
 const TOKENS = `
 :root{
+  /* Scrollbars, select popups and focus rings are painted by the browser, not
+     by these tokens. Without this they stay light on a dark page. */
+  color-scheme:light dark;
   --paper:#f4efe6;--card:#fcfaf5;--ink:#1a1c1a;--soft:#5a625b;--faint:#8a9088;
   --line:#e4dbcc;--accent:#1f6f5c;--accent-soft:#e6f0eb;--amber:#b5651d;--amber-soft:#f4e8da;
   --grey:#6b7280;--grey-soft:#ececea;--indigo:#4f46e5;--indigo-soft:#eef2ff;
