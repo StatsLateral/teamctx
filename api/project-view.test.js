@@ -201,7 +201,8 @@ describe('who counts as the manager', () => {
   it('is the address on the gate, however they signed in', async () => {
     await lend();
     const { body } = await visit('/project/acme/ledger', { ...MEMBER_GOOGLE, email: 'maya@example.com' });
-    expect(body).toContain('you manage this project');
+    // Being the manager shows in what the page gives them, not in a line
+    // telling them so.
     expect(body).toContain('Waiting on you');
   });
 });
@@ -424,5 +425,23 @@ describe('a tree longer than the window', () => {
     const { body } = await visit('/project/acme/ledger?ws=product', MANAGER);
     const narrow = body.slice(body.indexOf('@media(max-width:760px)'));
     expect(narrow).toMatch(/\.col,\.list\{max-height:none\}/);
+  });
+});
+
+describe('the space above the tree', () => {
+  it('is a back link, the name and the repository — nothing else', async () => {
+    const { body } = await visit('/project/acme/ledger', MANAGER);
+    const header = body.slice(body.indexOf('class="crumb"'), body.indexOf('class="layout"'));
+    expect(header).toContain('All projects');
+    expect(header).toContain('acme/ledger');
+    // Whether you manage the project is not news to you, and it cost a line
+    // that pushed the tree below where the eye lands.
+    expect(header).not.toMatch(/you manage this project|you are on this project/);
+  });
+
+  it('does not tell a member their standing either', async () => {
+    await lend();
+    const { body } = await visit('/project/acme/ledger', MEMBER_GOOGLE);
+    expect(body).not.toContain('you are on this project');
   });
 });

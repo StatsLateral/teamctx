@@ -15,6 +15,11 @@ import { shell, navBar, esc } from './theme.js';
  */
 
 const CSS = `
+/* The header is three short lines, and the tree is what somebody came for:
+   whether they manage the project is not news to them, and the space it took
+   pushed the columns below where the eye lands. */
+.crumb{margin:0 0 .2rem;font-size:.85rem}
+.slug{margin:0 0 1rem}
 .layout{display:grid;grid-template-columns:240px 1fr;gap:20px;align-items:start}
 .lanes{display:flex;flex-direction:column;gap:6px}
 .lane{display:block;text-decoration:none;color:inherit;background:var(--card);
@@ -292,10 +297,9 @@ export const projectPage = ({ user, view, selected, viewMode = 'columns', item =
 
   return shell(view.project || `${view.owner}/${view.repo}`, `
 ${navBar({ user, current: '/projects' })}
-<p><a href="/projects">← All projects</a></p>
+<p class="crumb"><a href="/projects">← All projects</a></p>
 <h1>${esc(view.project || `${view.owner}/${view.repo}`)}</h1>
-<p class="muted"><code>${esc(view.owner)}/${esc(view.repo)}</code> ·
-${view.isManager ? 'you manage this project' : 'you are on this project'}</p>
+<p class="muted slug"><code>${esc(view.owner)}/${esc(view.repo)}</code></p>
 ${note ? `<p class="note">${esc(note)}</p>` : ''}
 
 <div class="layout">
