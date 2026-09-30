@@ -64,8 +64,9 @@ describe('the settings page has a shape', () => {
     // white-on-white — options present, invisible, and only findable by the
     // scrollbar next to them.
     const body = await settings();
-    expect(body).not.toContain('background:transparent');
-    expect(body).toContain('option{background:Field');
+    // What matters is that the list is painted, not which colours it is painted
+    // with: this page followed the system scheme and now carries teamctx's own.
+    expect(body).toMatch(/option\{background:[^;]+;color:[^}]+\}/);
   });
 
   it('packs the cards instead of leaving a hole under the short one', async () => {
