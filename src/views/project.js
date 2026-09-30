@@ -19,6 +19,11 @@ const CSS = `
    whether they manage the project is not news to them, and the space it took
    pushed the columns below where the eye lands. */
 .crumb{margin:0 0 .2rem;font-size:.85rem}
+/* On the title's own line: standing is worth knowing and not worth a paragraph
+   — it told you in a sentence before, and the sentence cost the space above the
+   tree. */
+.role-chip{font-family:var(--font-mono);font-size:11px;text-transform:uppercase;letter-spacing:.06em;
+  color:var(--accent);background:var(--accent-soft);border-radius:99px;padding:3px 9px;vertical-align:middle}
 .slug{margin:0 0 1rem}
 .layout{display:grid;grid-template-columns:240px 1fr;gap:20px;align-items:start}
 .lanes{display:flex;flex-direction:column;gap:6px}
@@ -301,7 +306,9 @@ export const projectPage = ({ user, view, selected, viewMode = 'columns', item =
   return shell(view.project || `${view.owner}/${view.repo}`, `
 ${navBar({ user, current: '/projects' })}
 <p class="crumb"><a href="/projects">← All projects</a></p>
-<h1>${esc(view.project || `${view.owner}/${view.repo}`)}</h1>
+<h1>${esc(view.project || `${view.owner}/${view.repo}`)}${view.isManager
+    ? ' <span class="role-chip">Manager</span>'
+    : ''}</h1>
 <p class="muted slug"><code>${esc(view.owner)}/${esc(view.repo)}</code></p>
 ${note ? `<p class="note">${esc(note)}</p>` : ''}
 
