@@ -95,7 +95,12 @@ describe('the settings page has a shape', () => {
   });
 
   it('pins who you are to the edge, away from what you do', async () => {
-    expect(await settings()).toContain('.bar .who{margin-left:auto');
+    // The gap is opened by whatever sits first on that side — the theme switch
+    // now — and who you are stays behind its own divider at the end.
+    const body = await settings();
+    expect(body).toMatch(/margin-left:auto/);
+    expect(body).toContain('.bar .who{padding-left:1.1rem;border-left:1px solid var(--line)');
+    expect(body.indexOf('theme-toggle"')).toBeLessThan(body.indexOf('class="who'));
   });
 
   it('never puts a button inside a link', async () => {
