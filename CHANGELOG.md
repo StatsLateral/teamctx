@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **The project page shows the context, not a table about it.** The Why → What
+  → How tree is what teamctx keeps, and the only way to read it was to ask an
+  assistant — which asks a non-technical manager to know what to ask for. The
+  page now has a sidebar of the parts of the work somebody may see, the tree in
+  numbered Why / What / How columns with a list toggle, the project's own goals
+  above a workstream's as inherited context, a dot for where each statement came
+  from, and a drawer with the statement, its summary, who wrote it and a prompt
+  to paste into an assistant. Read-only: adding context and approving it already
+  have a place. A part of the work somebody is not on is absent from what the
+  page is sent, not hidden once it arrives.
+
+### Changed
+- **The web pages carry one look, and it is the one people liked.** teamctx's
+  own screens were system fonts on white; the tree view people asked for lives
+  in a different app. The tokens, fonts and component styles from
+  `git-for-non-tech-teams` are now teamctx's own, so the home page, sign-in,
+  the project list, settings and the error page read as one product. Dark mode
+  is new — the old app had none — and a switch in the corner of every page lets
+  a reader override what their machine prefers. The page templates moved out of
+  `api/oauth-server.js` into `src/views/`, which leaves that file with the
+  routes it is named for; no page does anything it did not do before.
+
 ### Documentation
 - **Where a team layer would go is written down.** The intended hierarchy is
   team → project → workstream; today one team is one project.
