@@ -53,8 +53,15 @@ const TOKENS = `
 
 const BASE = `
 *{box-sizing:border-box}
+/* The bar below spans the viewport width, which counts the vertical scrollbar — so
+   it is wider than the page and every screen got a horizontal scrollbar it had
+   no use for. Clipped rather than scrolled: nothing here is reachable sideways. */
+html{overflow-x:clip}
 body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--font-body);
-  line-height:1.55;-webkit-font-smoothing:antialiased;overflow-x:hidden}
+  line-height:1.55;-webkit-font-smoothing:antialiased;overflow-x:clip;max-width:100%}
+/* A long word, an id or a pasted URL wraps onto the next line rather than
+   pushing whatever holds it sideways. */
+p,li,td,th,h1,h2,code{overflow-wrap:anywhere}
 /* A page starts near the top of the window. Two and a half rems above the nav
    read as a gap somebody forgot to fill rather than as breathing room. */
 .page{max-width:34rem;margin:0 auto;padding:0 1.25rem 3rem}
