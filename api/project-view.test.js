@@ -445,3 +445,12 @@ describe('the space above the tree', () => {
     expect(body).not.toContain('you are on this project');
   });
 });
+
+describe('a statement with nothing recorded behind it', () => {
+  it('shows no dot rather than a colour that means nothing', async () => {
+    // The project tree's Why has no sourceContributionIds in this fixture.
+    const { body } = await visit('/project/acme/ledger', MANAGER);
+    expect(body).toContain('class="dot none"');
+    expect(body).toContain('.dot.none{background:none}');
+  });
+});

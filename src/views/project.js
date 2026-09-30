@@ -64,6 +64,9 @@ tr.marked td:first-child{box-shadow:inset 3px 0 0 var(--accent)}
 .item.tier-how .text{color:var(--soft)}
 .num{font-family:var(--font-mono);font-size:11px;color:var(--faint);min-width:30px;margin-top:3px}
 .dot{flex-shrink:0;width:10px;height:10px;border-radius:99px;margin-top:6px;background:var(--faint)}
+/* Nothing recorded, so nothing claimed. The space is kept so the text of every
+   row still starts in the same place. */
+.dot.none{background:none}
 .dot.cli{background:var(--ink)}
 .dot.mcp{background:var(--accent)}
 .dot.web{background:var(--grey)}
@@ -196,7 +199,7 @@ function kindOf(node, contributions) {
   if (source === 'cli') return 'cli';
   if (source === 'mcp') return 'mcp';
   if (source === 'web') return 'web';
-  return source ? 'imported' : '';
+  return source ? 'imported' : 'none';
 }
 
 /** Everybody whose contribution touched a statement, by name. */
