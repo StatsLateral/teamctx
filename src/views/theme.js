@@ -57,7 +57,7 @@ const TOKENS = `
 const BASE = `
 *{box-sizing:border-box}
 body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--font-body);
-  line-height:1.55;-webkit-font-smoothing:antialiased}
+  line-height:1.55;-webkit-font-smoothing:antialiased;overflow-x:hidden}
 /* A page starts near the top of the window. Two and a half rems above the nav
    read as a gap somebody forgot to fill rather than as breathing room. */
 .page{max-width:34rem;margin:0 auto;padding:1.1rem 1.25rem 3rem}
@@ -75,8 +75,18 @@ code{font-family:var(--font-mono);font-size:.9em;background:var(--grey-soft);pad
 .dim{color:var(--faint);font-weight:400}`;
 
 const CHROME = `
-.bar{display:flex;align-items:center;gap:1.1rem;flex-wrap:wrap;border-bottom:1px solid var(--line);
-  padding-bottom:.7rem;margin-bottom:1.5rem;font-size:.9rem}
+/* The same bar on every screen, across the window rather than inside the
+   column the page is read in. That column is 34rem on most pages, which the bar
+   outgrew the moment it gained a switch — and a navigation that wraps onto two
+   lines on some pages and not others is two navigations. */
+.topbar{width:100vw;margin-left:calc(50% - 50vw);margin-top:-1.1rem;margin-bottom:1.5rem;
+  border-bottom:1px solid var(--line);background:var(--paper)}
+.bar{display:flex;align-items:center;gap:1.1rem;font-size:.9rem;
+  max-width:72rem;margin:0 auto;padding:.65rem 1.25rem}
+.bar .middle{display:flex;align-items:center;gap:1.1rem}
+/* Small enough that they would collide: the middle links go, and the brand, the
+   switch and who you are stay — which is what somebody needs on a phone. */
+@media(max-width:44rem){.bar .middle{display:none}}
 .bar .brand{font-family:var(--font-display);font-weight:600;color:inherit;text-decoration:none;margin-right:.4rem}
 .bar a{text-decoration:none;color:var(--soft);padding:.2rem 0;border-bottom:2px solid transparent}
 .bar a:hover{border-bottom-color:var(--line)}
@@ -188,16 +198,18 @@ export const navBar = ({ user, current }) => {
   const link = (href, label) => (href === current
     ? `<a href="${href}" class="on" aria-current="page">${label}</a>`
     : `<a href="${href}">${label}</a>`);
-  return `<nav class="bar">
+  return `<header class="topbar"><nav class="bar">
   <a href="/" class="brand">teamctx</a>
-  ${link('/', 'Home')}
-  ${user ? link('/projects', 'Projects') : ''}
-  ${user ? link('/settings', 'Settings') : ''}
-  ${user?.id ? link('/settings/new-project', 'New project') : ''}
+  <span class="middle">
+    ${link('/', 'Home')}
+    ${user ? link('/projects', 'Projects') : ''}
+    ${user ? link('/settings', 'Settings') : ''}
+    ${user?.id ? link('/settings/new-project', 'New project') : ''}
+  </span>
   <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Switch between light and dark"></button>
   <span class="who muted">${user ? `${esc(user.login || user.email || '')}
       <form method="POST" action="/settings/logout" style="display:inline;margin:0">
         <button type="submit" class="link">Sign out</button>
       </form>` : '<a href="/signin">Sign in</a>'}</span>
-</nav>`;
+</nav></header>`;
 };
