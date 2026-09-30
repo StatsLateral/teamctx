@@ -405,3 +405,24 @@ describe('what a link may and may not open', () => {
     expect(band).not.toContain('class="item');
   });
 });
+
+describe('a tree longer than the window', () => {
+  it('scrolls inside its column rather than stretching the page', async () => {
+    // One long How list otherwise drags the page down past everything beside
+    // it, leaving the other two columns as short marks at the top of a blank.
+    const { body } = await visit('/project/acme/ledger?ws=product', MANAGER);
+    expect(body).toMatch(/\.col\{[^}]*max-height/);
+    expect(body).toMatch(/\.col-body\{[^}]*overflow-y:auto/);
+  });
+
+  it('bounds the list the same way, so the toggle does not change the scrolling', async () => {
+    const { body } = await visit('/project/acme/ledger?ws=product&view=list', MANAGER);
+    expect(body).toMatch(/\.list\{[^}]*overflow-y:auto/);
+  });
+
+  it('lets the window do the scrolling on a phone', async () => {
+    const { body } = await visit('/project/acme/ledger?ws=product', MANAGER);
+    const narrow = body.slice(body.indexOf('@media(max-width:760px)'));
+    expect(narrow).toMatch(/\.col,\.list\{max-height:none\}/);
+  });
+});
