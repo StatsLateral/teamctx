@@ -51,7 +51,7 @@ const CSS = `
    a bound, one long How list drags the page down past everything beside it and
    the other two columns end up as short marks at the top of a tall blank. */
 .col{border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--card);
-  display:flex;flex-direction:column;min-height:220px;max-height:calc(100vh - 16rem)}
+  display:flex;flex-direction:column;min-width:0;min-height:220px;max-height:calc(100vh - 16rem)}
 .col-head{font-family:var(--font-mono);font-size:11px;text-transform:uppercase;letter-spacing:.08em;
   color:var(--soft);font-weight:600;padding:10px 12px 8px;border-bottom:1px solid var(--line)}
 .col-body{padding:8px;display:flex;flex-direction:column;gap:3px;overflow-y:auto;flex:1}
@@ -63,7 +63,7 @@ const CSS = `
    the same emphasis without pretending it can open the drawer. */
 tr.marked td{background:var(--accent-soft)}
 tr.marked td:first-child{box-shadow:inset 3px 0 0 var(--accent)}
-.item .text{flex:1;line-height:1.45;font-size:14px}
+.item .text{flex:1;min-width:0;line-height:1.45;font-size:14px;overflow-wrap:anywhere}
 .item.tier-why .text{font-weight:600;font-family:var(--font-display)}
 .item.tier-what .text{font-weight:500}
 .item.tier-how .text{color:var(--soft)}
@@ -100,7 +100,7 @@ tr.marked td:first-child{box-shadow:inset 3px 0 0 var(--accent)}
 .drawer-head{display:flex;align-items:center;justify-content:space-between;gap:10px;
   padding:16px 20px;border-bottom:1px solid var(--line)}
 .drawer-body{padding:20px;overflow-y:auto}
-.drawer-body .statement{font-family:var(--font-display);font-size:18px;margin:0 0 10px}
+.drawer-body .statement{font-family:var(--font-display);font-size:18px;margin:0 0 10px;overflow-wrap:anywhere}
 .backdrop{display:none;position:fixed;inset:0;background:rgba(26,28,26,.35);z-index:39}
 .backdrop.on{display:block}
 .note{background:var(--amber-soft);color:var(--amber);padding:.5rem .7rem;border-radius:var(--radius-sm);

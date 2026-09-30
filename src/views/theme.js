@@ -29,7 +29,7 @@ const TOKENS = `
 :root{
   /* Scrollbars, select popups and focus rings are painted by the browser, not
      by these tokens. Without this they stay light on a dark page. */
-  color-scheme:light dark;
+  color-scheme:light;
   --paper:#f4efe6;--card:#fcfaf5;--ink:#1a1c1a;--soft:#5a625b;--faint:#8a9088;
   --line:#e4dbcc;--accent:#1f6f5c;--accent-soft:#e6f0eb;--amber:#b5651d;--amber-soft:#f4e8da;
   --grey:#6b7280;--grey-soft:#ececea;--indigo:#4f46e5;--indigo-soft:#eef2ff;
@@ -41,14 +41,17 @@ const TOKENS = `
 /* The reader's machine decides, unless the reader has said otherwise. The
    :not([data-theme="light"]) is what lets them say otherwise: without it, a
    light choice on a dark machine would be overruled by the media query. */
+:root[data-theme="light"]{color-scheme:light}
 @media(prefers-color-scheme:dark){
   :root:not([data-theme="light"]){
+    color-scheme:dark;
     --paper:#16181a;--card:#1e2124;--ink:#e8e6e1;--soft:#a0a6a2;--faint:#7c837f;
     --line:#2f3438;--accent:#4aa88f;--accent-soft:#1d2f2a;--amber:#d08a4a;--amber-soft:#332417;
     --grey:#9aa0a6;--grey-soft:#2a2e31;--indigo:#8b87f0;--indigo-soft:#232338;
   }
 }
 :root[data-theme="dark"]{
+  color-scheme:dark;
     --paper:#16181a;--card:#1e2124;--ink:#e8e6e1;--soft:#a0a6a2;--faint:#7c837f;
     --line:#2f3438;--accent:#4aa88f;--accent-soft:#1d2f2a;--amber:#d08a4a;--amber-soft:#332417;
     --grey:#9aa0a6;--grey-soft:#2a2e31;--indigo:#8b87f0;--indigo-soft:#232338;
