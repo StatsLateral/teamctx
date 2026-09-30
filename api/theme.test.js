@@ -84,3 +84,39 @@ describe('what the move did not do', () => {
     expect(functions.length).toBeLessThanOrEqual(12);
   });
 });
+
+describe('choosing light or dark', () => {
+  it('follows the machine when nobody has chosen', () => {
+    expect(THEME_CSS).toContain('@media(prefers-color-scheme:dark)');
+  });
+
+  it('lets a choice override the machine, in both directions', () => {
+    // Without the :not(), a light choice on a dark machine loses to the media
+    // query and the switch appears broken to exactly the person who used it.
+    expect(THEME_CSS).toContain(':root:not([data-theme="light"])');
+    expect(THEME_CSS).toContain(':root[data-theme="dark"]');
+  });
+
+  it('gives the override every token the machine gets', () => {
+    const between = (a, b) => THEME_CSS.slice(THEME_CSS.indexOf(a), b ? THEME_CSS.indexOf(b) : undefined);
+    const media = between('@media(prefers-color-scheme:dark)', ':root[data-theme="dark"]');
+    const chosen = between(':root[data-theme="dark"]');
+    const names = (css) => [...css.matchAll(/(--[a-z-]+):/g)].map(m => m[1]).sort();
+    expect(names(chosen)).toEqual(names(media));
+  });
+
+  it('reads the choice before anything is painted', async () => {
+    // Read after the first paint and the page flashes paper, then goes dark.
+    const body = await get('/settings');
+    const head = body.slice(0, body.indexOf('</head>'));
+    expect(head).toContain("localStorage.getItem('teamctx-theme')");
+  });
+
+  it('puts the switch in the same corner on every page', async () => {
+    for (const path of ['/', '/signin', '/settings']) {
+      const body = await get(path);
+      expect(body, path).toContain('id="theme-toggle"');
+      expect(body, path).toContain("localStorage.setItem('teamctx-theme'");
+    }
+  });
+});

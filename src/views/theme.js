@@ -35,12 +35,20 @@ const TOKENS = `
   --font-body:"Hanken Grotesk",-apple-system,BlinkMacSystemFont,sans-serif;
   --font-mono:"Spline Sans Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
 }
+/* The reader's machine decides, unless the reader has said otherwise. The
+   :not([data-theme="light"]) is what lets them say otherwise: without it, a
+   light choice on a dark machine would be overruled by the media query. */
 @media(prefers-color-scheme:dark){
-  :root{
+  :root:not([data-theme="light"]){
     --paper:#16181a;--card:#1e2124;--ink:#e8e6e1;--soft:#a0a6a2;--faint:#7c837f;
     --line:#2f3438;--accent:#4aa88f;--accent-soft:#1d2f2a;--amber:#d08a4a;--amber-soft:#332417;
     --grey:#9aa0a6;--grey-soft:#2a2e31;--indigo:#8b87f0;--indigo-soft:#232338;
   }
+}
+:root[data-theme="dark"]{
+    --paper:#16181a;--card:#1e2124;--ink:#e8e6e1;--soft:#a0a6a2;--faint:#7c837f;
+    --line:#2f3438;--accent:#4aa88f;--accent-soft:#1d2f2a;--amber:#d08a4a;--amber-soft:#332417;
+    --grey:#9aa0a6;--grey-soft:#2a2e31;--indigo:#8b87f0;--indigo-soft:#232338;
 }`;
 
 const BASE = `
@@ -68,7 +76,12 @@ const CHROME = `
 .bar a{text-decoration:none;color:var(--soft);padding:.2rem 0;border-bottom:2px solid transparent}
 .bar a:hover{border-bottom-color:var(--line)}
 .bar a.on{color:var(--ink);font-weight:600;border-bottom-color:var(--accent)}
-.bar .who{margin-left:auto;padding-left:1.1rem;border-left:1px solid var(--line);color:var(--faint)}
+.bar .who{padding-left:1.1rem;border-left:1px solid var(--line);color:var(--faint)}
+/* Pushed to the far side, before whoever is signed in: the same corner on every
+   page, whether or not there is anybody to name. */
+.theme-toggle{margin-left:auto;border:1px solid var(--line);background:var(--card);color:var(--soft);
+  border-radius:99px;width:30px;height:30px;padding:0;font-size:14px;line-height:1;cursor:pointer}
+.theme-toggle:hover{color:var(--ink);border-color:var(--ink)}
 .bar h1{margin:0}
 .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
   padding:1.15rem 1.3rem;margin:0 0 1.1rem;break-inside:avoid}
@@ -117,8 +130,37 @@ export const THEME_CSS = `${TOKENS}${BASE}${CHROME}${CONTROLS}`;
  * tree and drawer — so every other page carries only what it uses. `script` is
  * the same bargain for behaviour.
  */
+/**
+ * Applied before anything is painted.
+ *
+ * A theme read after the first paint is a theme you watch arrive: the page
+ * flashes paper and then goes dark. This runs in the head, before the body
+ * exists, which is the only place that does not flash.
+ */
+const THEME_BOOT = `try{var t=localStorage.getItem('teamctx-theme');`
+  + `if(t)document.documentElement.dataset.theme=t;}catch(e){}`;
+
+/** Switching it, and remembering that you did. */
+const THEME_SWITCH = `(function(){
+  var b=document.getElementById('theme-toggle');
+  if(!b)return;
+  var dark=function(){
+    var set=document.documentElement.dataset.theme;
+    return set?set==='dark':window.matchMedia('(prefers-color-scheme: dark)').matches;
+  };
+  var label=function(){b.textContent=dark()?'☀':'☾';b.title=dark()?'Switch to light':'Switch to dark';};
+  label();
+  b.addEventListener('click',function(){
+    var next=dark()?'light':'dark';
+    document.documentElement.dataset.theme=next;
+    try{localStorage.setItem('teamctx-theme',next);}catch(e){}
+    label();
+  });
+}());`;
+
 export const shell = (title, body, { wide = false, extraCss = '', script = '' } = {}) => `<!doctype html>
 <html lang="en"><head>
+<script>${THEME_BOOT}</script>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(title)} — teamctx</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -127,6 +169,7 @@ export const shell = (title, body, { wide = false, extraCss = '', script = '' } 
 <style>${THEME_CSS}${extraCss}</style>
 </head><body${wide ? ' class="wide"' : ''}>
 <div class="page">${body}</div>
+<script>${THEME_SWITCH}</script>
 ${script ? `<script>${script}</script>` : ''}
 </body></html>`;
 
@@ -146,6 +189,7 @@ export const navBar = ({ user, current }) => {
   ${user ? link('/projects', 'Projects') : ''}
   ${user ? link('/settings', 'Settings') : ''}
   ${user?.id ? link('/settings/new-project', 'New project') : ''}
+  <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Switch between light and dark"></button>
   <span class="who muted">${user ? `${esc(user.login || user.email || '')}
       <form method="POST" action="/settings/logout" style="display:inline;margin:0">
         <button type="submit" class="link">Sign out</button>
