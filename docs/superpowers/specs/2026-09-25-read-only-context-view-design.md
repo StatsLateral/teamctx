@@ -84,8 +84,10 @@ Replaces #101's table layout.
   matching how teamctx composes context. Selecting "Project" shows the project
   tree alone.
 - **Source dot** on each item, as in the old app: colour = `source` of the most
-  recent contribution in its `sourceContributionIds` (`human` / `human+AI` /
-  `ai-service`); no dot when unknown.
+  recent contribution in its `sourceContributionIds`; no dot when unknown.
+  teamctx records the surface a contribution came through (`cli`, `mcp`, `web`,
+  import), not the old app's `human` / `human+AI` / `ai-service`, so the dots use
+  those values (changed during review of #108).
 - **Drawer** (click an item): full text, `summary`, the names of everyone whose
   contribution touched it (from `sourceContributionIds` → contribution
   `author`), and a **"Copy a prompt for your assistant"** button that copies
