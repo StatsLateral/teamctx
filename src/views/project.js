@@ -37,11 +37,14 @@ const CSS = `
   border:1px solid var(--line);border-radius:6px;padding:4px 9px;background:var(--card)}
 .toggle a.on{color:var(--ink);border-color:var(--accent)}
 .columns{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
+/* A column scrolls inside itself, the way the app this came from did. Without
+   a bound, one long How list drags the page down past everything beside it and
+   the other two columns end up as short marks at the top of a tall blank. */
 .col{border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--card);
-  display:flex;flex-direction:column;min-height:220px}
+  display:flex;flex-direction:column;min-height:220px;max-height:calc(100vh - 16rem)}
 .col-head{font-family:var(--font-mono);font-size:11px;text-transform:uppercase;letter-spacing:.08em;
   color:var(--soft);font-weight:600;padding:10px 12px 8px;border-bottom:1px solid var(--line)}
-.col-body{padding:8px;display:flex;flex-direction:column;gap:3px}
+.col-body{padding:8px;display:flex;flex-direction:column;gap:3px;overflow-y:auto;flex:1}
 .item{display:flex;align-items:flex-start;gap:8px;padding:7px 8px;border-radius:6px;
   border:1px solid transparent;background:none;text-align:left;width:100%;font:inherit;cursor:pointer}
 .item:hover{background:var(--paper);border-color:var(--line)}
@@ -60,6 +63,9 @@ tr.marked td:first-child{box-shadow:inset 3px 0 0 var(--accent)}
 .dot.mcp{background:var(--accent)}
 .dot.web{background:var(--grey)}
 .dot.imported{background:var(--indigo)}
+/* The same bound for the single-column reading, so the page itself never grows
+   past the window and the toggle does not change how far you have to scroll. */
+.list{max-height:calc(100vh - 16rem);overflow-y:auto;padding-right:4px}
 .list .item{margin-left:0}
 .list .tier-what{margin-left:26px}
 .list .tier-how{margin-left:52px}
@@ -92,6 +98,8 @@ tr.marked td:first-child{box-shadow:inset 3px 0 0 var(--accent)}
   .lanes{display:none}
   .lane-pick{display:block}
   .columns{grid-template-columns:1fr}
+  /* On a phone the window is the scroller; a box inside a box is a trap. */
+  .col,.list{max-height:none}
 }`;
 
 /**
