@@ -120,3 +120,27 @@ describe('choosing light or dark', () => {
     }
   });
 });
+
+describe('one navigation, on every screen', () => {
+  it('spans the window rather than the column the page is read in', async () => {
+    // The column is 34rem on most pages, which the bar outgrew when it gained a
+    // switch — and who you were wrapped onto a line of their own.
+    const body = await get('/settings');
+    expect(body).toContain('.topbar{width:100vw');
+    expect(body).toMatch(/\.bar\{[^}]*max-width:72rem/);
+    expect(body).not.toMatch(/\.bar\{[^}]*flex-wrap:wrap/);
+  });
+
+  it('is the same bar whether the page is narrow or wide', async () => {
+    const narrow = await get('/settings');
+    const wide = await get('/projects');
+    const bar = (html) => html.slice(html.indexOf('<header class="topbar">'), html.indexOf('</header>'));
+    expect(bar(narrow).replace(/ class="on"[^>]*/g, '')).toBe(bar(wide).replace(/ class="on"[^>]*/g, ''));
+  });
+
+  it('keeps the brand, the switch and who you are when there is no room for links', async () => {
+    const body = await get('/settings');
+    expect(body).toContain('@media(max-width:44rem){.bar .middle{display:none}}');
+    expect(body).toContain('class="middle"');
+  });
+});
