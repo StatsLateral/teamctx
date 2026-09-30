@@ -27,6 +27,9 @@ const FONTS = 'https://fonts.googleapis.com/css2'
  */
 const TOKENS = `
 :root{
+  /* Scrollbars, select popups and focus rings are painted by the browser, not
+     by these tokens. Without this they stay light on a dark page. */
+  color-scheme:light;
   --paper:#f4efe6;--card:#fcfaf5;--ink:#1a1c1a;--soft:#5a625b;--faint:#8a9088;
   --line:#e4dbcc;--accent:#1f6f5c;--accent-soft:#e6f0eb;--amber:#b5651d;--amber-soft:#f4e8da;
   --grey:#6b7280;--grey-soft:#ececea;--indigo:#4f46e5;--indigo-soft:#eef2ff;
@@ -38,14 +41,17 @@ const TOKENS = `
 /* The reader's machine decides, unless the reader has said otherwise. The
    :not([data-theme="light"]) is what lets them say otherwise: without it, a
    light choice on a dark machine would be overruled by the media query. */
+:root[data-theme="light"]{color-scheme:light}
 @media(prefers-color-scheme:dark){
   :root:not([data-theme="light"]){
+    color-scheme:dark;
     --paper:#16181a;--card:#1e2124;--ink:#e8e6e1;--soft:#a0a6a2;--faint:#7c837f;
     --line:#2f3438;--accent:#4aa88f;--accent-soft:#1d2f2a;--amber:#d08a4a;--amber-soft:#332417;
     --grey:#9aa0a6;--grey-soft:#2a2e31;--indigo:#8b87f0;--indigo-soft:#232338;
   }
 }
 :root[data-theme="dark"]{
+  color-scheme:dark;
     --paper:#16181a;--card:#1e2124;--ink:#e8e6e1;--soft:#a0a6a2;--faint:#7c837f;
     --line:#2f3438;--accent:#4aa88f;--accent-soft:#1d2f2a;--amber:#d08a4a;--amber-soft:#332417;
     --grey:#9aa0a6;--grey-soft:#2a2e31;--indigo:#8b87f0;--indigo-soft:#232338;
@@ -53,11 +59,18 @@ const TOKENS = `
 
 const BASE = `
 *{box-sizing:border-box}
+/* The bar below spans the viewport width, which counts the vertical scrollbar — so
+   it is wider than the page and every screen got a horizontal scrollbar it had
+   no use for. Clipped rather than scrolled: nothing here is reachable sideways. */
+html{overflow-x:clip}
 body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--font-body);
-  line-height:1.55;-webkit-font-smoothing:antialiased;overflow-x:hidden}
+  line-height:1.55;-webkit-font-smoothing:antialiased;overflow-x:clip;max-width:100%}
+/* A long word, an id or a pasted URL wraps onto the next line rather than
+   pushing whatever holds it sideways. */
+p,li,td,th,h1,h2,code{overflow-wrap:anywhere}
 /* A page starts near the top of the window. Two and a half rems above the nav
    read as a gap somebody forgot to fill rather than as breathing room. */
-.page{max-width:34rem;margin:0 auto;padding:1.1rem 1.25rem 3rem}
+.page{max-width:34rem;margin:0 auto;padding:0 1.25rem 3rem}
 /* The marker stays on <body>, where it has always been. */
 body.wide .page{max-width:72rem}
 h1{font-family:var(--font-display);font-weight:600;font-size:1.5rem;margin:0 0 .35rem}
@@ -76,7 +89,7 @@ const CHROME = `
    column the page is read in. That column is 34rem on most pages, which the bar
    outgrew the moment it gained a switch — and a navigation that wraps onto two
    lines on some pages and not others is two navigations. */
-.topbar{width:100vw;margin-left:calc(50% - 50vw);margin-top:-1.1rem;margin-bottom:1.5rem;
+.topbar{width:100vw;margin-left:calc(50% - 50vw);margin-bottom:1rem;
   border-bottom:1px solid var(--line);background:var(--paper)}
 .bar{display:flex;align-items:center;gap:1.1rem;font-size:.9rem;
   max-width:72rem;margin:0 auto;padding:.65rem 1.25rem}
