@@ -18,6 +18,7 @@ import { GithubSession, listUserOrgs, createRepo, slugifyProjectName, suggestAva
 import { runWithSession } from '../src/session-context.js';
 import { initProject } from '../cli/commands/init.core.js';
 import { readProjectView, ProjectViewError } from '../src/oauth/project-view.js';
+import { isReturnable, parseViewParams } from '../src/view-url.js';
 // Page templates. They used to sit at the bottom of this file, which left it
 // mostly HTML with the routes buried in it — see #103 part 1.
 import { settingsPage } from '../src/views/settings.js';
@@ -416,10 +417,15 @@ async function agentsFor(user) {
 const NEEDS_GITHUB = ['/settings/new-project'];
 
 async function waysInFor(returnTo) {
+  // The path alone. A link from a chat carries what it points at in the query
+  // string, and reading that as part of the repository name asked whether
+  // `ledger?ws=product` lends access — which nothing does, so Google was shut
+  // off for every deep link.
+  const path = String(returnTo || '').split('?')[0];
   if (!provider?.googleClientId) {
     return { google: false, why: 'Google sign-in is not set up on this deployment.' };
   }
-  if (NEEDS_GITHUB.includes(returnTo)) {
+  if (NEEDS_GITHUB.includes(path)) {
     return {
       google: false,
       why: 'Creating a project creates a GitHub repository, so that step needs a GitHub account.',
@@ -428,7 +434,7 @@ async function waysInFor(returnTo) {
   // A project is reachable without GitHub only through the access it lends,
   // which is the connector's rule — applied here too, rather than sending
   // somebody through a sign-in that ends in a refusal.
-  const project = /^\/project\/([^/]+)\/([^/]+)$/.exec(returnTo || '');
+  const project = /^\/project\/([^/]+)\/([^/]+)$/.exec(path);
   if (project && !(await kvGet(keys.projectGhCred(project[1], project[2])))?.token) {
     return { google: false, why: lendsNothing(`${project[1]}/${project[2]}`) };
   }
@@ -1099,9 +1105,10 @@ app.post('/settings/agents/revoke', async (req, res) => {
  * Where a sign-in may send somebody afterwards.
  *
  * Allow-listed rather than trusted, because this is the one place a path from
- * the query string drives a redirect.
+ * the query string drives a redirect — and it now has to carry what a link from
+ * a chat points at, so the rule lives beside the link format itself.
  */
-const RETURN_TO = /^\/(?:settings(?:\/[a-z-]+)?|projects|project\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+)$/;
+const RETURN_TO = { test: isReturnable };
 
 const signInFor = (res, path) => res.redirect(303, `/signin?returnTo=${encodeURIComponent(path)}`);
 
@@ -1122,24 +1129,32 @@ app.get('/project/:owner/:repo', async (req, res) => {
   const user = await currentUser(req);
   const owner = String(req.params.owner || '');
   const repo = String(req.params.repo || '');
-  if (!user) return signInFor(res, `/project/${owner}/${repo}`);
+  if (!user) {
+    // Carry what the link pointed at through the sign-in and back, or somebody
+    // following a link to one statement lands on the project and has to find it
+    // again — which is the whole thing this was built to save them.
+    const back = new URLSearchParams(parseViewParams(req.query)).toString();
+    return signInFor(res, `/project/${owner}/${repo}${back ? `?${back}` : ''}`);
+  }
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
   try {
     const view = await readProjectView({ owner, repo, user });
     // Which part of the work to open, and what to point at inside it. Anything
     // unknown or out of scope falls back to the nearest thing that does exist,
     // with a quiet note — and the value asked for is never echoed back.
-    const askedWs = String(req.query.ws || '');
-    const known = view.workstreams.some(w => w.id === askedWs);
-    const selected = known ? askedWs : null;
-    const item = String(req.query.item || req.query.task || req.query.review || '') || null;
+    // Read through the link's own rules, so a value the page would not have
+    // written never reaches it — and only then checked against what exists.
+    const asked = parseViewParams(req.query);
+    const known = view.workstreams.some(w => w.id === asked.ws);
+    const selected = known ? asked.ws : null;
+    const item = asked.item || asked.task || asked.review || null;
     res.send(projectPage({
       user,
       view,
       selected,
       viewMode: req.query.view === 'list' ? 'list' : 'columns',
       item,
-      note: askedWs && !known ? 'That part of the work is not here, or not yours to see.' : null,
+      note: asked.ws && !known ? 'That part of the work is not here, or not yours to see.' : null,
     }));
   } catch (e) {
     const denied = e instanceof ProjectViewError || e.code === 'MEMBER_ACCESS_DENIED';

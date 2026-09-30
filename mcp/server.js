@@ -14,6 +14,7 @@ import {
 import { answerQuestion } from '../src/context.js';
 import { commitContext } from '../src/git.js';
 import { connectorUrl, originRemote } from '../cli/commands/connect.core.js';
+import { buildViewUrl } from '../src/view-url.js';
 import { migrateIfNeeded } from '../src/migrate.js';
 import { computeStats } from '../src/metrics.js';
 import { initProject } from '../cli/commands/init.core.js';
@@ -81,7 +82,7 @@ export const TOOLS = [
   },
   {
     name: 'get_workstream',
-    description: "Fetch a single workstream tree by id. Omit the id for the project's own tree — the base every workstream inherits, and where a project with no workstreams keeps everything.",
+    description: "Fetch a single workstream tree by id. Omit the id for the project's own tree — the base every workstream inherits, and where a project with no workstreams keeps everything. Returns `viewUrl`, the page where this can be read — include it in your reply as a plain link so they can go and look. When it is null, say nothing about a link rather than inventing one; `viewUrlError` says why there is none.",
     inputSchema: {
       type: 'object',
       properties: { id: { type: 'string' } },
@@ -128,12 +129,12 @@ export const TOOLS = [
   },
   {
     name: 'my_brief',
-    description: "**Call this first, and answer \"what should I work on?\", \"what are my tasks?\", \"where am I?\" or \"how do I get started?\" with this one call.** A member's status, their tasks and the context behind them, together: their open tasks grouped by where the work sits, the compiled context for the part of the project they are on (the project's goals with their workstream's beneath them), and their role. Prefer it over list_tasks and get_status when somebody is asking about their own work — those answer a narrower question and leave out the context. Read it before contributing, marking anything done, or proposing changes; it is what stops an assistant acting on a project it has not read. Knows who is calling, so never ask them their name; takes no arguments. Read-only, and spends no AI call.",
+    description: "**Call this first, and answer \"what should I work on?\", \"what are my tasks?\", \"where am I?\" or \"how do I get started?\" with this one call.** A member's status, their tasks and the context behind them, together: their open tasks grouped by where the work sits, the compiled context for the part of the project they are on (the project's goals with their workstream's beneath them), and their role. Prefer it over list_tasks and get_status when somebody is asking about their own work — those answer a narrower question and leave out the context. Read it before contributing, marking anything done, or proposing changes; it is what stops an assistant acting on a project it has not read. Knows who is calling, so never ask them their name; takes no arguments. Read-only, and spends no AI call. Returns `viewUrl`, the page where this can be read — include it in your reply as a plain link so they can go and look. When it is null, say nothing about a link rather than inventing one; `viewUrlError` says why there is none.",
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
   },
   {
     name: 'get_status',
-    description: "**Call this first when you do not know where you are.** Answers who is calling, which project, whether it is set up at all, and whether the caller is the manager — all in one read. `managerGateBroken: true` means the gate is a display name nobody can match, so every approval on this project is already failing — tell the user plainly and offer repair_manager_gate if they set the project up. Returns project name, provider, model, manager identity, workstreams with why-counts, roles, contribution/decision totals. `me` and `activeWorkstream` are the calling user's, not the project defaults. Read-only.",
+    description: "**Call this first when you do not know where you are.** Answers who is calling, which project, whether it is set up at all, and whether the caller is the manager — all in one read. `managerGateBroken: true` means the gate is a display name nobody can match, so every approval on this project is already failing — tell the user plainly and offer repair_manager_gate if they set the project up. Returns project name, provider, model, manager identity, workstreams with why-counts, roles, contribution/decision totals. `me` and `activeWorkstream` are the calling user's, not the project defaults. Read-only. Returns `viewUrl`, the page where this can be read — include it in your reply as a plain link so they can go and look. When it is null, say nothing about a link rather than inventing one; `viewUrlError` says why there is none.",
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
   },
   {
@@ -226,7 +227,7 @@ export const TOOLS = [
   // Tier 1 — additive writes
   {
     name: 'contribute',
-    description: "**This is how anything gets into the shared context — there is no separate import step.** Reach for it both when a manager tells you what the project is about and when somebody sends finished work back. Defaults to enqueueing for the manager's review, so tell the user it was sent for review, not that it was added. **The exception is a project's first contribution**: when get_status shows totalWhys:0, pass apply:true so it lands rather than waiting on the manager to approve their own opening message. apply:true writes immediately and requires the caller to be the manager. Optional decision:true tags it as a first-class decision. Returns { id, mode: \"queued\"|\"applied\"|\"no-op\", summary, operations, reportBack }.",
+    description: "**This is how anything gets into the shared context — there is no separate import step.** Reach for it both when a manager tells you what the project is about and when somebody sends finished work back. Defaults to enqueueing for the manager's review, so tell the user it was sent for review, not that it was added. **The exception is a project's first contribution**: when get_status shows totalWhys:0, pass apply:true so it lands rather than waiting on the manager to approve their own opening message. apply:true writes immediately and requires the caller to be the manager. Optional decision:true tags it as a first-class decision. Returns { id, mode: \"queued\"|\"applied\"|\"no-op\", summary, operations, reportBack }. Returns `viewUrl`, the page where this can be read — include it in your reply as a plain link so they can go and look. When it is null, say nothing about a link rather than inventing one; `viewUrlError` says why there is none.",
     inputSchema: {
       type: 'object',
       properties: {
@@ -253,7 +254,7 @@ export const TOOLS = [
 
   {
     name: 'task_add',
-    description: '**Reach for this to turn what a manager wants into work somebody can pick up.** Creates a task and commits it; defaults to the caller as owner and their active workstream. Set compile:true to compile its prompt in the same call — the compiled prompt is the thing a person actually acts on, so this is usually what you want. It spends an AI call, so confirm the title with the user first; the result then carries the compiled markdown.',
+    description: '**Reach for this to turn what a manager wants into work somebody can pick up.** Creates a task and commits it; defaults to the caller as owner and their active workstream. Set compile:true to compile its prompt in the same call — the compiled prompt is the thing a person actually acts on, so this is usually what you want. It spends an AI call, so confirm the title with the user first; the result then carries the compiled markdown. Returns `viewUrl`, the page where this can be read — include it in your reply as a plain link so they can go and look. When it is null, say nothing about a link rather than inventing one; `viewUrlError` says why there is none.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -269,7 +270,7 @@ export const TOOLS = [
   },
   {
     name: 'task_done',
-    description: 'Mark a task done and commit. Returns unchanged:true without committing if it was already done.',
+    description: 'Mark a task done and commit. Returns unchanged:true without committing if it was already done. Returns `viewUrl`, the page where this can be read — include it in your reply as a plain link so they can go and look. When it is null, say nothing about a link rather than inventing one; `viewUrlError` says why there is none.',
     inputSchema: {
       type: 'object',
       properties: { id: { type: 'string' } },
@@ -289,7 +290,7 @@ export const TOOLS = [
   },
   {
     name: 'task_assign',
-    description: 'Reassign a task to a different owner and commit.',
+    description: 'Reassign a task to a different owner and commit. Returns `viewUrl`, the page where this can be read — include it in your reply as a plain link so they can go and look. When it is null, say nothing about a link rather than inventing one; `viewUrlError` says why there is none.',
     inputSchema: {
       type: 'object',
       properties: { id: { type: 'string' }, owner: { type: 'string' } },
@@ -766,9 +767,11 @@ export function makeHandlers(projectRoot) {
 
     async get_workstream({ id } = {}) {
       const teamctxDir = dir();
-      if (isProjectLevel(id)) return textResult(readProject(teamctxDir));
+      if (isProjectLevel(id)) {
+        return textResult({ ...readProject(teamctxDir), ...(await this.viewUrl({})) });
+      }
       assertInScope(await scope(teamctxDir, readConfig(teamctxDir)), id);
-      return textResult(readWorkstream(id, teamctxDir));
+      return textResult({ ...readWorkstream(id, teamctxDir), ...(await this.viewUrl({ ws: id })) });
     },
 
     async get_role_context({ role }) {
@@ -851,7 +854,12 @@ export function makeHandlers(projectRoot) {
         activeWorkstream: await targetWorkstream(teamctxDir, config, undefined),
         teamctxDir, projectDir: gitCwd, actor,
       });
-      return textResult({ ...brief, reportBack: `Tell the user: they are ${brief.me} on this project. ${brief.frame}` });
+      return textResult({
+        ...brief,
+        // Where the work they have just been told about actually lives.
+        ...(await this.viewUrl({ ws: await targetWorkstream(teamctxDir, config, undefined) })),
+        reportBack: `Tell the user: they are ${brief.me} on this project. ${brief.frame}`,
+      });
     },
 
     async get_status() {
@@ -869,6 +877,8 @@ export function makeHandlers(projectRoot) {
       const decisions = contributions.filter(c => c.tagged === 'decision');
       const me = await who(teamctxDir, config);
       return textResult({
+        // Where to go and look at any of this.
+        ...(await this.viewUrl({})),
         project: config.project,
         provider: config.provider || 'anthropic',
         model: config.model,
@@ -939,6 +949,46 @@ export function makeHandlers(projectRoot) {
       } catch (err) {
         return { ok: false, error: err.message, code: err.code };
       }
+    },
+
+    /**
+     * A link to what a tool just touched.
+     *
+     * Somebody puts something into the project through their assistant and then
+     * has no way to look at it: the reply says what changed, and the tree it
+     * changed lives on a page they would have to go and find.
+     *
+     * Resolved exactly as `connectUrl` is — down to reusing it, so a project
+     * that cannot produce one cannot produce the other, and both say why in the
+     * same words. Nothing here carries a credential: following the link still
+     * means signing in and passing the same checks.
+     */
+    async viewUrl({ ws = null, item = null, task = null, review = null } = {}) {
+      const config = readConfig(dir());
+      const deployUrl = config.deployUrl || (isHosted ? projectRoot.baseUrl : '') || '';
+      const where = isHosted
+        ? { owner: projectRoot.owner, repo: projectRoot.repo }
+        : { remote: await originRemote(gitCwd) };
+      try {
+        const { owner, repo } = connectorUrl({ deployUrl, ...where });
+        return {
+          // Project level is `null` in the data and names no workstream.
+          viewUrl: buildViewUrl({
+            base: deployUrl, owner, repo, ws: isProjectLevel(ws) ? null : ws, item, task, review,
+          }),
+          viewUrlError: null,
+        };
+      } catch (err) {
+        return { viewUrl: null, viewUrlError: err.message };
+      }
+    },
+
+    /** Whoever is calling, and whether the project lets them approve. */
+    async isManagerNow(teamctxDir, config) {
+      if (agent) return false;
+      const actor = await resolveActor({ config, cwd: gitCwd });
+      const displayName = await resolveDisplayName({ actor, config, teamctxDir });
+      return canApprove(config, { actor, displayName });
     },
 
     async member_add(args = {}) {
@@ -1059,6 +1109,7 @@ export function makeHandlers(projectRoot) {
       if (!args.compile) {
         return textResult({
           ...added,
+          ...(await this.viewUrl({ task: added.task.id })),
           reportBack: `Task ${added.task.id} added, owned by ${added.task.owner}.`,
         });
       }
@@ -1092,6 +1143,7 @@ export function makeHandlers(projectRoot) {
       });
       return textResult({
         ...r,
+        ...(await this.viewUrl({ task: r.task.id })),
         reportBack: r.unchanged
           ? `Task ${r.task.id} was already done.`
           : `Task ${r.task.id} marked done.`,
@@ -1118,7 +1170,11 @@ export function makeHandlers(projectRoot) {
       const r = await assignTask({
         id: args.id, owner: args.owner, teamctxDir, projectDir: gitCwd,
       });
-      return textResult({ ...r, reportBack: `Task ${r.task.id} assigned to ${r.task.owner}.` });
+      return textResult({
+        ...r,
+        ...(await this.viewUrl({ task: r.task.id })),
+        reportBack: `Task ${r.task.id} assigned to ${r.task.owner}.`,
+      });
     },
 
     async task_rm(args = {}) {
@@ -1312,7 +1368,16 @@ export function makeHandlers(projectRoot) {
         teamctxDir,
         projectDir: gitCwd,
       });
-      return textResult({ ...r, reportBack: reportBackContribute(r) });
+      // Where to go and look at it. Work that queued is waiting on somebody:
+      // the manager is pointed at the queue, and everyone else at the part of
+      // the work they sent it to, because the queue is not theirs to see.
+      const changed = (r.operations || []).map(op => op.id).find(Boolean) || null;
+      const link = await this.viewUrl(r.mode === 'queued'
+        ? (await this.isManagerNow(teamctxDir, readConfig(teamctxDir))
+          ? { review: r.id }
+          : { ws: r.workstream })
+        : { ws: r.workstream, item: changed });
+      return textResult({ ...r, ...link, reportBack: reportBackContribute(r) });
     },
 
     async submit_contribution(args) {
