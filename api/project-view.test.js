@@ -71,14 +71,20 @@ const CONFIG = {
 function project() {
   repo.files = new Map([
     ['.teamctx/config.json', JSON.stringify(CONFIG)],
-    ['.teamctx/contributions.jsonl', ''],
+    ['.teamctx/contributions.jsonl', [
+      JSON.stringify({ id: 'c-prod', author: 'Priya', source: 'mcp', text: 'pricing notes', workstream: 'product' }),
+      JSON.stringify({ id: 'c-tech', author: 'Dev', source: 'cli', text: 'uptime notes', workstream: 'tech' }),
+      JSON.stringify({ id: 'c-loose', author: 'Nobody', source: 'cli', text: 'unreferenced', workstream: null }),
+    ].join('\n')],
     ['.teamctx/project.json', JSON.stringify({ name: 'Ledger', whys: [{ id: 'p1', text: 'ship it' }], tasks: [] })],
     ['.teamctx/workstreams/product.json', JSON.stringify({
-      id: 'product', name: 'Product', whys: [{ id: 'w1', text: 'price it' }],
+      id: 'product', name: 'Product',
+      whys: [{ id: 'w1', text: 'price it', summary: 'how we price', sourceContributionIds: ['c-prod'], whats: [] }],
       tasks: [{ id: 'pricing-page', title: 'Draft the pricing page', owner: 'Priya', status: 'open' }],
     })],
     ['.teamctx/workstreams/tech.json', JSON.stringify({
-      id: 'tech', name: 'Tech', whys: [],
+      id: 'tech', name: 'Tech',
+      whys: [{ id: 't1', text: 'keep the servers up', sourceContributionIds: ['c-tech'], whats: [] }],
       tasks: [
         { id: 'migrate-db', title: 'Migrate the database', owner: 'Dev', status: 'open' },
         { id: 'old-thing', title: 'Something finished', owner: 'Dev', status: 'done' },
@@ -147,7 +153,10 @@ describe('a member looking at the same project', () => {
     const { body } = await visit('/project/acme/ledger', MEMBER_GOOGLE);
     expect(body).toContain('Draft the pricing page');
     expect(body).not.toContain('Migrate the database');
-    expect(body).toContain('you see product');
+    // Scope is the sidebar now: the parts they are on are there to open, and
+    // the ones they are not on are not on the page at all.
+    expect(body).toContain('>Product<');
+    expect(body).not.toContain('>Tech<');
   });
 
   it('is not shown the approval queue, which is the manager\'s', async () => {
@@ -233,5 +242,113 @@ describe('getting there', () => {
     const { status, body } = await visit('/project/acme/ledger', MANAGER);
     expect(status).toBe(403);
     expect(body).toMatch(/could not be read/);
+  });
+});
+
+describe('the tree the page draws', () => {
+  it('opens on the project itself, and draws the part you pick', async () => {
+    const start = await visit('/project/acme/ledger', MANAGER);
+    expect(start.body).toContain('ship it');           // the project's own Why
+    const product = await visit('/project/acme/ledger?ws=product', MANAGER);
+    expect(product.body).toContain('price it');        // product's
+  });
+
+  it('never carries a tree the reader is not on, not even hidden', async () => {
+    // Scope that only holds in the markup is not scope: a reader who opens the
+    // network tab is still a reader.
+    await lend();
+    const { body } = await visit('/project/acme/ledger', MEMBER_GOOGLE);
+    expect(body).not.toContain('keep the servers up');
+    expect(body).not.toContain('Migrate the database');
+  });
+
+  it('names who wrote a statement, and what kind of source it came from', async () => {
+    const { body } = await visit('/project/acme/ledger?ws=product', MANAGER);
+    expect(body).toMatch(/data-who="Priya"/);
+    expect(body).toMatch(/class="dot human-ai"/);
+    expect(body).toMatch(/data-summary="how we price"/);
+  });
+
+  it('numbers the statements the way the drawer quotes them', async () => {
+    const { body } = await visit('/project/acme/ledger', MANAGER);
+    expect(body).toMatch(/class="num">1</);
+    expect(body).toMatch(/Tell me more about &quot;1 ship it&quot;/);
+  });
+
+  it('shows the project context above a workstream, as inherited', async () => {
+    const { body } = await visit('/project/acme/ledger?ws=product', MANAGER);
+    expect(body).toMatch(/Project context — inherited/);
+    expect(body).toContain('ship it');
+  });
+
+  it('offers both views, and switches on a plain link', async () => {
+    const columns = await visit('/project/acme/ledger', MANAGER);
+    expect(columns.body).toContain('class="columns"');
+    const asList = await visit('/project/acme/ledger?view=list', MANAGER);
+    expect(asList.body).toContain('class="list"');
+  });
+
+  it('says so plainly when a part of the work holds nothing yet', async () => {
+    repo.files.set('.teamctx/workstreams/tech.json', JSON.stringify({ id: 'tech', name: 'Tech', whys: [], tasks: [] }));
+    const { body } = await visit('/project/acme/ledger?ws=tech', MANAGER);
+    expect(body).toMatch(/Nothing written here yet/);
+  });
+});
+
+describe('arriving from a link', () => {
+  it('opens the part of the work the link named', async () => {
+    const { body } = await visit('/project/acme/ledger?ws=product', MANAGER);
+    expect(body).toMatch(/class="lane on"[^>]*href="[^"]*ws=product/);
+  });
+
+  it('marks the item the link pointed at', async () => {
+    const { body } = await visit('/project/acme/ledger?ws=product&item=w1', MANAGER);
+    expect(body).toMatch(/class="item tier-why marked"/);
+  });
+
+  it('falls back quietly when the part of the work is not theirs to see', async () => {
+    await lend();
+    const { body } = await visit('/project/acme/ledger?ws=tech', MEMBER_GOOGLE);
+    expect(body).toMatch(/not here, or not yours to see/);
+    expect(body).not.toContain('Migrate the database');
+  });
+
+  it('never writes what was asked for back into the page', async () => {
+    // A parameter is somebody else's text until proven otherwise.
+    const { body } = await visit('/project/acme/ledger?ws=<script>alert(1)</script>', MANAGER);
+    expect(body).not.toContain('<script>alert(1)</script>');
+    expect(body).not.toContain('alert(1)');
+  });
+});
+
+// The page renders one tree at a time, so an out-of-scope tree in the payload
+// would never show — which is exactly why the rule is checked against the data
+// and not by reading the HTML. "Not in the page data", not "not on screen".
+const { readProjectView } = await import('../src/oauth/project-view.js');
+
+describe('what the data function hands back', () => {
+
+  it('gives a member the trees they are on, and no others', async () => {
+    await lend();
+    const view = await readProjectView({ owner: 'acme', repo: 'ledger', user: MEMBER_GOOGLE });
+    expect(Object.keys(view.trees)).toEqual(['product']);
+    expect(JSON.stringify(view.trees)).not.toContain('keep the servers up');
+  });
+
+  it('gives the manager all of them', async () => {
+    const view = await readProjectView({ owner: 'acme', repo: 'ledger', user: MANAGER });
+    expect(Object.keys(view.trees).sort()).toEqual(['product', 'tech']);
+  });
+
+  it('always carries the project tree, which everybody inherits', async () => {
+    await lend();
+    const view = await readProjectView({ owner: 'acme', repo: 'ledger', user: MEMBER_GOOGLE });
+    expect(view.projectTree.whys[0].text).toBe('ship it');
+  });
+
+  it('carries the contributions behind the trees it sent, and no more', async () => {
+    await lend();
+    const view = await readProjectView({ owner: 'acme', repo: 'ledger', user: MEMBER_GOOGLE });
+    expect(Object.keys(view.contributions)).toEqual(['c-prod']);
   });
 });
