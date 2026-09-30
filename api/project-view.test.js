@@ -454,3 +454,16 @@ describe('a statement with nothing recorded behind it', () => {
     expect(body).toContain('.dot.none{background:none}');
   });
 });
+
+describe('knowing you are the manager', () => {
+  it('says so beside the name, not in a line of its own', async () => {
+    const { body } = await visit('/project/acme/ledger', MANAGER);
+    expect(body).toMatch(/<h1>Ledger <span class="role-chip">Manager<\/span><\/h1>/);
+  });
+
+  it('says nothing of the sort to somebody who is not', async () => {
+    await lend();
+    const { body } = await visit('/project/acme/ledger', MEMBER_GOOGLE);
+    expect(body).not.toMatch(/<span class="role-chip">/);
+  });
+});

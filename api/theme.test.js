@@ -144,3 +144,25 @@ describe('one navigation, on every screen', () => {
     expect(body).toContain('class="middle"');
   });
 });
+
+describe('nothing reaches sideways', () => {
+  it('clips the page rather than scrolling it', async () => {
+    // The bar spans the viewport, and viewport width counts the scrollbar.
+    const body = await get('/settings');
+    expect(body).toContain('html{overflow-x:clip}');
+    expect(body).toMatch(/body\{[^}]*overflow-x:clip/);
+  });
+
+  it('wraps a long word instead of pushing what holds it', async () => {
+    expect(THEME_CSS).toMatch(/overflow-wrap:anywhere/);
+  });
+
+  it('lets the browser paint its chrome in the theme actually in force', async () => {
+    // `light dark` painted a dark scrollbar on a page the reader had switched
+    // to light, because the browser was reading the machine, not the page.
+    expect(THEME_CSS).not.toContain('color-scheme:light dark');
+    expect(THEME_CSS).toMatch(/color-scheme:light;/);
+    expect(THEME_CSS).toMatch(/\[data-theme="dark"\]\{\s*color-scheme:dark/);
+    expect(THEME_CSS).toMatch(/\[data-theme="light"\]\{color-scheme:light\}/);
+  });
+});
