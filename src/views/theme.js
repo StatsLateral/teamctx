@@ -58,7 +58,9 @@ const BASE = `
 *{box-sizing:border-box}
 body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--font-body);
   line-height:1.55;-webkit-font-smoothing:antialiased}
-.page{max-width:34rem;margin:0 auto;padding:2.5rem 1.25rem 4rem}
+/* A page starts near the top of the window. Two and a half rems above the nav
+   read as a gap somebody forgot to fill rather than as breathing room. */
+.page{max-width:34rem;margin:0 auto;padding:1.1rem 1.25rem 3rem}
 /* The marker stays on <body>, where it has always been. */
 body.wide .page{max-width:72rem}
 h1{font-family:var(--font-display);font-weight:600;font-size:1.5rem;margin:0 0 .35rem}
