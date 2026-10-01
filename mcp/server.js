@@ -82,7 +82,7 @@ export const TOOLS = [
   },
   {
     name: 'get_workstream',
-    description: "Fetch a single workstream tree by id. Omit the id for the project's own tree — the base every workstream inherits, and where a project with no workstreams keeps everything. Returns `viewUrl`, the page where this can be read — include it in your reply as a plain link so they can go and look. When it is null, say nothing about a link rather than inventing one; `viewUrlError` says why there is none.",
+    description: "Fetch a single workstream tree by id. Omit the id for the project's own tree — the base every workstream inherits, and where a project with no workstreams keeps everything. Returns `viewUrl`, the page where this can be read — always end your reply with it, on its own line, as a plain URL. `view` carries the ids it was built from (owner, repo and the ws/item/task/review it names), so a link can still be assembled from the project address if you need to. When `viewUrl` is null there is no address recorded for this project: say that rather than inventing one, and `viewUrlError` says why.",
     inputSchema: {
       type: 'object',
       properties: { id: { type: 'string' } },
@@ -129,12 +129,12 @@ export const TOOLS = [
   },
   {
     name: 'my_brief',
-    description: "**Call this first, and answer \"what should I work on?\", \"what are my tasks?\", \"where am I?\" or \"how do I get started?\" with this one call.** A member's status, their tasks and the context behind them, together: their open tasks grouped by where the work sits, the compiled context for the part of the project they are on (the project's goals with their workstream's beneath them), and their role. Prefer it over list_tasks and get_status when somebody is asking about their own work — those answer a narrower question and leave out the context. Read it before contributing, marking anything done, or proposing changes; it is what stops an assistant acting on a project it has not read. Knows who is calling, so never ask them their name; takes no arguments. Read-only, and spends no AI call. Returns `viewUrl`, the page where this can be read — include it in your reply as a plain link so they can go and look. When it is null, say nothing about a link rather than inventing one; `viewUrlError` says why there is none.",
+    description: "**Call this first, and answer \"what should I work on?\", \"what are my tasks?\", \"where am I?\" or \"how do I get started?\" with this one call.** A member's status, their tasks and the context behind them, together: their open tasks grouped by where the work sits, the compiled context for the part of the project they are on (the project's goals with their workstream's beneath them), and their role. Prefer it over list_tasks and get_status when somebody is asking about their own work — those answer a narrower question and leave out the context. Read it before contributing, marking anything done, or proposing changes; it is what stops an assistant acting on a project it has not read. Knows who is calling, so never ask them their name; takes no arguments. Read-only, and spends no AI call. Returns `viewUrl`, the page where this can be read — always end your reply with it, on its own line, as a plain URL. `view` carries the ids it was built from (owner, repo and the ws/item/task/review it names), so a link can still be assembled from the project address if you need to. When `viewUrl` is null there is no address recorded for this project: say that rather than inventing one, and `viewUrlError` says why.",
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
   },
   {
     name: 'get_status',
-    description: "**Call this first when you do not know where you are.** Answers who is calling, which project, whether it is set up at all, and whether the caller is the manager — all in one read. `managerGateBroken: true` means the gate is a display name nobody can match, so every approval on this project is already failing — tell the user plainly and offer repair_manager_gate if they set the project up. Returns project name, provider, model, manager identity, workstreams with why-counts, roles, contribution/decision totals. `me` and `activeWorkstream` are the calling user's, not the project defaults. Read-only. Returns `viewUrl`, the page where this can be read — include it in your reply as a plain link so they can go and look. When it is null, say nothing about a link rather than inventing one; `viewUrlError` says why there is none.",
+    description: "**Call this first when you do not know where you are.** Answers who is calling, which project, whether it is set up at all, and whether the caller is the manager — all in one read. `managerGateBroken: true` means the gate is a display name nobody can match, so every approval on this project is already failing — tell the user plainly and offer repair_manager_gate if they set the project up. Returns project name, provider, model, manager identity, workstreams with why-counts, roles, contribution/decision totals. `me` and `activeWorkstream` are the calling user's, not the project defaults. Read-only. Returns `viewUrl`, the page where this can be read — always end your reply with it, on its own line, as a plain URL. `view` carries the ids it was built from (owner, repo and the ws/item/task/review it names), so a link can still be assembled from the project address if you need to. When `viewUrl` is null there is no address recorded for this project: say that rather than inventing one, and `viewUrlError` says why.",
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
   },
   {
@@ -227,7 +227,7 @@ export const TOOLS = [
   // Tier 1 — additive writes
   {
     name: 'contribute',
-    description: "**This is how anything gets into the shared context — there is no separate import step.** Reach for it both when a manager tells you what the project is about and when somebody sends finished work back. Defaults to enqueueing for the manager's review, so tell the user it was sent for review, not that it was added. **The exception is a project's first contribution**: when get_status shows totalWhys:0, pass apply:true so it lands rather than waiting on the manager to approve their own opening message. apply:true writes immediately and requires the caller to be the manager. Optional decision:true tags it as a first-class decision. Returns { id, mode: \"queued\"|\"applied\"|\"no-op\", summary, operations, reportBack }. Returns `viewUrl`, the page where this can be read — include it in your reply as a plain link so they can go and look. When it is null, say nothing about a link rather than inventing one; `viewUrlError` says why there is none.",
+    description: "**This is how anything gets into the shared context — there is no separate import step.** Reach for it both when a manager tells you what the project is about and when somebody sends finished work back. Defaults to enqueueing for the manager's review, so tell the user it was sent for review, not that it was added. **The exception is a project's first contribution**: when get_status shows totalWhys:0, pass apply:true so it lands rather than waiting on the manager to approve their own opening message. apply:true writes immediately and requires the caller to be the manager. Optional decision:true tags it as a first-class decision. Returns { id, mode: \"queued\"|\"applied\"|\"no-op\", summary, operations, reportBack }. Returns `viewUrl`, the page where this can be read — always end your reply with it, on its own line, as a plain URL. `view` carries the ids it was built from (owner, repo and the ws/item/task/review it names), so a link can still be assembled from the project address if you need to. When `viewUrl` is null there is no address recorded for this project: say that rather than inventing one, and `viewUrlError` says why.",
     inputSchema: {
       type: 'object',
       properties: {
@@ -254,7 +254,7 @@ export const TOOLS = [
 
   {
     name: 'task_add',
-    description: '**Reach for this to turn what a manager wants into work somebody can pick up.** Creates a task and commits it; defaults to the caller as owner and their active workstream. Set compile:true to compile its prompt in the same call — the compiled prompt is the thing a person actually acts on, so this is usually what you want. It spends an AI call, so confirm the title with the user first; the result then carries the compiled markdown. Returns `viewUrl`, the page where this can be read — include it in your reply as a plain link so they can go and look. When it is null, say nothing about a link rather than inventing one; `viewUrlError` says why there is none.',
+    description: '**Reach for this to turn what a manager wants into work somebody can pick up.** Creates a task and commits it; defaults to the caller as owner and their active workstream. Set compile:true to compile its prompt in the same call — the compiled prompt is the thing a person actually acts on, so this is usually what you want. It spends an AI call, so confirm the title with the user first; the result then carries the compiled markdown. Returns `viewUrl`, the page where this can be read — always end your reply with it, on its own line, as a plain URL. `view` carries the ids it was built from (owner, repo and the ws/item/task/review it names), so a link can still be assembled from the project address if you need to. When `viewUrl` is null there is no address recorded for this project: say that rather than inventing one, and `viewUrlError` says why.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -270,7 +270,7 @@ export const TOOLS = [
   },
   {
     name: 'task_done',
-    description: 'Mark a task done and commit. Returns unchanged:true without committing if it was already done. Returns `viewUrl`, the page where this can be read — include it in your reply as a plain link so they can go and look. When it is null, say nothing about a link rather than inventing one; `viewUrlError` says why there is none.',
+    description: 'Mark a task done and commit. Returns unchanged:true without committing if it was already done. Returns `viewUrl`, the page where this can be read — always end your reply with it, on its own line, as a plain URL. `view` carries the ids it was built from (owner, repo and the ws/item/task/review it names), so a link can still be assembled from the project address if you need to. When `viewUrl` is null there is no address recorded for this project: say that rather than inventing one, and `viewUrlError` says why.',
     inputSchema: {
       type: 'object',
       properties: { id: { type: 'string' } },
@@ -290,7 +290,7 @@ export const TOOLS = [
   },
   {
     name: 'task_assign',
-    description: 'Reassign a task to a different owner and commit. Returns `viewUrl`, the page where this can be read — include it in your reply as a plain link so they can go and look. When it is null, say nothing about a link rather than inventing one; `viewUrlError` says why there is none.',
+    description: 'Reassign a task to a different owner and commit. Returns `viewUrl`, the page where this can be read — always end your reply with it, on its own line, as a plain URL. `view` carries the ids it was built from (owner, repo and the ws/item/task/review it names), so a link can still be assembled from the project address if you need to. When `viewUrl` is null there is no address recorded for this project: say that rather than inventing one, and `viewUrlError` says why.',
     inputSchema: {
       type: 'object',
       properties: { id: { type: 'string' }, owner: { type: 'string' } },
@@ -590,8 +590,15 @@ function textResult(value) {
  * the assistant mentioned nothing at all.
  */
 function withLink(text, link) {
-  if (!link?.viewUrl) return text;
-  return `${text} Include this link in your reply, as a plain link: ${link.viewUrl}`;
+  if (!link?.viewUrl) {
+    // Silence here is what let an assistant reconstruct a URL from a pattern and
+    // hand somebody a guess. Say there is none, and the `view` ids are in the
+    // payload for a client that can find the address honestly.
+    return link?.viewUrlError
+      ? `${text} No web address is recorded for this project, so there is no link to give — say so if asked, rather than inventing one.`
+      : text;
+  }
+  return `${text} You must end your reply with this link, on its own line, as a plain URL: ${link.viewUrl}`;
 }
 
 function reportBackContribute(r) {
@@ -984,17 +991,27 @@ export function makeHandlers(projectRoot) {
       const where = isHosted
         ? { owner: projectRoot.owner, repo: projectRoot.repo }
         : { remote: await originRemote(gitCwd) };
+      // Project level is `null` in the data and names no workstream.
+      const parts = { ws: isProjectLevel(ws) ? null : ws, item, task, review };
       try {
         const { owner, repo } = connectorUrl({ deployUrl, ...where });
         return {
-          // Project level is `null` in the data and names no workstream.
-          viewUrl: buildViewUrl({
-            base: deployUrl, owner, repo, ws: isProjectLevel(ws) ? null : ws, item, task, review,
-          }),
+          viewUrl: buildViewUrl({ base: deployUrl, owner, repo, ...parts }),
           viewUrlError: null,
+          // The pieces as well as the address. A client that has the project's
+          // web address another way — get_connect_url returns it — can build the
+          // same link from these, and one that has none can at least name the
+          // thing it just touched instead of saying nothing about it.
+          view: { owner, repo, ...parts },
         };
       } catch (err) {
-        return { viewUrl: null, viewUrlError: err.message };
+        return {
+          viewUrl: null,
+          viewUrlError: err.message,
+          // Whatever is known regardless: these ids belong to the project, not
+          // to the deployment that could not be found.
+          view: { owner: where.owner || null, repo: where.repo || null, ...parts },
+        };
       }
     },
 

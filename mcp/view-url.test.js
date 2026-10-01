@@ -234,7 +234,9 @@ describe('the link in what the assistant is told to say', () => {
     // assistant mentioned nothing at all.
     const r = await call('contribute', { text: 'three tiers', workstream: 'product', apply: true });
     expect(r.reportBack).toContain(r.viewUrl);
-    expect(r.reportBack).toMatch(/Include this link in your reply/);
+    // Told, not suggested. An assistant that treats the link as optional leaves
+    // somebody with a description of a page they cannot get to.
+    expect(r.reportBack).toMatch(/must end your reply with this link/);
   });
 
   it('is there for a task too', async () => {
@@ -242,13 +244,27 @@ describe('the link in what the assistant is told to say', () => {
     expect(r.reportBack).toContain(r.viewUrl);
   });
 
-  it('says nothing about a link when there is none', async () => {
+  it('says there is no address rather than leaving it to be guessed', async () => {
+    // Silence is what let an assistant rebuild a URL "from the known pattern"
+    // and hand somebody a guess. It says there is none, and hands back the ids
+    // so a client that can find the address honestly still can.
     const s = session(CONFIG({ deployUrl: '' }));
     const r = await runWithSession(s, () => runWithActor(MAYA, async () => {
       const handlers = makeHandlers({ __backend: 'github', owner: OWNER, repo: REPO });
       return JSON.parse((await handlers.task_add({ title: 'x', workstream: 'product' })).content[0].text);
     }));
     expect(r.viewUrl).toBe(null);
-    expect(r.reportBack).not.toMatch(/link/i);
+    expect(r.reportBack).toMatch(/no web address is recorded/i);
+    expect(r.reportBack).toMatch(/rather than inventing one/i);
+    expect(r.reportBack).not.toMatch(/https?:/);
+    expect(r.view).toMatchObject({ owner: 'acme', repo: 'ledger', task: r.task.id });
+  });
+
+  it('hands back the pieces of the link as well as the link', async () => {
+    // So a client that ignores `reportBack` — or has the project address from
+    // get_connect_url and nothing else — can still name what was touched.
+    const r = await call('contribute', { text: 'three tiers', workstream: 'product', apply: true });
+    const added = tree().whys.find(w => w.text === 'tiers decided');
+    expect(r.view).toEqual({ owner: 'acme', repo: 'ledger', ws: 'product', item: added.id, task: null, review: null });
   });
 });
