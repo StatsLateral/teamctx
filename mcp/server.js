@@ -1136,10 +1136,16 @@ export function makeHandlers(projectRoot) {
         teamctxDir,
         projectDir: gitCwd,
       });
+      // The same link as the branch above. It was missing only here, which is
+      // the path the tool's own description calls the usual one — so the field
+      // the assistant was told to expect was absent rather than null, with no
+      // reason given either.
+      const compiledLink = await this.viewUrl({ task: added.task.id });
       return textResult({
         ...compiled,
-        reportBack: `Task ${added.task.id} added and its prompt compiled`
-          + `${compiled.role ? ` for role ${compiled.role}` : ''}.`,
+        ...compiledLink,
+        reportBack: withLink(`Task ${added.task.id} added and its prompt compiled`
+          + `${compiled.role ? ` for role ${compiled.role}` : ''}.`, compiledLink),
       });
     },
 

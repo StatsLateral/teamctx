@@ -36,6 +36,8 @@ vi.mock('../src/context.js', async (orig) => {
       };
     }),
     generateRoleFile: vi.fn(async () => '# role'),
+    // Compiling a task is an AI call; what is under test is the link beside it.
+    compileTaskPrompt: vi.fn(async () => '# the task'),
   };
 });
 
@@ -169,6 +171,18 @@ describe('a link to what was just touched', () => {
   it('names the task a task tool touched', async () => {
     const added = await call('task_add', { title: 'Draft the pricing page', workstream: 'product' });
     expect(added.viewUrl).toContain(`task=${added.task.id}`);
+  });
+
+  it('names it on the compiling path too, which is the usual one', async () => {
+    // task_add is one of the tools the spec lists as returning viewUrl, and
+    // compile: true is what its description calls "usually what you want". That
+    // branch returned no field at all — not the null-with-a-reason the others
+    // give — so an assistant told to expect one had nothing to pass on.
+    const r = await call('task_add', { title: 'Draft the pricing page', workstream: 'product', compile: true });
+    expect(r.task.id).toBeTruthy();
+    expect(r.viewUrl).toContain(`task=${r.task.id}`);
+    expect(r.viewUrlError).toBe(null);
+    expect(r.reportBack).toContain(r.viewUrl);
   });
 
   it('points get_status and get_workstream at what they describe', async () => {
