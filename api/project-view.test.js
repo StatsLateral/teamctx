@@ -491,6 +491,10 @@ describe('knowing you are the manager', () => {
 });
 
 describe('what a copied prompt asks for', () => {
+  // Written this way so the newline cannot be mistaken for the escape
+  // sequence of whatever rewrote this file last.
+  const NL = String.fromCharCode(10);
+
   it('hands over where the statement hangs, so nothing has to go looking', async () => {
     // An assistant that has to find the parents reads the whole project, and
     // then answers with the whole project.
@@ -535,5 +539,29 @@ describe('what a copied prompt asks for', () => {
     const { body } = await visit('/project/acme/ledger', MANAGER);
     const prompt = /data-prompt="([^"]+)"/.exec(body)[1];
     expect(prompt).not.toContain('It sits under');
+  });
+
+  it('arrives as numbered blocks, not as one unbroken line', async () => {
+    // A hundred words in a single line is correct and frightening: the person
+    // who has just pasted it cannot see its shape, so they delete it.
+    const { body } = await visit('/project/acme/ledger?ws=product', MANAGER);
+    const prompt = /data-prompt="([^"]+)"/.exec(body)[1];
+    const text = prompt.replace(/&#10;/g, NL);
+    expect(text.split(NL).length).toBeGreaterThan(8);
+    // Each step opens a line of its own, and the statement sits on one too.
+    expect(text).toContain(`${NL}1) Confirm`);
+    expect(text).toContain(`${NL}2) In `);
+    expect(text).toContain(`${NL}3) Answer`);
+    expect(text).toContain(`${NL}   &quot;`);
+  });
+
+  it('keeps those newlines inside the attribute, not in the markup', async () => {
+    // A raw newline in an attribute would survive the browser but split the
+    // button across lines; an entity keeps both the markup and the clipboard
+    // right. If this ever regresses, every prompt-reading test above, which
+    // matches up to the closing quote, starts reading half a prompt.
+    const { body } = await visit('/project/acme/ledger?ws=product', MANAGER);
+    expect(body).toContain('&#10;');
+    expect(body).not.toMatch(new RegExp(`data-prompt="[^"]*${NL}`));
   });
 });

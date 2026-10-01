@@ -101,6 +101,13 @@ tr.marked td:first-child{box-shadow:inset 3px 0 0 var(--accent)}
   padding:16px 20px;border-bottom:1px solid var(--line)}
 .drawer-body{padding:20px;overflow-y:auto}
 .drawer-body .statement{font-family:var(--font-display);font-size:18px;margin:0 0 10px;overflow-wrap:anywhere}
+/* What the button is about to put on the clipboard, shut by default: it is long,
+   and the drawer is for reading the statement, not the instructions. */
+.peek{margin:1rem 0}
+.peek summary{cursor:pointer;color:var(--accent);font-size:.85rem}
+.peek pre{margin:.6rem 0 0;padding:.7rem .8rem;background:var(--paper);border:1px solid var(--line);
+  border-radius:var(--radius-sm);font-family:var(--font-mono);font-size:12px;line-height:1.55;
+  white-space:pre-wrap;overflow-wrap:anywhere;color:var(--soft)}
 .backdrop{display:none;position:fixed;inset:0;background:rgba(26,28,26,.35);z-index:39}
 .backdrop.on{display:block}
 .note{background:var(--amber-soft);color:var(--amber);padding:.5rem .7rem;border-radius:var(--radius-sm);
@@ -132,6 +139,7 @@ const SCRIPT = `
     document.getElementById('d-summary').textContent = el.dataset.summary || 'No summary recorded.';
     document.getElementById('d-who').textContent = el.dataset.who || 'Nobody recorded.';
     document.getElementById('copy').dataset.prompt = el.dataset.prompt;
+    document.getElementById('d-prompt').textContent = el.dataset.prompt;
     drawer.classList.add('open'); backdrop.classList.add('on');
     drawer.setAttribute('aria-hidden', 'false');
     document.getElementById('d-close').focus();
@@ -245,20 +253,44 @@ function promptFor({ node, tier, where, wsId, isProject, owner, repo, link, pare
     .map(([label, n]) => `the ${label} "${n.text}"`)
     .join(', under ');
 
+  // Three numbered steps, each its own block, and the statement on a line of its
+  // own. The same words ran together as one paragraph of a hundred-odd words:
+  // correct, and unreadable the moment it landed in a chat box — somebody who
+  // cannot see the shape of what they just pasted deletes it instead of sending
+  // it. Pasting newlines into a chat input does not send the message, so the
+  // readable version costs nothing.
+  const step = (...lines) => lines.filter(Boolean).join('\n');
+
   return [
-    `Using teamctx. 1) Confirm you are connected to the repository ${owner}/${repo} —`,
-    'get_connect_url returns a URL containing the owner and repo. If it is a different one,',
-    'stop and tell me, rather than answering from the project you are connected to.',
-    `2) In ${place}, find this ${tier}, quoted word for word from the project page:`,
-    `"${node.text}".`,
-    lineage ? `It sits under ${lineage}.` : '',
-    'If it is not there, say so plainly rather than answering about the closest thing you can find.',
-    `3) Answer about that one ${tier}: why it is there, what it requires, and what is still open for it.`,
-    'Keep it short. Do not summarise the rest of the project, list its other goals or tasks,',
-    'or report what is open elsewhere, unless I ask.',
+    'Using teamctx.',
+    step(
+      `1) Confirm you are connected to the repository ${owner}/${repo}.`,
+      '   get_connect_url returns a URL containing the owner and repo. If it is a different one,',
+      '   stop and tell me, rather than answering from the project you are connected to.',
+    ),
+    step(
+      `2) In ${place}, find this ${tier}, quoted word for word from the project page:`,
+      `   "${node.text}"`,
+      lineage ? `   It sits under ${lineage}.` : '',
+      '   If it is not there, say so plainly rather than answering about the closest thing you can find.',
+    ),
+    step(
+      `3) Answer about that one ${tier}: why it is there, what it requires, and what is still open for it.`,
+      '   Keep it short. Do not summarise the rest of the project, list its other goals or tasks,',
+      '   or report what is open elsewhere, unless I ask.',
+    ),
     link ? `The page it came from: ${link}` : '',
-  ].filter(Boolean).join(' ');
+  ].filter(Boolean).join('\n\n');
 }
+
+/**
+ * The prompt, inside an attribute, with its newlines intact.
+ *
+ * A raw newline in an attribute value survives parsing, but it also breaks the
+ * generated HTML across lines for no reason. `&#10;` keeps the markup on one
+ * line and decodes back to the newline the clipboard needs.
+ */
+const escAttr = (v) => esc(v).replace(/\n/g, '&#10;');
 
 function itemButton({ row, contributions, where, project, marked, isProject, owner, repo, wsId, origin }) {
   const { node, tier, n, parent, grand } = row;
@@ -272,7 +304,7 @@ function itemButton({ row, contributions, where, project, marked, isProject, own
   return `<button class="item tier-${tier}${marked ? ' marked' : ''}" id="i-${esc(node.id)}"
   data-text="${esc(node.text)}" data-kind="${esc(`${tier} ${n}`)}"
   data-summary="${esc(node.summary || '')}" data-who="${esc(who.join(', '))}"
-  data-prompt="${esc(prompt)}">
+  data-prompt="${escAttr(prompt)}">
   <span class="dot ${kindOf(node, contributions)}"></span>
   <span class="num">${n}</span>
   <span class="text">${esc(node.text)}</span>
@@ -420,6 +452,10 @@ ${note ? `<p class="note">${esc(note)}</p>` : ''}
     <p id="d-summary"></p>
     <div class="section-title">Who wrote it</div>
     <p id="d-who"></p>
+    <details class="peek">
+      <summary>See the prompt first</summary>
+      <pre id="d-prompt"></pre>
+    </details>
     <button class="primary" id="copy">Copy a prompt for your assistant</button>
   </div>
 </aside>`, { wide: true, extraCss: CSS, script: SCRIPT });
