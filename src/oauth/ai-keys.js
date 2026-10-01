@@ -224,18 +224,34 @@ async function addToList(listKey, slug) {
  * per-person record marked as carried over, and keeps being the project's
  * fallback. Lent access gains the lender's address. Safe to run repeatedly.
  */
+/**
+ * Note that GitHub vouched for this address on this account.
+ *
+ * The same person, two ways in: a later Google sign-in carrying the address is
+ * the account that made the project, and can be recognised by a gate or a roster
+ * entry written as a GitHub id.
+ *
+ * Its own function because it belongs at every GitHub sign-in, and it used to
+ * happen only inside `adoptGithubRecords` — which runs when the settings page is
+ * rendered. Somebody who signed in, made a project and never opened settings was
+ * never recognised later, which is the bug this was written to fix.
+ */
+export async function linkGithubIdentity({ email, githubId } = {}) {
+  if (!email || !githubId) return;
+  const who = norm(email);
+  const id = String(githubId);
+  const linked = (await kvGet(keys.githubIdentities(who)))?.ids || [];
+  if (!linked.includes(id)) {
+    await kvSet(keys.githubIdentities(who), { ids: [...linked, id] });
+  }
+}
+
 export async function adoptGithubRecords({ email, githubId, githubLogin } = {}) {
   if (!email || !githubId) return;
   const who = norm(email);
   const id = String(githubId);
 
-  // The same person, two ways in. GitHub vouched for this address, so a later
-  // Google sign-in carrying it is the account that made the project — and can
-  // be recognised by a gate or a roster entry written as a GitHub id.
-  const linked = (await kvGet(keys.githubIdentities(who)))?.ids || [];
-  if (!linked.includes(id)) {
-    await kvSet(keys.githubIdentities(who), { ids: [...linked, id] });
-  }
+  await linkGithubIdentity({ email: who, githubId: id });
 
   if (!(await kvGet(keys.personalAiKey(who)))) {
     const legacy = await kvGet(keys.aiKey(id));

@@ -10,7 +10,7 @@ import { matchesActor, managerKeys } from '../src/review.js';
 import { readConfigJson } from '../src/oauth/member-access.js';
 import {
   readPersonalKey, writePersonalKey, addProjectKey, removeProjectKey, projectsKeyedBy,
-  adoptGithubRecords, projectsKnownFor, recordConnectedProject,
+  adoptGithubRecords, linkGithubIdentity, projectsKnownFor, recordConnectedProject,
 } from '../src/oauth/ai-keys.js';
 import { primaryEmail } from '../src/oauth/github-identity.js';
 import { lendDecision } from '../src/oauth/lend-decision.js';
@@ -260,6 +260,12 @@ app.get('/oauth/github/callback', async (req, res) => {
     if (error) return res.status(400).send(errorPage(`GitHub returned: ${error}`));
     try {
       const githubUser = await loginViaGithub(String(code), baseUrlFor(req));
+      // Here, not when some later page happens to render: this is the moment
+      // GitHub hands over a verified address for the account signing in, and a
+      // project made in the next five minutes is gated on that account.
+      try {
+        await linkGithubIdentity({ email: githubUser.email, githubId: githubUser.id });
+      } catch { /* best effort — never block a sign-in on it */ }
       const sid = randomBytes(24).toString('base64url');
       await kvSet(keys.session(sid), githubUser, { ttlSeconds: TTL.session });
       res.setHeader('Set-Cookie',

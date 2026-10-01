@@ -51,13 +51,13 @@ async function runAuthFlow(provider, { fetchMock, params = {} } = {}) {
 }
 
 /** Happy-path GitHub: token exchange then profile lookup. */
-function githubHappyPath() {
+function githubHappyPath({ email } = {}) {
   return vi.fn(async (url) => {
     if (String(url).includes('login/oauth/access_token')) {
       return { ok: true, json: async () => ({ access_token: 'gho_realtoken' }) };
     }
     if (String(url).includes('api.github.com/user')) {
-      return { ok: true, json: async () => ({ id: 4242, login: 'satyagyasingh', name: 'Satya' }) };
+      return { ok: true, json: async () => ({ id: 4242, login: 'satyagyasingh', name: 'Satya', ...(email ? { email } : {}) }) };
     }
     throw new Error(`unexpected fetch: ${url}`);
   });
@@ -134,6 +134,17 @@ describe('handleGithubCallback', () => {
     const record = await kvGet(keys.code(code));
     expect(record.githubToken).toBe('gho_realtoken');
     expect(record.githubUser).toMatchObject({ id: '4242', login: 'satyagyasingh' });
+  });
+
+  it('records the account the address has proved, for a manager who never opens the web app', async () => {
+    // A project can be set up entirely through an assistant. Nothing on this
+    // path renders a page, so if the link between address and account is only
+    // written by the settings page, it is never written for these people — and
+    // the gate on their own project, keyed by GitHub id, turns them away when
+    // they later sign in with Google.
+    const provider = makeProvider();
+    await runAuthFlow(provider, { fetchMock: githubHappyPath({ email: 'Satya@Example.com' }) });
+    expect((await kvGet(keys.githubIdentities('satya@example.com')))?.ids).toEqual(['4242']);
   });
 
   it('rejects a state that was already consumed (replay)', async () => {
