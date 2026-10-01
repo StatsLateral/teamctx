@@ -1146,11 +1146,11 @@ app.get('/project/:owner/:repo', async (req, res) => {
     if (user.email) {
       try { await recordConnectedProject({ email: user.email, owner, repo }); } catch { /* best effort */ }
     }
-    // Which part of the work to open, and what to point at inside it. Anything
-    // unknown or out of scope falls back to the nearest thing that does exist,
-    // with a quiet note — and the value asked for is never echoed back.
-    // Read through the link's own rules, so a value the page would not have
-    // written never reaches it — and only then checked against what exists.
+    // Which part of the work to open, and what to point at inside it. Read
+    // through the link's own rules, so a value the page would not have written
+    // never reaches it, then checked against what exists: anything unknown or
+    // out of scope falls back to the nearest thing that does, with a quiet
+    // note, and the value asked for is never echoed back.
     const asked = parseViewParams(req.query);
     const known = view.workstreams.some(w => w.id === asked.ws);
     const selected = known ? asked.ws : null;
