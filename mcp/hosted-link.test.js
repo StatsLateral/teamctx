@@ -91,7 +91,10 @@ async function hosted(tool, args, { config = CONFIG(), baseUrl = HOST } = {}) {
   const root = { __backend: 'github', owner: OWNER, repo: REPO, ...(baseUrl ? { baseUrl } : {}) };
   return runWithSession(s, () => runWithActor(MAYA, async () => {
     const r = await callTool(makeHandlers(root), root, tool, args);
-    return JSON.parse(r.content[0].text);
+    const payload = JSON.parse(r.content[0].text);
+    // The blocks after the JSON, which is where the link also goes.
+    payload.__blocks = r.content.slice(1).map(c => c.text);
+    return payload;
   }));
 }
 
@@ -240,5 +243,39 @@ describe('the floor under all of it', () => {
     const root = { __backend: 'github', owner: OWNER, repo: REPO, baseUrl: HOST };
     const r = await callTool(handlers, root, 'get_status', {});
     expect(r.content[0].text).toBe('plain words');
+  });
+});
+
+describe('the link beside the JSON, not only inside it', () => {
+  it('comes back as its own line of prose', async () => {
+    // A client is free to render a summary of a JSON payload, and a summary
+    // drops a nested field however well it is named. This is the line somebody
+    // actually sees whatever the client does with the rest.
+    const r = await hosted('task_add', { title: 'Contact the sponsor', workstream: 'finance' });
+    expect(r.__blocks).toEqual([`View it here: ${r.viewUrl}`]);
+  });
+
+  it('is there for a contribution too, pointing at what it wrote', async () => {
+    const r = await hosted('contribute', { text: 'a sponsor at 25,000', workstream: 'finance', apply: true });
+    const added = tree().whys.find(w => w.text === 'tiers decided');
+    expect(r.__blocks[0]).toBe(`View it here: ${HOST}/project/${OWNER}/${REPO}?ws=finance&item=${added.id}`);
+  });
+
+  it('is there for the read tools that report where something lives', async () => {
+    for (const [tool, args] of [['get_status', {}], ['get_workstream', { id: 'finance' }], ['my_brief', {}]]) {
+      const r = await hosted(tool, args);
+      expect(r.__blocks[0], tool).toBe(`View it here: ${r.viewUrl}`);
+    }
+  });
+
+  it('adds no block to a tool that owes nobody a link', async () => {
+    const r = await hosted('list_workstreams', {});
+    expect(r.__blocks).toEqual([]);
+  });
+
+  it('adds no block when there is no link to give', async () => {
+    const r = await hosted('get_status', {}, { baseUrl: null });
+    expect(r.viewUrl).toBe(null);
+    expect(r.__blocks).toEqual([]);
   });
 });

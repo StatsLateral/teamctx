@@ -1776,21 +1776,23 @@ function stampViewUrl(result, projectRoot, name) {
   let payload;
   try { payload = JSON.parse(first.text); } catch { return result; }
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return result;
-  if (typeof payload.viewUrl === 'string' && payload.viewUrl) return result;
 
+  const had = typeof payload.viewUrl === 'string' && payload.viewUrl ? payload.viewUrl : null;
   const view = payload.view && typeof payload.view === 'object' ? payload.view : {};
   const parts = {
     ws: view.ws || null, item: view.item || null, task: view.task || null, review: view.review || null,
   };
-  let url;
-  try {
-    url = buildViewUrl({ base: baseUrl, owner, repo, ...parts });
-  } catch {
-    // An id the page would refuse. The project is still somewhere to go.
-    try { url = buildViewUrl({ base: baseUrl, owner, repo }); } catch { return result; }
+  let url = had;
+  if (!url) {
+    try {
+      url = buildViewUrl({ base: baseUrl, owner, repo, ...parts });
+    } catch {
+      // An id the page would refuse. The project is still somewhere to go.
+      try { url = buildViewUrl({ base: baseUrl, owner, repo }); } catch { return result; }
+    }
   }
 
-  const next = {
+  const next = had ? payload : {
     ...payload,
     viewUrl: url,
     viewUrlError: null,
@@ -1803,7 +1805,17 @@ function stampViewUrl(result, projectRoot, name) {
     const said = cut === -1 ? next.reportBack : next.reportBack.slice(0, cut);
     next.reportBack = withLink(said.trim(), { viewUrl: url });
   }
-  return { ...result, content: [{ ...first, text: JSON.stringify(next, null, 2) }] };
+
+  // The link in its own block, in plain words, beside the JSON rather than
+  // inside it. A result may carry several content items, and a client is free to
+  // render a summary of a JSON payload — which drops a nested field, however
+  // well named. A line of prose is what the person actually sees, whatever the
+  // client decides to do with the rest.
+  const rest = result.content.slice(1);
+  const already = rest.some(c => c?.type === 'text' && typeof c.text === 'string' && c.text.includes(url));
+  const body = [{ ...first, text: JSON.stringify(next, null, 2) }, ...rest];
+  if (!already) body.push({ type: 'text', text: `View it here: ${url}` });
+  return { ...result, content: body };
 }
 
 export async function callTool(handlers, projectRoot, name, args = {}) {

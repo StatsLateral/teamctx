@@ -1,4 +1,5 @@
 import { handleMcpHttp } from '../../../mcp/http.js';
+import { TOOLS } from '../../../mcp/server.js';
 import { runWithAiKey } from '../../../src/ai-context.js';
 import { runWithActor, actorFromGithubUser } from '../../../src/actor.js';
 import { providerFromEnv } from '../../../src/oauth/provider.js';
@@ -82,9 +83,23 @@ export function primaryManagerKey({ projectKeys, config }) {
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
+    // This function is bundled separately from the one that serves
+    // /oauth/status, so knowing that one is current says nothing about this one.
+    // A GET answers which code is actually serving the connector — the commit
+    // from the environment, and the link-returning tools read off the tool
+    // definitions in the running module. It is why a missing field took three
+    // rounds to place.
     res.statusCode = 405;
     res.setHeader('Allow', 'POST');
-    res.end(JSON.stringify({ error: 'method_not_allowed', message: 'MCP endpoint accepts POST only' }));
+    res.end(JSON.stringify({
+      error: 'method_not_allowed',
+      message: 'MCP endpoint accepts POST only',
+      build: {
+        commit: process.env.VERCEL_GIT_COMMIT_SHA || process.env.GIT_COMMIT_SHA || null,
+        branch: process.env.VERCEL_GIT_COMMIT_REF || null,
+        viewLinks: TOOLS.filter(t => /viewUrl/.test(t.description || '')).map(t => t.name),
+      },
+    }));
     return;
   }
 
