@@ -1275,7 +1275,21 @@ export function makeHandlers(projectRoot) {
       // `me` and `activeWorkstream` come back resolved for *this* caller;
       // `projectDefaults` carries what config.json says, which is only the
       // fallback for someone who has set no preference of their own.
-      return textResult(await getConfig({ teamctxDir: dir(), projectDir: gitCwd }));
+      const teamctxDir = dir();
+      const r = await getConfig({ teamctxDir, projectDir: gitCwd });
+      const allowed = await scope(teamctxDir, readConfig(teamctxDir));
+      if (!allowed) return textResult(r);
+      // The config carries the whole shape of the project: every workstream and
+      // every role, with the addresses on them. `get_status` and `list_roles`
+      // both filter these and say why — a role name and the workstream it
+      // belongs to are among the things a scope exists to keep back — and this
+      // handed them over to anybody who asked for the configuration instead.
+      return textResult({
+        ...r,
+        workstreams: (r.workstreams || []).filter(w => inScope(allowed, resolveTarget(w.id))),
+        roles: (r.roles || []).filter(role => inScope(allowed, resolveTarget(role.workstream))),
+        scopedTo: allowed,
+      });
     },
 
     async ask(args = {}) {
