@@ -234,6 +234,12 @@ const whoTouched = (node, contributions) => [...new Set(
  * everything the assistant has to do is below it under a heading addressed to
  * the assistant. The checks are unchanged; they are just no longer the first
  * thing anybody reads.
+ *
+ * It says what to talk about and nothing about how to lay it out. An earlier
+ * draft banned headings and bullet lists, which is the wrong lever: the problem
+ * was never the shape of the answer but its subject — an assistant explaining
+ * the data model instead of the work — and telling a model how to format itself
+ * costs it the formatting it would have chosen well.
  */
 function promptFor({ node, tier, where, wsId, isProject, owner, repo, link, parent, grand }) {
   const place = isProject
@@ -261,9 +267,8 @@ function promptFor({ node, tier, where, wsId, isProject, owner, repo, link, pare
       'Instructions for the AI agent:',
       `- Confirm you are connected to the repository ${owner}/${repo}. get_connect_url returns a URL containing the owner and repo. If it is a different one, stop and tell me, rather than answering from the project you are connected to.`,
       `- Find this ${tier}, quoted word for word, in ${place}: "${node.text}". If it is not there, say so plainly rather than answering about the closest thing you can find.`,
-      '- Then tell me about that one thing: why it is there, what it requires, and what is still open for it.',
-      '- Write it the way you would say it to a colleague: a short paragraph or two of prose, no headings and no bullet lists.',
-      '- Do not explain how the project stores any of this, do not walk me back up the structure it sits in, and do not name its parts. Where something has not been decided yet, say so in a sentence and move on.',
+      '- Then tell me about that one thing, the way a colleague would: why it is there, what it requires, and what is still open for it.',
+      '- Do not explain how the project stores any of this, do not walk me back up the structure it sits in, and do not name its parts. Where something has not been decided yet, say so and move on.',
       '- Keep to this one thing. Do not summarise the rest of the project, list its other goals or tasks, or report what is open elsewhere, unless I ask.',
       link ? `- The page it came from: ${link}` : '',
     ),

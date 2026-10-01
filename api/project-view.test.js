@@ -531,10 +531,13 @@ describe('what a copied prompt asks for', () => {
     // page and does not care how it is stored.
     const { body } = await visit('/project/acme/ledger?ws=product', MANAGER);
     const prompt = /data-prompt="([^"]+)"/.exec(body)[1];
-    expect(prompt).toContain('the way you would say it to a colleague');
-    expect(prompt).toContain('no headings and no bullet lists');
+    expect(prompt).toContain('the way a colleague would');
     expect(prompt).toContain('Do not explain how the project stores any of this');
     expect(prompt).toContain('do not walk me back up the structure');
+    // What to talk about, and nothing about how to lay it out. Banning headings
+    // and lists was the wrong lever: the subject was wrong, not the shape, and a
+    // model told how to format itself loses formatting it would have chosen well.
+    expect(prompt).not.toMatch(/heading|bullet/i);
   });
 
   it("calls a what's parent a goal, which is what it is", async () => {
