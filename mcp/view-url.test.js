@@ -8,15 +8,36 @@
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
-vi.mock('../src/context.js', async (orig) => ({
-  ...(await orig()),
-  updateShared: vi.fn(async (workstream, contribution) => ({
-    workstream: { ...workstream, whys: [...(workstream.whys || []), { id: 'n1', text: 'tiers decided', whats: [] }] },
-    summary: 'records the pricing decision',
-    operations: [{ type: 'addWhy', id: 'n1', text: 'tiers decided' }],
-  })),
-  generateRoleFile: vi.fn(async () => '# role'),
-}));
+/**
+ * What the model would have proposed, applied for real.
+ *
+ * The first version of this mock returned `operations: [{ type: 'addWhy', id:
+ * 'n1' }]` and a tree with a node called `n1` in it. No part of the real
+ * pipeline produces that: an add op carries no id (src/ai.js asks for none, and
+ * applyOps mints them), and a created node carries the contribution's id in
+ * `sourceContributionIds`. So the mock quietly asserted a link that could not
+ * exist, and the one the tools actually built — with no item at all — passed.
+ *
+ * It now runs the real `applyOps`, so the ops here are the ops the model emits
+ * and the ids are the ids the tree really gets.
+ */
+const plan = vi.hoisted(() => ({ ops: null }));
+
+vi.mock('../src/context.js', async (orig) => {
+  const { applyOps } = await import('../src/ops.js');
+  return {
+    ...(await orig()),
+    updateShared: vi.fn(async (workstream, contribution) => {
+      const operations = plan.ops || [{ type: 'addWhy', text: 'tiers decided', summary: 'three tiers' }];
+      return {
+        workstream: applyOps(workstream, operations, contribution.id),
+        summary: 'records the pricing decision',
+        operations,
+      };
+    }),
+    generateRoleFile: vi.fn(async () => '# role'),
+  };
+});
 
 const { makeHandlers } = await import('./server.js');
 const { runWithSession } = await import('../src/session-context.js');
@@ -40,13 +61,18 @@ const CONFIG = (over = {}) => ({
   ...over,
 });
 
-function session(config = CONFIG()) {
+// The last session a call ran against, so a test can read what was written and
+// assert the link points at a statement that is really there.
+let written = null;
+
+function session(config = CONFIG(), whys = []) {
   const files = new Map([
     ['.teamctx/config.json', { content: JSON.stringify(config), sha: null }],
     ['.teamctx/project.json', { content: JSON.stringify({ name: 'Ledger', whys: [], tasks: [] }), sha: null }],
-    ['.teamctx/workstreams/product.json', { content: JSON.stringify({ id: 'product', name: 'Product', whys: [], tasks: [] }), sha: null }],
+    ['.teamctx/workstreams/product.json', { content: JSON.stringify({ id: 'product', name: 'Product', whys, tasks: [] }), sha: null }],
     ['.teamctx/contributions.jsonl', { content: '', sha: null }],
   ]);
+  written = files;
   return {
     owner: OWNER,
     repo: REPO,
@@ -64,8 +90,8 @@ function session(config = CONFIG()) {
 }
 
 /** One tool call, as the hosted server makes it. */
-async function call(tool, args, { actor = MAYA, config = CONFIG() } = {}) {
-  const s = session(config);
+async function call(tool, args, { actor = MAYA, config = CONFIG(), whys = [] } = {}) {
+  const s = session(config, whys);
   const root = { __backend: 'github', owner: OWNER, repo: REPO, baseUrl: 'https://requested.example' };
   return runWithSession(s, () => runWithActor(actor, async () => {
     const handlers = makeHandlers(root);
@@ -74,13 +100,56 @@ async function call(tool, args, { actor = MAYA, config = CONFIG() } = {}) {
   }));
 }
 
-beforeEach(() => __resetMemory());
+/** The tree as it was actually written. */
+const tree = () => JSON.parse(written.get('.teamctx/workstreams/product.json').content);
+
+beforeEach(() => {
+  __resetMemory();
+  plan.ops = null;
+  written = null;
+});
 
 describe('a link to what was just touched', () => {
   it('points at the item a contribution changed', async () => {
     const r = await call('contribute', { text: 'we settled on three tiers', workstream: 'product', apply: true });
-    expect(r.viewUrl).toBe('https://team.example.app/project/acme/ledger?ws=product&item=n1');
+    // The id of the statement that is in the tree, not one the ops happened to
+    // mention: an add op has none, so this is the whole feature or nothing.
+    const added = tree().whys.find(w => w.text === 'tiers decided');
+    expect(added).toBeTruthy();
+    expect(r.viewUrl).toBe(`https://team.example.app/project/acme/ledger?ws=product&item=${added.id}`);
     expect(r.viewUrlError).toBe(null);
+  });
+
+  it('points at what was added, not at what was removed alongside it', async () => {
+    // The id a mixed contribution carries belongs to the statement it deleted,
+    // so taking the first id in the operations pointed at a page with nothing
+    // on it — the one thing a link must never do.
+    plan.ops = [
+      { type: 'addWhy', text: 'tiers decided', summary: 'three tiers' },
+      { type: 'deleteStatement', id: 'old', summary: 'superseded' },
+    ];
+    const r = await call('contribute', { text: 'three tiers, and drop the old line', workstream: 'product', apply: true },
+      { whys: [{ id: 'old', text: 'pricing undecided', summary: '', whats: [] }] });
+    const added = tree().whys.find(w => w.text === 'tiers decided');
+    expect(r.viewUrl).toContain(`item=${added.id}`);
+    expect(r.viewUrl).not.toContain('item=old');
+  });
+
+  it('points at the top of a subtree it added, not at the bottom', async () => {
+    plan.ops = [{
+      type: 'addWhy', text: 'tiers decided', summary: 'three tiers',
+      whats: [{ text: 'name the tiers', summary: '', hows: [{ text: 'write the pricing page', summary: '' }] }],
+    }];
+    const r = await call('contribute', { text: 'three tiers', workstream: 'product', apply: true });
+    const added = tree().whys.find(w => w.text === 'tiers decided');
+    expect(r.viewUrl).toContain(`item=${added.id}`);
+  });
+
+  it('names an edited statement by the id it already had', async () => {
+    plan.ops = [{ type: 'editStatement', id: 'old', text: 'pricing settled', summary: '' }];
+    const r = await call('contribute', { text: 'pricing is settled now', workstream: 'product', apply: true },
+      { whys: [{ id: 'old', text: 'pricing undecided', summary: '', whats: [] }] });
+    expect(r.viewUrl).toContain('item=old');
   });
 
   it('points a manager at the queue when the work is waiting on them', async () => {

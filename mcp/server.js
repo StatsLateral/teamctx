@@ -1403,7 +1403,12 @@ export function makeHandlers(projectRoot) {
       // Where to go and look at it. Work that queued is waiting on somebody:
       // the manager is pointed at the queue, and everyone else at the part of
       // the work they sent it to, because the queue is not theirs to see.
-      const changed = (r.operations || []).map(op => op.id).find(Boolean) || null;
+      // What to point at comes from the tree that was written, not from the
+      // operations: an add op has no id until it is applied, and a contribution
+      // that both adds and deletes carries only the id it deleted — so this
+      // pointed at nothing on the common case and at a gone statement on the
+      // other. `touched` is read off the written tree, top of the change first.
+      const changed = (r.touched || [])[0] || null;
       const link = await this.viewUrl(r.mode === 'queued'
         ? (await this.isManagerNow(teamctxDir, readConfig(teamctxDir))
           ? { review: r.id }
