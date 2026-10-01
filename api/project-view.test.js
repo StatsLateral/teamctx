@@ -289,13 +289,13 @@ describe('the tree the page draws', () => {
     // on, and it did: it answered about the nearest thing it could find.
     expect(prompt).toContain('connected to the repository acme/ledger');
     expect(prompt).toContain('get_connect_url');
-    expect(prompt).toContain('stop and tell me that');
+    expect(prompt).toContain('stop and tell me');
     expect(prompt).not.toContain('may be named something else');
     expect(prompt).toContain('the part of the work called &quot;Product&quot;');
     expect(prompt).toContain('quoted word for word');
     expect(prompt).toContain('find this why, quoted word for word');
     expect(prompt).toContain('&quot;price it&quot;');
-    expect(prompt).toContain('say so plainly instead of answering about the closest thing');
+    expect(prompt).toContain('say so plainly rather than answering about the closest thing');
   });
 
   it('says so plainly when the statement belongs to the project itself', async () => {
@@ -487,5 +487,39 @@ describe('knowing you are the manager', () => {
     await lend();
     const { body } = await visit('/project/acme/ledger', MEMBER_GOOGLE);
     expect(body).not.toMatch(/<span class="role-chip">/);
+  });
+});
+
+describe('what a copied prompt asks for', () => {
+  it('hands over where the statement hangs, so nothing has to go looking', async () => {
+    // An assistant that has to find the parents reads the whole project, and
+    // then answers with the whole project.
+    repo.files.set('.teamctx/workstreams/product.json', JSON.stringify({
+      id: 'product', name: 'Product', tasks: [],
+      whys: [{
+        id: 'w1', text: 'price it', whats: [{
+          id: 'a1', text: 'compare tiers', hows: [{ id: 'h1', text: 'check what rivals charge' }],
+        }],
+      }],
+    }));
+    const { body } = await visit('/project/acme/ledger?ws=product', MANAGER);
+    const prompts = [...body.matchAll(/data-prompt="([^"]+)"/g)].map(m => m[1]);
+    const how = prompts.find(p => p.includes('check what rivals charge'));
+    expect(how).toContain('It sits under the What &quot;compare tiers&quot;');
+    expect(how).toContain('under the Why &quot;price it&quot;');
+  });
+
+  it('asks about the one statement, not the project around it', async () => {
+    const { body } = await visit('/project/acme/ledger?ws=product', MANAGER);
+    const prompt = /data-prompt="([^"]+)"/.exec(body)[1];
+    expect(prompt).toContain('Answer about that one');
+    expect(prompt).toContain('what is still open for it');
+    expect(prompt).toContain('Do not summarise the rest of the project');
+  });
+
+  it('says nothing about parents for a goal, which has none', async () => {
+    const { body } = await visit('/project/acme/ledger', MANAGER);
+    const prompt = /data-prompt="([^"]+)"/.exec(body)[1];
+    expect(prompt).not.toContain('It sits under');
   });
 });

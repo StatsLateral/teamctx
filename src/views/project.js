@@ -181,7 +181,7 @@ const numbering = (tree) => {
     (why.whats || []).forEach((what, j) => {
       rows.push({ node: what, tier: 'what', n: `${i + 1}.${j + 1}`, parent: why });
       (what.hows || []).forEach((how, k) => {
-        rows.push({ node: how, tier: 'how', n: `${i + 1}.${j + 1}.${k + 1}`, parent: what });
+        rows.push({ node: how, tier: 'how', n: `${i + 1}.${j + 1}.${k + 1}`, parent: what, grand: why });
       });
     });
   });
@@ -227,27 +227,36 @@ const whoTouched = (node, contributions) => [...new Set(
  * statement is quoted word for word from a page, and to say so rather than
  * reach for the closest match if it is not there.
  */
-function promptFor({ node, tier, where, wsId, isProject, owner, repo, link }) {
+function promptFor({ node, tier, where, wsId, isProject, owner, repo, link, parent, grand }) {
   const place = isProject
     ? "the project's own context (not a workstream)"
     : `the part of the work called "${where}"${wsId ? ` (id: ${wsId})` : ''}`;
+  // Where it hangs, said rather than left to be found. An assistant that has to
+  // go looking reads the whole project, and then answers with the whole project.
+  const lineage = [
+    parent ? `the What "${parent.text}"` : '',
+    grand ? `the Why "${grand.text}"` : '',
+  ].filter(Boolean).join(', under ');
+
   return [
-    `Using teamctx: first confirm you are connected to the repository ${owner}/${repo}`,
-    '— get_connect_url returns a URL containing the owner and repo. If it is a different repository,',
-    'stop and tell me that, rather than answering from the project you are connected to.',
-    `Then, in ${place}, find this ${tier}, quoted word for word from the project page:`,
+    `Using teamctx. 1) Confirm you are connected to the repository ${owner}/${repo} —`,
+    'get_connect_url returns a URL containing the owner and repo. If it is a different one,',
+    'stop and tell me, rather than answering from the project you are connected to.',
+    `2) In ${place}, find this ${tier}, quoted word for word from the project page:`,
     `"${node.text}".`,
-    'If it is not there, say so plainly instead of answering about the closest thing you can find.',
-    'If it is, tell me why it is there, what it requires, and what is still open —',
-    'from what the project records, and say when something is not recorded.',
+    lineage ? `It sits under ${lineage}.` : '',
+    'If it is not there, say so plainly rather than answering about the closest thing you can find.',
+    `3) Answer about that one ${tier}: why it is there, what it requires, and what is still open for it.`,
+    'Keep it short. Do not summarise the rest of the project, list its other goals or tasks,',
+    'or report what is open elsewhere, unless I ask.',
     link ? `The page it came from: ${link}` : '',
   ].filter(Boolean).join(' ');
 }
 
 function itemButton({ row, contributions, where, project, marked, isProject, owner, repo, wsId, origin }) {
-  const { node, tier, n } = row;
+  const { node, tier, n, parent, grand } = row;
   const prompt = promptFor({
-    node, tier, where, wsId, isProject, owner, repo,
+    node, tier, where, wsId, isProject, owner, repo, parent, grand,
     link: origin ? `${origin}/project/${owner}/${repo}?${new URLSearchParams({
       ...(isProject ? {} : { ws: wsId }), item: node.id,
     })}` : null,
