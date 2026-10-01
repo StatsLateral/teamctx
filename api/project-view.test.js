@@ -517,6 +517,20 @@ describe('what a copied prompt asks for', () => {
     expect(prompt).toContain('Do not summarise the rest of the project');
   });
 
+  it('names a what under its why, not under a what', async () => {
+    // Every parent was called "the What", so a What was handed its goal's words
+    // under the wrong word — which is worse than no lineage at all.
+    repo.files.set('.teamctx/workstreams/product.json', JSON.stringify({
+      id: 'product', name: 'Product', tasks: [],
+      whys: [{ id: 'w1', text: 'price it', whats: [{ id: 'a1', text: 'compare tiers', hows: [] }] }],
+    }));
+    const { body } = await visit('/project/acme/ledger?ws=product', MANAGER);
+    const prompts = [...body.matchAll(/data-prompt="([^"]+)"/g)].map(m => m[1]);
+    const what = prompts.find(p => p.includes('find this what'));
+    expect(what).toContain('It sits under the Why &quot;price it&quot;.');
+    expect(what).not.toContain('the What &quot;price it&quot;');
+  });
+
   it('says nothing about parents for a goal, which has none', async () => {
     const { body } = await visit('/project/acme/ledger', MANAGER);
     const prompt = /data-prompt="([^"]+)"/.exec(body)[1];

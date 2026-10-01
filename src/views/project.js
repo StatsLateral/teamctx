@@ -231,12 +231,19 @@ function promptFor({ node, tier, where, wsId, isProject, owner, repo, link, pare
   const place = isProject
     ? "the project's own context (not a workstream)"
     : `the part of the work called "${where}"${wsId ? ` (id: ${wsId})` : ''}`;
-  // Where it hangs, said rather than left to be found. An assistant that has to
+  // Where it hangs, said rather than left to be found: an assistant that has to
   // go looking reads the whole project, and then answers with the whole project.
-  const lineage = [
-    parent ? `the What "${parent.text}"` : '',
-    grand ? `the Why "${grand.text}"` : '',
-  ].filter(Boolean).join(', under ');
+  //
+  // Each ancestor is named by what it actually is. A What hangs under a Why, a
+  // How under a What and then a Why — calling every parent "the What" put a
+  // goal's words in front of the assistant under the wrong word.
+  const above = tier === 'how'
+    ? [['What', parent], ['Why', grand]]
+    : tier === 'what' ? [['Why', parent]] : [];
+  const lineage = above
+    .filter(([, n]) => n)
+    .map(([label, n]) => `the ${label} "${n.text}"`)
+    .join(', under ');
 
   return [
     `Using teamctx. 1) Confirm you are connected to the repository ${owner}/${repo} —`,
