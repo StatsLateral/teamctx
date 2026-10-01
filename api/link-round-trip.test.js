@@ -179,7 +179,7 @@ describe('after the link has been followed', () => {
     // being able to read a project is the only thing that ever qualified it.
     await lend();
     await kvSet(keys.session('s'), MEMBER);
-    expect(await (await go('/projects', { session: 's' })).text()).toMatch(/Nothing here yet/);
+    expect(await (await go('/projects', { session: 's' })).text()).toMatch(/Nothing on your list yet/);
 
     await go(LINK, { session: 's' });
 
@@ -190,6 +190,6 @@ describe('after the link has been followed', () => {
     await lend();
     await kvSet(keys.session('s'), { ...MEMBER, name: 'Stranger', email: 'stranger@example.com' });
     await go(LINK, { session: 's' });
-    expect(await (await go('/projects', { session: 's' })).text()).toMatch(/Nothing here yet/);
+    expect(await (await go('/projects', { session: 's' })).text()).toMatch(/Nothing on your list yet/);
   });
 });

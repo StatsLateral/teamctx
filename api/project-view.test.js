@@ -224,7 +224,7 @@ describe('getting there', () => {
   });
 
   it('says so when there are none yet', async () => {
-    expect((await visit('/projects', MANAGER)).body).toMatch(/Nothing here yet/);
+    expect((await visit('/projects', MANAGER)).body).toMatch(/Nothing on your list yet/);
   });
 
   it('leads back to the list from a project', async () => {

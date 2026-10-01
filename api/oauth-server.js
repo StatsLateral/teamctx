@@ -19,6 +19,7 @@ import { runWithSession } from '../src/session-context.js';
 import { initProject } from '../cli/commands/init.core.js';
 import { readProjectView, ProjectViewError } from '../src/oauth/project-view.js';
 import { isReturnable, parseViewParams } from '../src/view-url.js';
+import { parseProjectRef } from '../src/project-ref.js';
 // Page templates. They used to sit at the bottom of this file, which left it
 // mostly HTML with the routes buried in it — see #103 part 1.
 import { settingsPage } from '../src/views/settings.js';
@@ -1125,9 +1126,67 @@ const signInFor = (res, path) => res.redirect(303, `/signin?returnTo=${encodeURI
 app.get('/projects', async (req, res) => {
   const user = await currentUser(req);
   if (!user) return signInFor(res, '/projects');
+  await renderProjects(req, res, user);
+});
+
+/**
+ * The list, the box, and whatever the box has to say for itself.
+ *
+ * Shared with the POST so a reference that could not be opened comes back on the
+ * page it was typed on, with the text still in the box — rather than on an error
+ * page, which loses it and leaves nowhere to correct it.
+ */
+async function renderProjects(req, res, user, { typed = '', error = null } = {}) {
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
   const projects = user.email ? await projectsKnownFor(user.email) : [];
-  res.send(projectsPage({ user, projects }));
+  // Repositories this person can reach, as suggestions. A Google sign-in has no
+  // repository list at all, which is exactly why the box takes a pasted link.
+  let repos = [];
+  if (user.token) {
+    try { repos = await listPushableRepos(user.token); } catch { /* suggestions are optional */ }
+  }
+  res.send(projectsPage({ user, projects, repos, typed, error }));
+}
+
+/**
+ * Open a project by whatever somebody pasted.
+ *
+ * The access check is `readProjectView` itself rather than a cheaper lookalike:
+ * reading the project is what they are about to do, and a second
+ * implementation of "may they?" is a second thing to keep in step with the
+ * connector. So what comes back here is the same answer, with the same reasons —
+ * no teamctx project in that repository, no GitHub access lent to a Google
+ * sign-in, or an address that is not on the roster.
+ */
+app.post('/projects', async (req, res) => {
+  const user = await currentUser(req);
+  if (!user) return signInFor(res, '/projects');
+  const typed = String(req.body?.ref || '').trim();
+  const ref = parseProjectRef(typed);
+  if (!ref) {
+    return renderProjects(req, res, user, {
+      typed,
+      error: typed
+        ? `"${typed}" does not name a repository. Paste the connector link you were sent, `
+          + 'the project on GitHub, or type owner/repo.'
+        : 'Type the name of a project, or paste the link you were sent.',
+    });
+  }
+  try {
+    await readProjectView({ owner: ref.owner, repo: ref.repo, user });
+  } catch (e) {
+    const denied = e instanceof ProjectViewError || e.code === 'MEMBER_ACCESS_DENIED';
+    return renderProjects(req, res, user, {
+      typed,
+      error: denied ? e.message : `${ref.owner}/${ref.repo} could not be opened: ${e.message}`,
+    });
+  }
+  // On the list from here on, for the same reason as arriving by link: being able
+  // to read a project is the only thing that ever qualified it for the list.
+  if (user.email) {
+    try { await recordConnectedProject({ email: user.email, owner: ref.owner, repo: ref.repo }); } catch { /* best effort */ }
+  }
+  res.redirect(303, `/project/${encodeURIComponent(ref.owner)}/${encodeURIComponent(ref.repo)}`);
 });
 
 /**
