@@ -18,6 +18,7 @@ import { GithubSession, listUserOrgs, createRepo, slugifyProjectName, suggestAva
 import { runWithSession } from '../src/session-context.js';
 import { initProject } from '../cli/commands/init.core.js';
 import { readProjectView, ProjectViewError } from '../src/oauth/project-view.js';
+import { TOOLS, callTool } from '../mcp/server.js';
 import { isReturnable, parseViewParams } from '../src/view-url.js';
 import { parseProjectRef } from '../src/project-ref.js';
 // Page templates. They used to sit at the bottom of this file, which left it
@@ -129,8 +130,35 @@ app.get('/oauth/status', async (req, res) => {
     missing: Object.entries({ ...cfg, kv: isPersistent() })
       .filter(([name, present]) => !present && !name.startsWith('google'))
       .map(([name]) => name),
+    // Which code is actually answering, so "it is deployed" stops being a
+    // belief. Three rounds went into whether a missing field in a tool result
+    // was a bug in the code or a build that predated it, and nothing served by
+    // this deployment could say. The commit is what Vercel puts in the
+    // environment; `features` is read off the running code itself, so it cannot
+    // drift from it.
+    build: {
+      commit: process.env.VERCEL_GIT_COMMIT_SHA || process.env.GIT_COMMIT_SHA || null,
+      branch: process.env.VERCEL_GIT_COMMIT_REF || null,
+      features: deployedFeatures(),
+    },
   });
 });
+
+/**
+ * What the code answering this request can do, asked of the code.
+ *
+ * Not a hand-kept list: each entry is a real check against a module that is
+ * loaded here, so it says what is running rather than what was intended. A
+ * client missing `viewUrl` can be told in one request whether the server it
+ * reached has it at all.
+ */
+function deployedFeatures() {
+  return {
+    // The tools that hand back a link to the web view, and the floor under them.
+    viewLinks: TOOLS.filter(t => /viewUrl/.test(t.description || '')).map(t => t.name),
+    viewLinkFloor: typeof callTool === 'function' && /stampViewUrl/.test(String(callTool)),
+  };
+}
 
 // ---- Protected Resource Metadata (RFC 9728) --------------------------
 // Must be served per-MCP-path: the `resource` field has to match the URL the
