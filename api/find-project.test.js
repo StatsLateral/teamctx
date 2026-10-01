@@ -130,13 +130,22 @@ describe('the box on the projects page', () => {
     expect(body).toContain('value="acme/atlas"');
   });
 
-  it('does not suggest a project already on the list', async () => {
-    // Offering something one line above makes the suggestions look like they
-    // mean something they do not.
-    await kvSet(keys.connectedProjects('maya@example.com'), { projects: ['acme/ledger'] });
+  it('does not open with every repository this person can reach', async () => {
+    // It listed them all under the box. There were hundreds, and a page that
+    // opens with hundreds of lines of things you did not ask about is a page
+    // people stop reading. They belong in the box, not on the page.
     const { body } = await as(MANAGER, '/projects');
-    expect(body).toContain('value="acme/atlas"');
-    expect(body).not.toContain('value="acme/ledger"');
+    expect(body).not.toContain('Repositories you can reach');
+    // No one-click chips either: those belong to a search somebody asked for.
+    expect(body).not.toContain('name="ref" value="acme/atlas"');
+  });
+
+  it('is the same box as the settings page uses', async () => {
+    // One way to name a project across the app, so what somebody learns in one
+    // place is true in the other.
+    const { body } = await as(MANAGER, '/projects');
+    expect(body).toContain('placeholder="Type to search, or paste owner/repo"');
+    expect(body).toContain('list="ref-list"');
   });
 
   it('still shows the box when the repository listing fails', async () => {
@@ -153,6 +162,45 @@ describe('the box on the projects page', () => {
     expect(body).toContain('name="ref"');
     expect(body).not.toContain('<datalist');
     expect(body).toMatch(/link your manager sent you/);
+  });
+});
+
+describe('searching for a project by name', () => {
+  it('finds a repository by its own name, not only by its owner', async () => {
+    // With `owner/repo` in a datalist, a browser that matches only the start of
+    // the value finds every repository when you type the owner and none when you
+    // type the repository — so the search happens here instead.
+    const { status, body } = await openRef(MANAGER, 'atlas');
+    expect(status).toBe(200);
+    expect(body).toContain('Matching "atlas"');
+    // The matches, not the whole datalist, which carries every repository.
+    expect(body).toContain('name="ref" value="acme/atlas"');
+    expect(body).not.toContain('name="ref" value="acme/ledger"');
+  });
+
+  it('matches the owner too, and ignores case', async () => {
+    const { body } = await openRef(MANAGER, 'ACME');
+    expect(body).toContain('name="ref" value="acme/atlas"');
+    expect(body).toContain('name="ref" value="acme/ledger"');
+  });
+
+  it('matches part of a name, anywhere in it', async () => {
+    const { body } = await openRef(MANAGER, 'edge');
+    expect(body).toContain('name="ref" value="acme/ledger"');
+  });
+
+  it('opens a match in one click', async () => {
+    // What the chip posts is what the box accepts, so clicking one is the same
+    // request as typing the full name.
+    expect((await openRef(MANAGER, 'ledger')).body).toContain('name="ref" value="acme/ledger"');
+    const { status, location } = await openRef(MANAGER, 'acme/ledger');
+    expect(status).toBe(303);
+    expect(location).toBe('/project/acme/ledger');
+  });
+
+  it('offers a Google sign-in no search, because it has no repository list', async () => {
+    const { body } = await openRef(MEMBER, 'ledger');
+    expect(body).toContain('Nothing you can reach matches');
   });
 });
 
@@ -196,16 +244,26 @@ describe('opening whatever was pasted', () => {
 });
 
 describe('when it cannot be opened', () => {
-  it('says what is wrong, on the page, with the text still in the box', async () => {
+  it('says nothing matched, on the page, with the text still in the box', async () => {
     const { status, body } = await openRef(MANAGER, 'what even is this');
     expect(status).toBe(200);
-    expect(body).toContain('does not name a repository');
+    expect(body).toContain('Nothing you can reach matches');
     expect(body).toContain('value="what even is this"');
   });
 
+  it('asks for something when the box was empty', async () => {
+    const { body } = await openRef(MANAGER, '   ');
+    expect(body).toContain('Type the name of a project');
+  });
+
   it('will not take the last two segments of an unrelated link on faith', async () => {
-    const { body } = await openRef(MANAGER, 'https://example.com/acme/ledger');
-    expect(body).toContain('does not name a repository');
+    // It must not decide that this means acme/ledger. Searching for it finds
+    // nothing, which is the right amount of guessing.
+    const { status, location, body } = await openRef(MANAGER, 'https://example.com/acme/ledger');
+    expect(status).toBe(200);
+    expect(location).toBe('');
+    expect(body).toContain('Nothing you can reach matches');
+    expect(await listed('maya@example.com')).toEqual([]);
   });
 
   it('reports what GitHub said about a repository that is not there', async () => {

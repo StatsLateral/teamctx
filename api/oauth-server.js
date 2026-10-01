@@ -1142,7 +1142,7 @@ app.get('/projects', async (req, res) => {
  * page it was typed on, with the text still in the box — rather than on an error
  * page, which loses it and leaves nowhere to correct it.
  */
-async function renderProjects(req, res, user, { typed = '', error = null } = {}) {
+async function renderProjects(req, res, user, { typed = '', error = null, search = false } = {}) {
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
   const projects = user.email ? await projectsKnownFor(user.email) : [];
   // Repositories this person can reach, as suggestions. A Google sign-in has no
@@ -1151,7 +1151,18 @@ async function renderProjects(req, res, user, { typed = '', error = null } = {})
   if (user.token) {
     try { repos = await listPushableRepos(user.token); } catch { /* suggestions are optional */ }
   }
-  res.send(projectsPage({ user, projects, repos, typed, error }));
+  // Searched here rather than left to the browser. A datalist narrows on what a
+  // browser decides to match, and several of them match only the start of the
+  // value — so with `owner/repo` in the list, typing a repository's own name
+  // found nothing at all while the owner's name found every one of them. This
+  // matches either, and anywhere in the name.
+  const needle = search ? typed.trim().toLowerCase() : '';
+  const matches = needle
+    ? repos.map(r => r.fullName).filter(name => String(name).toLowerCase().includes(needle)).slice(0, 25)
+    : [];
+  res.send(projectsPage({
+    user, projects, repos, typed, error, query: needle ? typed.trim() : null, matches,
+  }));
 }
 
 /**
@@ -1169,14 +1180,15 @@ app.post('/projects', async (req, res) => {
   if (!user) return signInFor(res, '/projects');
   const typed = String(req.body?.ref || '').trim();
   const ref = parseProjectRef(typed);
+  // Not a reference to a repository, so it is something to look for. Typing part
+  // of a name is the ordinary way to find a project, not a mistake to correct.
   if (!ref) {
-    return renderProjects(req, res, user, {
-      typed,
-      error: typed
-        ? `"${typed}" does not name a repository. Paste the connector link you were sent, `
-          + 'the project on GitHub, or type owner/repo.'
-        : 'Type the name of a project, or paste the link you were sent.',
-    });
+    if (!typed) {
+      return renderProjects(req, res, user, {
+        error: 'Type the name of a project, or paste the link you were sent.',
+      });
+    }
+    return renderProjects(req, res, user, { typed, search: true });
   }
   try {
     await readProjectView({ owner: ref.owner, repo: ref.repo, user });
