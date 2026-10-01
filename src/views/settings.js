@@ -6,11 +6,12 @@ import { esc, navBar, shell } from './theme.js';
  * agents. Moved here whole from the routes file — see src/views/theme.js.
  */
 export const settingsPage = ({
-  user, hasKey, saved, error, confirmRemove = null, shared = [], lent = [], repos = [], agents = [], newAgent = null,
-}) => shell('Settings', `
+  user, hasKey, saved, error, confirmRemove = null, shared = [], lent = [], repos = [], agents = [], newAgent = null, rotated = [] }) => shell('Settings', `
 ${navBar({ user, current: '/settings' })}
 <h1>Settings</h1>
 ${saved ? '<div class="ok">Saved.</div>' : ''}
+${rotated.length ? `<div class="ok">The projects you had shared your old key with are now on the new one:
+${rotated.map(esc).join(', ')}. Nothing else about them changed.</div>` : ''}
 ${error ? `<div class="bad">${esc(error)}</div>` : ''}
 ${confirmRemove ? `<div class="bad">
 <p><strong>${esc(confirmRemove)} runs on this key.</strong> You are its primary manager, so
