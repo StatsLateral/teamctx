@@ -1726,6 +1726,77 @@ export function toolsFor(projectRoot) {
  * any name. So every call is checked against the same list, and a name that is
  * not on it gets exactly the answer a tool that does not exist gets.
  */
+/**
+ * The tools that owe somebody a link, per the spec for the view.
+ *
+ * Not every tool: a link on the end of `list_members` is noise, and the point of
+ * these seven is that each one has just changed or reported something a person
+ * would want to go and look at.
+ */
+const LINKED_TOOLS = new Set([
+  'contribute', 'submit_contribution', 'task_add', 'task_assign', 'task_done',
+  'my_brief', 'get_status', 'get_workstream',
+]);
+
+/**
+ * The link, stamped on the way out of a hosted request.
+ *
+ * `viewUrl` is built inside the handlers, from `config.deployUrl` by way of
+ * `connectorUrl`, and anything missing or stale in that chain produces `null` —
+ * which is how a contribution came back with an id, no link, and an assistant
+ * left to reconstruct a URL from a pattern it had seen.
+ *
+ * A hosted request cannot be in that position. The owner, the repository and the
+ * address the request arrived at are facts of the request itself, held in
+ * `projectRoot`, so the link is built from those here, after the handler, where
+ * nothing it depends on can be absent. Only when the handler did not already
+ * produce one: this is a floor, not a second opinion.
+ *
+ * The ids still go through `buildViewUrl`, so the parameter rules stay in one
+ * place and a value the page would refuse never reaches a link.
+ */
+function stampViewUrl(result, projectRoot, name) {
+  if (!LINKED_TOOLS.has(name) || !result || result.isError) return result;
+  const { owner, repo, baseUrl } = projectRoot || {};
+  // No base means this is not a hosted request — stdio, where the deploy URL in
+  // config is the only honest answer and the handler already gave it.
+  if (!owner || !repo || !baseUrl) return result;
+
+  const first = result.content?.[0];
+  if (!first || first.type !== 'text' || typeof first.text !== 'string') return result;
+  let payload;
+  try { payload = JSON.parse(first.text); } catch { return result; }
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return result;
+  if (typeof payload.viewUrl === 'string' && payload.viewUrl) return result;
+
+  const view = payload.view && typeof payload.view === 'object' ? payload.view : {};
+  const parts = {
+    ws: view.ws || null, item: view.item || null, task: view.task || null, review: view.review || null,
+  };
+  let url;
+  try {
+    url = buildViewUrl({ base: baseUrl, owner, repo, ...parts });
+  } catch {
+    // An id the page would refuse. The project is still somewhere to go.
+    try { url = buildViewUrl({ base: baseUrl, owner, repo }); } catch { return result; }
+  }
+
+  const next = {
+    ...payload,
+    viewUrl: url,
+    viewUrlError: null,
+    view: { owner, repo, ...parts },
+  };
+  if (typeof next.reportBack === 'string' && !next.reportBack.includes(url)) {
+    // The handler may have added "no web address is recorded" when it could not
+    // build one. There is one now, so that sentence goes.
+    const cut = next.reportBack.indexOf(' No web address is recorded');
+    const said = cut === -1 ? next.reportBack : next.reportBack.slice(0, cut);
+    next.reportBack = withLink(said.trim(), { viewUrl: url });
+  }
+  return { ...result, content: [{ ...first, text: JSON.stringify(next, null, 2) }] };
+}
+
 export async function callTool(handlers, projectRoot, name, args = {}) {
   const agent = projectRoot?.agent || null;
   const handler = agent && !AGENT_TOOLS.includes(name) ? null : handlers[name];
@@ -1734,7 +1805,7 @@ export async function callTool(handlers, projectRoot, name, args = {}) {
     if (agent && !agentOnRoster(readConfig(projectRoot), agent.id)) {
       throw new AgentRefusedError('This agent is no longer on the project. Ask a manager to issue a new token.', 'AGENT_NOT_ON_ROSTER');
     }
-    return await handler.call(handlers, args);
+    return stampViewUrl(await handler.call(handlers, args), projectRoot, name);
   } catch (err) {
     return { content: [{ type: 'text', text: `Error: ${err.message}` }], isError: true };
   }
