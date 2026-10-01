@@ -52,6 +52,25 @@ describe('finding the caller on the roster', () => {
     expect(scopeFor(project([byLogin]), { key: 'github:999', login: 'Ravi' })).toEqual(['ops']);
   });
 
+  it('matches a key the caller has proved is theirs', () => {
+    // The gate in front of the page admits somebody on a key they have proved
+    // they own — a Google sign-in whose address GitHub verified for that
+    // account. If this did not look at the same keys, the gate would let them in
+    // and this would not find them, and a member nobody can find is a member
+    // with no scope at all: every workstream, which is the opposite of the point.
+    const byId = { key: 'github:7', workstreams: ['ops'] };
+    expect(scopeFor(project([byId]), {
+      key: 'git:ravi@example.com', email: 'ravi@example.com', keys: ['github:7'],
+    })).toEqual(['ops']);
+  });
+
+  it('does not match a key somebody else has proved', () => {
+    const byId = { key: 'github:7', workstreams: ['ops'] };
+    expect(scopeFor(project([byId]), {
+      key: 'git:stranger@example.com', email: 'stranger@example.com', keys: ['github:8'],
+    })).toBe(null);
+  });
+
   it('is project-wide for somebody not on the roster', () => {
     // Not a lockout: the roster is not an allowlist, and never has been.
     // Whether a stranger reaches the project at all is decided before this.

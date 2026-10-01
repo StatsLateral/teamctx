@@ -379,6 +379,22 @@ describe('what the data function hands back', () => {
     expect(JSON.stringify(view.trees)).not.toContain('keep the servers up');
   });
 
+  it('keeps a member scoped when the roster knows them by GitHub id', async () => {
+    // The gate admits somebody on a key their address has proved, so the scope
+    // lookup has to recognise the same key. If only the gate did, the member
+    // would be let in and then not found — and a member nobody can find has no
+    // scope, meaning every tree in the payload.
+    repo.files.set('.teamctx/config.json', JSON.stringify({
+      ...CONFIG,
+      members: [{ key: 'github:4242', name: 'Priya', workstreams: ['product'] }],
+    }));
+    await lend();
+    await kvSet(keys.githubIdentities('priya@example.com'), { ids: ['4242'] });
+    const view = await readProjectView({ owner: 'acme', repo: 'ledger', user: MEMBER_GOOGLE });
+    expect(Object.keys(view.trees)).toEqual(['product']);
+    expect(JSON.stringify(view.trees)).not.toContain('keep the servers up');
+  });
+
   it('gives the manager all of them', async () => {
     const view = await readProjectView({ owner: 'acme', repo: 'ledger', user: MANAGER });
     expect(Object.keys(view.trees).sort()).toEqual(['product', 'tech']);
