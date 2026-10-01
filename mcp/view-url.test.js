@@ -143,3 +143,29 @@ describe('what the assistant is told to do with it', () => {
     }
   });
 });
+
+describe('the link in what the assistant is told to say', () => {
+  it('is in the sentence, not only in a field beside it', async () => {
+    // A field is something a client may read; `reportBack` is what it is told
+    // to say. Tested by hand first: the payload carried the link and the
+    // assistant mentioned nothing at all.
+    const r = await call('contribute', { text: 'three tiers', workstream: 'product', apply: true });
+    expect(r.reportBack).toContain(r.viewUrl);
+    expect(r.reportBack).toMatch(/Include this link in your reply/);
+  });
+
+  it('is there for a task too', async () => {
+    const r = await call('task_add', { title: 'Draft the pricing page', workstream: 'product' });
+    expect(r.reportBack).toContain(r.viewUrl);
+  });
+
+  it('says nothing about a link when there is none', async () => {
+    const s = session(CONFIG({ deployUrl: '' }));
+    const r = await runWithSession(s, () => runWithActor(MAYA, async () => {
+      const handlers = makeHandlers({ __backend: 'github', owner: OWNER, repo: REPO });
+      return JSON.parse((await handlers.task_add({ title: 'x', workstream: 'product' })).content[0].text);
+    }));
+    expect(r.viewUrl).toBe(null);
+    expect(r.reportBack).not.toMatch(/link/i);
+  });
+});

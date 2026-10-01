@@ -283,18 +283,40 @@ describe('the tree the page draws', () => {
     // several projects, and with what.
     const { body } = await visit('/project/acme/ledger?ws=product', MANAGER);
     const prompt = /data-prompt="([^"]+)"/.exec(body)[1];
-    expect(prompt).toContain('teamctx project acme/ledger');
-    expect(prompt).toContain('your connector may be named something else');
+    // It names the repository and tells the assistant how to check it is on
+    // that one — the version before this said a connector "may be named
+    // something else", which told an assistant on a different project to carry
+    // on, and it did: it answered about the nearest thing it could find.
+    expect(prompt).toContain('connected to the repository acme/ledger');
+    expect(prompt).toContain('get_connect_url');
+    expect(prompt).toContain('stop and tell me that');
+    expect(prompt).not.toContain('may be named something else');
     expect(prompt).toContain('the part of the work called &quot;Product&quot;');
-    expect(prompt).toContain('this why: &quot;price it&quot;');
-    expect(prompt).toMatch(/get_workstream|my_brief/);
+    expect(prompt).toContain('quoted word for word');
+    expect(prompt).toContain('find this why, quoted word for word');
+    expect(prompt).toContain('&quot;price it&quot;');
+    expect(prompt).toContain('say so plainly instead of answering about the closest thing');
   });
 
   it('says so plainly when the statement belongs to the project itself', async () => {
     const { body } = await visit('/project/acme/ledger', MANAGER);
     const prompt = /data-prompt="([^"]+)"/.exec(body)[1];
-    expect(prompt).toContain('the project context itself');
+    expect(prompt).toMatch(/the project.{0,8}s own context \(not a workstream\)/);
     expect(prompt).toContain('acme/ledger');
+  });
+
+  it('names the part of the work by id as well as by name', async () => {
+    // Two workstreams can read alike; the id is what a tool looks up.
+    const { body } = await visit('/project/acme/ledger?ws=product', MANAGER);
+    const prompt = /data-prompt="([^"]+)"/.exec(body)[1];
+    expect(prompt).toContain('(id: product)');
+  });
+
+  it('carries the address of the page it was copied from', async () => {
+    const { body } = await visit('/project/acme/ledger?ws=product', MANAGER);
+    const prompt = /data-prompt="([^"]+)"/.exec(body)[1];
+    expect(prompt).toMatch(/The page it came from: https?:[^ ]*project\/acme\/ledger/);
+    expect(prompt).toContain('item=w1');
   });
 
   it('shows the project context above a workstream, as inherited', async () => {

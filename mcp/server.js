@@ -580,6 +580,20 @@ function textResult(value) {
   return { content: [{ type: 'text', text }] };
 }
 
+/**
+ * The link, in the sentence rather than beside it.
+ *
+ * `viewUrl` sits in the result as a field, and a field is something a client may
+ * read. `reportBack` is what the client is told to say — and in practice that is
+ * the difference between a link reaching somebody and a link existing. Tested by
+ * hand: a contribution through a connector returned the link in its payload and
+ * the assistant mentioned nothing at all.
+ */
+function withLink(text, link) {
+  if (!link?.viewUrl) return text;
+  return `${text} Include this link in your reply, as a plain link: ${link.viewUrl}`;
+}
+
 function reportBackContribute(r) {
   // `where`, not the raw id. At project level the id is `null`, and the client
   // is told to read this string back word for word — so an unsplit project,
@@ -854,11 +868,12 @@ export function makeHandlers(projectRoot) {
         activeWorkstream: await targetWorkstream(teamctxDir, config, undefined),
         teamctxDir, projectDir: gitCwd, actor,
       });
+      // Where the work they have just been told about actually lives.
+      const briefLink = await this.viewUrl({ ws: await targetWorkstream(teamctxDir, config, undefined) });
       return textResult({
         ...brief,
-        // Where the work they have just been told about actually lives.
-        ...(await this.viewUrl({ ws: await targetWorkstream(teamctxDir, config, undefined) })),
-        reportBack: `Tell the user: they are ${brief.me} on this project. ${brief.frame}`,
+        ...briefLink,
+        reportBack: withLink(`Tell the user: they are ${brief.me} on this project. ${brief.frame}`, briefLink),
       });
     },
 
@@ -1107,10 +1122,11 @@ export function makeHandlers(projectRoot) {
       // round trips for one intention is friction an assistant feels more than
       // a person does. Kept opt-in because the second half spends an AI call.
       if (!args.compile) {
+        const link = await this.viewUrl({ task: added.task.id });
         return textResult({
           ...added,
-          ...(await this.viewUrl({ task: added.task.id })),
-          reportBack: `Task ${added.task.id} added, owned by ${added.task.owner}.`,
+          ...link,
+          reportBack: withLink(`Task ${added.task.id} added, owned by ${added.task.owner}.`, link),
         });
       }
 
@@ -1141,12 +1157,13 @@ export function makeHandlers(projectRoot) {
       const r = await setTaskStatus({
         id: args.id, status: 'done', teamctxDir, projectDir: gitCwd,
       });
+      const doneLink = await this.viewUrl({ task: r.task.id });
       return textResult({
         ...r,
-        ...(await this.viewUrl({ task: r.task.id })),
-        reportBack: r.unchanged
+        ...doneLink,
+        reportBack: withLink(r.unchanged
           ? `Task ${r.task.id} was already done.`
-          : `Task ${r.task.id} marked done.`,
+          : `Task ${r.task.id} marked done.`, doneLink),
       });
     },
 
@@ -1170,10 +1187,11 @@ export function makeHandlers(projectRoot) {
       const r = await assignTask({
         id: args.id, owner: args.owner, teamctxDir, projectDir: gitCwd,
       });
+      const assignLink = await this.viewUrl({ task: r.task.id });
       return textResult({
         ...r,
-        ...(await this.viewUrl({ task: r.task.id })),
-        reportBack: `Task ${r.task.id} assigned to ${r.task.owner}.`,
+        ...assignLink,
+        reportBack: withLink(`Task ${r.task.id} assigned to ${r.task.owner}.`, assignLink),
       });
     },
 
@@ -1377,7 +1395,7 @@ export function makeHandlers(projectRoot) {
           ? { review: r.id }
           : { ws: r.workstream })
         : { ws: r.workstream, item: changed });
-      return textResult({ ...r, ...link, reportBack: reportBackContribute(r) });
+      return textResult({ ...r, ...link, reportBack: withLink(reportBackContribute(r), link) });
     },
 
     async submit_contribution(args) {

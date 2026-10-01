@@ -1161,6 +1161,9 @@ app.get('/project/:owner/:repo', async (req, res) => {
       selected,
       viewMode: req.query.view === 'list' ? 'list' : 'columns',
       item,
+      // So a copied prompt can carry the address of the page it was copied
+      // from, which is the one thing that tells a reader where it came from.
+      origin: baseUrlFor(req),
       note: asked.ws && !known ? 'That part of the work is not here, or not yours to see.' : null,
     }));
   } catch (e) {
