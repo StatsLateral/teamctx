@@ -293,7 +293,7 @@ describe('the tree the page draws', () => {
     expect(prompt).not.toContain('may be named something else');
     expect(prompt).toContain('the part of the work called &quot;Product&quot;');
     expect(prompt).toContain('quoted word for word');
-    expect(prompt).toContain('find this why, quoted word for word');
+    expect(prompt).toContain('Find this why, quoted word for word');
     expect(prompt).toContain('&quot;price it&quot;');
     expect(prompt).toContain('say so plainly rather than answering about the closest thing');
   });
@@ -301,7 +301,7 @@ describe('the tree the page draws', () => {
   it('says so plainly when the statement belongs to the project itself', async () => {
     const { body } = await visit('/project/acme/ledger', MANAGER);
     const prompt = /data-prompt="([^"]+)"/.exec(body)[1];
-    expect(prompt).toMatch(/the project.{0,8}s own context \(not a workstream\)/);
+    expect(prompt).toMatch(/the project.{0,8}s own context \(not one part of the work\)/);
     expect(prompt).toContain('acme/ledger');
   });
 
@@ -509,19 +509,35 @@ describe('what a copied prompt asks for', () => {
     const { body } = await visit('/project/acme/ledger?ws=product', MANAGER);
     const prompts = [...body.matchAll(/data-prompt="([^"]+)"/g)].map(m => m[1]);
     const how = prompts.find(p => p.includes('check what rivals charge'));
-    expect(how).toContain('It sits under the What &quot;compare tiers&quot;');
-    expect(how).toContain('under the Why &quot;price it&quot;');
+    expect(how).toContain('one of the things &quot;compare tiers&quot; needs');
+    expect(how).toContain('the goal behind that is &quot;price it&quot;');
+    // In those words, and not in the ones the files use: naming them "the What"
+    // and "the Why" taught the assistant to answer in them too.
+    expect(how).not.toContain('the What ');
+    expect(how).not.toContain('the Why ');
   });
 
   it('asks about the one statement, not the project around it', async () => {
     const { body } = await visit('/project/acme/ledger?ws=product', MANAGER);
     const prompt = /data-prompt="([^"]+)"/.exec(body)[1];
-    expect(prompt).toContain('Answer about that one');
+    expect(prompt).toContain('tell me about that one thing');
     expect(prompt).toContain('what is still open for it');
     expect(prompt).toContain('Do not summarise the rest of the project');
   });
 
-  it('names a what under its why, not under a what', async () => {
+  it("asks for it in a colleague's words, not in the project's", async () => {
+    // What came back read like a tour of the data model: headings, field names,
+    // and a walk back up the tree, to somebody who asked about one line on a
+    // page and does not care how it is stored.
+    const { body } = await visit('/project/acme/ledger?ws=product', MANAGER);
+    const prompt = /data-prompt="([^"]+)"/.exec(body)[1];
+    expect(prompt).toContain('the way you would say it to a colleague');
+    expect(prompt).toContain('no headings and no bullet lists');
+    expect(prompt).toContain('Do not explain how the project stores any of this');
+    expect(prompt).toContain('do not walk me back up the structure');
+  });
+
+  it("calls a what's parent a goal, which is what it is", async () => {
     // Every parent was called "the What", so a What was handed its goal's words
     // under the wrong word — which is worse than no lineage at all.
     repo.files.set('.teamctx/workstreams/product.json', JSON.stringify({
@@ -530,29 +546,33 @@ describe('what a copied prompt asks for', () => {
     }));
     const { body } = await visit('/project/acme/ledger?ws=product', MANAGER);
     const prompts = [...body.matchAll(/data-prompt="([^"]+)"/g)].map(m => m[1]);
-    const what = prompts.find(p => p.includes('find this what'));
-    expect(what).toContain('It sits under the Why &quot;price it&quot;.');
-    expect(what).not.toContain('the What &quot;price it&quot;');
+    const what = prompts.find(p => p.includes('Find this what'));
+    expect(what).toContain('part of what the goal &quot;price it&quot; needs');
+    expect(what).not.toContain('one of the things &quot;price it&quot; needs');
   });
 
   it('says nothing about parents for a goal, which has none', async () => {
     const { body } = await visit('/project/acme/ledger', MANAGER);
     const prompt = /data-prompt="([^"]+)"/.exec(body)[1];
-    expect(prompt).not.toContain('It sits under');
+    expect(prompt).not.toContain('the goal behind that');
+    expect(prompt).not.toContain('part of what the goal');
   });
 
-  it('arrives as numbered blocks, not as one unbroken line', async () => {
+  it('opens with the question and keeps the instructions below it', async () => {
     // A hundred words in a single line is correct and frightening: the person
-    // who has just pasted it cannot see its shape, so they delete it.
+    // who has just pasted it cannot see its shape, so they delete it. And what
+    // they see first should be their own question, not teamctx clearing its
+    // throat.
     const { body } = await visit('/project/acme/ledger?ws=product', MANAGER);
     const prompt = /data-prompt="([^"]+)"/.exec(body)[1];
     const text = prompt.replace(/&#10;/g, NL);
     expect(text.split(NL).length).toBeGreaterThan(8);
-    // Each step opens a line of its own, and the statement sits on one too.
-    expect(text).toContain(`${NL}1) Confirm`);
-    expect(text).toContain(`${NL}2) In `);
-    expect(text).toContain(`${NL}3) Answer`);
-    expect(text).toContain(`${NL}   &quot;`);
+    // The question first, in the words somebody would use out loud, and
+    // everything the assistant has to do below it, addressed to the assistant.
+    expect(text.startsWith('Tell me more about &quot;price it&quot;.')).toBe(true);
+    expect(text).toContain(`${NL}${NL}Instructions for the AI agent:${NL}- `);
+    // Every instruction on a line of its own.
+    expect(text.split(NL).filter(l => l.startsWith('- ')).length).toBeGreaterThan(4);
   });
 
   it('keeps those newlines inside the attribute, not in the markup', async () => {

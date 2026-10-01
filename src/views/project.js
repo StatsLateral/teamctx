@@ -223,63 +223,50 @@ const whoTouched = (node, contributions) => [...new Set(
 /**
  * What to paste into a fresh chat.
  *
- * Three versions of this have been wrong in three different ways, and the last
- * one was wrong expensively: it named the repository and then added "your
- * connector may be named something else", which told an assistant connected to a
- * *different* project to carry on regardless. It did — it could not find the
- * statement, found the nearest thing, and answered about that instead. A prompt
- * that invites a silent substitution is worse than a vague one.
+ * Four versions of this have been wrong, each in a smaller way than the last.
+ * The one before this said the right things in the wrong voice: it opened with
+ * "Using teamctx", numbered its checks ahead of the question, and named the
+ * statement's ancestors "the What" and "the Why". What came back was written in
+ * those words — headings, field names, a walk back up the tree — to somebody who
+ * had asked about one line on a page and does not care how it is stored.
  *
- * So: check first, quote exactly, and say what to do when it does not match. The
- * assistant is told which repository, how to confirm it is on that one, that the
- * statement is quoted word for word from a page, and to say so rather than
- * reach for the closest match if it is not there.
+ * So the question comes first, in the words the person would use out loud, and
+ * everything the assistant has to do is below it under a heading addressed to
+ * the assistant. The checks are unchanged; they are just no longer the first
+ * thing anybody reads.
  */
 function promptFor({ node, tier, where, wsId, isProject, owner, repo, link, parent, grand }) {
   const place = isProject
-    ? "the project's own context (not a workstream)"
+    ? "the project's own context (not one part of the work)"
     : `the part of the work called "${where}"${wsId ? ` (id: ${wsId})` : ''}`;
-  // Where it hangs, said rather than left to be found: an assistant that has to
-  // go looking reads the whole project, and then answers with the whole project.
-  //
-  // Each ancestor is named by what it actually is. A What hangs under a Why, a
-  // How under a What and then a Why — calling every parent "the What" put a
-  // goal's words in front of the assistant under the wrong word.
-  const above = tier === 'how'
-    ? [['What', parent], ['Why', grand]]
-    : tier === 'what' ? [['Why', parent]] : [];
-  const lineage = above
-    .filter(([, n]) => n)
-    .map(([label, n]) => `the ${label} "${n.text}"`)
-    .join(', under ');
 
-  // Three numbered steps, each its own block, and the statement on a line of its
-  // own. The same words ran together as one paragraph of a hundred-odd words:
-  // correct, and unreadable the moment it landed in a chat box — somebody who
-  // cannot see the shape of what they just pasted deletes it instead of sending
-  // it. Pasting newlines into a chat input does not send the message, so the
-  // readable version costs nothing.
-  const step = (...lines) => lines.filter(Boolean).join('\n');
+  // Where it hangs, said in plain English. The lineage has to be here — an
+  // assistant left to find the parents reads the whole project, and then answers
+  // with the whole project — but labelling them by tier taught it to answer in
+  // those labels too. A goal is a goal, whatever the file calls it.
+  const lineage = tier === 'how' && parent && grand
+    ? `It is one of the things "${parent.text}" needs, and the goal behind that is "${grand.text}".`
+    : tier === 'how' && parent ? `It is one of the things "${parent.text}" needs.`
+      : tier === 'what' && parent ? `It is part of what the goal "${parent.text}" needs.`
+        : '';
+
+  const line = (...lines) => lines.filter(Boolean).join('\n');
 
   return [
-    'Using teamctx.',
-    step(
-      `1) Confirm you are connected to the repository ${owner}/${repo}.`,
-      '   get_connect_url returns a URL containing the owner and repo. If it is a different one,',
-      '   stop and tell me, rather than answering from the project you are connected to.',
+    `Tell me more about "${node.text}".`,
+    [lineage,
+      'Answer in plain language — I want the context that matters, not a tour of how the project is organised.',
+    ].filter(Boolean).join(' '),
+    line(
+      'Instructions for the AI agent:',
+      `- Confirm you are connected to the repository ${owner}/${repo}. get_connect_url returns a URL containing the owner and repo. If it is a different one, stop and tell me, rather than answering from the project you are connected to.`,
+      `- Find this ${tier}, quoted word for word, in ${place}: "${node.text}". If it is not there, say so plainly rather than answering about the closest thing you can find.`,
+      '- Then tell me about that one thing: why it is there, what it requires, and what is still open for it.',
+      '- Write it the way you would say it to a colleague: a short paragraph or two of prose, no headings and no bullet lists.',
+      '- Do not explain how the project stores any of this, do not walk me back up the structure it sits in, and do not name its parts. Where something has not been decided yet, say so in a sentence and move on.',
+      '- Keep to this one thing. Do not summarise the rest of the project, list its other goals or tasks, or report what is open elsewhere, unless I ask.',
+      link ? `- The page it came from: ${link}` : '',
     ),
-    step(
-      `2) In ${place}, find this ${tier}, quoted word for word from the project page:`,
-      `   "${node.text}"`,
-      lineage ? `   It sits under ${lineage}.` : '',
-      '   If it is not there, say so plainly rather than answering about the closest thing you can find.',
-    ),
-    step(
-      `3) Answer about that one ${tier}: why it is there, what it requires, and what is still open for it.`,
-      '   Keep it short. Do not summarise the rest of the project, list its other goals or tasks,',
-      '   or report what is open elsewhere, unless I ask.',
-    ),
-    link ? `The page it came from: ${link}` : '',
   ].filter(Boolean).join('\n\n');
 }
 
