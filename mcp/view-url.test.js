@@ -118,7 +118,8 @@ describe('a link to what was just touched', () => {
     // mention: an add op has none, so this is the whole feature or nothing.
     const added = tree().whys.find(w => w.text === 'tiers decided');
     expect(added).toBeTruthy();
-    expect(r.viewUrl).toBe(`https://team.example.app/project/acme/ledger?ws=product&item=${added.id}`);
+    // The address is the server's own — see the precedence test below.
+    expect(r.viewUrl).toBe(`https://requested.example/project/acme/ledger?ws=product&item=${added.id}`);
     expect(r.viewUrlError).toBe(null);
   });
 
@@ -186,8 +187,27 @@ describe('a link to what was just touched', () => {
   });
 
   it('points get_status and get_workstream at what they describe', async () => {
-    expect((await call('get_status', {})).viewUrl).toBe('https://team.example.app/project/acme/ledger');
+    expect((await call('get_status', {})).viewUrl).toBe('https://requested.example/project/acme/ledger');
     expect((await call('get_workstream', { id: 'product' })).viewUrl).toContain('ws=product');
+  });
+
+  it('builds the address from the server, and only the ids from the project', async () => {
+    // A view link is this server talking about itself. `deployUrl` is a value in
+    // a repository, which can be stale, half-typed or left over from another
+    // deployment — and a link built from that points somewhere that is not this
+    // project, which is worse than no link.
+    const r = await call('get_workstream', { id: 'product' },
+      { config: CONFIG({ deployUrl: 'https://an-old-preview.vercel.app' }) });
+    expect(r.viewUrl).toBe('https://requested.example/project/acme/ledger?ws=product');
+    expect(r.viewUrl).not.toContain('an-old-preview');
+  });
+
+  it('still hands out the connector URL a project chose to record', async () => {
+    // The other direction, deliberately: that one is given to somebody else, and
+    // a project may want it to name a particular address.
+    const r = await call('get_connect_url', {},
+      { config: CONFIG({ deployUrl: 'https://ctx.acme.com' }) });
+    expect(r.url).toBe('https://ctx.acme.com/api/mcp/acme/ledger');
   });
 
   it('names no workstream for the project itself, which has no id', async () => {

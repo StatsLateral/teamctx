@@ -164,10 +164,11 @@ describe('a project that never recorded where it is deployed', () => {
 
 describe('what it does not touch', () => {
   it('leaves a link the handler built alone', async () => {
-    // A floor, not a second opinion: a project that records its own address — a
-    // custom domain, say — keeps the address it chose.
-    const r = await hosted('get_status', {}, { config: CONFIG({ deployUrl: 'https://ctx.acme.com' }) });
-    expect(r.viewUrl).toBe(`https://ctx.acme.com/project/${OWNER}/${REPO}`);
+    // A floor, not a second opinion. Here the handler built the link from the
+    // request's own address, as it should, and an address recorded in the
+    // repository does not get a say in a link to this server.
+    const r = await hosted('get_status', {}, { config: CONFIG({ deployUrl: 'https://an-old-preview.vercel.app' }) });
+    expect(r.viewUrl).toBe(`${HOST}/project/${OWNER}/${REPO}`);
   });
 
   it('adds nothing to a tool that owes nobody a link', async () => {

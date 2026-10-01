@@ -987,7 +987,16 @@ export function makeHandlers(projectRoot) {
      */
     async viewUrl({ ws = null, item = null, task = null, review = null } = {}) {
       const config = readConfig(dir());
-      const deployUrl = config.deployUrl || (isHosted ? projectRoot.baseUrl : '') || '';
+      // The address this request arrived at, first — the opposite of what
+      // `connectUrl` does, on purpose. A connector URL is handed to somebody else
+      // and a project may want to name a particular address for that. A view link
+      // is this server talking about itself: it knows where it is, where
+      // `config.deployUrl` is a value sitting in a repository that can be stale,
+      // half-typed, or left over from another deployment — any of which produces
+      // a link to somewhere that is not this project.
+      //
+      // The ids come from the project. Only the address comes from the server.
+      const deployUrl = (isHosted ? projectRoot.baseUrl : '') || config.deployUrl || '';
       const where = isHosted
         ? { owner: projectRoot.owner, repo: projectRoot.repo }
         : { remote: await originRemote(gitCwd) };
