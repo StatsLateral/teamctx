@@ -39,7 +39,15 @@ export const POLICIES = ['all', 'additive', 'none'];
 export const DEFAULT_POLICY = 'all';
 export const NEW_PROJECT_POLICY = DEFAULT_POLICY;
 
-const ADDITIVE_OPS = new Set(['addWhy', 'addWhat', 'addHow']);
+const NEVER_ADDITIVE_RECORDS = new Set(['decision', 'rule', 'exception']);
+
+// A task, or a record that only adds something low-stakes. Decisions, rules and
+// exceptions change what the whole team must follow, so they always wait.
+function opIsAdditive(op) {
+  if (op?.type === 'addTask') return true;
+  if (op?.type === 'addRecord') return !NEVER_ADDITIVE_RECORDS.has(op.record?.type);
+  return false;
+}
 
 export class InvalidReviewPolicyError extends Error {
   constructor(value) {
@@ -68,7 +76,7 @@ export function isAdditive(operations) {
   // to hold for review. (`contributeCore` returns a no-op before reaching here
   // anyway; this keeps the function answerable on its own terms.)
   if (ops.length === 0) return true;
-  return ops.every(op => ADDITIVE_OPS.has(op?.type));
+  return ops.every(opIsAdditive);
 }
 
 /**

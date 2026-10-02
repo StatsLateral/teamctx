@@ -5,9 +5,9 @@ import {
   InvalidReviewPolicyError,
 } from './review-policy.js';
 
-const add = (type = 'addWhy') => ({ type, text: 'x' });
-const del = () => ({ type: 'deleteStatement', id: 'abc' });
-const edit = () => ({ type: 'editStatement', id: 'abc', text: 'y' });
+const add = (type = 'why') => (type === 'task' ? { type: 'addTask', title: 'x' } : { type: 'addRecord', record: { type } });
+const del = () => ({ type: 'removeTask', id: 'abc' });
+const edit = () => ({ type: 'editRecord', id: 'abc', changes: { text: 'y' } });
 
 describe('reading the policy off a config', () => {
   it('treats a project that has never heard of the setting as "all"', () => {
@@ -42,13 +42,13 @@ describe('reading the policy off a config', () => {
   it('still lets a project ask for less, and still reads it back', () => {
     // The point is the default, not removing the choice.
     expect(reviewPolicy({ reviewPolicy: 'additive' })).toBe('additive');
-    expect(needsReview({ reviewPolicy: 'additive' }, [add('addWhy')])).toBe(false);
+    expect(needsReview({ reviewPolicy: 'additive' }, [add('why')])).toBe(false);
   });
 });
 
 describe('telling an addition from something that loses information', () => {
   it('counts the three add operations as additive', () => {
-    expect(isAdditive([add('addWhy'), add('addWhat'), add('addHow')])).toBe(true);
+    expect(isAdditive([add('why'), add('assumption'), add('task')])).toBe(true);
   });
 
   it('counts a delete or an edit as not additive', () => {
@@ -144,5 +144,23 @@ describe('rejecting a policy nobody can act on', () => {
     expect(err.message).toContain('sometimes');
     expect(err.message).toContain('all, additive, none');
     expect(err.code).toBe('INVALID_REVIEW_POLICY');
+  });
+});
+
+describe('isAdditive on the governed model', () => {
+  const rec = (type) => ({ type: 'addRecord', record: { type } });
+  it('tasks and low-stakes records are additive', () => {
+    expect(isAdditive([{ type: 'addTask', title: 't' }, rec('why'), rec('assumption'), rec('question'), rec('risk')])).toBe(true);
+  });
+  it('decisions, rules and exceptions never are', () => {
+    for (const t of ['decision', 'rule', 'exception']) expect(isAdditive([rec(t)])).toBe(false);
+  });
+  it('edits, status changes, removals and the goal never are', () => {
+    for (const type of ['editRecord', 'setRecordStatus', 'removeTask', 'editTask', 'setGoal']) {
+      expect(isAdditive([{ type }])).toBe(false);
+    }
+  });
+  it('additive policy still queues a decision', () => {
+    expect(needsReview({ reviewPolicy: 'additive' }, [rec('decision')])).toBe(true);
   });
 });
