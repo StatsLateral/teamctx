@@ -92,3 +92,15 @@ describe('touchedBy', () => {
     expect(ids[2]).toBe(tree.tasks[0].id);
   });
 });
+
+describe('touchedBy ordering', () => {
+  it('lists what this contribution created before what it only changed', () => {
+    const old = makeRecord({ id: 'rec-old', type: 'decision', text: 'Old' });
+    const { tree } = applyOps(makeProject({ records: [old] }), [
+      { type: 'addRecord', record: { type: 'decision', text: 'New', links: { replaces: 'rec-old' }, attachedTo: { kind: 'project' } } },
+    ], 'c-9');
+    const ids = touchedBy(tree, 'c-9');
+    expect(ids[0]).not.toBe('rec-old');
+    expect(ids).toContain('rec-old');
+  });
+});

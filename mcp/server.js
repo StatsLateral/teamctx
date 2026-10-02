@@ -31,6 +31,8 @@ import {
 import {
   listAllWorkstreams, useWorkstream, proposeStructure, addWorkstream,
 } from '../cli/commands/workstream.core.js';
+import { listRecords, getRecord } from '../cli/commands/records.core.js';
+import { assertJoinableContext } from '../src/context-gate.js';
 import { contributeCore } from '../cli/commands/contribute.core.js';
 import { buildBrief } from '../cli/commands/brief.core.js';
 import {
@@ -70,7 +72,7 @@ export const TOOLS = [
   // Tier 0 — read-only
   {
     name: 'get_context',
-    description: "Fetch the whole project: its own Why/What/How tree first, as `id: null`, then each workstream the caller may see. The project tree is the base every workstream inherits — a workstream's own entry holds only what is specific to it, so read both. Returns { workstreams: [{id, tree}, ...] }.",
+    description: "Fetch the whole project: its own goal, records and tasks first, as `id: null`, then each workstream the caller may see. The project tree is the base every workstream inherits — a workstream's own entry holds only what is specific to it, so read both. Returns { workstreams: [{id, tree}, ...] }.",
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
   },
   {
@@ -86,6 +88,26 @@ export const TOOLS = [
       properties: { id: { type: 'string' } },
       additionalProperties: false,
     },
+  },
+  {
+    name: 'list_records',
+    description: "Rules, decisions, assumptions, allowed exceptions, open questions, risks and the reasons behind the work, in the parts of the project you can see, in plain words. Filters: `type` (why|decision|assumption|rule|exception|question|risk), `status` (active by default; or replaced|broken|closed), `workstream` (an id; omit for everything), `owner`, and `due: true` for assumptions to re-check and exceptions about to expire. When you repeat one to the user, use its plain label (\"We decided:\", \"Rule:\", \"Allowed:\"…), never the type name.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        type: { type: 'string' },
+        status: { type: 'string' },
+        workstream: { type: 'string' },
+        owner: { type: 'string' },
+        due: { type: 'boolean' },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'get_record',
+    description: 'Fetch one governed record by id — its text, owner, dates, what it rests on or bends, and where it sits.',
+    inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'], additionalProperties: false },
   },
   {
     name: 'get_role_context',
@@ -220,7 +242,7 @@ export const TOOLS = [
   // Tier 1 — additive writes
   {
     name: 'contribute',
-    description: "**This is how anything gets into the shared context — there is no separate import step.** Reach for it both when a manager tells you what the project is about and when somebody sends finished work back. Defaults to enqueueing for the manager's review, so tell the user it was sent for review, not that it was added. **The exception is a project's first contribution**: when get_status shows totalWhys:0, pass apply:true so it lands rather than waiting on the manager to approve their own opening message. That is the only case for it — never for bulk content such as a long conversation or a document, which is exactly what review is for. apply:true writes immediately and is the manager's alone; asking for it without being the manager is not an error and loses nothing, the contribution simply takes the ordinary path and `applyRefused` says the flag was not honoured, so report where it went rather than sending the same text again. Optional decision:true tags it as a first-class decision. Returns { id, mode: \"queued\"|\"applied\"|\"no-op\", summary, operations, reportBack }. Returns `viewUrl`, the page where this can be read — always end your reply with it, on its own line, as a plain URL. `view` carries the ids it was built from (owner, repo and the ws/item/task/review it names), so a link can still be assembled from the project address if you need to. When `viewUrl` is null there is no address recorded for this project: say that rather than inventing one, and `viewUrlError` says why.",
+    description: "**This is how anything gets into the shared context — there is no separate import step.** Reach for it both when a manager tells you what the project is about and when somebody sends finished work back. Defaults to enqueueing for the manager's review, so tell the user it was sent for review, not that it was added. **The exception is the manager's first contribution**: when get_status shows hasContext:false it lands on its own, since nobody else could review it. apply:true writes immediately and is the manager's alone, never for bulk content such as a long conversation or a document, which is exactly what review is for; asking for it without being the manager is not an error and loses nothing, the contribution simply takes the ordinary path and `applyRefused` says the flag was not honoured, so report where it went rather than sending the same text again. The AI classifies what it holds into the goal, reasons, decisions, rules, allowed exceptions, assumptions, open questions, risks and tasks; `dropped` lists anything it proposed that was incomplete (for example an assumption with no owner) — say what was left out. Returns { id, mode: \"queued\"|\"applied\"|\"no-op\", summary, operations, reportBack }. Returns `viewUrl`, the page where this can be read — always end your reply with it, on its own line, as a plain URL. `view` carries the ids it was built from (owner, repo and the ws/item/task/review it names), so a link can still be assembled from the project address if you need to. When `viewUrl` is null there is no address recorded for this project: say that rather than inventing one, and `viewUrlError` says why.",
     inputSchema: {
       type: 'object',
       properties: {
@@ -597,8 +619,15 @@ function reportBackContribute(r) {
   // about to leave. Read it back while they can still correct it — this is the
   // only contribution that gets this, and it is a summary, not a recital.
   return `${applied} This founded the project's context, so summarise what is now in it from \`digest\`: `
-    + `its ${r.digest.totals.whys} goal${r.digest.totals.whys === 1 ? '' : 's'}, in a few sentences of your own words, `
+    + 'its goal, why it matters and how the work is split, in a few sentences of your own words, '
     + 'and ask whether anything is missing or wrong. Do not read the tree out item by item.';
+}
+
+/** Active records by type, across the given trees. */
+function recordCounts(trees) {
+  const out = {};
+  for (const t of trees) for (const r of t?.records || []) if (r.status === 'active') out[r.type] = (out[r.type] || 0) + 1;
+  return out;
 }
 
 export function makeHandlers(projectRoot) {
@@ -759,6 +788,19 @@ export function makeHandlers(projectRoot) {
       });
     },
 
+    async list_records(args = {}) {
+      const teamctxDir = dir();
+      const allowed = await scope(teamctxDir, readConfig(teamctxDir));
+      const records = listRecords({ teamctxDir, scope: allowed, ...args });
+      return textResult({ records, ...(allowed ? { scopedTo: allowed } : {}) });
+    },
+
+    async get_record({ id } = {}) {
+      const teamctxDir = dir();
+      const allowed = await scope(teamctxDir, readConfig(teamctxDir));
+      return textResult(getRecord({ teamctxDir, scope: allowed, id }));
+    },
+
     async get_workstream({ id } = {}) {
       const teamctxDir = dir();
       if (isProjectLevel(id)) {
@@ -897,11 +939,16 @@ export function makeHandlers(projectRoot) {
         actorSource: me.actor.source,
         activeWorkstream: me.workstream,
         projectDefaults: { me: config.me, activeWorkstream: config.activeWorkstream || null },
-        // The project tree counts. Without it a contribution to the project
-        // lands correctly and then reads as lost: totalWhys does not move and no
-        // workstream shows it.
-        projectWhys: (project.whys || []).length,
-        totalWhys: (project.whys || []).length + workstreams.reduce((n, w) => n + w.whyCount, 0),
+        // The project's own tree counts: a contribution to the project must not
+        // read as lost because no workstream shows it.
+        goal: project.goal?.text || null,
+        hasContext: !!project.goal || (project.records || []).length > 0 || (project.tasks || []).length > 0
+          || workstreams.some(w => w.recordCount > 0 || w.taskCount > 0),
+        counts: {
+          records: recordCounts([project, ...visible.map(id => readWorkstream(id, teamctxDir))]),
+          tasks: (project.tasks || []).length + workstreams.reduce((n, w) => n + w.taskCount, 0),
+          workstreams: workstreams.length,
+        },
         workstreams,
         ...(allowed ? { scopedTo: allowed } : {}),
         contributions: { total: contributions.length, decisions: decisions.length },
@@ -1259,11 +1306,21 @@ export function makeHandlers(projectRoot) {
     async get_connect_url() {
       const config = readConfig(dir());
       const link = await this.connectUrl();
+      // The same check `member_add` makes, so the link and the gate agree: a link
+      // to a project with nothing in it turns the person away.
+      let joinable = true;
+      let joinableReason = null;
+      try { assertJoinableContext({ config, teamctxDir: dir() }); }
+      catch (e) { if (e.code !== 'EMPTY_CONTEXT') throw e; joinable = false; joinableReason = e.message; }
       if (link.ok) {
         const { ok, ...r } = link;
         return textResult({
           ...r,
-          reportBack: `Connector URL for ${config.project || r.repo}: ${r.url} — send it to anyone on the project; they add it as a custom connector and sign in.`,
+          joinable,
+          joinableReason,
+          reportBack: joinable
+            ? `Connector URL for ${config.project || r.repo}: ${r.url} — send it to anyone on the project; they add it as a custom connector and sign in.`
+            : `Connector URL for ${config.project || r.repo}: ${r.url} — but nobody can be brought on yet. Tell the user: ${joinableReason}`,
         });
       }
       return textResult({

@@ -127,11 +127,7 @@ export async function readProjectView({ owner, repo, user }) {
     // is not scope.
     const projectTree = readProject();
     const trees = Object.fromEntries(
-      // `readWorkstream`, not `readTree`: a project part-way through the project
-      // layer migration can still declare a workstream called `main`, and
-      // `readTree` resolves that name to the project itself — so its lane would
-      // have shown the project's Whys, twice, and its own file not at all.
-      workstreams.map(w => [w.id, readWorkstream(w.id) || { id: w.id, name: w.name, whys: [] }]),
+      workstreams.map(w => [w.id, readWorkstream(w.id) || { id: w.id, name: w.name, records: [], tasks: [] }]),
     );
 
     const tasks = listTasks({}, undefined)
@@ -161,7 +157,7 @@ export async function readProjectView({ owner, repo, user }) {
       repo,
       isManager,
       scopedTo: allowed,
-      projectWhys: (projectTree.whys || []).length,
+      goal: projectTree.goal?.text || null,
       projectTree,
       trees,
       // Who wrote what, for the source dots and the drawer's names — and only
@@ -196,10 +192,8 @@ export async function readProjectView({ owner, repo, user }) {
 export function contributionsBehind(trees) {
   const wanted = new Set();
   for (const tree of trees) {
-    for (const why of tree?.whys || []) {
-      for (const node of [why, ...(why.whats || []).flatMap(w => [w, ...(w.hows || [])])]) {
-        for (const id of node.sourceContributionIds || []) wanted.add(id);
-      }
+    for (const node of [tree?.goal, ...(tree?.records || []), ...(tree?.tasks || [])].filter(Boolean)) {
+      for (const id of node.sourceContributionIds || []) wanted.add(id);
     }
   }
   if (wanted.size === 0) return {};

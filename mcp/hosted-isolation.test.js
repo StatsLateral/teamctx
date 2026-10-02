@@ -34,14 +34,9 @@ const CONFIG = {
   autoPush: false,
   roles: [],
   workstreams: [
-    { id: 'main', name: 'Ledger' },
     { id: 'engineering-hiring', name: 'Engineering Hiring' },
   ],
-  activeWorkstream: 'main',
-  workstreamsMigrated: true,
-  // Already migrated, so the tests below exercise the server rather than the
-  // migration. The legacy shape is a fixture of its own, at the end of the file.
-  projectLayerMigrated: true,
+  activeWorkstream: null,
 };
 
 /** Stands in for a prefetched GithubSession — same surface storage.js uses. */
@@ -51,9 +46,8 @@ function fakeSession() {
     ['.teamctx/contributions.jsonl', { content: '', sha: 'b' }],
     // Non-empty: nobody can be brought onto a project with nothing in it, so a
     // fixture with an empty tree would be testing that gate in every test here.
-    ['.teamctx/project.json', { content: JSON.stringify({ name: 'Ledger', whys: [{ id: 'p1', text: 'ship the ledger' }] }), sha: 'p' }],
-    ['.teamctx/workstreams/main.json', { content: JSON.stringify({ id: 'main', name: 'Ledger', whys: [] }), sha: 'c' }],
-    ['.teamctx/workstreams/engineering-hiring.json', { content: JSON.stringify({ id: 'engineering-hiring', name: 'Engineering Hiring', whys: [] }), sha: 'd' }],
+    ['.teamctx/project.json', { content: JSON.stringify({ name: 'Ledger', goal: null, records: [{ id: 'p1', type: 'why', text: 'ship the ledger', status: 'active' }], tasks: [] }), sha: 'p' }],
+    ['.teamctx/workstreams/engineering-hiring.json', { content: JSON.stringify({ id: 'engineering-hiring', name: 'Engineering Hiring', records: [], tasks: [] }), sha: 'd' }],
   ]);
   const commits = [];
   const commitOpts = [];
@@ -118,7 +112,7 @@ describe('two identities on the hosted server', () => {
     const session = fakeSession();
     await asUser(session, ALICE, h => h.workstream_use({ id: 'engineering-hiring' }));
 
-    expect(session.configJson().activeWorkstream).toBe('main');
+    expect(session.configJson().activeWorkstream).toBe(null);
     expect(session.commits).toEqual([]);
   });
 
@@ -239,8 +233,8 @@ describe('the manager gate cannot be talked around', () => {
   it('lets the pinned manager approve', async () => {
     const session = fakeSession();
     session.write('.teamctx/queue/q-1.json', JSON.stringify({
-      id: 'q-1', status: 'pending', workstream: 'main', author: 'bob',
-      operations: [{ type: 'addWhy', text: 't', summary: 's' }],
+      id: 'q-1', status: 'pending', workstream: null, author: 'bob',
+      operations: [{ type: 'addRecord', record: { type: 'why', text: 't', attachedTo: { kind: 'project' } } }],
     }));
     const r = await asUser(session, ALICE, h => json(h.review_approve({ id: 'q-1' })));
     expect(r.approvedBy).toBe('Alice Example');
@@ -513,7 +507,7 @@ describe('tasks on the hosted server', () => {
 /** The same fingerprint compileTask uses to decide whether a prompt is stale. */
 function hashOf(ws) {
   return createHash('sha1')
-    .update(JSON.stringify({ name: ws?.name || '', whys: ws?.whys || [] }))
+    .update(JSON.stringify({ name: ws?.name || '', goal: ws?.goal?.text || null, records: ws?.records || [], tasks: (ws?.tasks || []).map(t => t.title) }))
     .digest('hex').slice(0, 16);
 }
 
@@ -627,8 +621,8 @@ describe('a member scoped to one workstream', () => {
       workstreams: [{ id: 'product', name: 'Product' }, { id: 'engineering', name: 'Engineering' }],
       members: [{ key: RAVI.key, name: 'Ravi', email: RAVI.email, login: null, workstreams }],
     }));
-    s.write('.teamctx/workstreams/engineering.json', JSON.stringify({ id: 'engineering', name: 'Engineering', whys: [] }));
-    s.write('.teamctx/workstreams/product.json', JSON.stringify({ id: 'product', name: 'Product', whys: [] }));
+    s.write('.teamctx/workstreams/engineering.json', JSON.stringify({ id: 'engineering', name: 'Engineering', records: [] }));
+    s.write('.teamctx/workstreams/product.json', JSON.stringify({ id: 'product', name: 'Product', records: [] }));
     return s;
   };
 
@@ -708,11 +702,11 @@ describe('a member scoped to one workstream', () => {
   it('keeps project-level tasks in their list and drops a sibling one', async () => {
     const s = scoped();
     s.write('.teamctx/project.json', JSON.stringify({
-      name: 'Demo', whys: [],
+      name: 'Demo', records: [],
       tasks: [{ id: 't-proj', title: 'book the venue', status: 'open' }],
     }));
     s.write('.teamctx/workstreams/product.json', JSON.stringify({
-      id: 'product', name: 'Product', whys: [],
+      id: 'product', name: 'Product', records: [],
       tasks: [{ id: 't-prod', title: 'pricing page', status: 'open' }],
     }));
     const r = await asUser(s, RAVI, h => json(h.list_tasks({ all: true })));
@@ -725,11 +719,11 @@ describe('a member scoped to one workstream', () => {
   const withTasks = () => {
     const s = scoped();
     s.write('.teamctx/workstreams/engineering.json', JSON.stringify({
-      id: 'engineering', name: 'Engineering', whys: [{ id: 'e1', text: 'hire two' }],
+      id: 'engineering', name: 'Engineering', records: [{ id: 'e1', type: 'why', text: 'hire two', status: 'active' }],
       tasks: [{ id: 't-eng', title: 'write the ad', status: 'open', workstream: 'engineering' }],
     }));
     s.write('.teamctx/workstreams/product.json', JSON.stringify({
-      id: 'product', name: 'Product', whys: [{ id: 'pr1', text: 'pricing' }],
+      id: 'product', name: 'Product', records: [{ id: 'pr1', type: 'why', text: 'pricing', status: 'active' }],
       tasks: [{ id: 't-prod', title: 'pricing page', status: 'open', workstream: 'product' }],
     }));
     return s;
@@ -771,7 +765,7 @@ describe('a member scoped to one workstream', () => {
   it('still reaches a task on the project, which it inherits', async () => {
     const s = withTasks();
     s.write('.teamctx/project.json', JSON.stringify({
-      name: 'Ledger', whys: [{ id: 'p1', text: 'ship it' }],
+      name: 'Ledger', records: [{ id: 'p1', type: 'why', text: 'ship it', status: 'active' }],
       tasks: [{ id: 't-proj', title: 'book the venue', status: 'open' }],
     }));
     const r = await asUser(s, RAVI, h => json(h.get_task({ id: 't-proj' })));
@@ -885,7 +879,7 @@ describe('changing a scope from a chat client', () => {
     }));
     // Somebody can only be put on a workstream that has something to read.
     s.write('.teamctx/workstreams/engineering.json', JSON.stringify({
-      id: 'engineering', name: 'Engineering', whys: [{ id: 'e1', text: 'hire two engineers' }],
+      id: 'engineering', name: 'Engineering', records: [{ id: 'e1', type: 'why', text: 'hire two engineers', status: 'active' }],
     }));
     return s;
   };
@@ -950,20 +944,15 @@ describe('the project itself is always reachable', () => {
       workstreams: [{ id: 'product', name: 'Product' }, { id: 'engineering', name: 'Engineering' }],
       members: [{ key: RAVI.key, name: 'Ravi', email: RAVI.email, login: null, workstreams: ['engineering'] }],
     }));
-    s.write('.teamctx/project.json', JSON.stringify({ name: 'Ledger', whys: [{ id: 'p1', text: 'ship it', whats: [] }] }));
-    s.write('.teamctx/workstreams/engineering.json', JSON.stringify({ id: 'engineering', name: 'Engineering', whys: [] }));
-    s.write('.teamctx/workstreams/product.json', JSON.stringify({ id: 'product', name: 'Product', whys: [] }));
+    s.write('.teamctx/project.json', JSON.stringify({ name: 'Ledger', records: [{ id: 'p1', type: 'why', text: 'ship it', status: 'active' }] }));
+    s.write('.teamctx/workstreams/engineering.json', JSON.stringify({ id: 'engineering', name: 'Engineering', records: [] }));
+    s.write('.teamctx/workstreams/product.json', JSON.stringify({ id: 'product', name: 'Product', records: [] }));
     return s;
   };
 
   it('lets a scoped member read the project tree', async () => {
     const r = await asUser(scoped(), RAVI, h => json(h.get_workstream({})));
-    expect(r.whys[0].text).toBe('ship it');
-  });
-
-  it('lets them read it by the name it used to have', async () => {
-    const r = await asUser(scoped(), RAVI, h => json(h.get_workstream({ id: 'main' })));
-    expect(r.whys[0].text).toBe('ship it');
+    expect(r.records[0].text).toBe('ship it');
   });
 
   it('lets them move back to it after switching', async () => {
@@ -997,25 +986,25 @@ describe('what a hosted read must not miss', () => {
     // Replaces the fixture's project tree rather than adding to it, so the
     // counts below are this test's own.
     s.write('.teamctx/project.json', JSON.stringify({
-      name: 'Ledger', whys: [{ id: 'p1', text: 'nobody ships before Q3', whats: [] }],
+      name: 'Ledger', records: [{ id: 'p1', type: 'why', text: 'nobody ships before Q3', status: 'active' }],
     }));
-    s.write('.teamctx/workstreams/engineering.json', JSON.stringify({ id: 'engineering', name: 'Engineering', whys: [] }));
-    s.write('.teamctx/workstreams/product.json', JSON.stringify({ id: 'product', name: 'Product', whys: [] }));
+    s.write('.teamctx/workstreams/engineering.json', JSON.stringify({ id: 'engineering', name: 'Engineering', records: [] }));
+    s.write('.teamctx/workstreams/product.json', JSON.stringify({ id: 'product', name: 'Product', records: [] }));
     return s;
   };
 
-  it('counts the project tree in totalWhys', async () => {
+  it('counts the project tree in get_status', async () => {
     // It did not, so a contribution to the project moved nothing on screen and
     // read as an orphaned write.
     const r = await asUser(withProject(), ALICE, h => json(h.get_status()));
-    expect(r.projectWhys).toBe(1);
-    expect(r.totalWhys).toBe(1);
+    expect(r.hasContext).toBe(true);
+    expect(r.counts.records.why).toBe(1);
   });
 
   it('returns the project tree from get_context', async () => {
     const r = await asUser(withProject(), ALICE, h => json(h.get_context()));
     expect(r.workstreams[0].id).toBe(null);
-    expect(r.workstreams[0].tree.whys[0].text).toBe('nobody ships before Q3');
+    expect(r.workstreams[0].tree.records[0].text).toBe('nobody ships before Q3');
   });
 
   it('does not list a workstream in status that the caller cannot open', async () => {
@@ -1042,102 +1031,6 @@ describe('what a hosted read must not miss', () => {
     // open, which is both alarming and false.
     const r = await asUser(withProject(), ALICE, h => json(h.get_status()));
     expect(r.manager).toBe(CONFIG.managerKey);
-  });
-});
-
-describe('the project layer migration, run through a hosted session', () => {
-  /**
-   * Every other migration test runs against a real filesystem. Hosted projects
-   * are where most projects now are, and they reach storage through the session
-   * buffer instead — a path that was skipped entirely until this branch, so a
-   * hosted project would have sat unmigrated forever.
-   */
-  const legacy = () => {
-    const files = new Map([
-      ['.teamctx/config.json', { content: JSON.stringify({
-        ...CONFIG,
-        workstreams: [{ id: 'main', name: 'Ledger' }, { id: 'engineering', name: 'Engineering' }],
-        activeWorkstream: 'main',
-        roles: [{ slug: 'cpo', name: 'CPO', workstream: 'main' }],
-        workstreamsMigrated: true,
-        // The point of this fixture: a project from before the project layer.
-        projectLayerMigrated: undefined,
-      }), sha: 'a' }],
-      ['.teamctx/contributions.jsonl', { content: '', sha: 'b' }],
-      ['.teamctx/workstreams/main.json', { content: JSON.stringify({
-        id: 'main', name: 'Ledger',
-        whys: [{ id: 'w1', text: 'ship the ledger', whats: [] }],
-        tasks: [{ id: 't-old', title: 'book the venue', status: 'open', workstream: 'main' }],
-      }), sha: 'c' }],
-      ['.teamctx/workstreams/engineering.json', { content: JSON.stringify({
-        id: 'engineering', name: 'Engineering', whys: [{ id: 'e1', text: 'hire two' }],
-      }), sha: 'd' }],
-      ['.teamctx/context/workstreams/main.md', { content: '# Project Context — Ledger\n', sha: 'e' }],
-    ]);
-    const s = fakeSession();
-    s.read = p => files.get(p) || null;
-    s.write = (p, c) => files.set(p, { content: String(c), sha: null });
-    s.del = p => files.delete(p);
-    s.listDir = dirPath => {
-      const prefix = dirPath.endsWith('/') ? dirPath : `${dirPath}/`;
-      return [...files.keys()]
-        .filter(k => k.startsWith(prefix) && !k.slice(prefix.length).includes('/'))
-        .map(k => k.slice(prefix.length)).sort();
-    };
-    s.configJson = () => JSON.parse(files.get('.teamctx/config.json').content);
-    s.projectJson = () => JSON.parse(files.get('.teamctx/project.json').content);
-    s.has = p => files.has(p);
-    return s;
-  };
-
-  it('runs on the first tool call rather than leaving the project half-migrated', async () => {
-    const s = legacy();
-    await asUser(s, ALICE, h => json(h.get_status()));
-    expect(s.has('.teamctx/project.json')).toBe(true);
-    expect(s.configJson().projectLayerMigrated).toBe(true);
-  });
-
-  it('moves the context off main onto the project, and deletes main', async () => {
-    const s = legacy();
-    await asUser(s, ALICE, h => json(h.get_status()));
-    expect(s.projectJson().whys.map(w => w.id)).toEqual(['w1']);
-    expect(s.has('.teamctx/workstreams/main.json')).toBe(false);
-    expect(s.configJson().workstreams.map(w => w.id)).toEqual(['engineering']);
-  });
-
-  it('carries the tasks main was holding', async () => {
-    const s = legacy();
-    await asUser(s, ALICE, h => json(h.get_status()));
-    expect(s.projectJson().tasks.map(t => t.id)).toEqual(['t-old']);
-  });
-
-  it('rebinds a main-bound role and unsets the active workstream', async () => {
-    const s = legacy();
-    await asUser(s, ALICE, h => json(h.get_status()));
-    expect(s.configJson().roles[0].workstream).toBe(null);
-    expect(s.configJson().activeWorkstream).toBe(null);
-  });
-
-  it('leaves the caller reading the same context afterwards', async () => {
-    const s = legacy();
-    const r = await asUser(s, ALICE, h => json(h.get_context()));
-    expect(r.workstreams[0].id).toBe(null);
-    expect(r.workstreams[0].tree.whys[0].text).toBe('ship the ledger');
-    expect(r.workstreams.map(w => w.id)).not.toContain('main');
-  });
-
-  it('leaves the task reachable, not stranded in a file that is gone', async () => {
-    const s = legacy();
-    const r = await asUser(s, ALICE, h => json(h.get_task({ id: 't-old' })));
-    expect(r.title).toBe('book the venue');
-  });
-
-  it('does nothing the second time', async () => {
-    const s = legacy();
-    await asUser(s, ALICE, h => json(h.get_status()));
-    const after = JSON.stringify(s.projectJson());
-    await asUser(s, BOB, h => json(h.get_status()));
-    expect(JSON.stringify(s.projectJson())).toBe(after);
   });
 });
 
@@ -1173,7 +1066,7 @@ describe('nobody is brought onto an empty project, over the server', () => {
   // and neither of them will ever see a terminal.
   const emptyProject = () => {
     const s = fakeSession();
-    s.write('.teamctx/project.json', JSON.stringify({ name: 'Ledger', whys: [] }));
+    s.write('.teamctx/project.json', JSON.stringify({ name: 'Ledger', records: [] }));
     return s;
   };
 
@@ -1215,7 +1108,7 @@ describe('nobody is brought onto an empty project, over the server', () => {
     // declared it, so no client could send one.
     const s = fakeSession();
     s.write('.teamctx/workstreams/engineering-hiring.json', JSON.stringify({
-      id: 'engineering-hiring', name: 'Engineering Hiring', whys: [{ id: 'e1', text: 'hire two engineers' }],
+      id: 'engineering-hiring', name: 'Engineering Hiring', records: [{ id: 'e1', type: 'why', text: 'hire two engineers', status: 'active' }],
     }));
     const r = await asUser(s, ALICE, h => json(h.member_add({ ref: 'priyar', workstreams: ['engineering-hiring'] })));
     expect(r.member.workstreams).toEqual(['engineering-hiring']);
@@ -1242,15 +1135,15 @@ describe('the brief a member opens first', () => {
       members: [{ key: RAVI.key, name: 'Ravi', email: RAVI.email, login: null, workstreams: ['engineering'] }],
     }));
     s.write('.teamctx/project.json', JSON.stringify({
-      name: 'Ledger', whys: [{ id: 'p1', text: 'no new vendors' }],
+      name: 'Ledger', records: [{ id: 'p1', type: 'why', text: 'no new vendors', status: 'active' }],
       tasks: [{ id: 't-proj', title: 'book the venue', status: 'open', owner: 'Ravi' }],
     }));
     s.write('.teamctx/workstreams/engineering.json', JSON.stringify({
-      id: 'engineering', name: 'Engineering', whys: [{ id: 'e1', text: 'hire two' }],
+      id: 'engineering', name: 'Engineering', records: [{ id: 'e1', type: 'why', text: 'hire two', status: 'active' }],
       tasks: [{ id: 't-eng', title: 'write the ad', status: 'open', owner: 'Ravi' }],
     }));
     s.write('.teamctx/workstreams/product.json', JSON.stringify({
-      id: 'product', name: 'Product', whys: [{ id: 'pr1', text: 'pricing' }],
+      id: 'product', name: 'Product', records: [{ id: 'pr1', type: 'why', text: 'pricing', status: 'active' }],
       tasks: [{ id: 't-prod', title: 'pricing page', status: 'open', owner: 'Ravi' }],
     }));
     s.write('.teamctx/context/workstreams/engineering.md',
