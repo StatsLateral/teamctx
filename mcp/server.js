@@ -15,7 +15,6 @@ import { answerQuestion } from '../src/context.js';
 import { commitContext } from '../src/git.js';
 import { connectorUrl, originRemote } from '../cli/commands/connect.core.js';
 import { buildViewUrl } from '../src/view-url.js';
-import { migrateIfNeeded } from '../src/migrate.js';
 import { computeStats } from '../src/metrics.js';
 import { initProject } from '../cli/commands/init.core.js';
 import {
@@ -30,15 +29,16 @@ import {
   addRoleFull, assignRole,
 } from '../cli/commands/role.core.js';
 import {
-  listAllWorkstreams, suggestWorkstreamSplits, splitWorkstreams, useWorkstream, proposeStructure,
+  listAllWorkstreams, useWorkstream, proposeStructure, addWorkstream,
 } from '../cli/commands/workstream.core.js';
+import { listRecords, getRecord } from '../cli/commands/records.core.js';
+import { assertJoinableContext } from '../src/context-gate.js';
 import { contributeCore } from '../cli/commands/contribute.core.js';
 import { buildBrief } from '../cli/commands/brief.core.js';
 import {
   listTasksFiltered, getTask, addTask, setTaskStatus, assignTask, removeTask, compileTask,
 } from '../cli/commands/task.core.js';
 import { listMembers, addMember, removeMember, setMemberWorkstreams } from '../cli/commands/member.core.js';
-import { reflectWorkstream } from '../cli/commands/reflect.core.js';
 import { getConfig, setConfig, repairManagerGate, setReviewPolicy } from '../cli/commands/config.core.js';
 import { resolveActor } from '../src/actor.js';
 import { canApprove, managerKeys } from '../src/review.js';
@@ -72,7 +72,7 @@ export const TOOLS = [
   // Tier 0 — read-only
   {
     name: 'get_context',
-    description: "Fetch the whole project: its own Why/What/How tree first, as `id: null`, then each workstream the caller may see. The project tree is the base every workstream inherits — a workstream's own entry holds only what is specific to it, so read both. Returns { workstreams: [{id, tree}, ...] }.",
+    description: "Fetch the whole project: its own goal, records and tasks first, as `id: null`, then each workstream the caller may see. The project tree is the base every workstream inherits — a workstream's own entry holds only what is specific to it, so read both. Returns { workstreams: [{id, tree}, ...] }.",
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
   },
   {
@@ -88,6 +88,26 @@ export const TOOLS = [
       properties: { id: { type: 'string' } },
       additionalProperties: false,
     },
+  },
+  {
+    name: 'list_records',
+    description: "Rules, decisions, assumptions and allowed exceptions, with the reasons behind them, in the parts of the project you can see, in plain words. Filters: `type` (decision|assumption|rule|exception), `status` (active by default; or replaced|broken|closed), `workstream` (an id; omit for everything), `owner`, and `due: true` for assumptions to re-check and exceptions about to expire. When you repeat one to the user, use its plain label (\"We decided:\", \"Rule:\", \"Allowed:\"…), never the type name.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        type: { type: 'string' },
+        status: { type: 'string' },
+        workstream: { type: 'string' },
+        owner: { type: 'string' },
+        due: { type: 'boolean' },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'get_record',
+    description: 'Fetch one governed record by id — its text, owner, dates, what it rests on or bends, and where it sits.',
+    inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'], additionalProperties: false },
   },
   {
     name: 'get_role_context',
@@ -172,12 +192,7 @@ export const TOOLS = [
   },
   {
     name: 'propose_structure',
-    description: "Proposes how this project is organised: which parts of its context become workstreams, and for each, how a person's part in it is best expressed — as the tasks assigned to them, as a named role, or as owning the whole thread. Read-only: it writes nothing, and workstream_split is still what creates a workstream. Reach for it when a manager asks how to divide the work or where to put people. Present each proposal in plain language with its reason and let them accept, rename or skip one at a time; never apply the set wholesale. Each proposal also carries the roles that thread could use, which nothing creates until the workstream exists — role_add is still what creates one. On a project with no context yet it says so instead of guessing." + REPORT,
-    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
-  },
-  {
-    name: 'suggest_workstream_splits',
-    description: 'AI-propose sub-workstream splits for the active workstream (dry-run). Returns { splits: [{name, rationale, whyIds, whys}], leftover }. Use workstream_split to accept.',
+    description: "Proposes how this project is organised: which parts of its context become workstreams, and for each, how a person's part in it is best expressed — as the tasks assigned to them, as a named role, or as owning the whole thread. Read-only: it writes nothing, and workstream_add is what creates a workstream. Reach for it when a manager asks how to divide the work or where to put people. Present each part in plain language with its reason and let them accept, rename or skip one at a time; never apply the set wholesale. On a project with no context yet it says so instead of guessing." + REPORT,
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
   },
   {
@@ -227,7 +242,7 @@ export const TOOLS = [
   // Tier 1 — additive writes
   {
     name: 'contribute',
-    description: "**This is how anything gets into the shared context — there is no separate import step.** Reach for it both when a manager tells you what the project is about and when somebody sends finished work back. Defaults to enqueueing for the manager's review, so tell the user it was sent for review, not that it was added. **The exception is a project's first contribution**: when get_status shows totalWhys:0, pass apply:true so it lands rather than waiting on the manager to approve their own opening message. That is the only case for it — never for bulk content such as a long conversation or a document, which is exactly what review is for. apply:true writes immediately and is the manager's alone; asking for it without being the manager is not an error and loses nothing, the contribution simply takes the ordinary path and `applyRefused` says the flag was not honoured, so report where it went rather than sending the same text again. Optional decision:true tags it as a first-class decision. Returns { id, mode: \"queued\"|\"applied\"|\"no-op\", summary, operations, reportBack }. Returns `viewUrl`, the page where this can be read — always end your reply with it, on its own line, as a plain URL. `view` carries the ids it was built from (owner, repo and the ws/item/task/review it names), so a link can still be assembled from the project address if you need to. When `viewUrl` is null there is no address recorded for this project: say that rather than inventing one, and `viewUrlError` says why.",
+    description: "**This is how anything gets into the shared context — there is no separate import step.** Reach for it both when a manager tells you what the project is about and when somebody sends finished work back. Defaults to enqueueing for the manager's review, so tell the user it was sent for review, not that it was added. **The exception is the manager's first contribution**: when get_status shows hasContext:false it lands on its own, since nobody else could review it. apply:true writes immediately and is the manager's alone, never for bulk content such as a long conversation or a document, which is exactly what review is for; asking for it without being the manager is not an error and loses nothing, the contribution simply takes the ordinary path and `applyRefused` says the flag was not honoured, so report where it went rather than sending the same text again. The AI classifies what it holds into the goal and why it matters, decisions, rules, allowed exceptions, assumptions and tasks, with the reason for each in its detail; `dropped` lists anything it proposed that was incomplete (for example an assumption with no owner) — say what was left out. Returns { id, mode: \"queued\"|\"applied\"|\"no-op\", summary, operations, reportBack }. Returns `viewUrl`, the page where this can be read — always end your reply with it, on its own line, as a plain URL. `view` carries the ids it was built from (owner, repo and the ws/item/task/review it names), so a link can still be assembled from the project address if you need to. When `viewUrl` is null there is no address recorded for this project: say that rather than inventing one, and `viewUrlError` says why.",
     inputSchema: {
       type: 'object',
       properties: {
@@ -343,30 +358,21 @@ export const TOOLS = [
     },
   },
   {
-    name: 'workstream_split',
-    description: RISKY + 'creates new sub-workstreams by moving Why nodes out of the active one. Structural change — reshapes how the project is organized. Callers should pass the accepted array returned (or filtered) from suggest_workstream_splits. Confirm the split names + role moves with the user before calling.' + REPORT,
+    name: 'workstream_add',
+    description: RISKY + "adds a part of the work — at the top of the project, or under another part by passing `parent`. Manager-gated against the authenticated caller. Structure decides who reaches what: somebody on a workstream reaches every part below it, so confirm where it goes before calling. Returns the new workstream with its number (1, 1.2, …)." + REPORT,
     inputSchema: {
       type: 'object',
       properties: {
-        accepted: {
-          type: 'array',
-          items: {
-            type: 'object',
-            properties: {
-              name: { type: 'string' },
-              whyIds: { type: 'array', items: { type: 'string' } },
-              moveRoles: { type: 'array', items: { type: 'string' } },
-            },
-            required: ['name', 'whyIds'],
-          },
-        },
+        name: { type: 'string', description: 'What to call this part of the work, in plain words.' },
+        parent: { type: 'string', description: 'The id of the workstream to put it under. Omit for the top level.' },
       },
-      required: ['accepted'], additionalProperties: false,
+      required: ['name'],
+      additionalProperties: false,
     },
   },
   {
     name: 'workstream_use',
-    description: 'Changes the calling user\'s active workstream. All their subsequent contribute/ask/reflect calls without an explicit workstream target this one. Personal setting — it is not written to the repo and does not affect other users.' + REPORT,
+    description: 'Changes the calling user\'s active workstream. All their subsequent contribute/ask calls without an explicit workstream target this one. Personal setting — it is not written to the repo and does not affect other users.' + REPORT,
     inputSchema: {
       type: 'object',
       properties: {
@@ -430,15 +436,6 @@ export const TOOLS = [
         id: { type: 'string' }, reason: { type: 'string' },
       },
       required: ['id'], additionalProperties: false,
-    },
-  },
-  {
-    name: 'reflect',
-    description: RISKY + 'runs an AI rewrite of the workstream tree — condenses, deduplicates, and reorganizes Why nodes. It replaces the whole tree with the model\'s output: there is no diff, no queue, and nothing smaller to review, so it can lose statements other people wrote. Manager-only unless the project\'s review policy is "none". Confirm the scope with the user first, and say plainly that this rewrites everything rather than adding to it.' + REPORT,
-    inputSchema: {
-      type: 'object',
-      properties: { workstream: { type: 'string' } },
-      additionalProperties: false,
     },
   },
   {
@@ -622,8 +619,15 @@ function reportBackContribute(r) {
   // about to leave. Read it back while they can still correct it — this is the
   // only contribution that gets this, and it is a summary, not a recital.
   return `${applied} This founded the project's context, so summarise what is now in it from \`digest\`: `
-    + `its ${r.digest.totals.whys} goal${r.digest.totals.whys === 1 ? '' : 's'}, in a few sentences of your own words, `
+    + 'its goal, why it matters and how the work is split, in a few sentences of your own words, '
     + 'and ask whether anything is missing or wrong. Do not read the tree out item by item.';
+}
+
+/** Active records by type, across the given trees. */
+function recordCounts(trees) {
+  const out = {};
+  for (const t of trees) for (const r of t?.records || []) if (r.status === 'active') out[r.type] = (out[r.type] || 0) + 1;
+  return out;
 }
 
 export function makeHandlers(projectRoot) {
@@ -633,18 +637,8 @@ export function makeHandlers(projectRoot) {
   // (see src/session-context.js), so any truthy placeholder here is fine.
   const isHosted = typeof projectRoot === 'object' && projectRoot?.__backend === 'github';
   // Some tools (init) run before .teamctx/ exists, so they take projectRoot directly.
-  // migrateIfNeeded touches the filesystem directly, so it only runs locally.
-  let migrated = false;
   const dir = () => {
-    // Hosted used to return before this, because the migration touched the
-    // filesystem directly. It goes through the storage layer now, and skipping
-    // it left every hosted project half-migrated — `main` alive beside a project
-    // tree, which is the one state nothing is written to expect.
     const teamctxDir = isHosted ? projectRoot : getTeamctxDir(projectRoot);
-    if (!migrated) {
-      try { migrateIfNeeded(teamctxDir); } catch { /* best-effort */ }
-      migrated = true;
-    }
     return teamctxDir;
   };
 
@@ -794,6 +788,21 @@ export function makeHandlers(projectRoot) {
       });
     },
 
+    async list_records({ type, status, workstream, owner, due } = {}) {
+      const teamctxDir = dir();
+      const allowed = await scope(teamctxDir, readConfig(teamctxDir));
+      // Only the declared filters are passed on: scope, date and directory are
+      // the server's to decide, whatever else arrives in the arguments.
+      const records = listRecords({ teamctxDir, scope: allowed, type, status, workstream, owner, due });
+      return textResult({ records, ...(allowed ? { scopedTo: allowed } : {}) });
+    },
+
+    async get_record({ id } = {}) {
+      const teamctxDir = dir();
+      const allowed = await scope(teamctxDir, readConfig(teamctxDir));
+      return textResult(getRecord({ teamctxDir, scope: allowed, id }));
+    },
+
     async get_workstream({ id } = {}) {
       const teamctxDir = dir();
       if (isProjectLevel(id)) {
@@ -932,11 +941,16 @@ export function makeHandlers(projectRoot) {
         actorSource: me.actor.source,
         activeWorkstream: me.workstream,
         projectDefaults: { me: config.me, activeWorkstream: config.activeWorkstream || null },
-        // The project tree counts. Without it a contribution to the project
-        // lands correctly and then reads as lost: totalWhys does not move and no
-        // workstream shows it.
-        projectWhys: (project.whys || []).length,
-        totalWhys: (project.whys || []).length + workstreams.reduce((n, w) => n + w.whyCount, 0),
+        // The project's own tree counts: a contribution to the project must not
+        // read as lost because no workstream shows it.
+        goal: project.goal?.text || null,
+        hasContext: !!project.goal || (project.records || []).length > 0 || (project.tasks || []).length > 0
+          || workstreams.some(w => w.recordCount > 0 || w.taskCount > 0),
+        counts: {
+          records: recordCounts([project, ...visible.map(id => readWorkstream(id, teamctxDir))]),
+          tasks: (project.tasks || []).length + workstreams.reduce((n, w) => n + w.taskCount, 0),
+          workstreams: workstreams.length,
+        },
         workstreams,
         ...(allowed ? { scopedTo: allowed } : {}),
         contributions: { total: contributions.length, decisions: decisions.length },
@@ -1294,11 +1308,21 @@ export function makeHandlers(projectRoot) {
     async get_connect_url() {
       const config = readConfig(dir());
       const link = await this.connectUrl();
+      // The same check `member_add` makes, so the link and the gate agree: a link
+      // to a project with nothing in it turns the person away.
+      let joinable = true;
+      let joinableReason = null;
+      try { assertJoinableContext({ config, teamctxDir: dir() }); }
+      catch (e) { if (e.code !== 'EMPTY_CONTEXT') throw e; joinable = false; joinableReason = e.message; }
       if (link.ok) {
         const { ok, ...r } = link;
         return textResult({
           ...r,
-          reportBack: `Connector URL for ${config.project || r.repo}: ${r.url} — send it to anyone on the project; they add it as a custom connector and sign in.`,
+          joinable,
+          joinableReason,
+          reportBack: joinable
+            ? `Connector URL for ${config.project || r.repo}: ${r.url} — send it to anyone on the project; they add it as a custom connector and sign in.`
+            : `Connector URL for ${config.project || r.repo}: ${r.url} — but nobody can be brought on yet. Tell the user: ${joinableReason}`,
         });
       }
       return textResult({
@@ -1381,31 +1405,16 @@ export function makeHandlers(projectRoot) {
           ...r,
           reportBack: r.why
             ? `Tell the user: ${r.why}`
-            : 'Tell the user: this project does not split cleanly yet — one thread is a fine shape for it.',
+            : 'Tell the user: this project does not need more than one part yet — that is a fine shape for it.',
         });
       }
       const lines = r.workstreams
-        .map(w => {
-          const roles = w.roles.length ? `; roles it could use: ${w.roles.map(x => x.name).join(', ')}` : '';
-          return `${w.name} (${w.whys.length} ${w.whys.length === 1 ? 'goal' : 'goals'}) — ${w.rationale}; ${w.membership.means}${roles}`;
-        })
+        .map(w => `${w.name}${w.parent ? ` (under ${w.parent})` : ''} — ${w.rationale}; ${w.membership.means}; ${w.tasks.length} tasks, ${w.records.length} records`)
         .join(' | ');
+      const questions = r.questions.length ? ` Open questions the material raised: ${r.questions.join(' | ')}.` : '';
       return textResult({
         ...r,
-        reportBack: `Tell the user these are suggestions and nothing has changed, then walk through them one at a time: ${lines}`,
-      });
-    },
-
-    async suggest_workstream_splits() {
-      const teamctxDir = dir();
-      const result = await suggestWorkstreamSplits({
-        workstreamId: await targetWorkstream(teamctxDir, readConfig(teamctxDir), undefined),
-        teamctxDir, projectDir: gitCwd,
-      });
-      return textResult({
-        activeId: result.activeId,
-        splits: result.splits,
-        leftover: result.leftover,
+        reportBack: `Tell the user this is a draft and nothing has changed, then walk through it one part at a time: ${lines}.${questions} Add the parts they want with workstream_add.`,
       });
     },
 
@@ -1476,7 +1485,7 @@ export function makeHandlers(projectRoot) {
         source: 'mcp',
       });
       const reportBack = `Tell the user: teamctx initialized at ${r.projectDir} for project "${r.config.project}"` +
-        (r.envVarPresent ? '' : ` — WARNING: ${r.envVarNeeded} is not set in the environment; ask/contribute/reflect will fail until it is.`) +
+        (r.envVarPresent ? '' : ` — WARNING: ${r.envVarNeeded} is not set in the environment; ask/contribute will fail until it is.`) +
         (r.pushed ? '. Committed and pushed.' : '. Committed (no remote configured yet).');
       return textResult({
         projectDir: r.projectDir,
@@ -1524,19 +1533,12 @@ export function makeHandlers(projectRoot) {
       return textResult({ ...r, reportBack });
     },
 
-    async workstream_split(args) {
-      const teamctxDir = dir();
-      const config = readConfig(teamctxDir);
-      const r = await splitWorkstreams({
-        accepted: args.accepted,
-        // Resolved here rather than from the caller's stored preference, which
-        // can still name a workstream they have been scoped off since.
-        workstreamId: await targetWorkstream(teamctxDir, config, undefined),
-        teamctxDir, projectDir: gitCwd,
+    async workstream_add({ name, parent } = {}) {
+      const r = await addWorkstream({ name, parent: parent || null, teamctxDir: dir(), projectDir: gitCwd });
+      return textResult({
+        ...r,
+        reportBack: `Tell the user: added ${r.workstream.number} "${r.workstream.name}"${parent ? ' under its parent' : ''}. Anyone put on it reaches every part below it.`,
       });
-      const summary = r.results.map(x => `"${x.splitName}" (${x.newId}, ${x.movedWhyCount} Whys${x.movedRoles.length ? `, moved roles ${x.movedRoles.join(',')}` : ''})`).join('; ');
-      const reportBack = `Tell the user: split ${targetLabel(r.sourceId, config.project)} into ${r.results.length} new workstream${r.results.length === 1 ? '' : 's'}: ${summary}.`;
-      return textResult({ ...r, reportBack });
     },
 
     async workstream_use({ id } = {}) {
@@ -1587,18 +1589,6 @@ export function makeHandlers(projectRoot) {
       const r = await rejectSnapshot({ prefix: id, reason, teamctxDir: dir(), projectDir: gitCwd });
       const reportBack = `Tell the user: snapshot ${r.id} rejected${r.reason ? ` (reason: ${r.reason})` : ''}.`;
       return textResult({ ...r, reportBack });
-    },
-
-    async reflect({ workstream } = {}) {
-      const teamctxDir = dir();
-      // Reflect rewrites a tree wholesale. Under `reviewPolicy: none` nothing
-      // else stands between a scoped member and a workstream they cannot read.
-      const r = await reflectWorkstream({
-        workstreamId: await targetWorkstream(teamctxDir, readConfig(teamctxDir), workstream),
-        teamctxDir, projectDir: gitCwd,
-      });
-      const reportBack = `Tell the user: reflected ${targetLabel(r.workstreamId, readConfig(teamctxDir).project)}${r.rolesRegenerated.length ? `; regenerated roles: ${r.rolesRegenerated.join(', ')}` : ''}${r.pushed ? '; pushed' : ''}.`;
-      return textResult({ workstreamId: r.workstreamId, rolesRegenerated: r.rolesRegenerated, pushed: r.pushed, pushError: r.pushError, reportBack });
     },
 
     async manager_list() {
@@ -1653,7 +1643,7 @@ export function makeHandlers(projectRoot) {
       const said = {
         all: 'every contribution now waits for the manager',
         additive: 'contributions that only add now land immediately; edits and deletes wait for the manager',
-        none: 'contributions now land immediately, and any member can rewrite the shared context with reflect',
+        none: 'contributions now land immediately',
       }[r.to];
       const what = r.from === r.to
         ? `Review policy was already ${r.to} — nothing changed.`

@@ -1,3 +1,5 @@
+import { chainFor } from '../../src/recompile.js';
+import { isActive } from '../../src/model.js';
 import { createHash } from 'crypto';
 import {
   readProject, readConfig, readTree, listTasks, readTask, writeTask, deleteTask,
@@ -48,16 +50,22 @@ export class UnknownRoleError extends Error {
 }
 
 /**
- * Fingerprints the Why tree a prompt was compiled from.
+ * Fingerprints the context a prompt was compiled from.
  *
  * `compileTask` skips the AI call when this is unchanged, which is what makes
- * re-running it cheap. Only the name and the whys go in: a task's own fields
- * change constantly and have no bearing on whether the prompt is stale.
+ * re-running it cheap. The name, goal and records go in, and the other tasks'
+ * titles: a task's own status changes constantly and has no bearing on whether
+ * the prompt is stale.
  */
-function whysHash(workstream) {
+function contextHash(tree) {
   const material = JSON.stringify({
-    name: workstream?.name || '',
-    whys: workstream?.whys || [],
+    name: tree?.name || '',
+    goal: tree?.goal?.text || null,
+    records: tree?.records || [],
+    tasks: (tree?.tasks || []).map(t => t.title),
+    // Which records hold today: an exception that has since expired makes the
+    // prompt stale even though no file changed.
+    active: (tree?.records || []).filter(r => isActive(r)).map(r => r.id),
   });
   return createHash('sha1').update(material).digest('hex').slice(0, 16);
 }
@@ -266,7 +274,7 @@ export async function compileTask({
   const { task } = findTask(id, teamctxDir);
   const wsId = resolveTarget(task.workstream);
   const workstream = readTree(wsId, teamctxDir);
-  const currentHash = whysHash(workstream);
+  const currentHash = contextHash(workstream);
 
   if (!force && taskFileExists(task.id, teamctxDir) && task.compiledFromHash === currentHash) {
     return {
@@ -290,9 +298,11 @@ export async function compileTask({
   // A task on the project is compiled from the project tree, so passing that
   // same tree again as the inherited half printed every Why twice — once under
   // a "read-only here" heading that makes no sense on the thing it came from.
+  // Every part above the task's own, so its prompt carries their rules too.
   const markdown = await compileTaskPrompt({
     task, workstream, role, contributions, config,
     project: isProjectLevel(wsId) ? null : readProject(teamctxDir),
+    chain: isProjectLevel(wsId) ? null : chainFor({ config, id: wsId, teamctxDir }),
   });
   writeTaskFile(task.id, markdown, teamctxDir);
 

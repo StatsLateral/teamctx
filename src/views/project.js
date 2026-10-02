@@ -1,4 +1,5 @@
 import { shell, navBar, esc } from './theme.js';
+import { LABELS, RECORD_TYPES, isActive, today } from '../model.js';
 
 /**
  * Where a project stands: its context, its work, and what waits on the manager.
@@ -181,20 +182,28 @@ const SCRIPT = `
   if (pick) pick.addEventListener('change', function () { this.form.submit(); });
 }());`;
 
-/** `1`, `1.2`, `1.2.3` — what the columns number each row with. */
-const numbering = (tree) => {
+/**
+ * The rows a part of the work shows: why it matters, then what the team relies
+ * on (each exception straight after the rule it bends), then the tasks.
+ * Only active records — a replaced decision is history, not context.
+ */
+const numbering = (tree, onDay = today()) => {
+  // Only the known types: a type read from the repository is somebody else's
+  // text, and it ends up in markup.
+  const active = (tree?.records || []).filter(r => RECORD_TYPES.includes(r.type) && isActive(r, onDay) && r.attachedTo?.kind !== 'task');
   const rows = [];
-  (tree?.whys || []).forEach((why, i) => {
-    rows.push({ node: why, tier: 'why', n: `${i + 1}` });
-    (why.whats || []).forEach((what, j) => {
-      rows.push({ node: what, tier: 'what', n: `${i + 1}.${j + 1}`, parent: why });
-      (what.hows || []).forEach((how, k) => {
-        rows.push({ node: how, tier: 'how', n: `${i + 1}.${j + 1}.${k + 1}`, parent: what, grand: why });
-      });
-    });
-  });
+  let k = 0;
+  for (const r of active.filter(x => x.type !== 'exception')) {
+    rows.push({ node: r, tier: r.type, n: `${++k}` });
+    if (r.type !== 'rule') continue;
+    for (const e of active.filter(x => x.type === 'exception' && x.links?.bends === r.id)) {
+      rows.push({ node: e, tier: 'exception', n: `${k}a`, parent: r });
+    }
+  }
+  (tree?.tasks || []).forEach((t, i) => rows.push({ node: { ...t, text: t.title }, tier: 'task', n: `${i + 1}` }));
   return rows;
 };
+const columnOf = (row) => (row.tier === 'task' ? 'task' : 'record');
 
 /**
  * Where the most recent contribution behind a statement came from.
@@ -250,11 +259,9 @@ function promptFor({ node, tier, where, wsId, isProject, owner, repo, link, pare
   // assistant left to find the parents reads the whole project, and then answers
   // with the whole project — but labelling them by tier taught it to answer in
   // those labels too. A goal is a goal, whatever the file calls it.
-  const lineage = tier === 'how' && parent && grand
-    ? `It is one of the things "${parent.text}" needs, and the goal behind that is "${grand.text}".`
-    : tier === 'how' && parent ? `It is one of the things "${parent.text}" needs.`
-      : tier === 'what' && parent ? `It is part of what the goal "${parent.text}" needs.`
-        : '';
+  const lineage = tier === 'exception' && parent
+    ? `It is an allowed exception to the rule "${parent.text}".`
+    : '';
 
   const line = (...lines) => lines.filter(Boolean).join('\n');
 
@@ -266,7 +273,7 @@ function promptFor({ node, tier, where, wsId, isProject, owner, repo, link, pare
     line(
       'Instructions for the AI agent:',
       `- Confirm you are connected to the repository ${owner}/${repo}. get_connect_url returns a URL containing the owner and repo. If it is a different one, stop and tell me, rather than answering from the project you are connected to.`,
-      `- Find this ${tier}, quoted word for word, in ${place}: "${node.text}". If it is not there, say so plainly rather than answering about the closest thing you can find.`,
+      `- Find this, quoted word for word, in ${place}: "${node.text}". If it is not there, say so plainly rather than answering about the closest thing you can find.`,
       '- Then tell me about that one thing, the way a colleague would: why it is there, what it requires, and what is still open for it.',
       '- Do not explain how the project stores any of this, do not walk me back up the structure it sits in, and do not name its parts. Where something has not been decided yet, say so and move on.',
       '- Keep to this one thing. Do not summarise the rest of the project, list its other goals or tasks, or report what is open elsewhere, unless I ask.',
@@ -293,9 +300,9 @@ function itemButton({ row, contributions, where, project, marked, isProject, own
     })}` : null,
   });
   const who = whoTouched(node, contributions);
-  return `<button class="item tier-${tier}${marked ? ' marked' : ''}" id="i-${esc(node.id)}"
-  data-text="${esc(node.text)}" data-kind="${esc(`${tier} ${n}`)}"
-  data-summary="${esc(node.summary || '')}" data-who="${esc(who.join(', '))}"
+  return `<button class="item tier-${esc(tier)}${marked ? ' marked' : ''}" id="i-${esc(node.id)}"
+  data-text="${esc(node.text)}" data-kind="${esc(`${tier === 'task' ? 'Task' : (LABELS[tier] || '').replace(/:$/, '')} ${n}`)}"
+  data-summary="${esc(node.detail || node.summary || '')}" data-who="${esc(who.join(', '))}"
   data-prompt="${escAttr(prompt)}">
   <span class="dot ${kindOf(node, contributions)}"></span>
   <span class="num">${n}</span>
@@ -304,10 +311,10 @@ function itemButton({ row, contributions, where, project, marked, isProject, own
 }
 
 const columns = ({ rows, contributions, where, project, item, isProject, owner, repo, wsId, origin }) => `<div class="columns">
-  ${['why', 'what', 'how'].map(tier => `<section class="col">
-    <div class="col-head">${tier === 'why' ? 'Why' : tier === 'what' ? 'What' : 'How'}</div>
+  ${['record', 'task'].map(col => `<section class="col">
+    <div class="col-head">${col === 'record' ? 'Rules, decisions & assumptions' : 'Tasks'}</div>
     <div class="col-body">
-      ${rows.filter(r => r.tier === tier).map(row => itemButton({
+      ${rows.filter(r => columnOf(r) === col).map(row => itemButton({
     row, contributions, where, project, isProject, owner, repo, wsId, origin, marked: row.node.id === item,
   })).join('')
     || '<p class="muted" style="margin:6px 8px">Nothing here yet.</p>'}
@@ -337,13 +344,18 @@ export const projectPage = ({ user, view, selected, viewMode = 'columns', item =
     return `${base}${q.toString() ? `?${q}` : ''}`;
   };
 
-  // The project's own Whys sit above a workstream's, the way teamctx composes
-  // context: inherited, not owned, and said so rather than blended in.
-  const inherited = !isProject && (view.projectTree?.whys || []).length
+  // The project's goal and its active records sit above a workstream's, the way
+  // teamctx composes context: inherited, not owned, and said so.
+  const inheritedRows = isProject ? [] : [
+    ...(view.projectTree?.goal?.text ? [{ text: `Goal: ${view.projectTree.goal.text}`, node: view.projectTree.goal }] : []),
+    ...(view.projectTree?.records || []).filter(r => isActive(r) && r.type !== 'exception')
+      .map(r => ({ text: `${LABELS[r.type]} ${r.text}`, node: r })),
+  ];
+  const inherited = inheritedRows.length
     ? `<div class="inherited">
       <div class="section-title">Project context — inherited</div>
-      ${(view.projectTree.whys || []).map(w => `<div class="inherit-row">
-        <span class="dot ${kindOf(w, view.contributions)}"></span>
+      ${inheritedRows.map(w => `<div class="inherit-row">
+        <span class="dot ${kindOf(w.node, view.contributions)}"></span>
         <span class="text">${esc(w.text)}</span>
       </div>`).join('')}
     </div>`
@@ -367,8 +379,8 @@ ${note ? `<p class="note">${esc(note)}</p>` : ''}
   <aside>
     <div class="section-title">The work</div>
     <div class="lanes">
-      ${lane(null, view.project || 'Project', [], (view.projectTree?.whys || []).length, isProject)}
-      ${view.workstreams.map(w => lane(w.id, w.name, w.members, (view.trees[w.id]?.whys || []).length, w.id === selected)).join('')}
+      ${lane(null, view.project || 'Project', [], (view.projectTree?.records || []).filter(r => isActive(r)).length, isProject)}
+      ${view.workstreams.map(w => lane(w.id, w.name, w.members, (view.trees[w.id]?.records || []).filter(r => isActive(r)).length, w.id === selected)).join('')}
     </div>
 <form class="lane-pick" method="GET" action="${base}">
       ${viewMode === 'list' ? '<input type="hidden" name="view" value="list">' : ''}

@@ -4,6 +4,11 @@
 **Status:** Model and sequence approved in conversation; spec pending review
 **Rollout:** clean break. teamctx is pre-launch, so the Why → What → How tree is
 replaced outright, with no migration and no compatibility layer.
+**MVP narrowing (2026-10-02, maintainer decision):** records are limited to four
+types — `decision`, `assumption`, `rule`, `exception`. *Why* becomes the goal's
+`why` and each record's `detail`; *question* and *risk* are dropped until the
+experiment shows they are needed. Sections below that list seven types describe
+the full design; the code implements the four.
 **Builds on:** decisions-first-class (2026-07-03), context inheritance (2026-09-09),
 review policy (#109), workstream scope (#77/#85), context view (#103), read log (#111)
 

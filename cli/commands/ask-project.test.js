@@ -26,8 +26,8 @@ const { readConfig, readTree, readTreeMd, readProject, listTasks } = await impor
 const { answerQuestion } = await import('../../src/context.js');
 const { currentIdentity } = await import('../identity.js');
 
-const PROJECT = { name: 'Ledger', whys: [{ id: 'p1', text: 'no new vendors', whats: [] }] };
-const WS = { id: 'delivery', name: 'Delivery', whys: [{ id: 'w1', text: 'ship it', whats: [] }] };
+const PROJECT = { name: 'Ledger', records: [{ id: 'p1', type: 'decision', text: 'no new vendors', status: 'active' }], tasks: [] };
+const WS = { id: 'delivery', name: 'Delivery', records: [{ id: 'w1', type: 'decision', text: 'ship it', status: 'active' }], tasks: [] };
 
 const args = () => answerQuestion.mock.calls[0][0];
 
@@ -67,10 +67,6 @@ describe('at project level', () => {
     expect(listTasks).toHaveBeenCalledWith({ workstream: null });
   });
 
-  it('treats an explicit "main" as the project, since main is gone', async () => {
-    await askCommand('what are we doing?', { workstream: 'main' });
-    expect(readTree).toHaveBeenCalledWith(null);
-  });
 });
 
 describe('inside a workstream', () => {

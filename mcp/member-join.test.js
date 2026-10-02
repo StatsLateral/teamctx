@@ -23,7 +23,7 @@ vi.mock('../src/context.js', async (importOriginal) => ({
   updateShared: vi.fn(async (workstream) => ({
     workstream,
     summary: 'Noted the pricing constraint.',
-    operations: [{ op: 'add', path: 'whys', value: 'Pricing has to survive a renewal' }],
+    operations: [{ type: 'addRecord', record: { type: 'rule', text: 'Pricing has to survive a renewal', attachedTo: { kind: 'project' } } }],
   })),
 }));
 
@@ -44,17 +44,16 @@ const CONFIG = {
   model: 'claude-sonnet-4-6',
   autoPush: false,
   roles: [],
-  workstreams: [{ id: 'main', name: 'Ledger' }],
-  activeWorkstream: 'main',
-  workstreamsMigrated: true,
+  workstreams: [],
+  activeWorkstream: null,
 };
 
 function fakeSession() {
   const files = new Map([
     ['.teamctx/config.json', { content: JSON.stringify(CONFIG), sha: 'a' }],
     ['.teamctx/contributions.jsonl', { content: '', sha: 'b' }],
-    ['.teamctx/workstreams/main.json', {
-      content: JSON.stringify({ id: 'main', name: 'Ledger', whys: ['Ship a ledger people trust'] }), sha: 'c',
+    ['.teamctx/project.json', {
+      content: JSON.stringify({ name: 'Ledger', goal: { text: 'Ship a ledger people trust' }, records: [], tasks: [] }), sha: 'c',
     }],
   ]);
   const commits = [];
@@ -109,9 +108,7 @@ describe('an invited member joining a project that already exists', () => {
     // The property that makes a shared context worth trusting: a member can
     // propose anything and change nothing.
     const session = fakeSession();
-    // Read after one call, so the project-layer migration has already folded
-    // `main` away: the shared tree is the project's, and that is what must not
-    // move.
+    // The shared tree is the project's, and that is what must not move.
     await asUser(session, MEMBER, h => json(h.get_status()));
     const before = session.read('.teamctx/project.json').content;
     await asUser(session, MEMBER, h => json(h.contribute({ text: 'Pricing has to survive a renewal' })));

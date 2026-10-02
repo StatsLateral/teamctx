@@ -1,13 +1,13 @@
 import { describe, it, expect } from 'vitest';
 import {
   POLICIES, DEFAULT_POLICY, NEW_PROJECT_POLICY,
-  reviewPolicy, isAdditive, needsReview, reflectNeedsManager,
+  reviewPolicy, isAdditive, needsReview,
   InvalidReviewPolicyError,
 } from './review-policy.js';
 
-const add = (type = 'addWhy') => ({ type, text: 'x' });
-const del = () => ({ type: 'deleteStatement', id: 'abc' });
-const edit = () => ({ type: 'editStatement', id: 'abc', text: 'y' });
+const add = (type = 'assumption') => (type === 'task' ? { type: 'addTask', title: 'x' } : { type: 'addRecord', record: { type } });
+const del = () => ({ type: 'removeTask', id: 'abc' });
+const edit = () => ({ type: 'editRecord', id: 'abc', changes: { text: 'y' } });
 
 describe('reading the policy off a config', () => {
   it('treats a project that has never heard of the setting as "all"', () => {
@@ -42,13 +42,13 @@ describe('reading the policy off a config', () => {
   it('still lets a project ask for less, and still reads it back', () => {
     // The point is the default, not removing the choice.
     expect(reviewPolicy({ reviewPolicy: 'additive' })).toBe('additive');
-    expect(needsReview({ reviewPolicy: 'additive' }, [add('addWhy')])).toBe(false);
+    expect(needsReview({ reviewPolicy: 'additive' }, [add('assumption')])).toBe(false);
   });
 });
 
 describe('telling an addition from something that loses information', () => {
   it('counts the three add operations as additive', () => {
-    expect(isAdditive([add('addWhy'), add('addWhat'), add('addHow')])).toBe(true);
+    expect(isAdditive([add('assumption'), add('task')])).toBe(true);
   });
 
   it('counts a delete or an edit as not additive', () => {
@@ -112,37 +112,44 @@ describe('deciding whether a contribution waits', () => {
   });
 });
 
-describe('who may rewrite the whole tree with reflect', () => {
-  const gated = { managerKey: 'git:manager@example.com' };
-
-  it('is the manager under "all" and "additive"', () => {
-    expect(reflectNeedsManager({ ...gated, reviewPolicy: 'all' })).toBe(true);
-    expect(reflectNeedsManager({ ...gated, reviewPolicy: 'additive' })).toBe(true);
-  });
-
-  it('is anyone under "none", which is what reflect did before this existed', () => {
-    // A project that relied on members running reflect keeps that behaviour by
-    // choosing `none` — no behaviour becomes unreachable.
-    expect(reflectNeedsManager({ ...gated, reviewPolicy: 'none' })).toBe(false);
-  });
-
-  it('is anyone on a project with no manager pinned', () => {
-    // Same bootstrap case the approval gate has: with nobody pinned there is
-    // no one to assert against, and refusing everyone would strand the project.
-    expect(reflectNeedsManager({ reviewPolicy: 'all' })).toBe(false);
-  });
-
-  it('defaults to manager-only for an existing gated project', () => {
-    // The one behaviour change on upgrade, and the one worth a changelog line.
-    expect(reflectNeedsManager(gated)).toBe(true);
-  });
-});
-
 describe('rejecting a policy nobody can act on', () => {
   it('names the value and the valid ones', () => {
     const err = new InvalidReviewPolicyError('sometimes');
     expect(err.message).toContain('sometimes');
     expect(err.message).toContain('all, additive, none');
     expect(err.code).toBe('INVALID_REVIEW_POLICY');
+  });
+});
+
+describe('isAdditive on the governed model', () => {
+  const rec = (type) => ({ type: 'addRecord', record: { type } });
+  it('tasks and assumptions are additive', () => {
+    expect(isAdditive([{ type: 'addTask', title: 't' }, rec('assumption')])).toBe(true);
+  });
+  it('decisions, rules and exceptions never are', () => {
+    for (const t of ['decision', 'rule', 'exception']) expect(isAdditive([rec(t)])).toBe(false);
+  });
+  it('edits, status changes, removals and the goal never are', () => {
+    for (const type of ['editRecord', 'setRecordStatus', 'removeTask', 'editTask', 'setGoal']) {
+      expect(isAdditive([{ type }])).toBe(false);
+    }
+  });
+  it('additive policy still queues a decision', () => {
+    expect(needsReview({ reviewPolicy: 'additive' }, [rec('decision')])).toBe(true);
+  });
+});
+
+describe('retiring or settling something is never a quiet addition', () => {
+  it('an addition that replaces an existing record is not additive', () => {
+    expect(isAdditive([{ type: 'addRecord', record: { type: 'decision', text: 'x', links: { replaces: 'rec-d' } } }])).toBe(false);
+  });
+  it('decisions, rules and exceptions need the manager even under "none"', () => {
+    for (const t of ['decision', 'rule', 'exception']) {
+      expect(needsReview({ reviewPolicy: 'none' }, [{ type: 'addRecord', record: { type: t, text: 'x' } }])).toBe(true);
+    }
+    expect(needsReview({ reviewPolicy: 'none' }, [{ type: 'addTask', title: 't' }])).toBe(false);
+  });
+  it('a status change needs the manager even under "none"', () => {
+    expect(needsReview({ reviewPolicy: 'none' }, [{ type: 'setRecordStatus', id: 'r', status: 'replaced' }])).toBe(true);
   });
 });

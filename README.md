@@ -25,8 +25,10 @@ zero, on the same tool, on the same plan.
 Engineering teams already have the fix — accidentally. Their AI works because
 the repo is shared ground truth: every agent reads the same code, the same
 CLAUDE.md. **teamctx is that same machinery for the context that isn't code**
-— the *why* the team is doing something, *what* it's building, *how* it works,
-which otherwise lives scattered across docs, chats, and people's heads.
+— the team's goal and why it matters, the decisions it has made, the rules it
+works by and the exceptions it allows, what it is assuming, what is still open,
+and who is doing what — which otherwise lives scattered across docs, chats, and
+people's heads.
 
 teamctx treats that shared context like source code: version-controlled,
 manager-approved, and compiled into a role-specific file each person hands to
@@ -43,10 +45,38 @@ already does this; teamctx is for the teams whose work has no repo.
 
 ---
 
+## The model
+
+```
+Project
+├─ goal (one line) + why it matters
+├─ Workstream 1                 parts of the work, nested to any depth (1, 1.2, …);
+│   ├─ Workstream 1.2           someone on a workstream reaches everything below it
+│   │   └─ Task 1.2.1           tasks have an owner and are open or done
+│   └─ Task 1.1
+└─ Records, attached to the project, a workstream or a task
+```
+
+| Record | Read as | Governed by |
+|---|---|---|
+| decision | "We decided: … — why: …" | **always the manager** |
+| rule | "Rule: …" | **always the manager** |
+| exception | "Allowed: … (until <date>, instead of: <rule>)" — always shown under the rule it bends | **always the manager**; ends on its date |
+| assumption | "We're assuming: … (check by <date>)" — has an owner | review policy |
+
+The goal carries its own "why it matters", and the reason behind any record is
+written with it.
+
+Nobody picks a type: the AI classifies what people say, and the manager can
+correct it during review. Every person's AI — Claude, ChatGPT, Gemini or an
+agent — gets the same approved records for its part of the work, with each
+exception printed under its rule. New projects review every contribution; the
+manager's opening message is the one that lands on its own.
+
 ## How it works
 
 1. Manager runs `teamctx init` in any git repo
-2. Anyone contributes: `teamctx contribute "..."` — or the web form, or their own AI tool via MCP. AI distills it into proposed Why/What/How changes and enqueues them
+2. Anyone contributes: `teamctx contribute "..."` — or the web form, or their own AI tool via MCP. AI turns it into proposed records and tasks and enqueues them
 3. **The manager reviews and approves** (`teamctx review`) — only approved contributions enter the shared context
 4. Every role's context file regenerates and auto-pushes to GitHub — accessible at a stable URL
 5. Team members (and their AI tools) pull their role file from `/context/<role>`; non-technical teammates use `/contribute` to submit updates
@@ -71,7 +101,7 @@ teamctx role add
 teamctx status
 
 # Keep context evolving
-teamctx contribute "We decided to use AWS (Why). API migration starts next sprint (What)." --decision
+teamctx contribute "We decided to use AWS. We are assuming the migration fits in one sprint — check by Friday."
 ```
 
 ---
@@ -91,7 +121,6 @@ teamctx contribute "We decided to use AWS (Why). API migration starts next sprin
 | `teamctx context <role>` | Print role MD to stdout |
 | `teamctx ask "<question>" [--role <slug>] [--audit]` | Ask a question, answered from your team context. `--audit` appends a per-contribution source list |
 | `teamctx pull` | Fetch and process web contributions |
-| `teamctx reflect` | AI rewrites context for clarity (run weekly) |
 | `teamctx review list` | List pending contributions awaiting manager approval |
 | `teamctx review approve <id>` | Approve a pending contribution — applies to shared context |
 | `teamctx review reject <id> [--reason "..."]` | Reject a pending contribution — archives with optional reason |
@@ -111,8 +140,7 @@ teamctx contribute "We decided to use AWS (Why). API migration starts next sprin
 | `teamctx stats [--since <date>] [--workstream <id>] [--waits] [--json]` | Team metrics from your own history — no AI call, nothing leaves the machine |
 | `teamctx mcp` | Start an MCP server over stdio so AI clients can call teamctx tools |
 | `teamctx connect` | Print the URL a team member pastes into their AI client |
-| `teamctx workstream suggest` | AI proposes how to split the active workstream |
-| `teamctx workstream split` | Interactively accept AI-proposed splits |
+| `teamctx workstream add <name> [--under <id>]` | Add a part of the work, optionally under another (manager only) |
 | `teamctx workstream list` | List all workstreams and their assigned roles |
 | `teamctx workstream use <id>` | Set the active workstream |
 | `teamctx role assign <slug> --workstream <id>` | Move a role to a workstream |
@@ -145,11 +173,11 @@ The client uses whatever chat model you already run there; teamctx uses its
 own API key for the tools it exposes. The MCP surface covers the full CLI:
 reads (`get_context`, `get_role_context`, `list_workstreams`,
 `get_workstream`, `list_roles`, `list_snapshots`, `get_status`, `get_config`,
-`list_pending_reviews`, `suggest_roles`, `suggest_workstream_splits`, `ask`);
+`list_pending_reviews`, `list_records`, `get_record`, `suggest_roles`, `ask`);
 writes (`contribute` with optional immediate-apply); and manager operations
-gated by identity (`init`, `role_add`, `role_assign`, `workstream_split`,
+gated by identity (`init`, `role_add`, `role_assign`, `workstream_add`,
 `workstream_use`, `review_approve`, `review_reject`, `snapshot_create`,
-`snapshot_approve`, `snapshot_reject`, `reflect`, `config_set`).
+`snapshot_approve`, `snapshot_reject`, `config_set`).
 
 **Manager-focused walkthrough:** if you want to run teamctx entirely from
 your AI client without touching a terminal, see
@@ -389,13 +417,12 @@ Every `teamctx contribute` commits and pushes to your private repo. Vercel's git
 ```
 .teamctx/
   config.json                       # project name, roles, model, auto-push, manager
+  project.json                      # the goal, project-level records and tasks (source of truth)
   workstreams/
-    main.json                       # full Why/What/How tree for the main workstream (source of truth)
-    <id>.json                       # additional workstreams after `teamctx workstream split`
+    <id>.json                       # one per workstream: its records and tasks (nesting lives in config.json)
   context/
     workstreams/
-      main.md                       # human-readable, auto-regenerated projection of main.json
-      <id>.md                       # ditto per additional workstream
+      <id>.md                       # human-readable brief per workstream, project context above it
     roles/
       <slug>.md                     # role-specific context file — this is what gets shared
   contributions.jsonl               # append-only audit log

@@ -12,9 +12,9 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 vi.mock('../src/context.js', async (orig) => ({
   ...(await orig()),
   updateShared: vi.fn(async (workstream) => ({
-    workstream: { ...workstream, whys: [...(workstream.whys || []), { id: 'n1', text: 'flights booked' }] },
+    workstream: { ...workstream, records: [...(workstream.records || []), { id: 'n1', type: 'decision', text: 'flights booked', status: 'active' }] },
     summary: 'adds flights',
-    operations: [{ type: 'addWhy', text: 'flights booked' }],
+    operations: [{ type: 'addRecord', record: { type: 'decision', text: 'flights booked' } }],
   })),
 }));
 
@@ -52,7 +52,7 @@ function fakeSession() {
     ['.teamctx/contributions.jsonl', { content: '' }],
     ['.teamctx/project.json', { content: JSON.stringify({
       name: 'Webhacks',
-      whys: [{ id: 'p1', text: 'Satyagya is Manager/Event Lead' }],
+      records: [{ id: 'p1', type: 'decision', text: 'Satyagya is Manager/Event Lead', status: 'active' }],
       tasks: [
         { id: 'judge-flights', title: 'Sort flights for Piyush Garg', owner: 'Ashutosh', status: 'open', createdAt: '2026-09-17' },
         { id: 'college-grant', title: 'Secure the college grant', owner: 'Satyagya', ownerKey: 'git:satyagyasingh@gmail.com', status: 'open', createdAt: '2026-09-17' },

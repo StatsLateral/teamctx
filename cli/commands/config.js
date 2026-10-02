@@ -48,7 +48,7 @@ export async function configProviderCommand(value) {
     console.log(`  Change with: teamctx config model <id>`);
   }
   if (!process.env[PROVIDER_KEYS[v]]) {
-    console.log(`Note: ${PROVIDER_KEYS[v]} is not set. Add it to .env.local before running teamctx contribute, ask, or reflect.`);
+    console.log(`Note: ${PROVIDER_KEYS[v]} is not set. Add it to .env.local before running teamctx contribute or ask.`);
   }
 }
 

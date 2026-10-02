@@ -3,8 +3,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 vi.mock('../../src/storage.js', () => ({
   // Non-empty by default: nobody can be added to a project with nothing in it,
   // so every other test here would be testing the gate instead of itself.
-  readProject: vi.fn(() => ({ name: 'Ledger', whys: [{ id: 'w1', text: 'ship it' }] })),
-  readWorkstream: vi.fn(() => ({ id: 'w', name: 'W', whys: [{ id: 'x1', text: 'do it' }] })),
+  readProject: vi.fn(() => ({ name: 'Ledger', records: [{ id: 'w1', type: 'decision', text: 'ship it', status: 'active' }], tasks: [] })),
+  readWorkstream: vi.fn(() => ({ id: 'w', name: 'W', records: [{ id: 'x1', type: 'decision', text: 'do it', status: 'active' }], tasks: [] })),
   readConfig: vi.fn(),
   writeConfig: vi.fn(),
 }));
@@ -330,8 +330,8 @@ describe('changing a member\'s scope afterwards', () => {
 });
 
 describe('nobody is brought onto an empty project', () => {
-  const EMPTY = { name: 'Ledger', whys: [] };
-  const FULL = { name: 'Ledger', whys: [{ id: 'w1', text: 'ship it' }] };
+  const EMPTY = { name: 'Ledger', records: [], tasks: [] };
+  const FULL = { name: 'Ledger', records: [{ id: 'w1', type: 'decision', text: 'ship it', status: 'active' }], tasks: [] };
 
   it('refuses `member add` while the project has nothing in it', async () => {
     readProject.mockReturnValue(EMPTY);
@@ -353,7 +353,7 @@ describe('nobody is brought onto an empty project', () => {
   it('refuses when the workstream they would join has nothing of its own', async () => {
     readConfig.mockReturnValue(config({ workstreams: [{ id: 'docs', name: 'Documentation' }] }));
     readProject.mockReturnValue(FULL);
-    readWorkstream.mockReturnValue({ id: 'docs', name: 'Documentation', whys: [] });
+    readWorkstream.mockReturnValue({ id: 'docs', name: 'Documentation', records: [], tasks: [] });
     await expect(addMember({ ref: 'priyar', workstreams: ['docs'], actor: MANAGER }))
       .rejects.toThrow(/"Documentation" has nothing written down/);
   });
@@ -369,7 +369,7 @@ describe('nobody is brought onto an empty project', () => {
       members: [{ key: 'github:7', name: 'Ravi', login: 'ravi' }],
       workstreams: [{ id: 'docs', name: 'Documentation' }],
     }));
-    readWorkstream.mockReturnValue({ id: 'docs', name: 'Documentation', whys: [] });
+    readWorkstream.mockReturnValue({ id: 'docs', name: 'Documentation', records: [], tasks: [] });
     await expect(setMemberWorkstreams({ ref: 'ravi', workstreams: ['docs'], actor: MANAGER }))
       .rejects.toThrow(/"Documentation" has nothing written down/);
     expect(writeConfig).not.toHaveBeenCalled();
@@ -381,7 +381,7 @@ describe('nobody is brought onto an empty project', () => {
       members: [{ key: 'github:7', name: 'Ravi', login: 'ravi', workstreams: ['docs'] }],
       workstreams: [{ id: 'docs', name: 'Documentation' }],
     }));
-    readWorkstream.mockReturnValue({ id: 'docs', name: 'Documentation', whys: [] });
+    readWorkstream.mockReturnValue({ id: 'docs', name: 'Documentation', records: [], tasks: [] });
     const r = await setMemberWorkstreams({ ref: 'ravi', actor: MANAGER });
     expect(r.workstreams).toBe(null);
   });

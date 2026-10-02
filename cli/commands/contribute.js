@@ -1,3 +1,4 @@
+import { LABELS } from '../../src/model.js';
 import { ask } from '../prompt.js';
 import { contributeCore } from './contribute.core.js';
 import { isProjectLevel } from '../../src/project-level.js';
@@ -10,12 +11,15 @@ import { isProjectLevel } from '../../src/project-level.js';
  * terminal never learned about the review policy, and would have kept writing
  * to a workstream the project layer removed. Everything below is presentation.
  */
-function describe(op) {
-  if (op.type === 'addWhy') return `+ Why: ${op.text}`;
-  if (op.type === 'addWhat') return `+ What: ${op.text}`;
-  if (op.type === 'addHow') return `+ How: ${op.text}`;
-  if (op.type === 'editStatement') return `~ Edit: ${op.text}`;
-  return `- Delete: ${op.id}`;
+export function describeOp(op) {
+  if (op.type === 'setGoal') return `+ Goal: ${op.text}`;
+  if (op.type === 'addRecord') return `+ ${LABELS[op.record?.type] || 'Note:'} ${op.record?.text}`;
+  if (op.type === 'addTask') return `+ Task: ${op.title}`;
+  if (op.type === 'editRecord') return `~ Edit ${op.id}: ${op.changes?.text ?? '(details)'}`;
+  if (op.type === 'editTask') return `~ Retitle ${op.id}: ${op.title}`;
+  if (op.type === 'setRecordStatus') return `~ Mark ${op.id} ${op.status}`;
+  if (op.type === 'removeTask') return `- Remove task ${op.id}`;
+  return `? ${op.type}`;
 }
 
 export async function contributeCommand(text, opts = {}) {
@@ -32,7 +36,7 @@ export async function contributeCommand(text, opts = {}) {
       onProposed: async ({ summary, operations, willQueue }) => {
         console.log(`\nProposed changes (${operations.length} op${operations.length !== 1 ? 's' : ''}):`);
         console.log(`  Summary: ${summary}`);
-        operations.forEach(op => console.log(`  ${describe(op)}`));
+        operations.forEach(op => console.log(`  ${describeOp(op)}`));
         if (opts.autoApprove) return true;
         // `willQueue` is the core's own decision, not a guess from the flags.
         // Under the `additive` policy — what `init` writes now — an add-only
@@ -82,17 +86,14 @@ export async function contributeCommand(text, opts = {}) {
  */
 function printFounding(digest) {
   if (!digest) return;
-  const { whys, totals, more } = digest;
-  const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
-  console.log(`\nThis is the project's first context. It now holds ${plural(totals.whys, 'goal')}, `
-    + `${plural(totals.whats, 'requirement')} and ${plural(totals.hows, 'step')}:\n`);
-  for (const why of whys) {
-    console.log(`  • ${why.text}`);
-    for (const what of why.whats) {
-      console.log(`      - ${what.text}`);
-      for (const how of what.hows) console.log(`          · ${how}`);
-    }
-  }
+  const { goal, why, settled, workstreams, counts, more } = digest;
+  console.log("\nThis is the project's first context. It now holds:\n");
+  if (goal) console.log(`  Goal: ${goal}`);
+  if (why) console.log(`  Why it matters: ${why}`);
+  for (const x of settled) console.log(`  Settled: ${x}`);
+  for (const w of workstreams) console.log(`  ${w.number ? `${w.number} ` : ''}${w.name} — ${w.tasks} task${w.tasks === 1 ? '' : 's'}, ${w.records} record${w.records === 1 ? '' : 's'}`);
+  const kinds = Object.entries(counts).filter(([k]) => k !== 'tasks').map(([k, n]) => `${n} ${k}`).join(', ');
+  if (kinds || counts.tasks) console.log(`\n  In all: ${[kinds, counts.tasks ? `${counts.tasks} task${counts.tasks === 1 ? '' : 's'}` : ''].filter(Boolean).join(', ')}`);
   if (more) console.log('\n  (trimmed — `teamctx context <role>` prints all of it)');
   console.log('\nRead it over: correcting it now is cheaper than later.');
 }

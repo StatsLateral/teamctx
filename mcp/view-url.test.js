@@ -11,8 +11,8 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 /**
  * What the model would have proposed, applied for real.
  *
- * The first version of this mock returned `operations: [{ type: 'addWhy', id:
- * 'n1' }]` and a tree with a node called `n1` in it. No part of the real
+ * The first version of this mock returned an add operation with an id
+ * already on it and a tree with a node called `n1` in it. No part of the real
  * pipeline produces that: an add op carries no id (src/ai.js asks for none, and
  * applyOps mints them), and a created node carries the contribution's id in
  * `sourceContributionIds`. So the mock quietly asserted a link that could not
@@ -28,9 +28,9 @@ vi.mock('../src/context.js', async (orig) => {
   return {
     ...(await orig()),
     updateShared: vi.fn(async (workstream, contribution) => {
-      const operations = plan.ops || [{ type: 'addWhy', text: 'tiers decided', summary: 'three tiers' }];
+      const operations = plan.ops || [{ type: 'addRecord', record: { type: 'decision', text: 'tiers decided', detail: 'three tiers' } }];
       return {
-        workstream: applyOps(workstream, operations, contribution.id),
+        workstream: applyOps(workstream, operations, contribution.id).tree,
         summary: 'records the pricing decision',
         operations,
       };
@@ -67,11 +67,11 @@ const CONFIG = (over = {}) => ({
 // assert the link points at a statement that is really there.
 let written = null;
 
-function session(config = CONFIG(), whys = []) {
+function session(config = CONFIG(), records = []) {
   const files = new Map([
     ['.teamctx/config.json', { content: JSON.stringify(config), sha: null }],
-    ['.teamctx/project.json', { content: JSON.stringify({ name: 'Ledger', whys: [], tasks: [] }), sha: null }],
-    ['.teamctx/workstreams/product.json', { content: JSON.stringify({ id: 'product', name: 'Product', whys, tasks: [] }), sha: null }],
+    ['.teamctx/project.json', { content: JSON.stringify({ name: 'Ledger', goal: { text: 'An existing goal' }, records: [], tasks: [] }), sha: null }],
+    ['.teamctx/workstreams/product.json', { content: JSON.stringify({ id: 'product', name: 'Product', records, tasks: [] }), sha: null }],
     ['.teamctx/contributions.jsonl', { content: '', sha: null }],
   ]);
   written = files;
@@ -92,8 +92,8 @@ function session(config = CONFIG(), whys = []) {
 }
 
 /** One tool call, as the hosted server makes it. */
-async function call(tool, args, { actor = MAYA, config = CONFIG(), whys = [] } = {}) {
-  const s = session(config, whys);
+async function call(tool, args, { actor = MAYA, config = CONFIG(), records = [] } = {}) {
+  const s = session(config, records);
   const root = { __backend: 'github', owner: OWNER, repo: REPO, baseUrl: 'https://requested.example' };
   return runWithSession(s, () => runWithActor(actor, async () => {
     const handlers = makeHandlers(root);
@@ -116,7 +116,7 @@ describe('a link to what was just touched', () => {
     const r = await call('contribute', { text: 'we settled on three tiers', workstream: 'product', apply: true });
     // The id of the statement that is in the tree, not one the ops happened to
     // mention: an add op has none, so this is the whole feature or nothing.
-    const added = tree().whys.find(w => w.text === 'tiers decided');
+    const added = tree().records.find(w => w.text === 'tiers decided');
     expect(added).toBeTruthy();
     // The address is the server's own — see the precedence test below.
     expect(r.viewUrl).toBe(`https://requested.example/project/acme/ledger?ws=product&item=${added.id}`);
@@ -128,30 +128,29 @@ describe('a link to what was just touched', () => {
     // so taking the first id in the operations pointed at a page with nothing
     // on it — the one thing a link must never do.
     plan.ops = [
-      { type: 'addWhy', text: 'tiers decided', summary: 'three tiers' },
-      { type: 'deleteStatement', id: 'old', summary: 'superseded' },
+      { type: 'addRecord', record: { type: 'decision', text: 'tiers decided', links: { replaces: 'old' } } },
     ];
     const r = await call('contribute', { text: 'three tiers, and drop the old line', workstream: 'product', apply: true },
-      { whys: [{ id: 'old', text: 'pricing undecided', summary: '', whats: [] }] });
-    const added = tree().whys.find(w => w.text === 'tiers decided');
+      { records: [{ id: 'old', type: 'decision', text: 'pricing undecided', status: 'active', detail: '', attachedTo: { kind: 'workstream', id: 'product' }, links: {} }] });
+    const added = tree().records.find(w => w.text === 'tiers decided');
     expect(r.viewUrl).toContain(`item=${added.id}`);
     expect(r.viewUrl).not.toContain('item=old');
   });
 
-  it('points at the top of a subtree it added, not at the bottom', async () => {
-    plan.ops = [{
-      type: 'addWhy', text: 'tiers decided', summary: 'three tiers',
-      whats: [{ text: 'name the tiers', summary: '', hows: [{ text: 'write the pricing page', summary: '' }] }],
-    }];
+  it('points at the record it added, not at a task added beside it', async () => {
+    plan.ops = [
+      { type: 'addTask', title: 'write the pricing page' },
+      { type: 'addRecord', record: { type: 'decision', text: 'tiers decided', detail: 'three tiers' } },
+    ];
     const r = await call('contribute', { text: 'three tiers', workstream: 'product', apply: true });
-    const added = tree().whys.find(w => w.text === 'tiers decided');
+    const added = tree().records.find(w => w.text === 'tiers decided');
     expect(r.viewUrl).toContain(`item=${added.id}`);
   });
 
-  it('names an edited statement by the id it already had', async () => {
-    plan.ops = [{ type: 'editStatement', id: 'old', text: 'pricing settled', summary: '' }];
+  it('names an edited record by the id it already had', async () => {
+    plan.ops = [{ type: 'editRecord', id: 'old', changes: { text: 'pricing settled' } }];
     const r = await call('contribute', { text: 'pricing is settled now', workstream: 'product', apply: true },
-      { whys: [{ id: 'old', text: 'pricing undecided', summary: '', whats: [] }] });
+      { records: [{ id: 'old', type: 'decision', text: 'pricing undecided', status: 'active', detail: '', attachedTo: { kind: 'workstream', id: 'product' }, links: {} }] });
     expect(r.viewUrl).toContain('item=old');
   });
 
@@ -284,7 +283,7 @@ describe('the link in what the assistant is told to say', () => {
     // So a client that ignores `reportBack` — or has the project address from
     // get_connect_url and nothing else — can still name what was touched.
     const r = await call('contribute', { text: 'three tiers', workstream: 'product', apply: true });
-    const added = tree().whys.find(w => w.text === 'tiers decided');
+    const added = tree().records.find(w => w.text === 'tiers decided');
     expect(r.view).toEqual({ owner: 'acme', repo: 'ledger', ws: 'product', item: added.id, task: null, review: null });
   });
 });

@@ -22,9 +22,9 @@ vi.mock('../src/context.js', async (orig) => {
   return {
     ...(await orig()),
     updateShared: vi.fn(async (workstream, contribution) => {
-      const operations = plan.ops || [{ type: 'addWhy', text: 'tiers decided', summary: 'three tiers' }];
+      const operations = plan.ops || [{ type: 'addRecord', record: { type: 'decision', text: 'tiers decided', detail: 'three tiers' } }];
       return {
-        workstream: applyOps(workstream, operations, contribution.id),
+        workstream: applyOps(workstream, operations, contribution.id).tree,
         summary: 'records the pricing decision',
         operations,
       };
@@ -61,8 +61,8 @@ let written = null;
 function session(config) {
   const files = new Map([
     ['.teamctx/config.json', { content: JSON.stringify(config), sha: null }],
-    ['.teamctx/project.json', { content: JSON.stringify({ name: 'Webhacks', whys: [], tasks: [] }), sha: null }],
-    ['.teamctx/workstreams/finance.json', { content: JSON.stringify({ id: 'finance', name: 'Finance', whys: [], tasks: [] }), sha: null }],
+    ['.teamctx/project.json', { content: JSON.stringify({ name: 'Webhacks', goal: { text: 'An existing goal' }, records: [], tasks: [] }), sha: null }],
+    ['.teamctx/workstreams/finance.json', { content: JSON.stringify({ id: 'finance', name: 'Finance', records: [], tasks: [] }), sha: null }],
     ['.teamctx/contributions.jsonl', { content: '', sha: null }],
   ]);
   written = files;
@@ -118,7 +118,7 @@ beforeEach(() => {
 describe('a project that never recorded where it is deployed', () => {
   it('still returns a link for a contribution, pointing at what it wrote', async () => {
     const r = await hosted('contribute', { text: 'a sponsor at 25,000', workstream: 'finance', apply: true });
-    const added = tree().whys.find(w => w.text === 'tiers decided');
+    const added = tree().records.find(w => w.text === 'tiers decided');
     expect(r.viewUrl).toBe(`${HOST}/project/${OWNER}/${REPO}?ws=finance&item=${added.id}`);
     expect(r.viewUrlError).toBe(null);
   });
@@ -257,7 +257,7 @@ describe('the link beside the JSON, not only inside it', () => {
 
   it('is there for a contribution too, pointing at what it wrote', async () => {
     const r = await hosted('contribute', { text: 'a sponsor at 25,000', workstream: 'finance', apply: true });
-    const added = tree().whys.find(w => w.text === 'tiers decided');
+    const added = tree().records.find(w => w.text === 'tiers decided');
     expect(r.__blocks[0]).toBe(`View it here: ${HOST}/project/${OWNER}/${REPO}?ws=finance&item=${added.id}`);
   });
 

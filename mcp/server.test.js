@@ -2,11 +2,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('../src/storage.js', () => ({
   writeWorkstreamMd: vi.fn(),
-  readTree: vi.fn(() => ({ id: 'main', name: 'M', whys: [] })),
+  readTree: vi.fn(() => ({ id: 'main', name: 'M', records: [] })),
   writeTree: vi.fn(),
   readTreeMd: vi.fn(() => ''),
   writeTreeMd: vi.fn(),
-  readProject: vi.fn(() => ({ name: '', whys: [] })),
+  readProject: vi.fn(() => ({ name: '', records: [] })),
   getTeamctxDir: vi.fn((root) => `${root}/.teamctx`),
   readConfig: vi.fn(),
   writeConfig: vi.fn(),
@@ -36,10 +36,6 @@ vi.mock('../src/context.js', () => ({
   answerQuestion: vi.fn(),
 }));
 
-vi.mock('../src/migrate.js', () => ({
-  migrateIfNeeded: vi.fn(() => false),
-}));
-
 vi.mock('../src/git.js', () => ({
   commitContext: vi.fn(),
   pushContext: vi.fn(),
@@ -59,7 +55,7 @@ vi.mock('../src/actor.js', () => ({
 vi.mock('../src/prefs.js', () => ({
   readPrefs: vi.fn(async () => ({})),
   writePrefs: vi.fn(async (actor, patch) => patch),
-  resolveActiveWorkstream: vi.fn(async ({ config }) => config?.activeWorkstream || 'main'),
+  resolveActiveWorkstream: vi.fn(async ({ config }) => config?.activeWorkstream ?? null),
   resolveDisplayName: vi.fn(async ({ actor, config }) => actor?.name || config?.me || 'unknown'),
   resolveIdentity: vi.fn(async ({ actor, config }) => ({
     name: actor?.name || config?.me || 'unknown',
@@ -77,12 +73,11 @@ import {
   appendContribution, readContributions, readTree,
 } from '../src/storage.js';
 import { updateShared, generateRoleFile, answerQuestion } from '../src/context.js';
-import { migrateIfNeeded } from '../src/migrate.js';
 import { commitContext, pushContext } from '../src/git.js';
 import { writePrefs } from '../src/prefs.js';
 
-const baseWs = { id: 'main', name: 'Demo', whys: [] };
-const baseConfig = { project: 'Demo', me: 'alice', model: 'claude-sonnet-4-6', roles: [], autoPush: false, workstreams: [{ id: 'main', name: 'Demo' }] };
+const baseWs = { id: 'main', name: 'Demo', records: [] };
+const baseConfig = { project: 'Demo', me: 'alice', model: 'claude-sonnet-4-6', roles: [], autoPush: false, activeWorkstream: null, workstreams: [{ id: 'main', name: 'Demo' }] };
 const ROOT = '/proj';
 const TDIR = '/proj/.teamctx';
 
@@ -126,7 +121,7 @@ describe('TOOLS list', () => {
     for (const n of ['get_context', 'list_workstreams', 'get_workstream', 'get_role_context',
                      'list_roles', 'list_snapshots', 'get_snapshot', 'get_current_snapshot',
                      'list_pending_reviews', 'get_status', 'get_config', 'ask',
-                     'suggest_roles', 'suggest_workstream_splits', 'get_stats']) {
+                     'suggest_roles', 'list_records', 'get_record', 'get_stats']) {
       expect(names).toContain(n);
     }
   });
@@ -135,10 +130,10 @@ describe('TOOLS list', () => {
     const names = TOOLS.map(t => t.name);
     for (const n of ['contribute', 'submit_contribution', 'init',
                      'role_add', 'role_assign',
-                     'workstream_split', 'workstream_use',
+                     'workstream_add', 'workstream_use',
                      'review_approve', 'review_reject',
                      'snapshot_create', 'snapshot_approve', 'snapshot_reject',
-                     'reflect', 'config_set']) {
+                     'config_set']) {
       expect(names).toContain(n);
     }
   });
@@ -146,9 +141,9 @@ describe('TOOLS list', () => {
   it('every Tier 2 (risky) tool warns in its description', () => {
     // workstream_use is deliberately absent: it now writes only the caller's own
     // preference, touching neither the repo nor anyone else's view.
-    const risky = ['init', 'role_add', 'role_assign', 'workstream_split',
+    const risky = ['init', 'role_add', 'role_assign', 'workstream_add',
                    'review_approve', 'review_reject', 'snapshot_create', 'snapshot_approve',
-                   'snapshot_reject', 'reflect', 'config_set'];
+                   'snapshot_reject', 'config_set'];
     for (const name of risky) {
       const t = TOOLS.find(x => x.name === name);
       expect(t, `tool ${name} missing`).toBeTruthy();
@@ -187,38 +182,11 @@ describe('buildServer', () => {
   });
 });
 
-describe('makeHandlers — legacy shared.json migration', () => {
-  it('runs migrateIfNeeded on the first tool call so MCP-only projects auto-migrate', async () => {
-    readConfig.mockReturnValue(baseConfig);
-    readWorkstream.mockReturnValue(baseWs);
-    listWorkstreamIds.mockReturnValue(['main']);
-
-    const handlers = makeHandlers(ROOT);
-    expect(migrateIfNeeded).not.toHaveBeenCalled();
-
-    await handlers.get_context({});
-    expect(migrateIfNeeded).toHaveBeenCalledWith(TDIR);
-    expect(migrateIfNeeded).toHaveBeenCalledTimes(1);
-  });
-
-  it('does not re-run migrateIfNeeded on subsequent tool calls in the same process', async () => {
-    readConfig.mockReturnValue(baseConfig);
-    readWorkstream.mockReturnValue(baseWs);
-    listWorkstreamIds.mockReturnValue(['main']);
-
-    const handlers = makeHandlers(ROOT);
-    await handlers.get_context({});
-    await handlers.get_context({});
-    await handlers.list_workstreams({});
-    expect(migrateIfNeeded).toHaveBeenCalledTimes(1);
-  });
-});
-
 describe('get_context', () => {
   it('returns { workstreams: [...] } with a tree for each configured workstream', async () => {
     readConfig.mockReturnValue({ ...baseConfig, workstreams: [{ id: 'main' }, { id: 'tech' }] });
     listWorkstreamIds.mockReturnValue(['main', 'tech']);
-    readWorkstream.mockImplementation((id) => ({ id, name: id, whys: [] }));
+    readWorkstream.mockImplementation((id) => ({ id, name: id, records: [] }));
 
     const handlers = makeHandlers(ROOT);
     const result = await handlers.get_context({});
@@ -244,23 +212,24 @@ describe('get_context', () => {
 });
 
 describe('list_workstreams', () => {
-  it('returns each workstream with id, name, isActive, whyCount, roles', async () => {
+  it('returns each workstream with id, name, number, isActive, counts and roles', async () => {
     readConfig.mockReturnValue({ ...baseConfig, workstreams: [{ id: 'main', name: 'Main' }, { id: 'tech', name: 'Tech' }], activeWorkstream: 'main', roles: [{ slug: 'eng', workstream: 'tech' }] });
     listWorkstreamIds.mockReturnValue(['main', 'tech']);
-    readWorkstream.mockImplementation((id) => ({ id, name: id, whys: [] }));
+    readWorkstream.mockImplementation((id) => ({ id, name: id, records: [] }));
     const handlers = makeHandlers(ROOT);
     const result = await handlers.list_workstreams({});
     const payload = JSON.parse(result.content[0].text);
     expect(payload.workstreams).toHaveLength(2);
     const tech = payload.workstreams.find(w => w.id === 'tech');
     expect(tech.roles).toEqual(['eng']);
+    expect(tech).toMatchObject({ number: '2', recordCount: 0, taskCount: 0 });
     expect(payload.workstreams.find(w => w.id === 'main').isActive).toBe(true);
   });
 });
 
 describe('get_workstream', () => {
   it('returns the requested workstream tree', async () => {
-    readWorkstream.mockReturnValue({ id: 'tech', name: 'Tech', whys: [] });
+    readWorkstream.mockReturnValue({ id: 'tech', name: 'Tech', records: [] });
     const handlers = makeHandlers(ROOT);
     const result = await handlers.get_workstream({ id: 'tech' });
     expect(readWorkstream).toHaveBeenCalledWith('tech', TDIR);
@@ -298,25 +267,16 @@ describe('ask', () => {
     // It used to read `main`, which no longer exists — so a project holding
     // everything answered as though it held nothing.
     readConfig.mockReturnValue({ ...baseConfig, roles: [] });
-    readTree.mockReturnValue({ name: 'Demo', whys: [{ id: 'p1' }] });
+    readTree.mockReturnValue({ name: 'Demo', records: [{ id: 'p1' }] });
     answerQuestion.mockResolvedValue('answer');
 
     const handlers = makeHandlers(ROOT);
     await handlers.ask({ question: 'q?' });
     expect(readTree).toHaveBeenCalledWith(null, TDIR);
     expect(answerQuestion).toHaveBeenCalledWith(expect.objectContaining({
-      workstream: expect.objectContaining({ whys: [{ id: 'p1' }] }),
+      workstream: expect.objectContaining({ records: [{ id: 'p1' }] }),
       project: null,
     }));
-  });
-
-  it('treats an explicit "main" as the project', async () => {
-    readConfig.mockReturnValue({ ...baseConfig, roles: [] });
-    answerQuestion.mockResolvedValue('answer');
-
-    const handlers = makeHandlers(ROOT);
-    await handlers.ask({ question: 'q?', workstream: 'main' });
-    expect(readTree).toHaveBeenCalledWith(null, TDIR);
   });
 
   it('includes role markdown when role is provided', async () => {
@@ -334,7 +294,7 @@ describe('ask', () => {
   it('forwards audit:true and the workstream/contributions provenance inputs', async () => {
     readConfig.mockReturnValue({ ...baseConfig, roles: [], activeWorkstream: 'tech' });
     readTreeMd.mockReturnValue('# Shared');
-    readTree.mockReturnValue({ id: 'tech', name: 'Tech', whys: [] });
+    readTree.mockReturnValue({ id: 'tech', name: 'Tech', records: [] });
     readContributions.mockReturnValue([{ id: 'c1', author: 'alice' }]);
     answerQuestion.mockResolvedValue('answer');
 
@@ -350,21 +310,21 @@ describe('ask', () => {
 
   it('gives a workstream answer the project tree above it', async () => {
     readConfig.mockReturnValue({ ...baseConfig, roles: [], activeWorkstream: 'tech' });
-    readTree.mockReturnValue({ id: 'tech', name: 'Tech', whys: [] });
-    readProject.mockReturnValue({ name: 'Demo', whys: [{ id: 'p1' }] });
+    readTree.mockReturnValue({ id: 'tech', name: 'Tech', records: [] });
+    readProject.mockReturnValue({ name: 'Demo', records: [{ id: 'p1' }] });
     answerQuestion.mockResolvedValue('answer');
 
     const handlers = makeHandlers(ROOT);
     await handlers.ask({ question: 'q?' });
     expect(answerQuestion).toHaveBeenCalledWith(expect.objectContaining({
-      project: expect.objectContaining({ whys: [{ id: 'p1' }] }),
+      project: expect.objectContaining({ records: [{ id: 'p1' }] }),
     }));
   });
 
   it('defaults audit to false when the arg is omitted', async () => {
     readConfig.mockReturnValue({ ...baseConfig, roles: [] });
     readTreeMd.mockReturnValue('# Shared');
-    readWorkstream.mockReturnValue({ id: 'main', name: 'Main', whys: [] });
+    readWorkstream.mockReturnValue({ id: 'main', name: 'Main', records: [] });
     readContributions.mockReturnValue([]);
     answerQuestion.mockResolvedValue('answer');
 
@@ -393,10 +353,10 @@ describe('submit_contribution', () => {
   };
 
   it('defaults to activeWorkstream when no workstream arg is given', async () => {
-    readConfig.mockReturnValue({ ...twoWsConfig, activeWorkstream: 'main' });
+    readConfig.mockReturnValue({ ...twoWsConfig, activeWorkstream: null });
     readWorkstream.mockReturnValue(baseWs);
     updateShared.mockResolvedValue({
-      workstream: { ...baseWs, _applied: true }, summary: 's', operations: [{ type: 'addWhy' }],
+      workstream: { ...baseWs, _applied: true }, summary: 's', operations: [{ type: 'addRecord', record: { type: 'decision', text: 'x' } }],
     });
 
     const handlers = makeHandlers(ROOT);
@@ -409,8 +369,8 @@ describe('submit_contribution', () => {
 
   it('targets the workstream arg when provided', async () => {
     readConfig.mockReturnValue(twoWsConfig);
-    readWorkstream.mockReturnValue({ id: 'tech', name: 'Tech', whys: [] });
-    updateShared.mockResolvedValue({ workstream: baseWs, summary: 's', operations: [{ type: 'addWhy' }] });
+    readWorkstream.mockReturnValue({ id: 'tech', name: 'Tech', records: [] });
+    updateShared.mockResolvedValue({ workstream: baseWs, summary: 's', operations: [{ type: 'addRecord', record: { type: 'decision', text: 'x' } }] });
 
     const handlers = makeHandlers(ROOT);
     const result = await handlers.submit_contribution({ text: 'note', workstream: 'tech' });
@@ -429,8 +389,8 @@ describe('submit_contribution', () => {
 
   it('regenerates only role files bound to the target workstream', async () => {
     readConfig.mockReturnValue(twoWsConfig);
-    readWorkstream.mockReturnValue({ id: 'tech', name: 'Tech', whys: [] });
-    updateShared.mockResolvedValue({ workstream: baseWs, summary: 's', operations: [{ type: 'addWhy' }] });
+    readWorkstream.mockReturnValue({ id: 'tech', name: 'Tech', records: [] });
+    updateShared.mockResolvedValue({ workstream: baseWs, summary: 's', operations: [{ type: 'addRecord', record: { type: 'decision', text: 'x' } }] });
     generateRoleFile.mockResolvedValue('# role md');
 
     const handlers = makeHandlers(ROOT);
@@ -441,9 +401,9 @@ describe('submit_contribution', () => {
   });
 
   it('defaults author to config.me but honors an override', async () => {
-    readConfig.mockReturnValue({ ...twoWsConfig, activeWorkstream: 'main' });
+    readConfig.mockReturnValue({ ...twoWsConfig, activeWorkstream: null });
     readWorkstream.mockReturnValue(baseWs);
-    updateShared.mockResolvedValue({ workstream: baseWs, summary: 's', operations: [{ type: 'addWhy' }] });
+    updateShared.mockResolvedValue({ workstream: baseWs, summary: 's', operations: [{ type: 'addRecord', record: { type: 'decision', text: 'x' } }] });
 
     const handlers = makeHandlers(ROOT);
     await handlers.submit_contribution({ text: 't', author: 'bob' });
@@ -453,7 +413,7 @@ describe('submit_contribution', () => {
   });
 
   it('short-circuits without writing when no operations are proposed', async () => {
-    readConfig.mockReturnValue({ ...twoWsConfig, activeWorkstream: 'main' });
+    readConfig.mockReturnValue({ ...twoWsConfig, activeWorkstream: null });
     readWorkstream.mockReturnValue(baseWs);
     updateShared.mockResolvedValue({ workstream: baseWs, summary: 's', operations: [] });
 
@@ -467,8 +427,8 @@ describe('submit_contribution', () => {
 
   it('records the workstream on the contribution audit-log entry', async () => {
     readConfig.mockReturnValue(twoWsConfig);
-    readWorkstream.mockReturnValue({ id: 'growth', name: 'Growth', whys: [] });
-    updateShared.mockResolvedValue({ workstream: baseWs, summary: 's', operations: [{ type: 'addWhy' }] });
+    readWorkstream.mockReturnValue({ id: 'growth', name: 'Growth', records: [] });
+    updateShared.mockResolvedValue({ workstream: baseWs, summary: 's', operations: [{ type: 'addRecord', record: { type: 'decision', text: 'x' } }] });
 
     const handlers = makeHandlers(ROOT);
     await handlers.submit_contribution({ text: 't', workstream: 'growth' });
@@ -480,7 +440,7 @@ describe('submit_contribution', () => {
   it('pushes when autoPush is true and swallows push errors', async () => {
     readConfig.mockReturnValue({ ...twoWsConfig, autoPush: true, activeWorkstream: 'main' });
     readWorkstream.mockReturnValue(baseWs);
-    updateShared.mockResolvedValue({ workstream: baseWs, summary: 's', operations: [{ type: 'addWhy' }] });
+    updateShared.mockResolvedValue({ workstream: baseWs, summary: 's', operations: [{ type: 'addRecord', record: { type: 'decision', text: 'x' } }] });
     pushContext.mockRejectedValueOnce(new Error('no remote'));
 
     const handlers = makeHandlers(ROOT);
@@ -501,7 +461,7 @@ describe('contribute (new tool)', () => {
   it('enqueues by default (apply omitted)', async () => {
     readConfig.mockReturnValue(twoWs);
     readWorkstream.mockReturnValue(baseWs);
-    updateShared.mockResolvedValue({ workstream: baseWs, summary: 's', operations: [{ type: 'addWhy' }] });
+    updateShared.mockResolvedValue({ workstream: baseWs, summary: 's', operations: [{ type: 'addRecord', record: { type: 'decision', text: 'x' } }] });
 
     const handlers = makeHandlers(ROOT);
     const result = await handlers.contribute({ text: 'note' });
@@ -515,7 +475,7 @@ describe('contribute (new tool)', () => {
   it('applies immediately when apply:true', async () => {
     readConfig.mockReturnValue(twoWs);
     readWorkstream.mockReturnValue(baseWs);
-    updateShared.mockResolvedValue({ workstream: baseWs, summary: 's', operations: [{ type: 'addWhy' }] });
+    updateShared.mockResolvedValue({ workstream: baseWs, summary: 's', operations: [{ type: 'addRecord', record: { type: 'decision', text: 'x' } }] });
 
     const handlers = makeHandlers(ROOT);
     const result = await handlers.contribute({ text: 'note', apply: true });
@@ -527,7 +487,7 @@ describe('contribute (new tool)', () => {
   it('records decision tag on the audit log when decision:true', async () => {
     readConfig.mockReturnValue(twoWs);
     readWorkstream.mockReturnValue(baseWs);
-    updateShared.mockResolvedValue({ workstream: baseWs, summary: 's', operations: [{ type: 'addWhy' }] });
+    updateShared.mockResolvedValue({ workstream: baseWs, summary: 's', operations: [{ type: 'addRecord', record: { type: 'decision', text: 'x' } }] });
 
     const handlers = makeHandlers(ROOT);
     await handlers.contribute({ text: 'we chose X', decision: true });
@@ -560,7 +520,7 @@ describe('review_approve (manager-gated)', () => {
 
   it('proceeds when the caller is the pinned manager', async () => {
     readConfig.mockReturnValue(gatedToCaller);
-    readQueueItem.mockReturnValue({ id: 'q-1', workstream: 'main', author: 'alice', operations: [{ type: 'addWhy', text: 't', summary: 's' }] });
+    readQueueItem.mockReturnValue({ id: 'q-1', workstream: 'main', author: 'alice', operations: [{ type: 'addRecord', record: { type: 'decision', text: 't', attachedTo: { kind: 'project' } } }] });
     readWorkstream.mockReturnValue(baseWs);
     const handlers = makeHandlers(ROOT);
     const result = await handlers.review_approve({ id: 'q-1' });
@@ -573,7 +533,7 @@ describe('review_approve (manager-gated)', () => {
 
   it('is un-gated when config.manager is unset (solo mode)', async () => {
     readConfig.mockReturnValue({ ...baseConfig, workstreams: [{ id: 'main' }], roles: [] });
-    readQueueItem.mockReturnValue({ id: 'q-2', workstream: 'main', author: 'alice', operations: [{ type: 'addWhy', text: 't', summary: 's' }] });
+    readQueueItem.mockReturnValue({ id: 'q-2', workstream: 'main', author: 'alice', operations: [{ type: 'addRecord', record: { type: 'decision', text: 't', attachedTo: { kind: 'project' } } }] });
     readWorkstream.mockReturnValue(baseWs);
     const handlers = makeHandlers(ROOT);
     await handlers.review_approve({ id: 'q-2' });

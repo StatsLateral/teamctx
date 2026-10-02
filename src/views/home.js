@@ -4,10 +4,10 @@ import { esc, navBar, shell } from './theme.js';
 export const homePage = ({ user, projects = [] }) => shell('teamctx', `
 ${navBar({ user, current: '/' })}
 <h1>teamctx</h1>
-<p>Version control for the context behind your team's work: <strong>why</strong>
-you decided something, <strong>what</strong> that requires, and <strong>how</strong>
-it gets done. Kept in your own git repository, and handed to each person's AI
-assistant as the slice their role needs. Nothing to install. Nobody has to learn
+<p>The <strong>decisions</strong>, <strong>assumptions</strong>, <strong>rules</strong>
+and <strong>exceptions</strong> your team's AIs must follow — approved by you,
+wherever they run. Kept in your own git repository, and handed to each person's
+AI assistant as the slice their role needs. Nothing to install. Nobody has to learn
 a new tool.</p>
 
 <h2 style="font-size:1rem;margin-top:2rem">How it works</h2>

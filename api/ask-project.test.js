@@ -21,8 +21,8 @@ const { default: handler } = await import('./ask.js');
 const { readConfig, readTree, readTreeMd, readProject } = await import('../src/storage.js');
 const { answerQuestion } = await import('../src/context.js');
 
-const PROJECT = { name: 'Ledger', whys: [{ id: 'p1', text: 'no new vendors', whats: [] }] };
-const WS = { id: 'delivery', name: 'Delivery', whys: [] };
+const PROJECT = { name: 'Ledger', goal: null, records: [{ id: 'p1', type: 'rule', text: 'no new vendors', status: 'active' }], tasks: [] };
+const WS = { id: 'delivery', name: 'Delivery', records: [], tasks: [] };
 
 const res = () => {
   const r = { statusCode: 200, body: '', headers: {} };

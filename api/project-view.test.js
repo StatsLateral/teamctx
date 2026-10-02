@@ -76,15 +76,15 @@ function project() {
       JSON.stringify({ id: 'c-tech', author: 'Dev', source: 'cli', text: 'uptime notes', workstream: 'tech' }),
       JSON.stringify({ id: 'c-loose', author: 'Nobody', source: 'cli', text: 'unreferenced', workstream: null }),
     ].join('\n')],
-    ['.teamctx/project.json', JSON.stringify({ name: 'Ledger', whys: [{ id: 'p1', text: 'ship it' }], tasks: [] })],
+    ['.teamctx/project.json', JSON.stringify({ name: 'Ledger', records: [{ id: 'p1', type: 'decision', text: 'ship it', status: 'active' }], tasks: [] })],
     ['.teamctx/workstreams/product.json', JSON.stringify({
       id: 'product', name: 'Product',
-      whys: [{ id: 'w1', text: 'price it', summary: 'how we price', sourceContributionIds: ['c-prod'], whats: [] }],
+      records: [{ id: 'w1', type: 'decision', text: 'price it', status: 'active', detail: 'how we price', sourceContributionIds: ['c-prod'] }],
       tasks: [{ id: 'pricing-page', title: 'Draft the pricing page', owner: 'Priya', status: 'open' }],
     })],
     ['.teamctx/workstreams/tech.json', JSON.stringify({
       id: 'tech', name: 'Tech',
-      whys: [{ id: 't1', text: 'keep the servers up', sourceContributionIds: ['c-tech'], whats: [] }],
+      records: [{ id: 't1', type: 'decision', text: 'keep the servers up', status: 'active', sourceContributionIds: ['c-tech'] }],
       tasks: [
         { id: 'migrate-db', title: 'Migrate the database', owner: 'Dev', status: 'open' },
         { id: 'old-thing', title: 'Something finished', owner: 'Dev', status: 'done' },
@@ -293,7 +293,7 @@ describe('the tree the page draws', () => {
     expect(prompt).not.toContain('may be named something else');
     expect(prompt).toContain('the part of the work called &quot;Product&quot;');
     expect(prompt).toContain('quoted word for word');
-    expect(prompt).toContain('Find this why, quoted word for word');
+    expect(prompt).toContain('Find this, quoted word for word');
     expect(prompt).toContain('&quot;price it&quot;');
     expect(prompt).toContain('say so plainly rather than answering about the closest thing');
   });
@@ -333,7 +333,7 @@ describe('the tree the page draws', () => {
   });
 
   it('says so plainly when a part of the work holds nothing yet', async () => {
-    repo.files.set('.teamctx/workstreams/tech.json', JSON.stringify({ id: 'tech', name: 'Tech', whys: [], tasks: [] }));
+    repo.files.set('.teamctx/workstreams/tech.json', JSON.stringify({ id: 'tech', name: 'Tech', records: [], tasks: [] }));
     const { body } = await visit('/project/acme/ledger?ws=tech', MANAGER);
     expect(body).toMatch(/Nothing written here yet/);
   });
@@ -347,7 +347,7 @@ describe('arriving from a link', () => {
 
   it('marks the item the link pointed at', async () => {
     const { body } = await visit('/project/acme/ledger?ws=product&item=w1', MANAGER);
-    expect(body).toMatch(/class="item tier-why marked"/);
+    expect(body).toMatch(/class="item tier-decision marked"/);
   });
 
   it('falls back quietly when the part of the work is not theirs to see', async () => {
@@ -403,7 +403,7 @@ describe('what the data function hands back', () => {
   it('always carries the project tree, which everybody inherits', async () => {
     await lend();
     const view = await readProjectView({ owner: 'acme', repo: 'ledger', user: MEMBER_GOOGLE });
-    expect(view.projectTree.whys[0].text).toBe('ship it');
+    expect(view.projectTree.records[0].text).toBe('ship it');
   });
 
   it('carries the contributions behind the trees it sent, and no more', async () => {
@@ -416,15 +416,17 @@ describe('what the data function hands back', () => {
 describe('what a link may and may not open', () => {
   it('opens the drawer for a statement it pointed at', async () => {
     const { body } = await visit('/project/acme/ledger?ws=product&item=w1', MANAGER);
-    expect(body).toMatch(/class="item tier-why marked"/);
+    expect(body).toMatch(/class="item tier-decision marked"/);
   });
 
-  it('marks a task without pretending it is a statement', async () => {
-    // A row carries none of a statement's data; opening the drawer on it put
-    // the word "undefined" on screen and then on somebody's clipboard.
+  it('marks a task, and its drawer carries the task itself, never "undefined"', async () => {
+    // A task is an item in its own right now, so the drawer it opens must hold
+    // its title rather than a statement's missing fields.
     const { body } = await visit('/project/acme/ledger?ws=product&task=pricing-page', MANAGER);
     expect(body).toMatch(/<tr id="t-pricing-page" class="marked">/);
-    expect(body).not.toMatch(/class="item[^"]*marked"/);
+    const marked = /<button class="item[^"]*marked"[^>]*data-text="([^"]*)"/.exec(body);
+    if (marked) expect(marked[1]).not.toBe('undefined');
+    expect(body).not.toContain('data-text="undefined"');
   });
 
   it('gives a marked row something to look at', async () => {
@@ -511,26 +513,22 @@ describe('what a copied prompt asks for', () => {
   // sequence of whatever rewrote this file last.
   const NL = String.fromCharCode(10);
 
-  it('hands over where the statement hangs, so nothing has to go looking', async () => {
-    // An assistant that has to find the parents reads the whole project, and
-    // then answers with the whole project.
+  it('hands over the rule an allowed exception bends, so nothing has to go looking', async () => {
+    // An assistant that has to find the rule reads the whole project, and then
+    // answers with the whole project.
     repo.files.set('.teamctx/workstreams/product.json', JSON.stringify({
       id: 'product', name: 'Product', tasks: [],
-      whys: [{
-        id: 'w1', text: 'price it', whats: [{
-          id: 'a1', text: 'compare tiers', hows: [{ id: 'h1', text: 'check what rivals charge' }],
-        }],
-      }],
+      records: [
+        { id: 'w1', type: 'decision', text: 'price it', status: 'active' },
+        { id: 'r1', type: 'rule', text: 'no discounts over 15%', status: 'active' },
+        { id: 'e1', type: 'exception', text: 'Acme may get 20%', status: 'active', expiresAt: '2999-12-31', links: { bends: 'r1' } },
+      ],
     }));
     const { body } = await visit('/project/acme/ledger?ws=product', MANAGER);
     const prompts = [...body.matchAll(/data-prompt="([^"]+)"/g)].map(m => m[1]);
-    const how = prompts.find(p => p.includes('check what rivals charge'));
-    expect(how).toContain('one of the things &quot;compare tiers&quot; needs');
-    expect(how).toContain('the goal behind that is &quot;price it&quot;');
-    // In those words, and not in the ones the files use: naming them "the What"
-    // and "the Why" taught the assistant to answer in them too.
-    expect(how).not.toContain('the What ');
-    expect(how).not.toContain('the Why ');
+    const exc = prompts.find(p => p.includes('Acme may get 20%'));
+    expect(exc).toContain('an allowed exception to the rule &quot;no discounts over 15%&quot;');
+    expect(exc).not.toMatch(/\bthe (What|Why) /);
   });
 
   it('asks about the one statement, not the project around it', async () => {
@@ -556,25 +554,10 @@ describe('what a copied prompt asks for', () => {
     expect(prompt).not.toMatch(/heading|bullet/i);
   });
 
-  it("calls a what's parent a goal, which is what it is", async () => {
-    // Every parent was called "the What", so a What was handed its goal's words
-    // under the wrong word — which is worse than no lineage at all.
-    repo.files.set('.teamctx/workstreams/product.json', JSON.stringify({
-      id: 'product', name: 'Product', tasks: [],
-      whys: [{ id: 'w1', text: 'price it', whats: [{ id: 'a1', text: 'compare tiers', hows: [] }] }],
-    }));
-    const { body } = await visit('/project/acme/ledger?ws=product', MANAGER);
-    const prompts = [...body.matchAll(/data-prompt="([^"]+)"/g)].map(m => m[1]);
-    const what = prompts.find(p => p.includes('Find this what'));
-    expect(what).toContain('part of what the goal &quot;price it&quot; needs');
-    expect(what).not.toContain('one of the things &quot;price it&quot; needs');
-  });
-
   it('says nothing about parents for a goal, which has none', async () => {
     const { body } = await visit('/project/acme/ledger', MANAGER);
     const prompt = /data-prompt="([^"]+)"/.exec(body)[1];
-    expect(prompt).not.toContain('the goal behind that');
-    expect(prompt).not.toContain('part of what the goal');
+    expect(prompt).not.toContain('an allowed exception to the rule');
   });
 
   it('opens with the question and keeps the instructions below it', async () => {
@@ -602,5 +585,16 @@ describe('what a copied prompt asks for', () => {
     const { body } = await visit('/project/acme/ledger?ws=product', MANAGER);
     expect(body).toContain('&#10;');
     expect(body).not.toMatch(new RegExp(`data-prompt="[^"]*${NL}`));
+  });
+});
+
+describe('stored record fields are never trusted as markup', () => {
+  it('a record type crafted to break out of an attribute is not rendered as one', async () => {
+    repo.files.set('.teamctx/workstreams/product.json', JSON.stringify({
+      id: 'product', name: 'Product', tasks: [],
+      records: [{ id: 'evil', type: 'x" onfocus="alert(1)" autofocus x="', text: 'hello', status: 'active', attachedTo: { kind: 'workstream', id: 'product' }, links: {} }],
+    }));
+    const { body } = await visit('/project/acme/ledger?ws=product', MANAGER);
+    expect(body).not.toContain('onfocus="alert(1)"');
   });
 });
