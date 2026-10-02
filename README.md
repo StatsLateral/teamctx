@@ -59,13 +59,13 @@ Project
 
 | Record | Read as | Governed by |
 |---|---|---|
-| why | "Why it matters: …" | review policy |
-| decision | "We decided: …" | **always the manager** |
+| decision | "We decided: … — why: …" | **always the manager** |
 | rule | "Rule: …" | **always the manager** |
 | exception | "Allowed: … (until <date>, instead of: <rule>)" — always shown under the rule it bends | **always the manager**; ends on its date |
 | assumption | "We're assuming: … (check by <date>)" — has an owner | review policy |
-| open question | "Open question: … (<owner>)" | review policy |
-| risk | "Risk: … — plan: …" — has an owner | review policy |
+
+The goal carries its own "why it matters", and the reason behind any record is
+written with it.
 
 Nobody picks a type: the AI classifies what people say, and the manager can
 correct it during review. Every person's AI — Claude, ChatGPT, Gemini or an

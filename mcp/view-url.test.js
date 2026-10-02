@@ -28,7 +28,7 @@ vi.mock('../src/context.js', async (orig) => {
   return {
     ...(await orig()),
     updateShared: vi.fn(async (workstream, contribution) => {
-      const operations = plan.ops || [{ type: 'addRecord', record: { type: 'why', text: 'tiers decided', detail: 'three tiers' } }];
+      const operations = plan.ops || [{ type: 'addRecord', record: { type: 'decision', text: 'tiers decided', detail: 'three tiers' } }];
       return {
         workstream: applyOps(workstream, operations, contribution.id).tree,
         summary: 'records the pricing decision',
@@ -140,7 +140,7 @@ describe('a link to what was just touched', () => {
   it('points at the record it added, not at a task added beside it', async () => {
     plan.ops = [
       { type: 'addTask', title: 'write the pricing page' },
-      { type: 'addRecord', record: { type: 'why', text: 'tiers decided', detail: 'three tiers' } },
+      { type: 'addRecord', record: { type: 'decision', text: 'tiers decided', detail: 'three tiers' } },
     ];
     const r = await call('contribute', { text: 'three tiers', workstream: 'product', apply: true });
     const added = tree().records.find(w => w.text === 'tiers decided');

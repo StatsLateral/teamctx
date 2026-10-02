@@ -65,7 +65,7 @@ export async function workstreamProposeCommand() {
   }
   console.log(`\nHow ${r.project} might be organised — a draft, nothing has changed.\n`);
   if (r.goal) console.log(`Goal: ${r.goal}`);
-  r.whys.forEach(w => console.log(`  Why it matters: ${w}`));
+  if (r.why) console.log(`  Why it matters: ${r.why}`);
   console.log('');
   r.workstreams.forEach((w, i) => {
     console.log(`${i + 1}. ${w.name}${w.parent ? ` (under ${w.parent})` : ''}`);

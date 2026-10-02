@@ -356,7 +356,7 @@ describe('submit_contribution', () => {
     readConfig.mockReturnValue({ ...twoWsConfig, activeWorkstream: null });
     readWorkstream.mockReturnValue(baseWs);
     updateShared.mockResolvedValue({
-      workstream: { ...baseWs, _applied: true }, summary: 's', operations: [{ type: 'addRecord', record: { type: 'why', text: 'x' } }],
+      workstream: { ...baseWs, _applied: true }, summary: 's', operations: [{ type: 'addRecord', record: { type: 'decision', text: 'x' } }],
     });
 
     const handlers = makeHandlers(ROOT);
@@ -370,7 +370,7 @@ describe('submit_contribution', () => {
   it('targets the workstream arg when provided', async () => {
     readConfig.mockReturnValue(twoWsConfig);
     readWorkstream.mockReturnValue({ id: 'tech', name: 'Tech', records: [] });
-    updateShared.mockResolvedValue({ workstream: baseWs, summary: 's', operations: [{ type: 'addRecord', record: { type: 'why', text: 'x' } }] });
+    updateShared.mockResolvedValue({ workstream: baseWs, summary: 's', operations: [{ type: 'addRecord', record: { type: 'decision', text: 'x' } }] });
 
     const handlers = makeHandlers(ROOT);
     const result = await handlers.submit_contribution({ text: 'note', workstream: 'tech' });
@@ -390,7 +390,7 @@ describe('submit_contribution', () => {
   it('regenerates only role files bound to the target workstream', async () => {
     readConfig.mockReturnValue(twoWsConfig);
     readWorkstream.mockReturnValue({ id: 'tech', name: 'Tech', records: [] });
-    updateShared.mockResolvedValue({ workstream: baseWs, summary: 's', operations: [{ type: 'addRecord', record: { type: 'why', text: 'x' } }] });
+    updateShared.mockResolvedValue({ workstream: baseWs, summary: 's', operations: [{ type: 'addRecord', record: { type: 'decision', text: 'x' } }] });
     generateRoleFile.mockResolvedValue('# role md');
 
     const handlers = makeHandlers(ROOT);
@@ -403,7 +403,7 @@ describe('submit_contribution', () => {
   it('defaults author to config.me but honors an override', async () => {
     readConfig.mockReturnValue({ ...twoWsConfig, activeWorkstream: null });
     readWorkstream.mockReturnValue(baseWs);
-    updateShared.mockResolvedValue({ workstream: baseWs, summary: 's', operations: [{ type: 'addRecord', record: { type: 'why', text: 'x' } }] });
+    updateShared.mockResolvedValue({ workstream: baseWs, summary: 's', operations: [{ type: 'addRecord', record: { type: 'decision', text: 'x' } }] });
 
     const handlers = makeHandlers(ROOT);
     await handlers.submit_contribution({ text: 't', author: 'bob' });
@@ -428,7 +428,7 @@ describe('submit_contribution', () => {
   it('records the workstream on the contribution audit-log entry', async () => {
     readConfig.mockReturnValue(twoWsConfig);
     readWorkstream.mockReturnValue({ id: 'growth', name: 'Growth', records: [] });
-    updateShared.mockResolvedValue({ workstream: baseWs, summary: 's', operations: [{ type: 'addRecord', record: { type: 'why', text: 'x' } }] });
+    updateShared.mockResolvedValue({ workstream: baseWs, summary: 's', operations: [{ type: 'addRecord', record: { type: 'decision', text: 'x' } }] });
 
     const handlers = makeHandlers(ROOT);
     await handlers.submit_contribution({ text: 't', workstream: 'growth' });
@@ -440,7 +440,7 @@ describe('submit_contribution', () => {
   it('pushes when autoPush is true and swallows push errors', async () => {
     readConfig.mockReturnValue({ ...twoWsConfig, autoPush: true, activeWorkstream: 'main' });
     readWorkstream.mockReturnValue(baseWs);
-    updateShared.mockResolvedValue({ workstream: baseWs, summary: 's', operations: [{ type: 'addRecord', record: { type: 'why', text: 'x' } }] });
+    updateShared.mockResolvedValue({ workstream: baseWs, summary: 's', operations: [{ type: 'addRecord', record: { type: 'decision', text: 'x' } }] });
     pushContext.mockRejectedValueOnce(new Error('no remote'));
 
     const handlers = makeHandlers(ROOT);
@@ -461,7 +461,7 @@ describe('contribute (new tool)', () => {
   it('enqueues by default (apply omitted)', async () => {
     readConfig.mockReturnValue(twoWs);
     readWorkstream.mockReturnValue(baseWs);
-    updateShared.mockResolvedValue({ workstream: baseWs, summary: 's', operations: [{ type: 'addRecord', record: { type: 'why', text: 'x' } }] });
+    updateShared.mockResolvedValue({ workstream: baseWs, summary: 's', operations: [{ type: 'addRecord', record: { type: 'decision', text: 'x' } }] });
 
     const handlers = makeHandlers(ROOT);
     const result = await handlers.contribute({ text: 'note' });
@@ -475,7 +475,7 @@ describe('contribute (new tool)', () => {
   it('applies immediately when apply:true', async () => {
     readConfig.mockReturnValue(twoWs);
     readWorkstream.mockReturnValue(baseWs);
-    updateShared.mockResolvedValue({ workstream: baseWs, summary: 's', operations: [{ type: 'addRecord', record: { type: 'why', text: 'x' } }] });
+    updateShared.mockResolvedValue({ workstream: baseWs, summary: 's', operations: [{ type: 'addRecord', record: { type: 'decision', text: 'x' } }] });
 
     const handlers = makeHandlers(ROOT);
     const result = await handlers.contribute({ text: 'note', apply: true });
@@ -487,7 +487,7 @@ describe('contribute (new tool)', () => {
   it('records decision tag on the audit log when decision:true', async () => {
     readConfig.mockReturnValue(twoWs);
     readWorkstream.mockReturnValue(baseWs);
-    updateShared.mockResolvedValue({ workstream: baseWs, summary: 's', operations: [{ type: 'addRecord', record: { type: 'why', text: 'x' } }] });
+    updateShared.mockResolvedValue({ workstream: baseWs, summary: 's', operations: [{ type: 'addRecord', record: { type: 'decision', text: 'x' } }] });
 
     const handlers = makeHandlers(ROOT);
     await handlers.contribute({ text: 'we chose X', decision: true });
@@ -520,7 +520,7 @@ describe('review_approve (manager-gated)', () => {
 
   it('proceeds when the caller is the pinned manager', async () => {
     readConfig.mockReturnValue(gatedToCaller);
-    readQueueItem.mockReturnValue({ id: 'q-1', workstream: 'main', author: 'alice', operations: [{ type: 'addRecord', record: { type: 'why', text: 't', attachedTo: { kind: 'project' } } }] });
+    readQueueItem.mockReturnValue({ id: 'q-1', workstream: 'main', author: 'alice', operations: [{ type: 'addRecord', record: { type: 'decision', text: 't', attachedTo: { kind: 'project' } } }] });
     readWorkstream.mockReturnValue(baseWs);
     const handlers = makeHandlers(ROOT);
     const result = await handlers.review_approve({ id: 'q-1' });
@@ -533,7 +533,7 @@ describe('review_approve (manager-gated)', () => {
 
   it('is un-gated when config.manager is unset (solo mode)', async () => {
     readConfig.mockReturnValue({ ...baseConfig, workstreams: [{ id: 'main' }], roles: [] });
-    readQueueItem.mockReturnValue({ id: 'q-2', workstream: 'main', author: 'alice', operations: [{ type: 'addRecord', record: { type: 'why', text: 't', attachedTo: { kind: 'project' } } }] });
+    readQueueItem.mockReturnValue({ id: 'q-2', workstream: 'main', author: 'alice', operations: [{ type: 'addRecord', record: { type: 'decision', text: 't', attachedTo: { kind: 'project' } } }] });
     readWorkstream.mockReturnValue(baseWs);
     const handlers = makeHandlers(ROOT);
     await handlers.review_approve({ id: 'q-2' });

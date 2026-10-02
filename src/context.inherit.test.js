@@ -7,7 +7,7 @@ const PROJECT = {
   name: 'Ledger', goal: { text: 'ship the ledger by Q3' },
   records: [rec('p1', 'decision', 'agree the schema')], tasks: [],
 };
-const WORKSTREAM = { id: 'engineering', name: 'Engineering', records: [rec('w1', 'why', 'build the importer')], tasks: [] };
+const WORKSTREAM = { id: 'engineering', name: 'Engineering', records: [rec('w1', 'decision', 'build the importer')], tasks: [] };
 
 const md = (ws, opts) => serializeToMd(ws, 'Ledger', '', [], opts);
 

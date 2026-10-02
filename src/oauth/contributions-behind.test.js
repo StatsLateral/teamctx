@@ -16,7 +16,7 @@ vi.mock('../storage.js', async (orig) => ({
 
 const { contributionsBehind } = await import('./project-view.js');
 
-const why = (id, ids) => ({ id, type: 'why', text: id, status: 'active', sourceContributionIds: ids });
+const why = (id, ids) => ({ id, type: 'decision', text: id, status: 'active', sourceContributionIds: ids });
 
 beforeEach(() => {
   store.contributions = [
@@ -55,6 +55,6 @@ describe('the contributions behind a set of trees', () => {
   });
 
   it('asks for nothing when no statement points anywhere', () => {
-    expect(contributionsBehind([{ records: [{ id: 'a', type: 'why', text: 'a', status: 'active' }] }])).toEqual({});
+    expect(contributionsBehind([{ records: [{ id: 'a', type: 'decision', text: 'a', status: 'active' }] }])).toEqual({});
   });
 });

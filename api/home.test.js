@@ -33,12 +33,12 @@ describe('the front door', () => {
     expect(body).toMatch(/git repository/i);
   });
 
-  it('describes all three levels, not just the top one', async () => {
-    // The tree is why → what → how. Saying only "why" describes the root and
-    // drops what the team actually acts on.
+  it('names the four things teamctx governs', async () => {
+    // Decisions, assumptions, rules and the exceptions to them are what each
+    // person's AI is held to; the page should say so in those words.
     const { body } = await get('/');
-    for (const level of ['why', 'what', 'how']) {
-      expect(body.toLowerCase(), `missing: ${level}`).toContain(`<strong>${level}</strong>`);
+    for (const kind of ['decisions', 'assumptions', 'rules', 'exceptions']) {
+      expect(body.toLowerCase(), `missing: ${kind}`).toContain(`<strong>${kind}</strong>`);
     }
   });
 

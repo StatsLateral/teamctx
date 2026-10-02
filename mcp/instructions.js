@@ -18,13 +18,13 @@
  */
 export const INSTRUCTIONS = `teamctx keeps a team's shared context in their own
 git repository: the goal and why it matters, the decisions the team has made,
-the rules it works by and the exceptions it allows, what it is assuming, what is
-still open, and the tasks — organised into parts of the work (workstreams) that
+the rules it works by and the exceptions it allows, what it is assuming, and
+the tasks — organised into parts of the work (workstreams) that
 can nest — plus a compiled view per role. The manager approves what becomes the
 team's context. You are connected to one project.
 
 When you repeat any of it to a person, use its plain label — "We decided:",
-"Rule:", "Allowed:", "We're assuming:", "Open question:", "Risk:" — and always
+"Rule:", "Allowed:", "We're assuming:" — and always
 say an exception together with the rule it bends.
 
 ## Act, do not explain

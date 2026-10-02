@@ -11,7 +11,7 @@
  * sentences, not so much that it repeats the conversation the manager just had.
  */
 
-const LIMITS = { whys: 8, workstreams: 12, chars: 160 };
+const LIMITS = { settled: 8, workstreams: 12, chars: 160 };
 
 function trim(text, chars) {
   const s = String(text ?? '').replace(/\s+/g, ' ').trim();
@@ -19,23 +19,25 @@ function trim(text, chars) {
 }
 
 /**
- * `{ goal, whys, workstreams, counts, more }`.
+ * `{ goal, why, settled, workstreams, counts, more }` — `settled` is the
+ * project's active decisions and rules.
  *
  * `counts` covers everything, including what was left out, so the assistant can
  * say "and four more" rather than implying the list is the whole of it.
  */
 export function digestProject({ project, workstreams = [] } = {}, limits = {}) {
-  const { whys: maxWhys, workstreams: maxWs, chars } = { ...LIMITS, ...limits };
+  const { settled: maxSettled, workstreams: maxWs, chars } = { ...LIMITS, ...limits };
   const trees = [project, ...workstreams].filter(Boolean);
   const counts = { tasks: 0 };
   for (const t of trees) {
     for (const r of t.records || []) if (r.status === 'active') counts[r.type] = (counts[r.type] || 0) + 1;
     counts.tasks += (t.tasks || []).length;
   }
-  const allWhys = (project?.records || []).filter(r => r.type === 'why' && r.status === 'active');
+  const allSettled = (project?.records || []).filter(r => ['decision', 'rule'].includes(r.type) && r.status === 'active');
   return {
     goal: project?.goal?.text ? trim(project.goal.text, chars) : null,
-    whys: allWhys.slice(0, maxWhys).map(r => trim(r.text, chars)),
+    why: project?.goal?.why ? trim(project.goal.why, chars) : null,
+    settled: allSettled.slice(0, maxSettled).map(r => trim(r.text, chars)),
     workstreams: workstreams.slice(0, maxWs).map(w => ({
       number: w.number || null,
       name: trim(w.name || w.id, chars),
@@ -43,6 +45,6 @@ export function digestProject({ project, workstreams = [] } = {}, limits = {}) {
       records: (w.records || []).filter(r => r.status === 'active').length,
     })),
     counts,
-    more: allWhys.length > maxWhys || workstreams.length > maxWs,
+    more: allSettled.length > maxSettled || workstreams.length > maxWs,
   };
 }

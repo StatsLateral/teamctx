@@ -36,13 +36,13 @@ vi.mock('../../src/context.js', () => ({
       ...tree,
       goal: { text: 'Ship the ledger by March' },
       records: [
-        { id: 'w1', type: 'why', text: 'Stay audit-ready', status: 'active' },
+        { id: 'w1', type: 'decision', text: 'Stay audit-ready', status: 'active' },
         { id: 'd1', type: 'decision', text: 'Reconcile daily', status: 'active' },
       ],
       tasks: [{ id: 'h1', title: 'Import the bank feed', status: 'open' }],
     },
     summary: 'sets the goal',
-    operations: [{ type: 'setGoal', text: 'Ship the ledger by March' }, { type: 'addRecord', record: { type: 'why', text: 'Stay audit-ready' } }],
+    operations: [{ type: 'setGoal', text: 'Ship the ledger by March' }, { type: 'addRecord', record: { type: 'decision', text: 'Stay audit-ready' } }],
     dropped: [],
   })),
   generateRoleFile: vi.fn(async () => '# role'),
@@ -59,7 +59,7 @@ vi.mock('../../src/prefs.js', () => ({
 
 const { contributeCore } = await import('./contribute.core.js');
 
-const withContext = [{ id: 'w0', type: 'why', text: 'Already here', status: 'active' }];
+const withContext = [{ id: 'w0', type: 'decision', text: 'Already here', status: 'active' }];
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -72,8 +72,8 @@ describe('the first contribution to a project', () => {
     const r = await contributeCore({ text: 'a long conversation', apply: true });
     expect(r.founding).toBe(true);
     expect(r.digest.goal).toBe('Ship the ledger by March');
-    expect(r.digest.whys).toEqual(['Stay audit-ready']);
-    expect(r.digest.counts).toMatchObject({ why: 1, decision: 1, tasks: 1 });
+    expect(r.digest.settled).toEqual(['Stay audit-ready', 'Reconcile daily']);
+    expect(r.digest.counts).toMatchObject({ decision: 2, tasks: 1 });
   });
 
   it('is still the ordinary applied result underneath', async () => {

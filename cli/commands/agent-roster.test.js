@@ -7,8 +7,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('../../src/storage.js', () => ({
-  readProject: vi.fn(() => ({ name: 'Ledger', records: [{ id: 'w1', type: 'why', text: 'ship it', status: 'active' }], tasks: [] })),
-  readWorkstream: vi.fn(() => ({ id: 'w', name: 'W', records: [{ id: 'x1', type: 'why', text: 'do it', status: 'active' }], tasks: [] })),
+  readProject: vi.fn(() => ({ name: 'Ledger', records: [{ id: 'w1', type: 'decision', text: 'ship it', status: 'active' }], tasks: [] })),
+  readWorkstream: vi.fn(() => ({ id: 'w', name: 'W', records: [{ id: 'x1', type: 'decision', text: 'do it', status: 'active' }], tasks: [] })),
   readConfig: vi.fn(),
   writeConfig: vi.fn(),
 }));

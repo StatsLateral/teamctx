@@ -9,17 +9,13 @@ import { LABELS, isActive, today, numberTasks } from './model.js';
  * words, then its tasks. Type names never appear; the labels in `LABELS` do.
  */
 
-const GROUPS = [
-  ['why'],
-  ['rule', 'decision', 'assumption'],
-  ['question', 'risk'],
-];
+const GROUPS = [['rule', 'decision', 'assumption']];
 
 function line(r, tag) {
-  const extra = r.type === 'assumption' && r.reviewBy ? ` (check by ${r.reviewBy})`
-    : (r.type === 'question' || r.type === 'risk') && r.owner?.name ? ` (${r.owner.name})` : '';
-  const plan = r.type === 'risk' && r.detail ? ` — plan: ${r.detail}` : '';
-  return `- ${LABELS[r.type]} ${r.text}${extra}${plan}${tag(r)}`;
+  const check = r.type === 'assumption' && r.reviewBy ? ` (check by ${r.reviewBy})` : '';
+  // The reason travels with the thing it explains.
+  const why = r.detail ? ` — why: ${r.detail}` : '';
+  return `- ${LABELS[r.type]} ${r.text}${why}${check}${tag(r)}`;
 }
 
 function section(records, onDay, tag) {
@@ -56,7 +52,8 @@ export function renderBrief({
   // reader can tell what they may add to from what is settled above them.
   if (chain.length) out.push('## Project context *(inherited — read-only here)*', '');
   out.push(chain.length ? `**Goal:** ${project?.goal?.text || '*none yet*'}${tag(project?.goal)}` : '## Goal',
-    ...(chain.length ? [] : [project?.goal?.text ? `${project.goal.text}${tag(project.goal)}` : '*No goal yet.*']), '');
+    ...(chain.length ? [] : [project?.goal?.text ? `${project.goal.text}${tag(project.goal)}` : '*No goal yet.*']),
+    ...(project?.goal?.why ? [`Why it matters: ${project.goal.why}`] : []), '');
   const projectLines = section((project?.records || []).filter(r => !onTask(r)), onDay, tag);
   if (projectLines.length) out.push(...projectLines, '');
   for (const t of project?.tasks || []) {

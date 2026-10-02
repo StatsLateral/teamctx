@@ -117,7 +117,8 @@ export function applyOps(tree, ops, contributionId, { onDay = today(), target } 
     if (wsId) { dropped.push({ op: o, reason: 'the goal belongs to the project, not to a workstream' }); return t; }
     const text = typeof o.text === 'string' ? o.text.trim() : '';
     if (!text) { dropped.push({ op: o, reason: 'goal text is empty' }); return t; }
-    return { ...t, goal: withSource({ ...(t.goal || {}), text, updatedAt: onDay }, contributionId) };
+    const why = typeof o.why === 'string' && o.why.trim() ? { why: o.why.trim() } : {};
+    return { ...t, goal: withSource({ ...(t.goal || {}), text, ...why, updatedAt: onDay }, contributionId) };
   });
   // Tasks before records, so a record can be attached to a task added alongside
   // it; rules before exceptions, so an exception can bend a rule added with it.

@@ -86,10 +86,11 @@ export async function contributeCommand(text, opts = {}) {
  */
 function printFounding(digest) {
   if (!digest) return;
-  const { goal, whys, workstreams, counts, more } = digest;
+  const { goal, why, settled, workstreams, counts, more } = digest;
   console.log("\nThis is the project's first context. It now holds:\n");
   if (goal) console.log(`  Goal: ${goal}`);
-  for (const w of whys) console.log(`  Why it matters: ${w}`);
+  if (why) console.log(`  Why it matters: ${why}`);
+  for (const x of settled) console.log(`  Settled: ${x}`);
   for (const w of workstreams) console.log(`  ${w.number ? `${w.number} ` : ''}${w.name} — ${w.tasks} task${w.tasks === 1 ? '' : 's'}, ${w.records} record${w.records === 1 ? '' : 's'}`);
   const kinds = Object.entries(counts).filter(([k]) => k !== 'tasks').map(([k, n]) => `${n} ${k}`).join(', ');
   if (kinds || counts.tasks) console.log(`\n  In all: ${[kinds, counts.tasks ? `${counts.tasks} task${counts.tasks === 1 ? '' : 's'}` : ''].filter(Boolean).join(', ')}`);

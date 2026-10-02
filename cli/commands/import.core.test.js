@@ -16,7 +16,7 @@ const write = (rel, text) => {
   writeFileSync(p, text);
 };
 const queued = (id = 'c-1') => ({
-  id, mode: 'queued', summary: 's', operations: [{ type: 'addRecord', record: { type: 'why', text: 't' } }], workstream: 'main',
+  id, mode: 'queued', summary: 's', operations: [{ type: 'addRecord', record: { type: 'decision', text: 't' } }], workstream: 'main',
 });
 
 beforeEach(() => {

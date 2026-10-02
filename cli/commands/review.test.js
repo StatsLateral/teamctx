@@ -59,7 +59,7 @@ describe('reviewApproveCommand — workstream-aware', () => {
     readConfig.mockReturnValue(twoWsConfig);
     readQueueItem.mockReturnValue({
       id: 'c-1', workstream: 'tech', author: 'satya', tagged: null,
-      operations: [{ type: 'addRecord', record: { type: 'why', text: 'New tech Why' } }],
+      operations: [{ type: 'addRecord', record: { type: 'decision', text: 'New tech Why' } }],
     });
     readWorkstream.mockReturnValue({ id: 'tech', name: 'Tech', records: [], tasks: [] });
 
@@ -79,7 +79,7 @@ describe('reviewApproveCommand — workstream-aware', () => {
     readConfig.mockReturnValue(twoWsConfig);
     readQueueItem.mockReturnValue({
       id: 'c-2', workstream: 'tech', author: 'satya', tagged: null,
-      operations: [{ type: 'addRecord', record: { type: 'why', text: 'x' } }],
+      operations: [{ type: 'addRecord', record: { type: 'decision', text: 'x' } }],
     });
     readWorkstream.mockReturnValue({ id: 'tech', name: 'Tech', records: [], tasks: [] });
 
@@ -94,7 +94,7 @@ describe('reviewApproveCommand — workstream-aware', () => {
     readConfig.mockReturnValue(twoWsConfig);
     readQueueItem.mockReturnValue({
       id: 'c-3', workstream: 'tech', author: 'satya', tagged: 'decision',
-      operations: [{ type: 'addRecord', record: { type: 'why', text: 'y' } }],
+      operations: [{ type: 'addRecord', record: { type: 'decision', text: 'y' } }],
     });
     readWorkstream.mockReturnValue({ id: 'tech', name: 'Tech', records: [], tasks: [] });
     const fakeContribs = [{ id: 'c-3', author: 'satya', ts: '2026-07-21', tagged: 'decision' }];
@@ -117,7 +117,7 @@ describe('reviewApproveCommand — workstream-aware', () => {
     readConfig.mockReturnValue(twoWsConfig);
     readQueueItem.mockReturnValue({
       id: 'c-legacy', author: 'satya', tagged: null,
-      operations: [{ type: 'addRecord', record: { type: 'why', text: 'legacy' } }],
+      operations: [{ type: 'addRecord', record: { type: 'decision', text: 'legacy' } }],
     });
     readTree.mockReturnValue({ name: 'p', records: [], tasks: [] });
 
@@ -131,7 +131,7 @@ describe('reviewApproveCommand — workstream-aware', () => {
     readConfig.mockReturnValue(twoWsConfig);
     readQueueItem.mockReturnValue({
       id: 'c-4', workstream: 'tech', author: 'satya', tagged: 'decision',
-      operations: [{ type: 'addRecord', record: { type: 'why', text: 'z' } }],
+      operations: [{ type: 'addRecord', record: { type: 'decision', text: 'z' } }],
     });
     readWorkstream.mockReturnValue({ id: 'tech', name: 'Tech', records: [], tasks: [] });
 

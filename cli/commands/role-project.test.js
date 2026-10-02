@@ -35,7 +35,7 @@ const { readConfig, writeConfig, readTree, readProject, listWorkstreamIds } = aw
 const { generateRoleFile } = await import('../../src/context.js');
 const { resolveActiveWorkstream } = await import('../../src/prefs.js');
 
-const PROJECT = { name: 'Ledger', records: [{ id: 'p1', type: 'why', text: 'no new vendors', status: 'active' }], tasks: [] };
+const PROJECT = { name: 'Ledger', records: [{ id: 'p1', type: 'decision', text: 'no new vendors', status: 'active' }], tasks: [] };
 const WS = { id: 'delivery', name: 'Delivery', records: [], tasks: [] };
 
 const role = () => writeConfig.mock.calls[0][0].roles[0];

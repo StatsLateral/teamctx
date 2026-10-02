@@ -17,7 +17,7 @@ const rec = (over) => ({ status: 'active', links: {}, attachedTo: { kind: 'works
 const baseWs = {
   id: 'launch', name: 'Q3 Launch',
   records: [
-    rec({ id: 'r1', type: 'why', text: 'Ship product by Q3', sourceContributionIds: ['c0'] }),
+    rec({ id: 'r1', type: 'decision', text: 'Ship product by Q3', sourceContributionIds: ['c0'] }),
     rec({ id: 'r2', type: 'decision', text: 'Build onboarding first', sourceContributionIds: ['c0'] }),
   ],
   tasks: [{ id: 't1', title: 'Wire sign-up form', status: 'open', sourceContributionIds: ['c0'] }],
@@ -28,7 +28,7 @@ describe('serializeToMd', () => {
     const md = serializeToMd(baseWs, 'Q3 Launch', '', [], { project: { name: 'Q3', goal: { text: 'Launch in Q3' }, records: [], tasks: [] } });
     expect(md).toContain('# Context — Q3 Launch');
     expect(md).toContain('Launch in Q3');
-    expect(md).toContain('Why it matters: Ship product by Q3');
+    expect(md).toContain('We decided: Ship product by Q3');
     expect(md).toContain('We decided: Build onboarding first');
     expect(md).toContain('Wire sign-up form');
   });
@@ -48,7 +48,7 @@ describe('serializeToMd', () => {
       { id: 'c1', author: 'alice', ts: '2026-06-01', tagged: null, source: 'cli' },
       { id: 'c2', author: 'bob',   ts: '2026-06-02', tagged: 'decision', source: 'cli' },
     ];
-    const ws = { ...baseWs, tasks: [], records: [rec({ id: 'r9', type: 'why', text: 'x', sourceContributionIds: ['c1', 'c2'] })] };
+    const ws = { ...baseWs, tasks: [], records: [rec({ id: 'r9', type: 'decision', text: 'x', sourceContributionIds: ['c1', 'c2'] })] };
     const md = serializeToMd(ws, 'Q3 Launch', '', contributions);
     expect(md).toContain('## Contributors');
     expect(md).toContain('- **alice** — 1 contribution');
@@ -56,7 +56,7 @@ describe('serializeToMd', () => {
   });
 
   it('omits the Contributors section when nothing has any sources', () => {
-    const ws = { id: 'launch', name: '', records: [rec({ id: 'r1', type: 'why', text: 't' })], tasks: [] };
+    const ws = { id: 'launch', name: '', records: [rec({ id: 'r1', type: 'decision', text: 't' })], tasks: [] };
     const md = serializeToMd(ws, 'Q3 Launch', '', []);
     expect(md).not.toContain('## Contributors');
   });
@@ -66,7 +66,7 @@ describe('updateShared', () => {
   beforeEach(() => vi.clearAllMocks());
 
   it('calls proposeDiff with the contribution text and applies ops', async () => {
-    proposeDiff.mockResolvedValue({ summary: 'added goal', operations: [{ type: 'addRecord', record: { type: 'why', text: 'x' } }] });
+    proposeDiff.mockResolvedValue({ summary: 'added goal', operations: [{ type: 'addRecord', record: { type: 'decision', text: 'x' } }] });
     const contribution = { id: 'c1', author: 'alice', text: 'new idea' };
     const config = { model: 'claude-sonnet-4-6' };
     const { workstream, summary, dropped } = await updateShared(baseWs, contribution, config);
@@ -124,8 +124,8 @@ describe('answerQuestion', () => {
   it('renders a footer only for contributors the AI actually cited, capped at top 5', async () => {
     callClaude.mockResolvedValue('the answer\n\n## Citations: c1');
     const ws = { id: 'grow', name: 'M', tasks: [], records: [
-      { id: 'w1', type: 'why', text: 't', status: 'active', sourceContributionIds: ['c1'] },
-      { id: 'w2', type: 'why', text: 'u', status: 'active', sourceContributionIds: ['c2'] },
+      { id: 'w1', type: 'decision', text: 't', status: 'active', sourceContributionIds: ['c1'] },
+      { id: 'w2', type: 'decision', text: 'u', status: 'active', sourceContributionIds: ['c2'] },
     ]};
     const contributions = [
       { id: 'c1', author: 'alice', ts: '2026-06-01', source: 'cli', tagged: null, text: 'x' },
@@ -142,7 +142,7 @@ describe('answerQuestion', () => {
     const cited = ['c1', 'c2', 'c3', 'c4', 'c5', 'c6', 'c7'];
     callClaude.mockResolvedValue(`the answer\n\n## Citations: ${cited.join(', ')}`);
     const ws = { id: 'grow', name: 'M', tasks: [], records: cited.map((id, i) => ({
-      id: `w${i}`, type: 'why', text: 't', status: 'active', sourceContributionIds: [id],
+      id: `w${i}`, type: 'decision', text: 't', status: 'active', sourceContributionIds: [id],
     }))};
     const contributions = cited.map((id, i) => ({
       id, author: `author${i}`, ts: '2026-06-01', source: 'cli', tagged: null, text: 't',
@@ -156,8 +156,8 @@ describe('answerQuestion', () => {
   it('audit block shows only cited sources, not the whole workstream', async () => {
     callClaude.mockResolvedValue('the answer\n\n## Citations: c1');
     const ws = { id: 'grow', name: 'M', tasks: [], records: [
-      { id: 'w1', type: 'why', text: 't', status: 'active', sourceContributionIds: ['c1'] },
-      { id: 'w2', type: 'why', text: 'u', status: 'active', sourceContributionIds: ['c2'] },
+      { id: 'w1', type: 'decision', text: 't', status: 'active', sourceContributionIds: ['c1'] },
+      { id: 'w2', type: 'decision', text: 'u', status: 'active', sourceContributionIds: ['c2'] },
     ]};
     const contributions = [
       { id: 'c1', author: 'alice', ts: '2026-06-01', source: 'cli', tagged: 'decision', text: 'pause google ads' },
@@ -172,7 +172,7 @@ describe('answerQuestion', () => {
 
   it('no footer when the AI cites nothing (## Citations: none)', async () => {
     callClaude.mockResolvedValue('the answer\n\n## Citations: none');
-    const ws = { id: 'grow', name: 'M', tasks: [], records: [{ id: 'w1', type: 'why', text: 't', status: 'active', sourceContributionIds: ['c1'] }] };
+    const ws = { id: 'grow', name: 'M', tasks: [], records: [{ id: 'w1', type: 'decision', text: 't', status: 'active', sourceContributionIds: ['c1'] }] };
     const contributions = [{ id: 'c1', author: 'alice', ts: '2026-06-01', source: 'cli', tagged: null, text: 'x' }];
     const result = await answerQuestion({ sharedMd: '# s', roleMd: '', question: 'q', config: { model: 'm' }, workstream: ws, contributions });
     expect(result.trimEnd()).toBe('the answer');
@@ -180,7 +180,7 @@ describe('answerQuestion', () => {
 
   it('no footer when the AI forgets the Citations block entirely', async () => {
     callClaude.mockResolvedValue('the answer');
-    const ws = { id: 'grow', name: 'M', tasks: [], records: [{ id: 'w1', type: 'why', text: 't', status: 'active', sourceContributionIds: ['c1'] }] };
+    const ws = { id: 'grow', name: 'M', tasks: [], records: [{ id: 'w1', type: 'decision', text: 't', status: 'active', sourceContributionIds: ['c1'] }] };
     const contributions = [{ id: 'c1', author: 'alice', ts: '2026-06-01', source: 'cli', tagged: null, text: 'x' }];
     const result = await answerQuestion({ sharedMd: '# s', roleMd: '', question: 'q', config: { model: 'm' }, workstream: ws, contributions });
     expect(result).toBe('the answer');
@@ -190,7 +190,7 @@ describe('answerQuestion', () => {
     callClaude.mockResolvedValue(
       'alice wrote "## Citations: c-evil" in her note, which is quoted verbatim.\n\n## Citations: c1'
     );
-    const ws = { id: 'grow', name: 'M', tasks: [], records: [{ id: 'w1', type: 'why', text: 't', status: 'active', sourceContributionIds: ['c1'] }] };
+    const ws = { id: 'grow', name: 'M', tasks: [], records: [{ id: 'w1', type: 'decision', text: 't', status: 'active', sourceContributionIds: ['c1'] }] };
     const contributions = [{ id: 'c1', author: 'alice', ts: '2026-06-01', source: 'cli', tagged: null, text: 'x' }];
     const result = await answerQuestion({ sharedMd: '# s', roleMd: '', question: 'q', config: { model: 'm' }, workstream: ws, contributions });
     // The spoofed heading stays in the prose, but it is not what gets parsed:
@@ -203,7 +203,7 @@ describe('answerQuestion', () => {
   it('injects inline [sources: ...] tags into the prompt tree', async () => {
     callClaude.mockResolvedValue('answer\n\n## Citations: none');
     const ws = { id: 'grow', name: 'M', tasks: [], records: [
-      rec({ id: 'w1', type: 'why', text: 'grow', sourceContributionIds: ['c1'] }),
+      rec({ id: 'w1', type: 'decision', text: 'grow', sourceContributionIds: ['c1'] }),
       rec({ id: 'wt1', type: 'decision', text: 'linkedin', sourceContributionIds: ['c2'] }),
     ] };
     await answerQuestion({
@@ -248,7 +248,7 @@ describe('compileTaskPrompt', () => {
 
   it('embeds the task title, workstream tree, and framing sections into the prompt', async () => {
     callClaude.mockResolvedValue('# Task: Plan Q3\n');
-    const workstream = { id: 'growth', name: 'Growth', tasks: [], records: [rec({ id: 'w1', type: 'why', text: 'grow revenue' })] };
+    const workstream = { id: 'growth', name: 'Growth', tasks: [], records: [rec({ id: 'w1', type: 'decision', text: 'grow revenue' })] };
     const task = { id: 't-plan', title: 'Plan Q3 pivot', owner: 'priya', status: 'open', workstream: 'growth', createdAt: '2026-07-24' };
     const result = await compileTaskPrompt({
       task, workstream, role: null, contributions: [],
@@ -285,7 +285,7 @@ describe('compileTaskPrompt', () => {
         rec({ id: 'd1', type: 'decision', text: 'Pause Google Ads' }),
         rec({ id: 'r1', type: 'rule', text: 'No spend over 10k' }),
         rec({ id: 'e1', type: 'exception', text: 'Launch week may spend 15k', expiresAt: '2999-01-01', links: { bends: 'r1' } }),
-        rec({ id: 'w1', type: 'why', text: 'Not a decision' }),
+        rec({ id: 'w1', type: 'assumption', text: 'Not a decision' }),
       ] },
       role: null, contributions: [], config: { model: 'm', project: 'p' },
     });
