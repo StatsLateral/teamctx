@@ -44,10 +44,12 @@ From the database page, copy the two values under **REST API**.
 Free tier at time of writing: 256 MB, 500k commands/month, no credit card.
 teamctx stores a few hundred bytes per user, so this is ample.
 
-> Vercel's **Storage → KV** tab is the same Upstash product behind a
-> paid Vercel plan. Going to Upstash directly avoids that. The code accepts
-> either naming (`UPSTASH_REDIS_REST_*` or `KV_REST_API_*`), so if you are
-> already on a paid Vercel plan the Storage tab works too.
+> Vercel no longer offers a KV product of its own. Redis now comes through the
+> **Vercel Marketplace** (Storage → Create → Upstash), which is the same Upstash
+> product on a paid Vercel plan. Going to Upstash directly avoids that. The code
+> accepts either naming (`UPSTASH_REDIS_REST_*` or `KV_REST_API_*`), and the
+> Marketplace integration sets the `KV_REST_API_*` pair for you, so that route
+> works too.
 
 ## Adding your team
 
