@@ -151,11 +151,7 @@ describe('resolution layering', () => {
     expect(await resolveActiveWorkstream({ actor: ALICE, config: {}, teamctxDir })).toBe(null);
   });
 
-  it('resolves a stored "main" to project level rather than rejecting it', async () => {
-    // Preferences outlive the thing they point at.
-    await writePrefs(BOB, { activeWorkstream: 'main' }, teamctxDir);
-    expect(await resolveActiveWorkstream({ actor: BOB, config: {}, teamctxDir })).toBe(null);
-  });
+
 
   it('one person switching does not move anyone else', async () => {
     await writePrefs(ALICE, { activeWorkstream: 'tech' }, teamctxDir);

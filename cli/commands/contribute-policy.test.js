@@ -94,7 +94,7 @@ describe('under additive', () => {
   });
 
   it('queues an edit as well as a delete', async () => {
-    operations = [{ type: 'editStatement', id: 'abc', text: 'reworded' }];
+    operations = [{ type: 'editRecord', id: 'abc', changes: { text: 'reworded' } }];
     expect((await contribute()).mode).toBe('queued');
   });
 

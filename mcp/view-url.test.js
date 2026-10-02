@@ -11,8 +11,8 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 /**
  * What the model would have proposed, applied for real.
  *
- * The first version of this mock returned `operations: [{ type: 'addWhy', id:
- * 'n1' }]` and a tree with a node called `n1` in it. No part of the real
+ * The first version of this mock returned an add operation with an id
+ * already on it and a tree with a node called `n1` in it. No part of the real
  * pipeline produces that: an add op carries no id (src/ai.js asks for none, and
  * applyOps mints them), and a created node carries the contribution's id in
  * `sourceContributionIds`. So the mock quietly asserted a link that could not

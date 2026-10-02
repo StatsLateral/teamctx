@@ -112,8 +112,11 @@ export async function importDocuments({
         operations: r.operations || [],
         workstream: r.workstream,
       });
+      // What earlier documents proposed adding, so a later one about the same
+      // decision does not propose it again.
       for (const op of r.operations || []) {
-        if (op.type === 'addWhy' && op.text) proposed.push(op.text);
+        if (op.type === 'addRecord' && op.record?.text) proposed.push(op.record.text);
+        if (op.type === 'addTask' && op.title) proposed.push(op.title);
       }
     } catch (err) {
       // A bad workstream id is a mistake about the whole run, not about this

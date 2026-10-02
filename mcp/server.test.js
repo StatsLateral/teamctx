@@ -212,7 +212,7 @@ describe('get_context', () => {
 });
 
 describe('list_workstreams', () => {
-  it('returns each workstream with id, name, isActive, whyCount, roles', async () => {
+  it('returns each workstream with id, name, number, isActive, counts and roles', async () => {
     readConfig.mockReturnValue({ ...baseConfig, workstreams: [{ id: 'main', name: 'Main' }, { id: 'tech', name: 'Tech' }], activeWorkstream: 'main', roles: [{ slug: 'eng', workstream: 'tech' }] });
     listWorkstreamIds.mockReturnValue(['main', 'tech']);
     readWorkstream.mockImplementation((id) => ({ id, name: id, records: [] }));
@@ -222,6 +222,7 @@ describe('list_workstreams', () => {
     expect(payload.workstreams).toHaveLength(2);
     const tech = payload.workstreams.find(w => w.id === 'tech');
     expect(tech.roles).toEqual(['eng']);
+    expect(tech).toMatchObject({ number: '2', recordCount: 0, taskCount: 0 });
     expect(payload.workstreams.find(w => w.id === 'main').isActive).toBe(true);
   });
 });

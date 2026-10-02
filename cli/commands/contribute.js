@@ -1,3 +1,4 @@
+import { LABELS } from '../../src/model.js';
 import { ask } from '../prompt.js';
 import { contributeCore } from './contribute.core.js';
 import { isProjectLevel } from '../../src/project-level.js';
@@ -10,12 +11,15 @@ import { isProjectLevel } from '../../src/project-level.js';
  * terminal never learned about the review policy, and would have kept writing
  * to a workstream the project layer removed. Everything below is presentation.
  */
-function describe(op) {
-  if (op.type === 'addWhy') return `+ Why: ${op.text}`;
-  if (op.type === 'addWhat') return `+ What: ${op.text}`;
-  if (op.type === 'addHow') return `+ How: ${op.text}`;
-  if (op.type === 'editStatement') return `~ Edit: ${op.text}`;
-  return `- Delete: ${op.id}`;
+export function describeOp(op) {
+  if (op.type === 'setGoal') return `+ Goal: ${op.text}`;
+  if (op.type === 'addRecord') return `+ ${LABELS[op.record?.type] || 'Note:'} ${op.record?.text}`;
+  if (op.type === 'addTask') return `+ Task: ${op.title}`;
+  if (op.type === 'editRecord') return `~ Edit ${op.id}: ${op.changes?.text ?? '(details)'}`;
+  if (op.type === 'editTask') return `~ Retitle ${op.id}: ${op.title}`;
+  if (op.type === 'setRecordStatus') return `~ Mark ${op.id} ${op.status}`;
+  if (op.type === 'removeTask') return `- Remove task ${op.id}`;
+  return `? ${op.type}`;
 }
 
 export async function contributeCommand(text, opts = {}) {
@@ -32,7 +36,7 @@ export async function contributeCommand(text, opts = {}) {
       onProposed: async ({ summary, operations, willQueue }) => {
         console.log(`\nProposed changes (${operations.length} op${operations.length !== 1 ? 's' : ''}):`);
         console.log(`  Summary: ${summary}`);
-        operations.forEach(op => console.log(`  ${describe(op)}`));
+        operations.forEach(op => console.log(`  ${describeOp(op)}`));
         if (opts.autoApprove) return true;
         // `willQueue` is the core's own decision, not a guess from the flags.
         // Under the `additive` policy — what `init` writes now — an add-only
