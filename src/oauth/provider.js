@@ -234,6 +234,13 @@ export class TeamctxOAuthProvider {
     const user = await res.json();
     return {
       id: String(user.id), login: user.login, name: user.name ?? null,
+      // Both of these are addresses GitHub has confirmed belong to this account,
+      // which is what the rest of the system is entitled to assume: this address
+      // is written into `teamctx:ghids:*`, and a later Google sign-in on it then
+      // matches a `github:<id>` gate. `/user` returns the public profile address,
+      // and GitHub only offers a verified one for that; `primaryEmail` filters on
+      // `verified` itself. An unconfirmed address must never arrive here — it
+      // would let somebody claim a gate pinned to an email they do not own.
       email: user.email ? String(user.email).toLowerCase() : await primaryEmail(githubToken),
     };
   }
