@@ -1,3 +1,4 @@
+import { emptyProject } from '../../src/model.js';
 import { existsSync, mkdirSync, writeFileSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { checkGitRepo, commitContext, pushContext } from '../../src/git.js';
@@ -154,12 +155,10 @@ export async function initProject({
     // the project tree removes — so it is not created at all.
     workstreams: [],
     activeWorkstream: null,
-    workstreamsMigrated: true,
-    projectLayerMigrated: true,
   };
   writeConfig(config, teamctxDir);
 
-  const tree = { name: project, whys: [] };
+  const tree = emptyProject(project);
   writeProject(tree, teamctxDir);
   writeProjectMd(serializeToMd(tree, project), teamctxDir);
   // Locally this reserves the file so the layout is complete on disk. Hosted,

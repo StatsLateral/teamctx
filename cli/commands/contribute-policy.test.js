@@ -6,7 +6,7 @@
  * asks. Every case here is a member, not the manager, since the manager was
  * never the one being held up.
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 const MEMBER = { key: 'github:2002', name: 'Ravi', login: 'ravi', source: 'github' };
 const MANAGER = { key: 'github:1001', name: 'Ada', login: 'ada', source: 'github' };
@@ -15,24 +15,25 @@ let operations = [];
 
 vi.mock('../../src/storage.js', () => ({
   writeWorkstreamMd: vi.fn(),
-  readTree: vi.fn(() => ({ id: 'main', name: 'M', whys: [] })),
+  readTree: vi.fn(() => ({ id: 'ops', name: 'M', records: [], tasks: [] })),
   writeTree: vi.fn(),
   readTreeMd: vi.fn(() => ''),
   writeTreeMd: vi.fn(),
-  readProject: vi.fn(() => ({ name: '', whys: [] })),
+  readProject: vi.fn(() => ({ name: '', goal: { text: 'An existing goal' }, records: [], tasks: [] })),
   readConfig: vi.fn(),
-  readWorkstream: vi.fn(() => ({ id: 'main', name: 'p', whys: [] })),
+  readWorkstream: vi.fn(() => ({ id: 'ops', name: 'p', records: [], tasks: [] })),
   writeTree: vi.fn(),
   writeTreeMd: vi.fn(),
   appendContribution: vi.fn(),
   writeRoleFile: vi.fn(),
   writeQueueItem: vi.fn(),
   readContributions: vi.fn(() => []),
-  listWorkstreamIds: vi.fn(() => ['main']),
+  listWorkstreamIds: vi.fn(() => ['ops']),
 }));
 vi.mock('../../src/context.js', () => ({
   updateShared: vi.fn(async () => ({
-    workstream: { id: 'main', name: 'p', whys: [] },
+    workstream: { id: 'ops', name: 'p', records: [], tasks: [] },
+    dropped: [],
     summary: 'a summary',
     operations,
   })),
@@ -45,7 +46,7 @@ vi.mock('../../src/git.js', () => ({
 }));
 vi.mock('../../src/actor.js', () => ({ resolveActor: vi.fn(async () => caller) }));
 vi.mock('../../src/prefs.js', () => ({
-  resolveActiveWorkstream: vi.fn(async () => 'main'),
+  resolveActiveWorkstream: vi.fn(async () => 'ops'),
   resolveDisplayName: vi.fn(async () => caller.name),
 }));
 
@@ -56,9 +57,9 @@ const {
   writeWorkstreamMd, readWorkstream, listWorkstreamIds,
 } = await import('../../src/storage.js');
 
-const project = (over = {}) => ({ project: 'p', me: 'Ada', managerKey: 'github:1001', ...over });
-const ADDS = [{ type: 'addWhy', text: 'go to vietnam' }, { type: 'addWhat', text: 'pick dates' }];
-const WITH_DELETE = [{ type: 'addWhy', text: 'x' }, { type: 'deleteStatement', id: 'abc' }];
+const project = (over = {}) => ({ project: 'p', me: 'Ada', managerKey: 'github:1001', workstreams: [{ id: 'ops', name: 'Ops' }], ...over });
+const ADDS = [{ type: 'addRecord', record: { type: 'why', text: 'go to vietnam' } }, { type: 'addTask', title: 'pick dates' }];
+const WITH_DELETE = [{ type: 'addRecord', record: { type: 'why', text: 'x' } }, { type: 'removeTask', id: 'abc' }];
 
 const contribute = () => contributeCore({ text: 'something', source: 'mcp' });
 
@@ -173,17 +174,19 @@ describe('a project-level contribution reaching the workstreams', () => {
       roles: [],
     });
     listWorkstreamIds.mockReturnValue(['delivery']);
-    readWorkstream.mockReturnValue({ id: 'delivery', name: 'Delivery', whys: [] });
+    readWorkstream.mockReturnValue({ id: 'delivery', name: 'Delivery', records: [], tasks: [] });
   });
 
   it('rewrites the page of a workstream it did not touch', async () => {
+    const { resolveActiveWorkstream } = await import('../../src/prefs.js');
+    resolveActiveWorkstream.mockResolvedValueOnce(null);   // the project itself
     await contributeCore({ text: 'no new vendors', apply: true, teamctxDir: '/x' });
     expect(writeWorkstreamMd).toHaveBeenCalledWith('delivery', expect.any(String), '/x');
   });
 
-  it('leaves them alone when the contribution was to a workstream', async () => {
+  it('recompiles after a workstream write too, since the parts below it inherit it', async () => {
     await contributeCore({ text: 'ship it', workstreamId: 'delivery', apply: true, teamctxDir: '/x' });
-    expect(writeWorkstreamMd).not.toHaveBeenCalled();
+    expect(writeWorkstreamMd).toHaveBeenCalledWith('delivery', expect.any(String), '/x');
   });
 });
 
@@ -230,9 +233,17 @@ describe('what a new project does, and what an older one keeps', () => {
  * whether a client read the instructions.
  */
 describe('founding a project under the new default', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     readConfig.mockReturnValue(project({ reviewPolicy: NEW_PROJECT_POLICY }));
+    const { readProject } = await import('../../src/storage.js');
+    readProject.mockReturnValue({ name: '', goal: null, records: [], tasks: [] });
+    readWorkstream.mockReturnValue({ id: 'ops', name: 'p', records: [], tasks: [] });
+    listWorkstreamIds.mockReturnValue(['ops']);
     caller = MANAGER;
+  });
+  afterEach(async () => {
+    const { readProject } = await import('../../src/storage.js');
+    readProject.mockReturnValue({ name: '', goal: { text: 'An existing goal' }, records: [], tasks: [] });
   });
 
   it('lands the manager\'s first contribution immediately with apply', async () => {
@@ -242,14 +253,12 @@ describe('founding a project under the new default', () => {
     expect(writeTree).toHaveBeenCalled();
   });
 
-  it('queues it when the client forgets apply, rather than losing it', async () => {
-    // Worth knowing rather than worth preventing: the project is then waiting on
-    // its manager to approve their own opening message, and `member_add` refuses
-    // until they do. The instructions and the tool description are what keep a
-    // client from getting here; the contribution is safe either way.
+  it('lands it even when the client forgets apply, so the project never sits empty', async () => {
+    // Queueing it left the project waiting on its manager to approve their own
+    // opening message, with `member_add` refusing until they did.
     const r = await contributeCore({ text: 'what this is about', source: 'mcp' });
-    expect(r.mode).toBe('queued');
-    expect(writeQueueItem).toHaveBeenCalled();
+    expect(r.mode).toBe('applied');
+    expect(writeQueueItem).not.toHaveBeenCalled();
   });
 
   it('refuses a member who asks to found it, without dropping their words', async () => {

@@ -10,7 +10,7 @@ import { resolveActor } from '../../src/actor.js';
 import { resolveDisplayName } from '../../src/prefs.js';
 import { sourceTrailer } from './contribute.core.js';
 import { resolveTarget, isProjectLevel } from '../../src/project-level.js';
-import { recompileInheritors } from '../../src/recompile.js';
+import { recompileInheritors, chainFor } from '../../src/recompile.js';
 
 function workstreamDisplayName(id, workstream, config) {
   if (isProjectLevel(id)) return config.project || workstream.name || 'project';
@@ -92,27 +92,32 @@ export async function approveReview({ id, teamctxDir, projectDir, actor } = {}) 
   // approved project-level contribution to a workstream that no longer exists.
   const targetId = resolveTarget(item.workstream);
   const workstream = readTree(targetId, teamctxDir);
-  const updated = applyQueueItem(workstream, item);
+  const applied = applyQueueItem(workstream, item);
+  // Who approved a record travels with it, not only with the commit.
+  const approvedBy = { key: caller?.key || null, name: who, at: new Date().toISOString() };
+  const updated = {
+    ...applied,
+    records: (applied.records || []).map(r => ((r.sourceContributionIds || []).includes(item.id) ? { ...r, approvedBy } : r)),
+  };
   const contributions = readContributions(teamctxDir);
 
   // The inherited half, or nothing when the target *is* the project: rendering
   // the project above itself prints every node twice, under a heading that says
   // it came from somewhere else. Every sibling write path resolves it the same
   // way — see `contribute.core.js` and `reflect.core.js`.
+  // A project-level write renders alone; a workstream renders under its chain.
   const project = isProjectLevel(targetId) ? null : readProject(teamctxDir);
+  const chain = isProjectLevel(targetId) ? null
+    : chainFor({ config, id: targetId, teamctxDir }).map(w => (w.id === targetId ? { ...updated, name: w.name, number: w.number } : w));
 
   writeTree(targetId, updated, teamctxDir);
   writeTreeMd(
     targetId,
-    serializeToMd(updated, workstreamDisplayName(targetId, updated, config), item.author, contributions, { project }),
+    serializeToMd(updated, workstreamDisplayName(targetId, updated, config), item.author, contributions, { project, chain }),
     teamctxDir,
   );
-
-  // A change to the project changes what every workstream inherits, and a
-  // compiled page does not re-read the project on its own.
-  if (isProjectLevel(targetId)) {
-    recompileInheritors({ project: updated, config, contributions, teamctxDir });
-  }
+  // The parts below inherit whatever this changed.
+  recompileInheritors({ project: project ?? updated, config, contributions, teamctxDir });
 
   const rolesOnTarget = (config.roles || []).filter(r => resolveTarget(r.workstream) === targetId);
   const rolesRegenerated = [];
@@ -126,12 +131,11 @@ export async function approveReview({ id, teamctxDir, projectDir, actor } = {}) 
 
   const note = item.tagged === 'decision' ? ' [decision]' : '';
   const wsNote = isProjectLevel(targetId) ? '' : ` (${targetId})`;
-  const approvedBy = who;
   await commitContext(
     // This is the commit that actually changes shared context, so it is the one
     // someone reads when asking where a Why came from. The queue item carried
     // the source through review; without this it would be lost at the last step.
-    `context: ${item.author} contribution (approved by ${approvedBy})${note}${wsNote}${sourceTrailer(item.source)}`,
+    `context: ${item.author} contribution (approved by ${approvedBy.name})${note}${wsNote}${sourceTrailer(item.source)}`,
     projectDir ? { cwd: projectDir } : undefined,
   );
 
@@ -145,7 +149,7 @@ export async function approveReview({ id, teamctxDir, projectDir, actor } = {}) 
     id: item.id,
     workstream: targetId,
     author: item.author,
-    approvedBy,
+    approvedBy: approvedBy.name,
     operations: item.operations || [],
     rolesRegenerated,
     pushed,

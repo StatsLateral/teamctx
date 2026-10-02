@@ -11,7 +11,7 @@
  * sentences, not so much that it repeats the conversation the manager just had.
  */
 
-const LIMITS = { whys: 8, whats: 4, hows: 3, chars: 160 };
+const LIMITS = { whys: 8, workstreams: 12, chars: 160 };
 
 function trim(text, chars) {
   const s = String(text ?? '').replace(/\s+/g, ' ').trim();
@@ -19,37 +19,30 @@ function trim(text, chars) {
 }
 
 /**
- * `{ whys: [{ text, whats: [{ text, hows: [text] }] }], totals, more }`.
+ * `{ goal, whys, workstreams, counts, more }`.
  *
- * `totals` counts everything, including what was left out, so the assistant can
- * say "and four more" rather than implying the list is the whole tree.
+ * `counts` covers everything, including what was left out, so the assistant can
+ * say "and four more" rather than implying the list is the whole of it.
  */
-export function digestTree(tree, limits = {}) {
-  const { whys: maxWhys, whats: maxWhats, hows: maxHows, chars } = { ...LIMITS, ...limits };
-  const allWhys = tree?.whys || [];
-
-  const totals = { whys: allWhys.length, whats: 0, hows: 0 };
-  for (const why of allWhys) {
-    const whats = why?.whats || [];
-    totals.whats += whats.length;
-    for (const what of whats) totals.hows += (what?.hows || []).length;
+export function digestProject({ project, workstreams = [] } = {}, limits = {}) {
+  const { whys: maxWhys, workstreams: maxWs, chars } = { ...LIMITS, ...limits };
+  const trees = [project, ...workstreams].filter(Boolean);
+  const counts = { tasks: 0 };
+  for (const t of trees) {
+    for (const r of t.records || []) if (r.status === 'active') counts[r.type] = (counts[r.type] || 0) + 1;
+    counts.tasks += (t.tasks || []).length;
   }
-
-  const whys = allWhys.slice(0, maxWhys).map(why => ({
-    text: trim(why?.text, chars),
-    whats: (why?.whats || []).slice(0, maxWhats).map(what => ({
-      text: trim(what?.text, chars),
-      hows: (what?.hows || []).slice(0, maxHows).map(how => trim(how?.text, chars)),
-    })),
-  }));
-
+  const allWhys = (project?.records || []).filter(r => r.type === 'why' && r.status === 'active');
   return {
-    whys,
-    totals,
-    // True when anything was left out at any level, so a caller never presents a
-    // trimmed list as the whole of it.
-    more: totals.whys > whys.length
-      || allWhys.some(why => (why?.whats || []).length > maxWhats
-        || (why?.whats || []).some(what => (what?.hows || []).length > maxHows)),
+    goal: project?.goal?.text ? trim(project.goal.text, chars) : null,
+    whys: allWhys.slice(0, maxWhys).map(r => trim(r.text, chars)),
+    workstreams: workstreams.slice(0, maxWs).map(w => ({
+      number: w.number || null,
+      name: trim(w.name || w.id, chars),
+      tasks: (w.tasks || []).length,
+      records: (w.records || []).filter(r => r.status === 'active').length,
+    })),
+    counts,
+    more: allWhys.length > maxWhys || workstreams.length > maxWs,
   };
 }
