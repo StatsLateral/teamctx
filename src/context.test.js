@@ -69,10 +69,11 @@ describe('updateShared', () => {
     proposeDiff.mockResolvedValue({ summary: 'added goal', operations: [{ type: 'addRecord', record: { type: 'why', text: 'x' } }] });
     const contribution = { id: 'c1', author: 'alice', text: 'new idea' };
     const config = { model: 'claude-sonnet-4-6' };
-    const { workstream, summary } = await updateShared(baseWs, contribution, config);
+    const { workstream, summary, dropped } = await updateShared(baseWs, contribution, config);
     expect(proposeDiff).toHaveBeenCalledWith(expect.objectContaining({ contribution: 'new idea' }));
     expect(summary).toBe('added goal');
     expect(workstream._applied).toBe(true);
+    expect(dropped).toEqual([]);
   });
 });
 
@@ -350,20 +351,22 @@ describe('compileTaskPrompt', () => {
     expect(prompt).toContain('own paid acquisition');
   });
 
-  it('includes recent decisions on the same workstream', async () => {
+  it('includes the decisions and rules on this part of the work, exceptions under their rule', async () => {
     callClaude.mockResolvedValue('# md');
     await compileTaskPrompt({
       task: { id: 't-plan', title: 't', workstream: 'growth', status: 'open', createdAt: '2026-07-24' },
-      workstream: { id: 'growth', name: 'G', records: [], tasks: [] },
-      role: null,
-      contributions: [
-        { text: 'Pause Google Ads', author: 'priya', ts: '2026-06-14T10:00:00Z', source: 'cli', tagged: 'decision', workstream: 'growth' },
-        { text: 'Should be ignored', author: 'x', ts: '2026-06-15', source: 'cli', tagged: 'decision', workstream: 'main' },
-      ],
-      config: { model: 'm', project: 'p' },
+      workstream: { id: 'growth', name: 'G', tasks: [], records: [
+        rec({ id: 'd1', type: 'decision', text: 'Pause Google Ads' }),
+        rec({ id: 'r1', type: 'rule', text: 'No spend over 10k' }),
+        rec({ id: 'e1', type: 'exception', text: 'Launch week may spend 15k', expiresAt: '2999-01-01', links: { bends: 'r1' } }),
+        rec({ id: 'w1', type: 'why', text: 'Not a decision' }),
+      ] },
+      role: null, contributions: [], config: { model: 'm', project: 'p' },
     });
     const prompt = callClaude.mock.calls[0][0].prompt;
-    expect(prompt).toContain('Pause Google Ads');
-    expect(prompt).not.toContain('Should be ignored');
+    const block = prompt.slice(prompt.indexOf('Decisions and rules on this part of the work'));
+    expect(block).toContain('We decided: Pause Google Ads');
+    expect(block.indexOf('Rule: No spend over 10k')).toBeLessThan(block.indexOf('Allowed: Launch week may spend 15k'));
+    expect(block.split('\n').slice(0, 6).join('\n')).not.toContain('Not a decision');
   });
 });

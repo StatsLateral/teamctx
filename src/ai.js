@@ -1,4 +1,5 @@
 import { jsonrepair } from 'jsonrepair';
+import { today as todayIso } from './model.js';
 import { getProvider } from './providers/index.js';
 import { getRequestAiProvider, keyWasRejected, fallBackFromOwnKey } from './ai-context.js';
 
@@ -90,18 +91,15 @@ export function extractJson(text) {
   }
 }
 
-function stripWorkstreamForPrompt(workstream) {
+// What the model sees of the current context: active records and tasks, by id,
+// so its operations can reference them. Anything no longer active is left out —
+// a replaced decision shown to the model is a decision it will repeat.
+function modelForPrompt(tree) {
   return {
-    name: workstream.name,
-    whys: (workstream.whys || []).map(why => ({
-      id: why.id,
-      text: why.text,
-      whats: (why.whats || []).map(what => ({
-        id: what.id,
-        text: what.text,
-        hows: (what.hows || []).map(how => ({ id: how.id, text: how.text })),
-      })),
-    })),
+    goal: tree.goal?.text ?? null,
+    records: (tree.records || []).filter(r => r.status === 'active')
+      .map(r => ({ id: r.id, type: r.type, text: r.text, ...(r.links?.bends ? { bends: r.links.bends } : {}) })),
+    tasks: (tree.tasks || []).map(t => ({ id: t.id, title: t.title, status: t.status })),
   };
 }
 
@@ -118,22 +116,25 @@ function stripWorkstreamForPrompt(workstream) {
  * Each document is distilled against the same unchanged record, so without it
  * two documents covering the same decision both propose it.
  */
-export async function proposeDiff({ workstream, contribution, source, model, config, intent = 'contribution', avoid = [] }) {
+export async function proposeDiff({
+  workstream, contribution, source, model, config, intent = 'contribution', avoid = [], today: onDay = todayIso(),
+}) {
   const isDocument = intent === 'document';
 
   const system = isDocument
-    ? 'You extract durable team context from a document into typed edits to a ' +
-      'hierarchical Why / What / How record. Output STRICT JSON only — no markdown fences, no commentary.'
-    : 'You distill a single team contribution into typed edits to a hierarchical ' +
-      'Why / What / How record. Output STRICT JSON only — no markdown fences, no commentary.';
+    ? 'You extract durable team context from a document into typed, governed changes to a ' +
+      "team's shared context. Output STRICT JSON only — no markdown fences, no commentary."
+    : 'You turn a single team contribution into typed, governed changes to a ' +
+      "team's shared context. Output STRICT JSON only — no markdown fences, no commentary.";
 
   const label = isDocument ? 'Document' : 'Contribution';
 
   const prompt = [
-    `Workstream: "${workstream.name}"`,
+    `Part of the work: "${workstream.name || 'the project itself'}"`,
+    `Today is ${onDay}.`,
     '',
-    'Current record (id + text only):',
-    JSON.stringify(stripWorkstreamForPrompt(workstream), null, 2),
+    'Current context (ids you may reference):',
+    JSON.stringify(modelForPrompt(workstream), null, 2),
     '',
     ...(avoid.length ? [
       'Already proposed earlier in this same import — do NOT restate these:',
@@ -143,30 +144,38 @@ export async function proposeDiff({ workstream, contribution, source, model, con
     `${label} (source: ${source}):`,
     `"""${contribution}"""`,
     '',
-    'Propose how the record should change. Output STRICT JSON:',
+    'Propose changes. Output STRICT JSON:',
     `{
-  "summary": "1-2 sentence description of the change",
+  "summary": "1-2 sentences",
   "operations": [
-    { "type": "addWhy", "text": "...", "summary": "...",
-      "whats": [ { "text": "...", "summary": "...", "hows": [ { "text": "...", "summary": "..." } ] } ] },
-    { "type": "addWhat", "parentWhyId": "<existing why id>", "text": "...", "summary": "...",
-      "hows": [ { "text": "...", "summary": "..." } ] },
-    { "type": "addHow", "parentWhatId": "<existing what id>", "text": "...", "summary": "..." },
-    { "type": "editStatement", "id": "<existing id>", "text": "new text", "summary": "..." },
-    { "type": "deleteStatement", "id": "<existing id>", "summary": "..." }
+    { "type": "setGoal", "text": "one line" },
+    { "type": "addRecord", "ref": "optional local name", "record": {
+        "type": "why|decision|assumption|rule|exception|question|risk",
+        "text": "one plain sentence", "detail": "optional",
+        "owner": { "name": "person" }, "reviewBy": "YYYY-MM-DD", "expiresAt": "YYYY-MM-DD",
+        "links": { "bends": "<rule id or ref>", "replaces": "<id>", "restsOn": ["<id>"], "answers": "<question id>" },
+        "attachedTo": { "kind": "project" } } },
+    { "type": "editRecord", "id": "<existing id>", "changes": { "text": "..." } },
+    { "type": "setRecordStatus", "id": "<existing id>", "status": "replaced|broken|closed" },
+    { "type": "addTask", "title": "a concrete piece of work" },
+    { "type": "editTask", "id": "<existing task id>", "title": "..." },
+    { "type": "removeTask", "id": "<existing task id>" }
   ]
 }`,
     '',
-    'Rules: Why = 3-8 words action-leaning. What = short phrase. How = specific task.',
-    'Use smallest set of ops. Prefer editing over near-duplicate adds.',
-    'parentWhyId and parentWhatId MUST exist in the current record. JSON only.',
+    'How to classify: why = the reason something matters; decision = something settled; assumption = believed but',
+    'unproven (needs owner + reviewBy); rule = applies until changed; exception = an allowed deviation from ONE rule',
+    '(needs links.bends naming that rule + expiresAt); question = open, needs owner; risk = could go wrong, needs owner',
+    '(put the plan in detail). Concrete work is a task, not a record. Use the smallest set of operations; prefer',
+    'editing or replacing over a near-duplicate. If the contribution contradicts an active record, add a question',
+    'naming both instead of a second contradictory record. Dates are YYYY-MM-DD relative to today. JSON only.',
     ...(isDocument ? [
       '',
       'This is a document, not a deliberate update. Extract only durable team',
-      'context — the whys, decisions and constraints that outlive this file.',
+      'context — the decisions, rules, assumptions and reasons that outlive this file.',
       'Ignore document structure (headings, tables of contents, section order)',
       'and one-off details (a single meeting date, names mentioned in passing).',
-      'If something is already in the record above, or listed as already',
+      'If something is already in the context above, or listed as already',
       'proposed, emit no operation for it rather than a near-duplicate.',
       'If the document carries no durable team context, return an empty',
       'operations array — that is a valid and useful answer.',
