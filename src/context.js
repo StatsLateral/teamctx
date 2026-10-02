@@ -2,92 +2,32 @@ import { proposeDiff, callClaude, extractJson } from './ai.js';
 import { resolveTarget, targetLabel } from './project-level.js';
 import { membershipModel, isKnownMembership } from './membership-model.js';
 import { applyOps } from './ops.js';
+import { renderBrief } from './brief.js';
 import {
   collectContributorCounts, collectSourceRefs,
   formatContributorsSection, formatContributorLine, formatAuditBlock,
 } from './provenance.js';
 
-function decisionMarker(node, contributionsById) {
-  const ids = node.sourceContributionIds || [];
-  let latest = null;
-  for (const id of ids) {
-    const c = contributionsById.get(id);
-    if (c && c.tagged === 'decision') {
-      if (!latest || (c.ts || '') > (latest.ts || '')) latest = c;
-    }
-  }
-  if (!latest) return '';
-  const date = (latest.ts || '').split('T')[0] || 'unknown';
-  const author = latest.author || 'unknown';
-  const source = latest.source || 'cli';
-  return `  *[decision — ${author}, ${date}, via ${source}]*`;
-}
-
-function sourceTag(node) {
-  const ids = node.sourceContributionIds || [];
-  return ids.length ? `  [sources: ${ids.join(', ')}]` : '';
-}
-
-// `includeSourceTags` annotates each node with `[sources: c-x]` for the ask
-// prompt; `includeContributors` appends the `## Contributors` roll-up. The
-// roll-up belongs in the markdown we write to disk, not in prompts we send to
-// the AI, so prompt builders pass `includeContributors: false`.
-function renderTree(whys, contributionsById, tagFor) {
-  return (whys || []).map(why => {
-    let out = `- **Why:** ${why.text}${decisionMarker(why, contributionsById)}${tagFor(why)}\n`;
-    (why.whats || []).forEach(what => {
-      out += `  - **What:** ${what.text}${decisionMarker(what, contributionsById)}${tagFor(what)}\n`;
-      (what.hows || []).forEach(how => {
-        out += `    - **How:** ${how.text}${decisionMarker(how, contributionsById)}${tagFor(how)}\n`;
-      });
-    });
-    return out;
-  }).join('');
-}
-
-/** Render a workstream, with the project tree above it when one is passed. */
-export function serializeToMd(workstream, projectName, lastUpdatedBy = '', contributions = [], { includeSourceTags = false, includeContributors = true, project = null } = {}) {
-  const now = new Date().toISOString().split('T')[0];
-  const byLine = lastUpdatedBy ? ` · Source: ${lastUpdatedBy} contribution` : '';
-  const contributionsById = new Map(contributions.map(c => [c.id, c]));
-  const tagFor = includeSourceTags ? sourceTag : () => '';
-
-  const inheritedWhys = project?.whys || [];
-  // "Project Context — Engineering" above a section called "Project context"
-  // uses the same word for two different things in one document. When there is
-  // an inherited half to distinguish it from, the title stops claiming to be
-  // the project.
-  const title = inheritedWhys.length ? 'Context' : 'Project Context';
-  const header = `# ${title} — ${projectName}\n*Last updated: ${now}${byLine}*\n\n## Why / What / How\n\n`;
-
-  const ownWhys = workstream.whys || [];
-
-  // Empty means empty on both halves. An inherited tree is still context, so a
-  // workstream with none of its own is not a project that knows nothing.
-  if (ownWhys.length === 0 && inheritedWhys.length === 0) {
-    return header + '*No context yet. Run `teamctx contribute` to add the first contribution.*\n';
-  }
-
-  // The inherited half is concatenated here and stored nowhere: a workstream's
-  // JSON never holds project nodes. The compiled page is a different matter —
-  // it is written once and does not re-read anything, so a project-level write
-  // pushes the new tree back through every workstream's page itself. See
-  // `src/recompile.js`, which also says why role files are not in that pass.
-  //
-  // Labelled read-only because a reader has to be able to tell what they may add
-  // to from what is settled above them. Without that line the first thing a
-  // member does is propose an edit to something that was never theirs.
-  const inherited = inheritedWhys.length
-    ? '### Project context\n*Inherited from the project — read-only here.*\n\n'
-      + renderTree(inheritedWhys, contributionsById, tagFor)
-      + `\n### ${workstream.name || 'This workstream'}\n\n`
-    : '';
-
-  const tree = inherited + renderTree(ownWhys, contributionsById, tagFor);
-
-  if (includeSourceTags || !includeContributors) return header + tree;
-  const contributorsSection = formatContributorsSection(collectContributorCounts(workstream, contributions));
-  return header + tree + (contributorsSection ? `\n${contributorsSection}` : '');
+/**
+ * Render a tree as Markdown. A project tree (no `id`) renders alone; a
+ * workstream renders under the project and its ancestors, passed as `chain`
+ * (ancestors first, the workstream last). Without a `chain`, the workstream is
+ * the whole chain.
+ */
+export function serializeToMd(tree, projectName, lastUpdatedBy = '', contributions = [], {
+  includeSourceTags = false, includeContributors = true, project = null, chain = null,
+} = {}) {
+  const isProject = !tree?.id;
+  const md = renderBrief({
+    projectName,
+    project: isProject ? tree : project,
+    chain: chain ?? (isProject ? [] : [tree]),
+    includeSourceTags,
+    lastUpdatedBy,
+  });
+  if (includeSourceTags || !includeContributors) return md;
+  const c = formatContributorsSection(collectContributorCounts(tree, contributions));
+  return c ? `${md}\n${c}` : md;
 }
 
 /**
