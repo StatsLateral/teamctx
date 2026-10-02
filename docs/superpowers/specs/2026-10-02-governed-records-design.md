@@ -1,260 +1,262 @@
-# Governed records: decisions, assumptions, rules and exceptions alongside the tree
+# Governed records: goal, workstreams, tasks and typed records
 
 **Date:** 2026-10-02
-**Status:** Design agreed in conversation; spec pending review
-**Rollout:** extend today's tree gradually — no big-bang migration
+**Status:** Model and sequence approved in conversation; spec pending review
+**Rollout:** clean break. teamctx is pre-launch, so the Why → What → How tree is
+replaced outright, with no migration and no compatibility layer.
 **Builds on:** decisions-first-class (2026-07-03), context inheritance (2026-09-09),
-review policy / #109, workstream scope (#77/#85), context view (#103), read log (#111)
+review policy (#109), workstream scope (#77/#85), context view (#103), read log (#111)
 
 ## Problem
 
-teamctx keeps a team's context as a Why → What → How tree per workstream, plus
-tasks. That captures *what the work is*, but not most of what a team actually
-relies on and argues about:
+teamctx stores a team's context as a fixed three-level Why → What → How tree per
+workstream, plus a separate list of tasks. Two things are wrong with that:
 
-- **Decisions** exist only as a `tagged: 'decision'` flag on a contribution and an
-  inline marker in compiled text. Nothing records what a decision replaced, what
-  it rests on, or whether it still holds.
-- **Assumptions** ("about 20 people will come", "cost per lead stays near $80")
-  sit in the tree as ordinary statements, with no owner, no review date, and no
-  way to mark one *broken* and see what depended on it.
-- **Rules** ("no nuts", "budget capped at $60k/month") and **exceptions** to them
-  ("adults' cake may have chocolate frosting", "this page may name competitors
-  until Nov 30") are indistinguishable from any other line — so every member's AI
-  sees a rule and its exception as two contradictory statements, and an
-  exception never ends.
-- **Open questions** and **risks** have no owner and no way to close.
+1. **"Why" is forced to be a level**, when it is really an explanation that can
+   belong to anything — the goal, a part of the work, a single task. And a How
+   ("document ROI from 3 clients before Q3") is a task without an owner, so the
+   same thing gets written twice.
+2. **What a team relies on has no shape.** Decisions are a tag on a contribution;
+   assumptions, rules, exceptions, open questions and risks are ordinary lines in
+   the tree, with no owner, no approval of their own, no review date, no expiry,
+   and no way to mark one broken. Every member's AI sees a rule and its exception
+   as two contradictory statements.
 
-For a team where everyone brings their own AI, these are exactly the things each
-AI must get right, and exactly what the manager needs to govern.
+For a team where everyone brings their own AI, those records are exactly what
+each AI must get right and what the manager must govern.
 
-## Goals
+## The model
 
-1. Add **governed records** — typed, plain-language statements with owners,
-   approval and a life cycle — **alongside** the existing tree and tasks.
-2. Every member's AI receives the **active** records for its scope, with
-   exceptions applied to the rules they bend, through the connector it already uses.
-3. The manager can **see and act on governance**: what is due for review, what
-   has broken, what is about to expire, what conflicts.
-4. Ship in **phases**, each useful on its own, none breaking existing projects,
-   tools or the context view.
+```
+Project
+├─ goal (one line) + why records
+├─ Workstream 1                 nestable, any depth (1, 1.2, …)
+│   ├─ Workstream 1.2           members are assigned to workstreams;
+│   │   └─ Task 1.2.1           scope carries down to everything below
+│   └─ Task 1.1                 owner, open/done, compiled prompt
+└─ Records, attached to the project, a workstream or a task:
+   why · decision · assumption · rule · exception · question · risk
+```
 
-## Non-goals (this spec)
+- **What → workstreams** (nested), **How → tasks**, **Why → why records** that can
+  explain the goal, a workstream or a task.
+- **Numbering** is for display and for people to point at things in chat:
+  workstreams by their order in the project (1, 1.2, …), tasks after the
+  workstream that holds them (1.2.1). It's recomputed on read, so moving or adding
+  things renumbers them. Stable IDs sit underneath for links and history.
 
-- Replacing the Why/What/How tree. It stays; Phase 4 decides its future with
-  evidence from Phases 1–3.
-- Approval routed across several people (an approver per type per workstream).
-  Phase 2 adds per-type control with the manager as the only approver; routing is
-  a later spec.
-- Agent permission profiles beyond today's agent tokens.
-- Detecting edits made outside the tools (direct file edits).
-- Moving storage to Google Drive / SharePoint.
-- Members without an AI assistant; collaboration across organisations.
+### Storage
 
-## Model
+The access boundary stays one file per workstream, as today:
+
+```
+.teamctx/project.json           { name, goal, records: [], tasks: [] }
+.teamctx/workstreams/<id>.json  { id, name, parent, order, records: [], tasks: [] }
+```
+
+- `parent` is a workstream ID or `null` (directly under the project).
+- A workstream's records and tasks live in its own file. A record attached to a
+  task lives in the file of the workstream that holds the task.
+- Scoping, the hosted read path (`GithubSession` prefetch), "never send a tree the
+  reader isn't on" (#108) and snapshots keep working on the same file boundary.
+- Compiled task prompts stay in `context/tasks/<id>.md`.
+
+### Goal
+
+```js
+goal: { text, sourceContributionIds: [], updatedAt }   // one per project
+```
+
+### Task (today's task, unchanged apart from where it sits)
+
+`{ id, title, owner, ownerKey?, status: 'open'|'done', createdAt, doneAt,
+compiledAt, sourceContributionIds }`. Depth comes from nested workstreams, not
+subtasks.
 
 ### Record
 
 ```js
 {
-  id: 'rec-…',                 // stable; minted when the operation is applied
-  type: 'decision',            // see table
+  id: 'rec-…',                  // minted when the operation is applied
+  type: 'decision',             // why | decision | assumption | rule | exception | question | risk
   text: 'Entry offer is a 6-week fixed-price engagement',
-  why: 'Removes the "consultants are expensive" objection',  // optional, plain words
-  status: 'active',            // proposed | active | replaced | expired | broken | closed
-  owner: { key, name },        // required for assumption, question, risk
-  attachedTo: { node: 'what-…' } | { task: 'task-…' } | null,   // null = the tree itself
-  reviewBy: '2026-11-01',      // assumption (required), others optional
-  expiresAt: '2026-12-31',     // exception (required), others optional
-  links: {
-    restsOn: ['rec-…'],        // decision → assumptions it depends on
-    bends: 'rec-…',            // exception → the rule it bends (required for exception)
-    replaces: 'rec-…',         // newer decision/rule → older one
-    answers: 'rec-…',          // decision → the open question it closes
-  },
-  evidence: [{ text, source, at, by }],   // Phase 2
-  sourceContributionIds: ['c-…'],         // provenance, as tree nodes have today
+  detail: 'Removes the "consultants are expensive" objection',   // optional
+  status: 'active',             // active | replaced | broken | closed
+  owner: { key, name } | null,  // required for assumption, question, risk
+  attachedTo: { kind: 'project' } | { kind: 'workstream', id } | { kind: 'task', id },
+  reviewBy: '2026-11-01',       // assumption: required
+  expiresAt: '2026-12-31',      // exception: required
+  links: { restsOn: [], bends: null, replaces: null, answers: null },
+  sourceContributionIds: [],
   approvedBy: { key, name, at } | null,
   createdAt, updatedAt,
 }
 ```
 
-| Type | Plain label in views and briefs | Required fields |
+| Type | Read as | Required |
 |---|---|---|
-| `decision` | "We decided …" | — |
-| `assumption` | "We're assuming … (check by <date>)" | `owner`, `reviewBy` |
+| `why` | "Why it matters: …" | — |
+| `decision` | "We decided: …" | — |
+| `assumption` | "We're assuming: … (check by <date>)" | `owner`, `reviewBy` |
 | `rule` | "Rule: …" | — |
 | `exception` | "Allowed: … (until <date>, instead of: <rule>)" | `links.bends`, `expiresAt` |
 | `question` | "Open question: … (<owner>)" | `owner` |
-| `risk` | "Risk: … — plan: <why>" | `owner` |
+| `risk` | "Risk: … — plan: <detail>" | `owner` |
 
-Goals and whys remain the tree's top level for now (Phase 4).
+**Life cycle.** A record enters as a proposal in the review queue, and becomes
+`active` when approved. It leaves as `replaced` (a newer record `replaces` it),
+`broken` (an assumption marked broken) or `closed` (a question answered, a risk
+retired). **Expiry is computed when read:** an exception past `expiresAt` counts
+as expired and is not active, with no timer or background job. Only active,
+unexpired records reach briefs.
 
-### Where records live
+## Writing: one governed path
 
-In the **same tree file** as the statements and tasks they belong to —
-`project.json` for the project, `workstreams/<id>.json` for a workstream — as a
-`records: []` array, the way `tasks: []` already lives there.
+Everything that changes context still goes through `contribute` → distiller →
+operations → review queue → `applyOps`. No tool writes records without review.
 
-Why there, rather than a file per record:
-- **Scope and visibility come free.** The hosted read path, `inScope`, the context
-  view's "never send an out-of-scope tree" rule and snapshots already work per
-  tree file. Records inherit all of it with no new access code.
-- **One commit per contribution**, as today.
-- **No new storage seam** before the Drive / SharePoint work, which will revisit
-  file layout anyway.
+**Operations** (`src/ops.js`, replacing `addWhy`/`addWhat`/`addHow`/
+`editStatement`/`deleteStatement`):
 
-Any type may be attached at project level or in a workstream from Phase 1. A
-project-level record reaches every member (project context is inherited, as
-today); a workstream record reaches only that workstream's members.
-
-### Life cycle
-
-```
-proposed ──approve──▶ active ──┬─ replaced   (a newer record links `replaces`)
-   │                           ├─ expired    (expiresAt passed — computed at read time)
-   └─reject──▶ (rejected/)     ├─ broken     (assumption marked broken)
-                               └─ closed     (question answered / risk retired)
-```
-
-`expired` is **computed when read**, never written by a timer: an exception past
-`expiresAt` is simply not active. No scheduler, no background job.
-
-A record is **active** when `status === 'active'` and it has not expired.
-Only active records reach briefs.
-
-## How records get written
-
-Through the existing governed path only — **no new write tool that skips review**.
-
-- **New operations** for the distiller and `applyOps` (`src/ops.js`):
-  `addRecord`, `editRecord`, `setRecordStatus` (break / close / replace),
-  `linkRecords`. `applyOps` keeps its add → edit → delete order; IDs are minted on
-  apply and the contribution's ID is added to `sourceContributionIds`, as for
-  statements (the fix #112 made for link targets applies here too).
-- **The AI classifies.** When someone contributes "we're assuming about 20 people;
-  confirm Wednesday", the distiller proposes an `addRecord` of type `assumption`
-  with `reviewBy` filled. People never pick a type; the manager can correct it
-  when reviewing.
-- **Review policy:** record operations are never additive for `isAdditive()` in
-  Phase 1 — every record change queues for the manager, whatever the project's
-  policy. Phase 2 replaces this with per-type control.
-- **Existing decision tags** (`tagged: 'decision'` contributions) are left as they
-  are and keep their inline markers. A one-off, opt-in `teamctx records adopt`
-  (Phase 1) proposes decision records from them as one reviewable contribution.
-
-## How records are read
-
-- **Briefs** (`my_brief`, `get_role_context`, `task_compile`, `get_context`): a
-  "Rules, decisions and assumptions" section listing active records for the
-  caller's scope — project records plus those of their workstreams — **each
-  exception printed under the rule it bends**, never as a separate contradictory
-  line. Assumptions show their review date; questions and risks show their owner.
-- **New read tools:** `list_records` (filters: type, status, workstream, owner,
-  due) and `get_record`. Both scope-filtered with the same `inScope` checks as
-  `get_workstream`; out-of-scope records are absent, not hidden.
-- **Context view (#103):**
-  - In the drawer, a statement or task shows the records attached to it.
-  - A "Rules & decisions" panel per workstream, in the plain labels above.
-  - A manager-only **Needs attention** strip: assumptions past `reviewBy`,
-    broken assumptions, exceptions expiring within 14 days, open questions
-    without a decision (Phase 2 adds conflicts and missing evidence).
-- **Deep links** (`viewUrl`, #112) gain `?record=<id>`.
-
-## Phases
-
-### Phase 1 — records exist, are governed, and reach every AI
-- Record shape + `records: []` in tree files; validation of required fields per type.
-- `addRecord` / `editRecord` / `setRecordStatus` / `linkRecords` operations;
-  distiller classifies; every record change reviewed.
-- Briefs include active records, exceptions under their rules.
-- `list_records`, `get_record`; `viewUrl` with `?record=`.
-- Context view: records in the drawer, Rules & decisions panel, Needs attention strip.
-- `teamctx records adopt` for existing decision tags.
-
-### Phase 2 — life cycle, impact and control per type
-- **Impact:** marking an assumption broken returns, and shows, everything that
-  `restsOn` it — records, the tree statements and tasks they are attached to.
-  The manager's view lists them as "review these".
-- **Contradictions:** at contribute time the distiller compares a proposed record
-  with active records in the same scope and, on conflict, proposes an open
-  question instead of a silent second statement.
-- **Evidence:** `evidence[]` on records; agents may propose evidence (and only
-  evidence and tasks) — added to `AGENT_TOOLS` behaviour via `contribute`.
-  "Evidence missing" shows for assumptions marked as needing it.
-- **Control per type:** `config.governance` maps type → who may make it active
-  without review: `manager` (default for decision, rule, exception), `owner`
-  (assumption status, question close), `anyone` (opt-in). The manager can always
-  override; agents never approve.
-- A record can **spawn a task** (`task_add` with `fromRecord`), linked both ways.
-
-### Phase 3 — setup drafted by AI, and visibility per record
-- `propose_structure` (#88) drafts goal, whys, workstreams, tasks, suggested
-  owners **and initial records** from what the manager pastes, including open
-  questions for contradictions it found. The manager edits and accepts it as the
-  founding contribution (#70).
-- **Visibility per record:** `visibility: { onlyFor: [keys] }` or
-  `{ hiddenFrom: [keys] }`, enforced in the payload like scope; the manager is
-  shown that a hidden record exists, never its text, and every change to
-  visibility is attributed.
-
-### Phase 4 — decide the tree's future (separate spec)
-With Phases 1–3 in use: whether whys become records attached anywhere, whether
-What/How become workstreams and tasks with flexible depth, and whether to move to
-one file per record ahead of Drive / SharePoint storage.
-
-## Errors and edge cases
-
-| Case | Behaviour |
+| Operation | Does |
 |---|---|
-| Record missing a required field for its type | Distiller asked to fill it; if still missing, the operation is refused with the field named |
-| Exception whose `bends` target is not an active rule in scope | Refused: "an exception must name the rule it bends" |
-| `replaces` points at a record in another workstream | Refused in Phase 1 |
-| Reviewer edits a record's type during review | Allowed; required fields re-validated |
-| Expired exception | Not active; still listed in history and the manager view as "expired" |
-| Old client reading a tree with `records` | Ignored; the field is additive |
-| Snapshot of a tree with records | Records included, filtered by scope like trees (`visibleSnapshot`) |
+| `setGoal` | Set or reword the project goal |
+| `addRecord` | Add a record of any type, attached to project / workstream / task |
+| `editRecord` | Change text, detail, owner, dates or links |
+| `setRecordStatus` | Mark replaced / broken / closed |
+| `addTask` | Add a task to a workstream or the project (no owner unless given) |
+| `editTask` | Retitle a task |
+| `removeTask` | Remove a task |
+
+IDs are minted on apply, and the contribution's ID is added to each touched
+item's `sourceContributionIds`.
+
+**The AI classifies.** The distiller prompt (`src/ai.js` `proposeDiff`) is
+rewritten for the new operations. People never choose a type: "we're assuming
+about 20 people, confirm Wednesday" becomes an `addRecord` of type `assumption`
+with `reviewBy` filled in. The manager can correct the type during review.
+Documents (`import`, `intent: 'document'`) are mined for durable records:
+decisions, rules, assumptions.
+
+**Review policy** (`src/review-policy.js`). `isAdditive` treats `addTask` and
+`addRecord` as additive **except** records of type `decision`, `rule` or
+`exception`, which always queue. Edits, status changes and removals are never
+additive. New projects default to `all` (#109).
+
+**Structure changes are manager tools, not contributions:**
+- `workstream_add` (new, manager-gated): name, optional `parent`.
+- `workstream_split` and `suggest_workstream_splits` are **removed**. They split a
+  Why/What/How tree.
+- `propose_structure` is rewritten to return a **draft** in the new model (goal,
+  whys, workstreams, tasks, suggested owners). It stays read-only in #A; applying
+  a draft in one step is parked.
+- `reflect` (a whole-tree rewrite) is **removed**. It has no meaning for records.
+- `init` sets the goal from the founding contribution (#70, #99).
+
+## Reading
+
+- **Scope** (`src/member-scope.js`). A member on workstream W reaches W and every
+  workstream below it. `inScope` checks a workstream's ancestors. Project level is
+  always in scope, as today.
+- **Briefs** (`src/context.js`: shared Markdown, role files, `my_brief`,
+  `task_compile`, `get_context`). These follow the path from the project down to
+  the reader's workstreams:
+  1. The goal and its whys.
+  2. For each workstream on the path: its whys, then "Rules, decisions and
+     assumptions", **each exception printed under the rule it bends, never on its
+     own**, then open questions and risks with owners.
+  3. Tasks, with each task's attached records.
+
+  All of it in the plain labels above; type names never appear.
+- **`tree-digest.js`** (the founding contribution read-back) summarises goal,
+  whys, workstreams, tasks and counts of records by type.
+- **`provenance.js` / `ask`**: walk goal, records and tasks instead of
+  why/what/how nodes. Citations name records and tasks.
+- **New tools:** `list_records` (filters: type, status, workstream, owner, `due`)
+  and `get_record`, scope-filtered in the payload. `workstream_add`.
+- **Changed tools:** `get_workstream` and `get_context` return the new shape.
+  `get_stats` counts records and tasks. `viewUrl` (#112) takes `?item=` for any
+  workstream, task or record ID.
+
+## Read-only MVP UI (#B, built after #A)
+
+Replaces the Why/What/How columns on `/project/:owner/:repo` (#108) with lenses
+on the new model, keeping #108's guarantees (scope enforced in the payload,
+escaping, deep links, no AI calls from the page):
+
+1. **At a glance** (the default): the goal and its whys in plain words. A
+   manager-only **Needs attention** strip: assumptions past `reviewBy`, broken
+   assumptions, exceptions expiring within 14 days, open questions, items waiting
+   for review. One line per workstream with open tasks, owners and record counts.
+2. **Outline:** the numbered, collapsible structure (workstreams → tasks), with
+   each item's records shown as short plain-label lines under it.
+3. **Rules & decisions:** every active rule (with its exceptions beneath),
+   decision and assumption in scope, grouped by workstream.
+4. **Who's on what:** people and agents against workstreams and tasks.
+
+Clicking any item opens a drawer with its records, who contributed, and the
+copy-a-prompt button (#108). `?item=` opens the item; an unknown item shows "That
+item isn't here anymore", which closes the first two #115 items.
+
+## Removed in #A
+
+`addWhy`/`addWhat`/`addHow`/`editStatement`/`deleteStatement`; the Why/What/How
+renderers and prompts; `reflect`; `workstream_split`; `suggest_workstream_splits`;
+`normalizeSubworkstreamProposal`; `preserveSourcesThroughReflect`; the
+project-layer `main` migration (`src/migrate-project-layer.js`, `LEGACY_MAIN`).
+Any README and docs text describing Why/What/How is rewritten in #A, at least
+the parts describing the model.
+
+**Existing data:** none is migrated. A tree file containing `whys` is reported
+clearly ("this project uses the old format; run `teamctx init` again") rather than
+read as empty.
 
 ## Must hold
 
-- **No record becomes active without passing the review path** (Phase 1: the
-  manager; Phase 2: the configured approver). AI pre-checks flag, never approve.
-- **Out-of-scope records are absent from every payload**, not hidden by a view.
-- **Exceptions never reach a brief without the rule they bend.**
-- **Plain language everywhere a person or AI reads a record**; type names stay internal.
-- **Storage stays the team's own**; nothing about records is kept on the
-  deployment except what the read log (#111) already records.
+- No record or task becomes part of the shared context without the review path;
+  decisions, rules and exceptions always need the manager. AI pre-checks flag,
+  never approve.
+- Out-of-scope workstreams, with their records and tasks, are absent from every
+  payload, including through nested workstreams.
+- An exception never reaches a brief without the rule it bends.
+- Plain language wherever a person or AI reads a record. Type names stay internal.
+- Storage stays the team's own repository.
 
 ## Existing open source first
 
-- **Concepts, not code:** decision records follow the **ADR / MADR** convention
-  (status, "superseded by"); assumptions, risks and open questions follow the
-  **RAID log** used in project management. Field names stay close to those so the
-  model is familiar to managers and to anyone importing from those formats.
-- **Validation:** the per-type required fields are a small JSON Schema; validate
-  with **[Ajv](https://ajv.js.org/)** (MIT) rather than hand-written checks if the
-  rules grow past a handful.
-- **Dates:** `reviewBy` / `expiresAt` are ISO dates compared as strings — no date
-  library needed.
-- **Nothing to borrow** for the governance itself (life cycle, impact, exceptions
-  applied to rules, scoped briefs) — that is the product.
+- **Concepts:** decision records follow the ADR / MADR convention (status,
+  "superseded by"). Assumptions, risks and open questions follow the RAID log used
+  in project management. Field names stay close to these.
+- **Validation:** goal, workstream, task and record shapes are JSON Schemas,
+  validated with **[Ajv](https://ajv.js.org/)** (MIT), not hand-written checks.
+  Ajv is the one new dependency.
+- **Dates:** ISO date strings compared as strings, so no date library.
+- **Nothing to borrow** for the governance itself (life cycle, exceptions applied
+  to rules, scoped briefs). That's the product.
 
 ## Testing
 
-- `src/ops.test.js`: each record operation applies, mints IDs, keeps provenance,
-  validates required fields per type; record operations are never additive.
-- Briefs: an exception appears under its rule and nowhere else; expired, replaced
-  and broken records are absent; a scoped member gets only in-scope records.
-- `list_records` / `get_record`: scope enforced in the payload (mirrors the
-  #77/#85 tests); agent tokens can read their scope only.
-- Context view: drawer shows attached records; Needs attention strip is
-  manager-only and lists due, broken and expiring items.
-- Phase 2: impact of a broken assumption lists every dependent; contradiction
-  check proposes a question; per-type control honours `config.governance`.
-- Upgrade: a project without `records` behaves exactly as before.
+Test-driven throughout:
+- Schemas: every type's required fields, plus rejection of malformed shapes.
+- `applyOps`: each operation, ID minting, provenance, the add → edit → remove
+  order.
+- `isAdditive`: decision/rule/exception adds always queue.
+- Scope: nested workstreams inherit, siblings don't. A payload never contains an
+  out-of-scope workstream, record or task.
+- Briefs: exceptions under their rules only; expired, replaced, broken and closed
+  records absent; plain labels, never type names.
+- Tools: `list_records`, `get_record` and `workstream_add` (manager-gated);
+  removed tools are gone from `TOOLS`.
+- Old-format detection message.
+- The 47 test files built on Why/What/How fixtures are rewritten to the new
+  model, not deleted, so the behaviour they protected stays covered.
 
-## Open questions for the plan
+## Delivery
 
-- Does `reviewBy` passing change anything beyond the Needs attention strip
-  (e.g. a line in the owner's brief: "you said you'd check this by …")?
-- How many active records can a brief carry before it needs summarising?
+| Issue | Who | Contents |
+|---|---|---|
+| **#A Data model** | Claude | Everything above except the UI section; one PR |
+| **#B Read-only MVP UI** | Claude | The UI section; one PR, after #A |
+| Parked | contributors | Control per type (who may approve which type); impact when an assumption breaks; contradiction check at contribute time; evidence from agents and analytics; visibility per record; applying an AI-drafted setup in one step; the #115 identity-link expiry |
+
+Claude's PRs are reviewed by another maintainer (satyagyasingh) before merge.
