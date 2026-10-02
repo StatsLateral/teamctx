@@ -1,259 +1,71 @@
-# Sub-workstreams
+# Workstreams
 
-A teamctx project has one **project** Why / What / How tree, and zero or more
-**workstreams** — branches of it, developed further as separate threads of
-work. A workstream inherits the project tree at compile time and adds its own,
-so a role's compiled context reads as the whole picture followed by their part
-of it, rather than one tree with no idea what it hangs off.
+A teamctx project has a **goal** (with why it matters), the **records** the
+team relies on — decisions, assumptions, rules and the exceptions to them — and
+**tasks**. When the work has distinct parts, each part is a **workstream**, and
+workstreams can sit under other workstreams.
 
-New projects start with a project tree and no workstreams. When the tree grows
-to mix threads (e.g. product strategy vs. technical architecture), the AI can
-propose a split, and you keep the manager in the loop for every decision.
-
-There is no `main`. It used to be created at `init` and quietly did two jobs —
-a workstream, and wherever "the project" had to live because nothing else could
-— which is the confusion the project tree removes. Existing projects are
-migrated; see [Migration](#migration).
-
-- [When to use them](#when-to-use-them)
-- [End-to-end example](#end-to-end-example)
-- [Command reference](#command-reference)
-- [How workstreams change `.teamctx/` on disk](#how-workstreams-change-teamctx-on-disk)
-- [Migrating an existing project](#migrating-an-existing-project)
-- [Notes and limits](#notes-and-limits)
-
-## When to use them
-
-Split into sub-workstreams when both of the following are true:
-
-- The current tree mixes two or more threads that don't share stakeholders
-  (e.g. a CPO and a Staff Engineer would each ignore ~half of the tree).
-- The role-specific context files have started to feel diluted — a role's
-  `.md` includes lines that role would never act on.
-
-If neither is true, one workstream is fine. Splitting too early adds
-overhead without sharpening any single role's context.
-
-## End-to-end example
-
-Assume you already have a `main` workstream with a mix of product and
-technical Why nodes.
-
-```bash
-# 1. Dry-run — the AI proposes splits without touching anything.
-teamctx workstream suggest
-
-# 2. Accept them interactively. For each proposed split you'll be asked
-#    to accept as-is, rename, or skip; then whether to move any roles.
-teamctx workstream split
-
-# 3. Confirm the result.
-teamctx workstream list
-
-# 4. New contributions and questions can target a specific workstream.
-teamctx workstream use product              # change the default target
-teamctx contribute "Signed Acme as a design partner" --workstream product
-teamctx ask "What's the migration plan?" --workstream tech
+```
+Project                      goal + why it matters, project-wide records and tasks
+├─ 1  Sales                  its own records and tasks
+│   ├─ 1.1  Outreach
+│   └─ 1.2  Entry offer
+└─ 2  Account expansion
 ```
 
-Each accepted split lands as its own git commit
-(`workstream: split "Product" from main`), so you can revert a single
-split without undoing the others.
+Most small teams need one level or none. Add a part only when two groups of
+people would each ignore half of what the other part holds.
+
+- [Who sees what](#who-sees-what)
+- [Command reference](#command-reference)
+- [On disk](#on-disk)
+- [Notes and limits](#notes-and-limits)
+
+## Who sees what
+
+- Everyone reads the **project**: its goal and project-wide records are the
+  background every part inherits.
+- A member put on a workstream (`member_add` / `member_scope` with
+  `workstreams`) reaches that workstream **and every part below it**, never a
+  sibling or anything under one. A member on no workstream reaches the whole
+  project.
+- Each person's brief follows the path from the project down to their part:
+  the goal, then each part's rules, decisions and assumptions in plain words —
+  every exception printed under the rule it bends — then their tasks.
+- For a member who signs in with Google and reaches the project through the
+  hosted server, this is enforced on every read. For a GitHub collaborator who
+  holds a copy of the repository it is advisory: they can read every file.
 
 ## Command reference
 
-### `teamctx workstream suggest`
+| CLI | MCP | What it does |
+|---|---|---|
+| `teamctx workstream add <name> [--under <id>]` | `workstream_add({name, parent?})` | Add a part of the work, at the top or under another part. Manager only. |
+| `teamctx workstream list` | `list_workstreams` | Every part, numbered (1, 1.2, …), with record and task counts. |
+| `teamctx workstream use [id]` | `workstream_use({id?})` | Your own default part for `contribute` and `ask`; omit the id to work on the project itself. Personal, not committed. |
+| `teamctx workstream propose` | `propose_structure` | An AI-drafted structure — goal, parts, tasks, records — for you to accept part by part with `workstream add`. Writes nothing. |
 
-Analyzes the active workstream and prints candidate splits with a short
-rationale for each. Does not modify anything.
-
-```bash
-teamctx workstream suggest
-```
-
-The AI proposes 0-4 splits. If no clean split exists, you'll see
-`No clean split proposed. The current workstream reads as one thread.`
-
-### `teamctx workstream split`
-
-Runs the same analysis and then interactively applies the accepted splits.
-
-```bash
-teamctx workstream split
-teamctx workstream split --accept-all       # non-interactive
-```
-
-For each proposal:
-
-1. **Accept?** — `y` accepts as-is, `rename` prompts for a new name, `n`
-   skips the split entirely.
-2. **Move any roles?** — comma-separated slugs of roles currently on the
-   source workstream. Leave blank to keep every role in place.
-
-Each accepted split:
-
-- Creates `.teamctx/workstreams/<id>.json` with the moved Why nodes
-  (their ids and history preserved).
-- Removes those nodes from the source workstream.
-- Regenerates markdown for both the new and source workstreams.
-- Regenerates role files for every role that could have been affected
-  (moved to the new workstream, or still on the source).
-- Commits as one git commit named `workstream: split "<Name>" from <source>`.
-
-`--accept-all` accepts every proposal with the AI-suggested names and
-skips the role-move prompt — useful for scripted setups.
-
-### `teamctx workstream list`
-
-Lists every workstream with its Why count and assigned roles. The active
-workstream is marked with `*`.
-
-```bash
-teamctx workstream list
-```
-
-Sample output:
-
-```
-Workstreams for "Acme":
-
-  * main             Acme
-      3 Why nodes · roles: (none)
-    product          Product
-      4 Why nodes · roles: cpo, head-of-design
-    tech             Tech Platform
-      2 Why nodes · roles: staff-engineer
-```
-
-### `teamctx workstream use <id>`
-
-Sets the active workstream — the default target for `contribute`, `ask`,
-`reflect`, and `role add`.
-
-```bash
-teamctx workstream use tech
-```
-
-### `teamctx role assign <slug> --workstream <id>`
-
-Moves a role to a different workstream and regenerates its role file from
-the new workstream's tree.
-
-```bash
-teamctx role assign cpo --workstream product
-```
-
-### `--workstream <id>` on other commands
-
-Any command that reads or writes a Why/What/How tree accepts an explicit
-target that overrides the active workstream for that single invocation:
-
-```bash
-teamctx contribute "..." --workstream product
-teamctx ask       "..." --workstream tech
-teamctx reflect         --workstream tech
-teamctx role add        --workstream product
-```
-
-`teamctx ask --role <slug>` — with no `--workstream` — uses the role's
-assigned workstream automatically. This is usually what you want: the
-role file was generated from that workstream, so the answer stays
-consistent with the file.
-
-## How workstreams change `.teamctx/` on disk
-
-Before you split, a project has:
+## On disk
 
 ```
 .teamctx/
-  config.json
-  workstreams/
-    main.json
+  config.json              # workstreams: [{ id, name, parent, order }] — the structure
+  project.json             # { name, goal, records, tasks }
+  workstreams/<id>.json    # { id, name, records, tasks } — one file per part
   context/
-    workstreams/
-      main.md
-    roles/
-      <slug>.md
-  contributions.jsonl
+    project.md             # compiled brief for the project
+    workstreams/<id>.md    # compiled brief per part, with everything above it
 ```
 
-After a split creates a `product` workstream:
-
-```
-.teamctx/
-  config.json                       # +workstreams entry, +active, updated role bindings
-  workstreams/
-    main.json                       # source, minus the moved Whys
-    product.json                    # new
-  context/
-    workstreams/
-      main.md                       # regenerated
-      product.md                    # new
-    roles/
-      <slug>.md                     # regenerated for affected roles
-  contributions.jsonl               # unchanged (append-only log)
-```
-
-`config.json` gains three fields:
-
-```json
-{
-  "workstreams": [
-    { "id": "main",    "name": "Acme",    "createdAt": "..." },
-    { "id": "product", "name": "Product", "createdAt": "..." }
-  ],
-  "activeWorkstream": "main",
-  "roles": [
-    { "slug": "cpo", "name": "CPO", "workstream": "product", ... }
-  ]
-}
-```
-
-Every role has a `workstream` field. Role files are generated from that
-workstream's tree only, so a change to `tech` never rewrites the CPO's
-file, and vice versa.
-
-## Migrating an existing project
-
-Projects created before workstreams shipped are migrated automatically
-the first time you run any command in them. The migration is idempotent
-and safe to re-run.
-
-What happens on first run:
-
-- `.teamctx/shared.json` → `.teamctx/project.json`.
-- `.teamctx/context/shared.md` → `.teamctx/context/project.md`.
-- Anything that was in a `main` workstream becomes the project tree, and `main`
-  is removed from `workstreams[]`.
-- `activeWorkstream` is unset — meaning "working on the project" — rather than
-  pointed at a surviving workstream, which would silently move where somebody
-  works.
-- Roles bound to `main` rebind to project level; roles on other workstreams are
-  untouched, and those workstreams keep their own nodes and now also inherit.
-- `config.json` gains `workstreamsMigrated: true` and
-  `projectLayerMigrated: true`.
-
-A project whose only workstream was `main` ends up with a project tree and no
-workstreams — **its compiled output is unchanged**. `--workstream main` and a
-stored `activeWorkstream: "main"` keep resolving, to project level.
-- The old `shared.json` and `context/shared.md` are removed.
-
-There is nothing manual to do. Your next `teamctx contribute` (or any
-other command) will run against the new layout transparently.
+The structure (which part sits under which, and their order) lives in
+`config.json`, so access checks need no extra reads. Each part's records and
+tasks live in its own file.
 
 ## Notes and limits
 
-- **Ids** are auto-derived from workstream names (e.g. `Product Strategy`
-  → `product-strategy`). If a proposed name collides with an existing id,
-  the split is skipped with an error — rerun `workstream split` and
-  choose `rename`.
-- **Contributions** always target one workstream at a time. Cross-cutting
-  updates should be split into per-workstream contributions.
-- **Reflect** is per-workstream. Running `teamctx reflect --workstream
-  tech` never touches `product` or its role files.
-- **Web layer** (`/context/<role>`, `/contribute`, `/ask`) is unchanged
-  and still keyed by role slug — non-technical teammates don't need to
-  know workstreams exist.
-- **Deleting or merging** workstreams is not yet supported. If you accept
-  a split you regret, `git revert` the split commit.
-- **Nested sub-workstreams** are not supported. Workstreams are peers.
+- **Moving or renaming a part** isn't supported yet; add a new one and move
+  records by contributing to it.
+- **An exception bends a rule in the same part.** An exception to a
+  project-wide rule currently has to be recorded at project level.
+- **Old projects:** a project still in the Why → What → How format is reported
+  as such by every command. Remove its `.teamctx` folder and run `teamctx init`.

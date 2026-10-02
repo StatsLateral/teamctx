@@ -1,7 +1,7 @@
 # AI providers
 
 teamctx sends every context-shaping call — distilling a `contribute`, generating
-a role file, running `reflect`, answering `ask` — to a single LLM provider.
+a role file, drafting a structure, answering `ask` — to a single LLM provider.
 You pick which provider a project uses; teamctx does not lock you to one vendor.
 
 Three providers ship out of the box:
@@ -36,7 +36,7 @@ teamctx config model gpt-4.1-mini
 
 Order matters: pick the provider first, then set a model — `config model`
 validates against the selected provider's known model list. Switching
-providers never touches your Why/What/How tree.
+providers never touches your project's records.
 
 ## Bring your own key
 

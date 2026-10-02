@@ -1,6 +1,6 @@
 # Contribution provenance & `ask --audit`
 
-Every Why / What / How node in your teamctx tree already carries a
+Every goal, record and task in your teamctx project carries a
 `sourceContributionIds` array — a list of the contributions that either
 created or modified it. This has been true since day one; it's how decision
 markers work. What's new: **`ask` now surfaces that trail every time.**
@@ -69,13 +69,6 @@ You already have this — `applyOps` in `src/ops.js` stamps a
 contribution's fingerprint lands on the tree at write time. Ask reads it,
 doesn't compute it.
 
-## Reflect preservation
-
-`teamctx reflect` asks the AI to rewrite the tree. When the AI keeps a
-node's id, teamctx now automatically preserves that node's original
-`sourceContributionIds` (and merges in anything the AI added). Provenance
-survives reflection.
-
 ## Legacy projects
 
 Projects that predate this feature have nodes with no
@@ -86,7 +79,7 @@ land with full provenance immediately.
 ## Not doing this yet
 
 - **Per-sentence citation.** Attribution is at the node level (which
-  Why / What / How came from which contribution), not "this specific claim
+  record or task came from which contribution), not "this specific claim
   in the AI's answer came from contribution X."
 - **A diff view** showing what each contribution changed in the tree.
 - **Backfill.** Legacy nodes stay legacy. New contributions carry

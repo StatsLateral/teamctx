@@ -1,7 +1,7 @@
 # Tasks
 
 Tasks are first-class objects in teamctx — you can track them alongside
-Whys / Whats / Hows / Decisions / Roles. Each task has an id, title, owner,
+the goal, decisions, assumptions, rules, exceptions and roles. Each task has an id, title, owner,
 status (`open` / `done`), and lives in exactly one workstream.
 
 The AI-ready prompt file for a task is generated **only on demand** via

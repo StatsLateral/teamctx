@@ -1,6 +1,6 @@
 # Roadmap
 
-teamctx keeps your team's shared context in a simple why / what / how format to support "bring your own AI tool" for small teams.
+teamctx keeps the decisions, assumptions, rules and exceptions your team's AIs must follow — approved by the manager, wherever each person's AI runs — for small teams.
 It compiles a role-specific file for each person to bring to their AI tool without losing context.
 
 **The vision** (the bets that guide this roadmap):
@@ -20,27 +20,31 @@ It compiles a role-specific file for each person to bring to their AI tool witho
 
 ## Recently shipped 🎉
 
+- **Project → workstream inheritance and the member's first-step brief** (#80–#83, #85, #90) — every part of the work inherits the project's context, members can't be brought onto an empty project, and `my_brief` is a member's first read
+
 The previous roadmap is nearly all built (thank you, contributors!):
 
 - **Provider-agnostic AI layer** — Claude, OpenAI, or Gemini behind one interface
 - **MCP server, full surface** — every command callable from Claude Desktop/Code, Cursor, etc., with a tiered safety model and manager-identity gate
 - **Manager approval queue** — contributions wait as durable pending objects; `review list/approve/reject`
 - **Context snapshots** — freeze and approve known-good states of the whole workspace
-- **AI-suggested workstream splits** — `workstream suggest` / `split` carve one Why/What/How tree into peer workstreams (not nested — workstreams are peers)
+- **Governed records** (#117) — the goal and why it matters, nested workstreams, tasks, and four kinds of governed record: decisions, assumptions, rules and exceptions (each exception shown under the rule it bends, with an end date). Replaced the Why/What/How tree.
 - **Tasks as first-class objects** — cheap local task CRUD + on-demand AI prompt compile per task
 - **Bring-your-own-agent recipes** — copy-paste prompts for Claude Code, Cursor, ChatGPT
 - **`ask` citations & audit** (#16) — every answer names the contributions it drew from; `ask --audit` expands the full source list
 - **Hosted MCP with OAuth** (#17) — use teamctx from any MCP client with zero local install; operators deploy once via [docs/mcp-hosted-setup.md](docs/mcp-hosted-setup.md)
-- **Context import (cold-start onboarding)** (#20) — `teamctx import <files…>` reads local docs a team already has and reverse-engineers a starting Why/What/How tree, proposed as pending contributions through the same manager-approval pipeline
-- **`reflect` errors on unknown workstream ids** (#18) — rejects a typo'd workstream id instead of silently writing an empty stub
+- **Context import (cold-start onboarding)** (#20) — `teamctx import <files…>` reads local docs a team already has and proposes the decisions, rules and assumptions it finds, proposed as pending contributions through the same manager-approval pipeline
 - **MCP test for `ask`'s `audit` param** (#19) — `mcp/server.test.js` covers the `audit` flag on the `ask` tool
 
 ## Now
 
-The current focus is making teamctx **easy to start** and **able to prove it works** — the two things small pilot teams need most.
+The current focus is one end-to-end moment that shows whether governed context is worth a manager's minutes: **something new contradicts what the team assumed → teamctx proposes it → the manager approves → everything that rested on it is flagged → every connected AI gets the new state.**
 
-- **Local team-productivity metrics** — `teamctx stats`: contributions per week, approval latency, first-pass acceptance rate (approved vs. rejected/redone), role-file pulls, context freshness — all computed locally from the git history and audit log, nothing phones home — *prove team productivity* · [proposal](docs/proposals/local-metrics.md) · [#28](https://github.com/StatsLateral/teamctx/issues/28)
-- **Project → workstream context inheritance, and the member's first-step brief** — make the hierarchy real: project context is one Why/What/How tree, and every workstream *inherits* the whole tree (a compile-time filter, not a copy) then adds its own branch — replacing today's partition model where `workstream split` just moves nodes out of `main`. On top of that: context can't be empty when a manager brings someone on, and a member's first action is a read-only brief — their assigned tasks plus their compiled project + workstream context. The membership model itself (task-list vs. named-role vs. workstream-position) is AI-proposed per project, not fixed. MVP collapses the team layer into the project; that layer stays a [documented seam](docs/proposals/team-layer.md). **Land [#80](https://github.com/StatsLateral/teamctx/issues/80) first (the inherited project layer) — then [#81](https://github.com/StatsLateral/teamctx/issues/81) (AI-proposed structure), [#82](https://github.com/StatsLateral/teamctx/issues/82) (non-empty context gate), [#83](https://github.com/StatsLateral/teamctx/issues/83) (member brief) in any order, each a standalone PR**; [#84](https://github.com/StatsLateral/teamctx/issues/84) (docs) is independent — *structured workstreams · managers in control* · [design spec](docs/superpowers/specs/2026-09-09-context-inheritance-and-membered-onboarding-design.md)
+- **When an assumption breaks, show what rests on it** — marking an assumption broken lists the decisions and tasks that depend on it, for the manager to review, and every member's brief says so — *managers in control* · [#120](https://github.com/StatsLateral/teamctx/issues/120)
+- **New evidence proposes "assumption at risk"** — a meeting note or document contributed to teamctx that contradicts an active assumption is proposed as evidence against it, through the same review queue — *bring your own tools* · [#122](https://github.com/StatsLateral/teamctx/issues/122)
+- **Contradiction check** — a contribution that contradicts an active decision or rule is flagged to the manager instead of becoming a second, conflicting record — *managers in control* · [#121](https://github.com/StatsLateral/teamctx/issues/121)
+- **One review-and-impact screen** — the web page a manager opens to approve what's waiting and see what a change affects — [#118](https://github.com/StatsLateral/teamctx/issues/118)
+- **Local team-productivity metrics** — `teamctx stats`, including how long the manager spends reviewing — *prove team productivity* · [proposal](docs/proposals/local-metrics.md) · [#28](https://github.com/StatsLateral/teamctx/issues/28)
 
 ## Next
 

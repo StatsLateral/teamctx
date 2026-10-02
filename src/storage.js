@@ -309,7 +309,7 @@ export function writeCurrentSnapshotPointer(pointer, dir) {
 // ---- Project context ----
 
 /**
- * The project's own Why/What/How tree.
+ * The project's own tree: its goal, records and tasks.
  *
  * One level above workstreams, and the base every workstream inherits at compile
  * time. Its own file rather than a reserved workstream id, because that is what
@@ -549,7 +549,7 @@ export function deleteTask(idOrPrefix, dir) {
 /**
  * Read whichever tree a caller is pointed at.
  *
- * Contribute, ask and reflect all do the same thing to either level, and the
+ * Contribute and ask do the same thing to either level, and the
  * only difference is which file it lands in. Dispatching here keeps that
  * difference in one place rather than putting the same `if` at the top of every
  * command — which is how `main` came to mean two things to begin with.
