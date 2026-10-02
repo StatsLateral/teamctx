@@ -30,9 +30,19 @@ describe('reading the policy off a config', () => {
     POLICIES.forEach(p => expect(reviewPolicy({ reviewPolicy: p })).toBe(p));
   });
 
-  it('starts new projects additive, which is not the fallback', () => {
-    expect(NEW_PROJECT_POLICY).toBe('additive');
-    expect(NEW_PROJECT_POLICY).not.toBe(DEFAULT_POLICY);
+  it('starts new projects reviewing everything, the same as the fallback', () => {
+    // These were deliberately different: a new project was `additive` while a
+    // project that had never heard of the setting queued everything. A member's
+    // assistant could then add statements the whole team's assistants read as the
+    // team's position, with nobody having agreed to them.
+    expect(NEW_PROJECT_POLICY).toBe('all');
+    expect(NEW_PROJECT_POLICY).toBe(DEFAULT_POLICY);
+  });
+
+  it('still lets a project ask for less, and still reads it back', () => {
+    // The point is the default, not removing the choice.
+    expect(reviewPolicy({ reviewPolicy: 'additive' })).toBe('additive');
+    expect(needsReview({ reviewPolicy: 'additive' }, [add('addWhy')])).toBe(false);
   });
 });
 

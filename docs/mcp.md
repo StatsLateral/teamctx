@@ -54,7 +54,7 @@ either manager-gated or explicitly flagged as structural.
 
 | Tool | Purpose |
 | --- | --- |
-| `contribute({text, workstream?, decision?, apply?, author?})` | Add a contribution. Defaults to enqueueing for manager approval; set `apply: true` to write immediately (**manager-gated when `apply: true`** — `author` must match `config.manager` when set). |
+| `contribute({text, workstream?, decision?, apply?, author?})` | Add a contribution. Queues for manager approval — every contribution does, on a new project. `apply: true` writes immediately and is **the manager's alone**; from anyone else the flag is dropped rather than refused, and the result carries `applyRefused: true`. Its one use is a project's founding contribution (`totalWhys: 0`). |
 | `submit_contribution` | **Deprecated** alias for `contribute` with `apply: true`. Also manager-gated. Kept for one release; prefer `contribute`. |
 | `task_add({title, owner?, workstream?, compile?, role?})` | Create a task and commit. `compile: true` also compiles its prompt in the same call — **that spends an AI call**. |
 | `task_done({id})` / `task_reopen({id})` | Toggle status and commit. Returns `unchanged: true` without committing if already in that state. |

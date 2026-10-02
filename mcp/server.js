@@ -227,7 +227,7 @@ export const TOOLS = [
   // Tier 1 — additive writes
   {
     name: 'contribute',
-    description: "**This is how anything gets into the shared context — there is no separate import step.** Reach for it both when a manager tells you what the project is about and when somebody sends finished work back. Defaults to enqueueing for the manager's review, so tell the user it was sent for review, not that it was added. **The exception is a project's first contribution**: when get_status shows totalWhys:0, pass apply:true so it lands rather than waiting on the manager to approve their own opening message. apply:true writes immediately and requires the caller to be the manager. Optional decision:true tags it as a first-class decision. Returns { id, mode: \"queued\"|\"applied\"|\"no-op\", summary, operations, reportBack }. Returns `viewUrl`, the page where this can be read — always end your reply with it, on its own line, as a plain URL. `view` carries the ids it was built from (owner, repo and the ws/item/task/review it names), so a link can still be assembled from the project address if you need to. When `viewUrl` is null there is no address recorded for this project: say that rather than inventing one, and `viewUrlError` says why.",
+    description: "**This is how anything gets into the shared context — there is no separate import step.** Reach for it both when a manager tells you what the project is about and when somebody sends finished work back. Defaults to enqueueing for the manager's review, so tell the user it was sent for review, not that it was added. **The exception is a project's first contribution**: when get_status shows totalWhys:0, pass apply:true so it lands rather than waiting on the manager to approve their own opening message. That is the only case for it — never for bulk content such as a long conversation or a document, which is exactly what review is for. apply:true writes immediately and is the manager's alone; asking for it without being the manager is not an error and loses nothing, the contribution simply takes the ordinary path and `applyRefused` says the flag was not honoured, so report where it went rather than sending the same text again. Optional decision:true tags it as a first-class decision. Returns { id, mode: \"queued\"|\"applied\"|\"no-op\", summary, operations, reportBack }. Returns `viewUrl`, the page where this can be read — always end your reply with it, on its own line, as a plain URL. `view` carries the ids it was built from (owner, repo and the ws/item/task/review it names), so a link can still be assembled from the project address if you need to. When `viewUrl` is null there is no address recorded for this project: say that rather than inventing one, and `viewUrlError` says why.",
     inputSchema: {
       type: 'object',
       properties: {
@@ -483,7 +483,7 @@ export const TOOLS = [
   },
   {
     name: 'set_review_policy',
-    description: RISKY + "chooses how much of a contribution waits for the manager's approval. Manager-gated against the authenticated caller, and deliberately not reachable through config_set: a caller who can set this to \"none\" can then write anything. \"all\" queues every contribution. \"additive\" lets contributions that only add land immediately and queues anything that edits or deletes an existing statement. \"none\" applies everything and also lets any member run reflect, which rewrites the whole shared context. Say what changes in plain language and confirm before calling." + REPORT,
+    description: RISKY + "chooses how much of a contribution waits for the manager's approval. Manager-gated against the authenticated caller, and deliberately not reachable through config_set: a caller who can set this to \"none\" can then write anything. \"all\" queues every contribution, and is what a new project is created with. \"additive\" lets contributions that only add land immediately and queues anything that edits or deletes an existing statement — which means additions from members' assistants become context the whole team reads without anybody seeing them first, so say that when a manager asks for it. \"none\" applies everything and also lets any member run reflect, which rewrites the whole shared context. Say what changes in plain language and confirm before calling." + REPORT,
     inputSchema: {
       type: 'object',
       properties: { policy: { type: 'string', enum: ['all', 'additive', 'none'] } },
@@ -606,9 +606,17 @@ function reportBackContribute(r) {
   // is told to read this string back word for word — so an unsplit project,
   // which is most of them, reported work landing on workstream "null".
   const where = r.workstream === null ? 'the project' : `workstream "${r.workstream}"`;
-  if (r.mode === 'no-op') return `Tell the user: contribution logged for ${where} but the AI proposed no changes to the tree.`;
-  if (r.mode === 'queued') return `Tell the user: contribution ${r.id} queued for manager approval on ${where} (${r.operations.length} op${r.operations.length === 1 ? '' : 's'}). Manager must run \`teamctx review approve ${r.id}\` or call the review_approve tool.`;
-  const applied = `Tell the user: contribution ${r.id} applied to ${where} (${r.operations.length} op${r.operations.length === 1 ? '' : 's'})${r.rolesRegenerated?.length ? `, regenerated roles: ${r.rolesRegenerated.join(', ')}` : ''}${r.pushed ? ', committed and pushed' : ', committed'}.`;
+  // Asked for `apply` and did not get it. Said plainly and once, so the assistant
+  // reports where the contribution went instead of treating the refusal as a
+  // failure and sending the same text a second time. Nothing was lost by asking.
+  const refused = r.applyRefused
+    ? ' Note for you, not a problem to report as one: `apply` was not honoured because it is the'
+      + " manager's alone. The contribution was kept and took the ordinary path, so tell the user"
+      + ' where it went and do not call contribute again for the same text.'
+    : '';
+  if (r.mode === 'no-op') return `Tell the user: contribution logged for ${where} but the AI proposed no changes to the tree.${refused}`;
+  if (r.mode === 'queued') return `Tell the user: contribution ${r.id} queued for manager approval on ${where} (${r.operations.length} op${r.operations.length === 1 ? '' : 's'}). Manager must run \`teamctx review approve ${r.id}\` or call the review_approve tool.${refused}`;
+  const applied = `Tell the user: contribution ${r.id} applied to ${where} (${r.operations.length} op${r.operations.length === 1 ? '' : 's'})${r.rolesRegenerated?.length ? `, regenerated roles: ${r.rolesRegenerated.join(', ')}` : ''}${r.pushed ? ', committed and pushed' : ', committed'}.${refused}`;
   if (!r.founding) return applied;
   // The project's context started here, out of a conversation the person is
   // about to leave. Read it back while they can still correct it — this is the

@@ -8,6 +8,7 @@ import { updateShared, generateRoleFile, serializeToMd } from '../../src/context
 import { commitContext, pushContext } from '../../src/git.js';
 import { UnknownWorkstreamError } from './role.core.js';
 import { assertManager } from './review.core.js';
+import { canApprove } from '../../src/review.js';
 import { needsReview } from '../../src/review-policy.js';
 import { resolveActor } from '../../src/actor.js';
 import { resolveActiveWorkstream, resolveDisplayName } from '../../src/prefs.js';
@@ -91,11 +92,24 @@ export async function contributeCore({
   const resolvedName = await resolveDisplayName({ actor: resolved, config, teamctxDir });
   const actor = author || resolvedName;
   const authorKey = author ? null : resolved.key;
-  // apply=true writes straight to shared context, so it is gated. Both arguments
-  // must come from the resolution, never from `author`: on a project still using
-  // the legacy name gate, passing the caller's claimed name here would let
-  // `contribute({ apply: true, author: "<manager>" })` walk straight through.
-  if (apply) assertManager(config, { actor: resolved, displayName: resolvedName });
+  // apply=true writes straight to shared context, so it is the manager's alone.
+  // Both arguments must come from the resolution, never from `author`: on a
+  // project still using the legacy name gate, passing the caller's claimed name
+  // here would let `contribute({ apply: true, author: "<manager>" })` walk
+  // straight through.
+  //
+  // Asking for it without being the manager used to throw, and the throw happened
+  // before the contribution was logged — so a member whose assistant guessed
+  // wrong lost their text and had to write it again. It is dropped instead: the
+  // contribution takes the ordinary path, and `applyRefused` on the result says
+  // the flag was not honoured, so the assistant can say where it went rather than
+  // ask for it a second time. Nothing is granted by asking; `apply` is simply not
+  // a thing a member can do.
+  const mayApply = apply && canApprove(config, { actor: resolved, displayName: resolvedName });
+  const applyRefused = apply && !mayApply;
+  // Where the warning about a legacy display-name gate lives — which is worth
+  // saying to the one caller who just relied on that gate holding.
+  if (mayApply) assertManager(config, { actor: resolved, displayName: resolvedName });
   // `null` is the project itself, which is where a contribution goes when
   // nobody named a workstream — the base everything else inherits from.
   const targetId = resolveTarget(
@@ -127,6 +141,7 @@ export async function contributeCore({
       id: contribution.id, workstream: targetId, author: actor, source,
       mode: 'no-op', summary: 'No changes to context tree (contribution logged).',
       operations: [], pushed: false, pushError: null,
+      ...(applyRefused ? { applyRefused: true } : {}),
     };
   }
 
@@ -135,19 +150,20 @@ export async function contributeCore({
   // shared context, and the terminal was asking "submit for manager approval?"
   // before it knew that — so somebody answering yes was told their work had
   // gone to a queue it never entered.
-  const willQueue = !apply && (reviewRequired || needsReview(config, operations));
+  const willQueue = !mayApply && (reviewRequired || needsReview(config, operations));
   if (onProposed && (await onProposed({ summary, operations, willQueue })) === false) {
     return {
       id: contribution.id, workstream: targetId, author: actor, source,
       mode: 'discarded', summary, operations, pushed: false, pushError: null,
+      ...(applyRefused ? { applyRefused: true } : {}),
     };
   }
 
-  // Two different questions, deliberately kept apart. `apply` is a caller
-  // asking to bypass review, and stays manager-gated above. This asks whether
-  // the project requires review of these operations at all — a member whose
-  // contribution only adds is not acting as the manager by skipping a queue the
-  // project does not want.
+  // Two different questions, deliberately kept apart. `mayApply` is a manager
+  // asking to bypass review and being allowed to. This asks whether the project
+  // requires review of these operations at all — a member whose contribution only
+  // adds is not acting as the manager by skipping a queue the project does not
+  // want.
   if (willQueue) {
     writeQueueItem({
       id: contribution.id, status: 'pending', createdAt: contribution.ts,
@@ -162,6 +178,7 @@ export async function contributeCore({
     return {
       id: contribution.id, workstream: targetId, author: actor, source,
       mode: 'queued', summary, operations, pushed, pushError,
+      ...(applyRefused ? { applyRefused: true } : {}),
     };
   }
 
@@ -201,6 +218,10 @@ export async function contributeCore({
   return {
     id: contribution.id, workstream: targetId, author: actor, source,
     mode: 'applied', summary, operations, rolesRegenerated, pushed, pushError,
+    // Reachable: a project on `none` requires review of nothing, so a member who
+    // asked to bypass a queue that does not exist still gets their wish — just
+    // not because they asked.
+    ...(applyRefused ? { applyRefused: true } : {}),
     // What this contribution actually put in the tree, read back off the tree
     // it was written to. The operations cannot answer it: an add carries no id
     // until it is applied, and a contribution that also deletes carries only

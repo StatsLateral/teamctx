@@ -16,22 +16,28 @@ import { managerKeys } from './review.js';
 export const POLICIES = ['all', 'additive', 'none'];
 
 /**
- * What a project with no policy recorded means.
+ * What a project with no policy recorded means, and what `init` records.
  *
- * `all` rather than the new-project default, so upgrading changes nothing for
- * anyone: a project that has never heard of this setting keeps queueing
- * everything, exactly as it did before.
+ * One value, where there used to be two. A project that has never heard of this
+ * setting has always queued everything; a new one used to be created `additive`,
+ * on the reasoning that somebody adding what they know should not wait on an
+ * approval while the case that can destroy someone else's work still should.
+ *
+ * That reasoning picked the wrong axis. Whether a contribution can *lose*
+ * information is not the only thing worth a person's eye — whether anyone has
+ * read it is the other. Under `additive`, a member's assistant could add
+ * statements straight into the context every other member's assistant then reads
+ * as the team's own position. That is where a poisoned document or thread lands:
+ * the member never wrote those words, and under this policy nobody had to agree
+ * to them.
+ *
+ * So new projects queue everything, which is also what the product says of
+ * itself. `additive` is still there for a team that wants it, one command away,
+ * and a project that recorded it keeps it — see the note on migration in
+ * docs/proposals/review-everything-by-default.md.
  */
 export const DEFAULT_POLICY = 'all';
-
-/**
- * What `init` records for a new project.
- *
- * Additive, because the common case — somebody adding what they know — should
- * not wait on an approval, and the case that can destroy someone else's work
- * still should. A team that wants the older behaviour is one command away.
- */
-export const NEW_PROJECT_POLICY = 'additive';
+export const NEW_PROJECT_POLICY = DEFAULT_POLICY;
 
 const ADDITIVE_OPS = new Set(['addWhy', 'addWhat', 'addHow']);
 
