@@ -43,5 +43,6 @@ Kept for reference — these were built (see [CHANGELOG](../../CHANGELOG.md)):
 |----------|-----------|
 | [Provider-agnostic AI layer](provider-agnostic-ai.md) | `src/providers/` — Claude, OpenAI, Gemini behind one interface |
 | [Public API + MCP server](external-api-and-mcp.md) | `teamctx mcp` full tool surface (#14); hosted variant in review (#17) |
+| [New projects review everything](review-everything-by-default.md) | `reviewPolicy: all` at init; a refused `apply` queues instead of failing |
 | [Manager approval queue](manager-approval-queue.md) | `teamctx review list/approve/reject` + manager identity gate |
 | [Local team-productivity metrics](local-metrics.md) | `teamctx stats` + read-only `get_stats` MCP tool (#28) |

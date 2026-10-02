@@ -53,13 +53,34 @@ import { resolveActor } from '../../src/actor.js';
 beforeEach(() => vi.clearAllMocks());
 
 describe('contributeCore — manager gate on apply', () => {
-  it('refuses apply=true when caller is not the configured manager', async () => {
+  it('does not honour apply=true from somebody who is not the manager', async () => {
     readConfig.mockReturnValue({ project: 'p', me: 'satya', manager: 'priya', autoPush: false, roles: [] });
-    await expect(contributeCore({
-      text: 'note', author: 'satya', apply: true,
-    })).rejects.toBeInstanceOf(ManagerGateError);
+    const result = await contributeCore({ text: 'note', author: 'satya', apply: true });
+
+    // Nothing reaches shared context, which is the whole gate.
+    expect(result.mode).toBe('queued');
     expect(writeTree).not.toHaveBeenCalled();
-    expect(commitContext).not.toHaveBeenCalled();
+  });
+
+  it('keeps their words instead of throwing them away with the call', async () => {
+    // It used to throw, and the throw happened before the contribution was
+    // logged — so a member whose assistant guessed wrong lost their text and had
+    // to write it again. The flag is dropped; the contribution is not.
+    readConfig.mockReturnValue({ project: 'p', me: 'satya', manager: 'priya', autoPush: false, roles: [] });
+    const result = await contributeCore({ text: 'the thing I actually said', author: 'satya', apply: true });
+
+    expect(result.mode).toBe('queued');
+    expect(result.applyRefused).toBe(true);
+    expect(appendContribution).toHaveBeenCalled();
+    expect(appendContribution.mock.calls[0][0].text).toBe('the thing I actually said');
+  });
+
+  it('says nothing about apply when it was never asked for', async () => {
+    // So `applyRefused` means "you asked and did not get it", not "you are not
+    // the manager" — which is every ordinary contribution and not worth saying.
+    readConfig.mockReturnValue({ project: 'p', me: 'satya', manager: 'priya', autoPush: false, roles: [] });
+    const result = await contributeCore({ text: 'note', author: 'satya' });
+    expect(result.applyRefused).toBeUndefined();
   });
 
   it('allows apply=true when the resolved caller is the manager', async () => {
@@ -126,19 +147,23 @@ describe('contributeCore — attribution', () => {
 
 
 describe('contributeCore — the apply gate ignores the claimed author', () => {
-  it('refuses apply=true on a legacy name gate even when author matches the manager', async () => {
+  it('does not honour apply=true on a legacy name gate even when author matches', async () => {
     // The resolved caller is Satya (see the actor mock). Claiming to be the
-    // manager must not grant the right to write straight to shared context.
+    // manager must not grant the right to write straight to shared context —
+    // anyone can set any display name as their own.
     readConfig.mockReturnValue({ project: 'p', me: 'someone', manager: 'priya', autoPush: false, roles: [] });
-    await expect(contributeCore({ text: 'note', author: 'priya', apply: true }))
-      .rejects.toBeInstanceOf(ManagerGateError);
+    const r = await contributeCore({ text: 'note', author: 'priya', apply: true });
+    expect(r.mode).toBe('queued');
+    expect(r.applyRefused).toBe(true);
     expect(writeTree).not.toHaveBeenCalled();
   });
 
-  it('refuses apply=true on an identity gate the caller is not in', async () => {
+  it('does not honour apply=true on an identity gate the caller is not in', async () => {
     readConfig.mockReturnValue({ project: 'p', me: 'someone', managerKey: 'github:9999', autoPush: false, roles: [] });
-    await expect(contributeCore({ text: 'note', apply: true }))
-      .rejects.toBeInstanceOf(ManagerGateError);
+    const r = await contributeCore({ text: 'note', apply: true });
+    expect(r.mode).toBe('queued');
+    expect(r.applyRefused).toBe(true);
+    expect(writeTree).not.toHaveBeenCalled();
   });
 
   it('allows apply=true when the resolved caller is a manager', async () => {

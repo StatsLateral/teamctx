@@ -50,6 +50,7 @@ vi.mock('../../src/prefs.js', () => ({
 }));
 
 const { contributeCore } = await import('./contribute.core.js');
+const { NEW_PROJECT_POLICY } = await import('../../src/review-policy.js');
 const {
   readConfig, writeQueueItem, writeTree,
   writeWorkstreamMd, readWorkstream, listWorkstreamIds,
@@ -98,9 +99,10 @@ describe('under additive', () => {
 
   it('does not make the member a manager by letting them through', async () => {
     // Landing without review is not approval rights. `apply: true` is still the
-    // manager's, and a member reaching for it is still refused.
-    await expect(contributeCore({ text: 'x', apply: true }))
-      .rejects.toThrow(/only the configured manager/);
+    // manager's; a member reaching for it gets the ordinary path, and is told the
+    // flag was not honoured rather than being handed it.
+    const r = await contributeCore({ text: 'x', apply: true });
+    expect(r.applyRefused).toBe(true);
   });
 });
 
@@ -113,6 +115,15 @@ describe('under all', () => {
 
 describe('under none', () => {
   beforeEach(() => readConfig.mockReturnValue(project({ reviewPolicy: 'none' })));
+
+  it('applies a member who asked to bypass a queue that is not there', async () => {
+    // It lands because the project requires review of nothing, not because they
+    // asked — and the result still says the flag was not honoured, so nobody
+    // reads this as `apply` having worked for a member.
+    const r = await contributeCore({ text: 'x', apply: true });
+    expect(r.mode).toBe('applied');
+    expect(r.applyRefused).toBe(true);
+  });
 
   it('applies a member\'s additions', async () => {
     expect((await contribute()).mode).toBe('applied');
@@ -173,5 +184,79 @@ describe('a project-level contribution reaching the workstreams', () => {
   it('leaves them alone when the contribution was to a workstream', async () => {
     await contributeCore({ text: 'ship it', workstreamId: 'delivery', apply: true, teamctxDir: '/x' });
     expect(writeWorkstreamMd).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * A new project reviews everything, and an existing one keeps what it recorded.
+ *
+ * `NEW_PROJECT_POLICY` and `DEFAULT_POLICY` are now the same value, which makes
+ * it easy to believe the migration question answered itself. It did not: the two
+ * were separate so that a project could record `additive` and go on running on
+ * it. That it still can is the thing worth a test, because nothing else would
+ * fail if a later change quietly tightened it.
+ */
+describe('what a new project does, and what an older one keeps', () => {
+  it('queues a member\'s pure addition on a project created now', async () => {
+    readConfig.mockReturnValue(project({ reviewPolicy: NEW_PROJECT_POLICY }));
+    const r = await contribute();
+    expect(r.mode).toBe('queued');
+    expect(writeTree).not.toHaveBeenCalled();
+  });
+
+  it('leaves a project that recorded additive exactly where it was', async () => {
+    // The regression test for "no migration". Without it, that is an intention.
+    readConfig.mockReturnValue(project({ reviewPolicy: 'additive' }));
+    const r = await contribute();
+    expect(r.mode).toBe('applied');
+    expect(writeQueueItem).not.toHaveBeenCalled();
+  });
+
+  it('still queues a destructive contribution on that older project', async () => {
+    // So the test above is not passing because the policy stopped being read.
+    readConfig.mockReturnValue(project({ reviewPolicy: 'additive' }));
+    operations = WITH_DELETE;
+    expect((await contribute()).mode).toBe('queued');
+  });
+});
+
+/**
+ * The founding contribution, which is the one thing the new default could break.
+ *
+ * `apply: true` short-circuits the gate before the policy is consulted, so the
+ * manager's opening message still lands. What used to cover a client that forgot
+ * the flag was the old default itself — an add-only founding contribution landed
+ * anyway. That cover is gone, so both paths are pinned here rather than left to
+ * whether a client read the instructions.
+ */
+describe('founding a project under the new default', () => {
+  beforeEach(() => {
+    readConfig.mockReturnValue(project({ reviewPolicy: NEW_PROJECT_POLICY }));
+    caller = MANAGER;
+  });
+
+  it('lands the manager\'s first contribution immediately with apply', async () => {
+    const r = await contributeCore({ text: 'what this is about', source: 'mcp', apply: true });
+    expect(r.mode).toBe('applied');
+    expect(r.applyRefused).toBeUndefined();
+    expect(writeTree).toHaveBeenCalled();
+  });
+
+  it('queues it when the client forgets apply, rather than losing it', async () => {
+    // Worth knowing rather than worth preventing: the project is then waiting on
+    // its manager to approve their own opening message, and `member_add` refuses
+    // until they do. The instructions and the tool description are what keep a
+    // client from getting here; the contribution is safe either way.
+    const r = await contributeCore({ text: 'what this is about', source: 'mcp' });
+    expect(r.mode).toBe('queued');
+    expect(writeQueueItem).toHaveBeenCalled();
+  });
+
+  it('refuses a member who asks to found it, without dropping their words', async () => {
+    caller = MEMBER;
+    const r = await contributeCore({ text: 'what I think this is about', source: 'mcp', apply: true });
+    expect(r.mode).toBe('queued');
+    expect(r.applyRefused).toBe(true);
+    expect(writeTree).not.toHaveBeenCalled();
   });
 });
