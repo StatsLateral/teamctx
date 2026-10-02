@@ -142,7 +142,11 @@ export async function initProject({
       key: actor.key,
       name: me,
       email: managerEmail || (actor.key.startsWith('git:') ? actor.key.slice(4) : null),
-      login: actor.key.startsWith('github:') ? null : null,
+      // `rosterEntry` matches on login as well as key and email, so filling it
+      // in is what lets the creator be recognised by a later sign-in that
+      // knows them by name rather than by id. Null where the caller was
+      // resolved from a `managerKey` alone, which carries no login.
+      login: actor.login || null,
       workstreams: [],
     }],
     // A new project is its own base and has no strands yet. `main` used to be

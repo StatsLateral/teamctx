@@ -492,7 +492,7 @@ async function waysInFor(returnTo) {
 app.get('/signin', async (req, res) => {
   const user = await currentUser(req);
   const requestedReturnTo = String(req.query.returnTo || '');
-  const returnTo = RETURN_TO.test(requestedReturnTo) ? requestedReturnTo : null;
+  const returnTo = isReturnable(requestedReturnTo) ? requestedReturnTo : null;
   // Somebody already signed in has nothing to do here.
   if (user) return res.redirect(303, returnTo || '/settings');
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
@@ -506,7 +506,7 @@ app.get('/settings/signin/google', async (req, res) => {
   }
   const state = randomBytes(18).toString('base64url');
   const requestedReturnTo = String(req.query.returnTo || '');
-  const returnTo = RETURN_TO.test(requestedReturnTo) ? requestedReturnTo : null;
+  const returnTo = isReturnable(requestedReturnTo) ? requestedReturnTo : null;
   await kvSet(
     keys.pending(`settings-google:${state}`),
     returnTo ? { kind: 'settings', returnTo } : { kind: 'settings' },
@@ -523,7 +523,7 @@ app.get('/settings/signin/google', async (req, res) => {
 app.get('/settings/signin', async (req, res) => {
   const state = randomBytes(18).toString('base64url');
   const requestedReturnTo = String(req.query.returnTo || '');
-  const returnTo = RETURN_TO.test(requestedReturnTo) ? requestedReturnTo : null;
+  const returnTo = isReturnable(requestedReturnTo) ? requestedReturnTo : null;
   await kvSet(
     keys.pending(`settings:${state}`),
     returnTo ? { kind: 'settings', returnTo } : { kind: 'settings' },
@@ -1155,14 +1155,6 @@ app.post('/settings/agents/revoke', async (req, res) => {
   backToSettings(res);
 });
 
-/**
- * Where a sign-in may send somebody afterwards.
- *
- * Allow-listed rather than trusted, because this is the one place a path from
- * the query string drives a redirect — and it now has to carry what a link from
- * a chat points at, so the rule lives beside the link format itself.
- */
-const RETURN_TO = { test: isReturnable };
 
 const signInFor = (res, path) => res.redirect(303, `/signin?returnTo=${encodeURIComponent(path)}`);
 

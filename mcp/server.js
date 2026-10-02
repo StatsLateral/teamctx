@@ -1729,18 +1729,12 @@ export function toolsFor(projectRoot) {
 }
 
 /**
- * Run one tool call, holding an agent to its tools.
- *
- * Hiding a tool from the list restricts nothing on its own — a script can send
- * any name. So every call is checked against the same list, and a name that is
- * not on it gets exactly the answer a tool that does not exist gets.
- */
-/**
  * The tools that owe somebody a link, per the spec for the view.
  *
  * Not every tool: a link on the end of `list_members` is noise, and the point of
- * these seven is that each one has just changed or reported something a person
- * would want to go and look at.
+ * the ones listed here is that each has just changed or reported something a
+ * person would want to go and look at. Counted in prose this went stale the
+ * first time one was added, so it is not counted here.
  */
 const LINKED_TOOLS = new Set([
   'contribute', 'submit_contribution', 'task_add', 'task_assign', 'task_done',
@@ -1818,6 +1812,13 @@ function stampViewUrl(result, projectRoot, name) {
   return { ...result, content: body };
 }
 
+/**
+ * Run one tool call, holding an agent to its tools.
+ *
+ * Hiding a tool from the list restricts nothing on its own — a script can send
+ * any name. So every call is checked against the same list, and a name that is
+ * not on it gets exactly the answer a tool that does not exist gets.
+ */
 export async function callTool(handlers, projectRoot, name, args = {}) {
   const agent = projectRoot?.agent || null;
   const handler = agent && !AGENT_TOOLS.includes(name) ? null : handlers[name];
