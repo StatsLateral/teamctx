@@ -15,7 +15,6 @@ import { answerQuestion } from '../src/context.js';
 import { commitContext } from '../src/git.js';
 import { connectorUrl, originRemote } from '../cli/commands/connect.core.js';
 import { buildViewUrl } from '../src/view-url.js';
-import { migrateIfNeeded } from '../src/migrate.js';
 import { computeStats } from '../src/metrics.js';
 import { initProject } from '../cli/commands/init.core.js';
 import {
@@ -633,18 +632,8 @@ export function makeHandlers(projectRoot) {
   // (see src/session-context.js), so any truthy placeholder here is fine.
   const isHosted = typeof projectRoot === 'object' && projectRoot?.__backend === 'github';
   // Some tools (init) run before .teamctx/ exists, so they take projectRoot directly.
-  // migrateIfNeeded touches the filesystem directly, so it only runs locally.
-  let migrated = false;
   const dir = () => {
-    // Hosted used to return before this, because the migration touched the
-    // filesystem directly. It goes through the storage layer now, and skipping
-    // it left every hosted project half-migrated — `main` alive beside a project
-    // tree, which is the one state nothing is written to expect.
     const teamctxDir = isHosted ? projectRoot : getTeamctxDir(projectRoot);
-    if (!migrated) {
-      try { migrateIfNeeded(teamctxDir); } catch { /* best-effort */ }
-      migrated = true;
-    }
     return teamctxDir;
   };
 

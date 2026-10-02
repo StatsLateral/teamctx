@@ -12,24 +12,9 @@
  */
 export const PROJECT_LEVEL = null;
 
-/**
- * The id `main` carried before this existed.
- *
- * Kept as a name rather than scattered literals because every remaining mention
- * is a place that has to resolve to project level, and they are easier to find
- * and remove when they are all spelled the same way.
- */
-export const LEGACY_MAIN = 'main';
-
-/**
- * Is this target the project rather than a workstream?
- *
- * `main` counts, so a stored preference, a saved config or a `--workstream main`
- * typed from memory keeps working after migration instead of failing to resolve.
- */
+/** Is this target the project rather than a workstream? */
 export function isProjectLevel(id) {
-  if (id === null || id === undefined || id === '') return true;
-  return String(id).trim() === LEGACY_MAIN;
+  return id === null || id === undefined || id === '';
 }
 
 /** Normalise any of the ways project level arrives into the one value. */
