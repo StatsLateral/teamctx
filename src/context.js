@@ -35,9 +35,9 @@ export function serializeToMd(tree, projectName, lastUpdatedBy = '', contributio
  * default to the plain contribution behaviour, so existing callers are
  * unaffected.
  */
-export async function updateShared(workstream, contribution, config, { intent, avoid } = {}) {
+export async function updateShared(tree, contribution, config, { intent, avoid } = {}) {
   const { summary, operations } = await proposeDiff({
-    workstream,
+    workstream: tree,
     contribution: contribution.text,
     source: contribution.author,
     model: config.model,
@@ -45,8 +45,11 @@ export async function updateShared(workstream, contribution, config, { intent, a
     intent,
     avoid,
   });
-  const { tree: updated } = applyOps(workstream, operations, contribution.id);
-  return { workstream: updated, summary, operations };
+  const { tree: updated, dropped } = applyOps(tree, operations, contribution.id);
+  // What was dropped never reaches the queue or the tree: a reviewer approving
+  // a proposal should see exactly what will be written.
+  const kept = operations.filter(o => !dropped.some(d => d.op === o));
+  return { workstream: updated, summary, operations: kept, dropped };
 }
 
 export async function generateRoleFile(workstream, role, projectName, config, contributions = [], { project = null } = {}) {
@@ -57,7 +60,7 @@ export async function generateRoleFile(workstream, role, projectName, config, co
     `Generate a role-specific context file for a team member.`,
     `Project: ${projectName}  Date: ${now}`,
     ``,
-    `Full project context (Why/What/How tree):`,
+    `Full shared context:`,
     tree,
     ``,
     `Role: ${role.name}`,
@@ -72,12 +75,11 @@ export async function generateRoleFile(workstream, role, projectName, config, co
     `## Your Role`,
     `[who you are, what you own, what to ignore]`,
     ``,
-    `## Your Why / What / How`,
-    `[filter and reframe the project tree for this role — same facts, different perspective]`,
-    `[IMPORTANT: preserve any inline "*[decision — author, date, via source]*" markers verbatim on the same line as the statement they annotate. They mark human decisions and must survive the rewrite.]`,
+    `## Your context`,
+    `[filter the shared context for this role — same facts, different perspective. Keep each line's plain label ("Why it matters:", "We decided:", "Rule:", "Allowed:", "We're assuming:", "Open question:", "Risk:") exactly as written, and keep every "Allowed:" line directly under the rule it bends.]`,
     ``,
-    `## Open Decisions (Yours to Make)`,
-    `[items where this role is the decision owner — write "None currently." if none]`,
+    `## Open questions and risks you own`,
+    `[open questions and risks owned by this role — write "None currently." if none]`,
     ``,
     `## How to Use This File`,
     `Paste into your CLAUDE.md, or use as system context in ChatGPT / Gemini.`,
@@ -94,11 +96,10 @@ export async function compileTaskPrompt({ task, workstream, role, contributions,
   const tree = serializeToMd(workstream, projectName, '', contributions, { includeContributors: false, project });
   const now = new Date().toISOString().split('T')[0];
   const roleLine = role ? `Framed for role: ${role.name} — ${role.responsibilities || ''}` : 'No role filter — write for a general team member.';
-  const decisionsList = (contributions || [])
-    .filter(c => c.tagged === 'decision' && resolveTarget(c.workstream) === resolveTarget(task.workstream))
-    .slice(-8)
-    .map(c => `- ${c.text} — ${c.author}, ${(c.ts || '').slice(0, 10)}, via ${c.source || 'cli'}`)
-    .join('\n') || '(none yet)';
+  // The decisions and rules on this task's own chain, each exception under its
+  // rule — never a loose list of everything anyone ever tagged.
+  const decisionsList = renderBrief({ projectName, project: null, chain: [{ ...workstream, tasks: [], records: (workstream?.records || []).filter(r => ['decision', 'rule', 'exception'].includes(r.type)) }] })
+    .split('\n').filter(l => l.trimStart().startsWith('- ')).join('\n') || '(none yet)';
 
   const prompt = [
     `Generate a focused, AI-ready prompt file for ONE specific task.`,
@@ -108,10 +109,10 @@ export async function compileTaskPrompt({ task, workstream, role, contributions,
     `Task id: ${task.id}   Owner: ${task.owner || '(unassigned)'}   Belongs to: ${targetLabel(task.workstream, projectName)}`,
     roleLine,
     ``,
-    `Full workstream context (Why/What/How tree — pick only what's relevant to THIS task):`,
+    `Full context for this part of the work (pick only what's relevant to THIS task):`,
     tree,
     ``,
-    `Recent decisions on this workstream (may or may not be relevant to the task):`,
+    `Decisions and rules on this part of the work (may or may not be relevant to the task):`,
     decisionsList,
     ``,
     `Generate a markdown file with EXACTLY these sections:`,
@@ -122,8 +123,7 @@ export async function compileTaskPrompt({ task, workstream, role, contributions,
     `**Created:** ${task.createdAt || '-'} · **Compiled:** ${now}`,
     ``,
     `## Relevant context`,
-    `[Pull ONLY the Whys / Whats / Hows that bear on this task. Skip everything else.]`,
-    `[IMPORTANT: preserve any inline "*[decision — author, date, via source]*" markers verbatim.]`,
+    `[Pull ONLY the lines that bear on this task, keeping their plain labels. Skip everything else.]`,
     ``,
     `## Related decisions`,
     `[List any decisions above that materially constrain this task. If none, write "None currently."]`,
@@ -307,7 +307,7 @@ export async function answerQuestion({ sharedMd, roleMd, question, config, openT
   const system = [
     'You are a helpful assistant with access to the team\'s project context.',
     'Answer questions based on the context provided. Be concise and specific.',
-    'When the context shows an inline "*[decision — author, date, via source]*" marker on a statement, treat that statement as a canonical human decision. If your answer relies on it, cite it inline like "(decision — author, date)". If the context contains conflicting statements and one is a decision, prefer the decision.',
+    'Lines labelled "We decided:" and "Rule:" are settled by the team. An "Allowed:" line under a rule is an approved exception to that rule, for what it names, until its date. Prefer settled lines over anything that contradicts them, and say so when you rely on one.',
     useCitedTags ? CITATION_INSTRUCTION : '',
   ].filter(Boolean).join(' ');
   const prompt = `Context:\n\n${context}\n\n---\n\nQuestion: ${question}`;
