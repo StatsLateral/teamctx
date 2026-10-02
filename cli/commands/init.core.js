@@ -131,6 +131,24 @@ export async function initProject({
     reviewPolicy: NEW_PROJECT_POLICY,
     deployUrl: deployUrl || '', githubRawBase: githubRawBase || '', managerEmail: managerEmail || '',
     roles: [],
+    // The person who made it is on it.
+    //
+    // They used to exist only as `managerKey`, which is a gate and not a
+    // roster: `list_members` showed an empty project to the one person who had
+    // certainly joined it, and anything asking "are they on this project?"
+    // answered no about its owner. Signing in a second way — the same person,
+    // a different provider — then met a project that had never heard of them.
+    members: [{
+      key: actor.key,
+      name: me,
+      email: managerEmail || (actor.key.startsWith('git:') ? actor.key.slice(4) : null),
+      // `rosterEntry` matches on login as well as key and email, so filling it
+      // in is what lets the creator be recognised by a later sign-in that
+      // knows them by name rather than by id. Null where the caller was
+      // resolved from a `managerKey` alone, which carries no login.
+      login: actor.login || null,
+      workstreams: [],
+    }],
     // A new project is its own base and has no strands yet. `main` used to be
     // created here and then stood in for the project, which is the confusion
     // the project tree removes — so it is not created at all.

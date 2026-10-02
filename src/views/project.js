@@ -101,6 +101,13 @@ tr.marked td:first-child{box-shadow:inset 3px 0 0 var(--accent)}
   padding:16px 20px;border-bottom:1px solid var(--line)}
 .drawer-body{padding:20px;overflow-y:auto}
 .drawer-body .statement{font-family:var(--font-display);font-size:18px;margin:0 0 10px;overflow-wrap:anywhere}
+/* What the button is about to put on the clipboard, shut by default: it is long,
+   and the drawer is for reading the statement, not the instructions. */
+.peek{margin:1rem 0}
+.peek summary{cursor:pointer;color:var(--accent);font-size:.85rem}
+.peek pre{margin:.6rem 0 0;padding:.7rem .8rem;background:var(--paper);border:1px solid var(--line);
+  border-radius:var(--radius-sm);font-family:var(--font-mono);font-size:12px;line-height:1.55;
+  white-space:pre-wrap;overflow-wrap:anywhere;color:var(--soft)}
 .backdrop{display:none;position:fixed;inset:0;background:rgba(26,28,26,.35);z-index:39}
 .backdrop.on{display:block}
 .note{background:var(--amber-soft);color:var(--amber);padding:.5rem .7rem;border-radius:var(--radius-sm);
@@ -132,6 +139,7 @@ const SCRIPT = `
     document.getElementById('d-summary').textContent = el.dataset.summary || 'No summary recorded.';
     document.getElementById('d-who').textContent = el.dataset.who || 'Nobody recorded.';
     document.getElementById('copy').dataset.prompt = el.dataset.prompt;
+    document.getElementById('d-prompt').textContent = el.dataset.prompt;
     drawer.classList.add('open'); backdrop.classList.add('on');
     drawer.setAttribute('aria-hidden', 'false');
     document.getElementById('d-close').focus();
@@ -181,7 +189,7 @@ const numbering = (tree) => {
     (why.whats || []).forEach((what, j) => {
       rows.push({ node: what, tier: 'what', n: `${i + 1}.${j + 1}`, parent: why });
       (what.hows || []).forEach((how, k) => {
-        rows.push({ node: how, tier: 'how', n: `${i + 1}.${j + 1}.${k + 1}`, parent: what });
+        rows.push({ node: how, tier: 'how', n: `${i + 1}.${j + 1}.${k + 1}`, parent: what, grand: why });
       });
     });
   });
@@ -215,62 +223,105 @@ const whoTouched = (node, contributions) => [...new Set(
 /**
  * What to paste into a fresh chat.
  *
- * The first version read "Tell me more about X in Y on Z", which makes sense
- * beside the page and almost none in a new conversation: an assistant is not
- * told what X, Y and Z are, which of several teamctx projects is meant, or that
- * it has tools for any of this. On a project whose workstream shares its name it
- * came out as "in vietnam trip on vietnam trip".
+ * Four versions of this have been wrong, each in a smaller way than the last.
+ * The one before this said the right things in the wrong voice: it opened with
+ * "Using teamctx", numbered its checks ahead of the question, and named the
+ * statement's ancestors "the What" and "the Why". What came back was written in
+ * those words — headings, field names, a walk back up the tree — to somebody who
+ * had asked about one line on a page and does not care how it is stored.
  *
- * So it says the repository rather than the project's display name — a
- * connector can be called anything, and two people's are rarely called the same
- * thing, but the repository is the project's one stable name — and it names the
- * tool to start from, because an assistant that has to guess will guess.
+ * So the question comes first, in the words the person would use out loud, and
+ * everything the assistant has to do is below it under a heading addressed to
+ * the assistant. The checks are unchanged; they are just no longer the first
+ * thing anybody reads.
+ *
+ * It says what to talk about and nothing about how to lay it out. An earlier
+ * draft banned headings and bullet lists, which is the wrong lever: the problem
+ * was never the shape of the answer but its subject — an assistant explaining
+ * the data model instead of the work — and telling a model how to format itself
+ * costs it the formatting it would have chosen well.
  */
-function promptFor({ node, tier, where, isProject, owner, repo }) {
+function promptFor({ node, tier, where, wsId, isProject, owner, repo, link, parent, grand }) {
   const place = isProject
-    ? 'the project context itself'
-    : `the part of the work called "${where}"`;
+    ? "the project's own context (not one part of the work)"
+    : `the part of the work called "${where}"${wsId ? ` (id: ${wsId})` : ''}`;
+
+  // Where it hangs, said in plain English. The lineage has to be here — an
+  // assistant left to find the parents reads the whole project, and then answers
+  // with the whole project — but labelling them by tier taught it to answer in
+  // those labels too. A goal is a goal, whatever the file calls it.
+  const lineage = tier === 'how' && parent && grand
+    ? `It is one of the things "${parent.text}" needs, and the goal behind that is "${grand.text}".`
+    : tier === 'how' && parent ? `It is one of the things "${parent.text}" needs.`
+      : tier === 'what' && parent ? `It is part of what the goal "${parent.text}" needs.`
+        : '';
+
+  const line = (...lines) => lines.filter(Boolean).join('\n');
+
   return [
-    `In the teamctx project ${owner}/${repo} (that is the repository — your connector may be named something else),`,
-    `look at ${place} and tell me more about this ${tier}: "${node.text}".`,
-    'Start with get_workstream or my_brief so you are answering from what the project actually says,',
-    'and tell me why it is there, what it requires, and what is still open.',
-  ].join(' ');
+    `Tell me more about "${node.text}".`,
+    [lineage,
+      'Answer in plain language — I want the context that matters, not a tour of how the project is organised.',
+    ].filter(Boolean).join(' '),
+    line(
+      'Instructions for the AI agent:',
+      `- Confirm you are connected to the repository ${owner}/${repo}. get_connect_url returns a URL containing the owner and repo. If it is a different one, stop and tell me, rather than answering from the project you are connected to.`,
+      `- Find this ${tier}, quoted word for word, in ${place}: "${node.text}". If it is not there, say so plainly rather than answering about the closest thing you can find.`,
+      '- Then tell me about that one thing, the way a colleague would: why it is there, what it requires, and what is still open for it.',
+      '- Do not explain how the project stores any of this, do not walk me back up the structure it sits in, and do not name its parts. Where something has not been decided yet, say so and move on.',
+      '- Keep to this one thing. Do not summarise the rest of the project, list its other goals or tasks, or report what is open elsewhere, unless I ask.',
+      link ? `- The page it came from: ${link}` : '',
+    ),
+  ].filter(Boolean).join('\n\n');
 }
 
-function itemButton({ row, contributions, where, project, marked, isProject, owner, repo }) {
-  const { node, tier, n } = row;
-  const prompt = promptFor({ node, tier, where, isProject, owner, repo });
+/**
+ * The prompt, inside an attribute, with its newlines intact.
+ *
+ * A raw newline in an attribute value survives parsing, but it also breaks the
+ * generated HTML across lines for no reason. `&#10;` keeps the markup on one
+ * line and decodes back to the newline the clipboard needs.
+ */
+const escAttr = (v) => esc(v).replace(/\n/g, '&#10;');
+
+function itemButton({ row, contributions, where, project, marked, isProject, owner, repo, wsId, origin }) {
+  const { node, tier, n, parent, grand } = row;
+  const prompt = promptFor({
+    node, tier, where, wsId, isProject, owner, repo, parent, grand,
+    link: origin ? `${origin}/project/${owner}/${repo}?${new URLSearchParams({
+      ...(isProject ? {} : { ws: wsId }), item: node.id,
+    })}` : null,
+  });
   const who = whoTouched(node, contributions);
   return `<button class="item tier-${tier}${marked ? ' marked' : ''}" id="i-${esc(node.id)}"
   data-text="${esc(node.text)}" data-kind="${esc(`${tier} ${n}`)}"
   data-summary="${esc(node.summary || '')}" data-who="${esc(who.join(', '))}"
-  data-prompt="${esc(prompt)}">
+  data-prompt="${escAttr(prompt)}">
   <span class="dot ${kindOf(node, contributions)}"></span>
   <span class="num">${n}</span>
   <span class="text">${esc(node.text)}</span>
 </button>`;
 }
 
-const columns = ({ rows, contributions, where, project, item, isProject, owner, repo }) => `<div class="columns">
+const columns = ({ rows, contributions, where, project, item, isProject, owner, repo, wsId, origin }) => `<div class="columns">
   ${['why', 'what', 'how'].map(tier => `<section class="col">
     <div class="col-head">${tier === 'why' ? 'Why' : tier === 'what' ? 'What' : 'How'}</div>
     <div class="col-body">
       ${rows.filter(r => r.tier === tier).map(row => itemButton({
-    row, contributions, where, project, isProject, owner, repo, marked: row.node.id === item,
+    row, contributions, where, project, isProject, owner, repo, wsId, origin, marked: row.node.id === item,
   })).join('')
     || '<p class="muted" style="margin:6px 8px">Nothing here yet.</p>'}
     </div>
   </section>`).join('')}
 </div>`;
 
-const list = ({ rows, contributions, where, project, item, isProject, owner, repo }) => `<div class="list">
+const list = ({ rows, contributions, where, project, item, isProject, owner, repo, wsId, origin }) => `<div class="list">
   ${rows.map(row => itemButton({
-    row, contributions, where, project, isProject, owner, repo, marked: row.node.id === item,
+    row, contributions, where, project, isProject, owner, repo, wsId, origin, marked: row.node.id === item,
   })).join('')}
 </div>`;
 
-export const projectPage = ({ user, view, selected, viewMode = 'columns', item = null, note = null }) => {
+export const projectPage = ({ user, view, selected, viewMode = 'columns', item = null, note = null, origin = null }) => {
   const isProject = selected === null;
   const tree = isProject ? view.projectTree : view.trees[selected];
   const where = isProject ? (view.project || 'the project') : (view.workstreams.find(w => w.id === selected)?.name || selected);
@@ -348,6 +399,8 @@ ${note ? `<p class="note">${esc(note)}</p>` : ''}
       isProject,
       owner: view.owner,
       repo: view.repo,
+      wsId: selected,
+      origin,
     })
     : '<p class="empty">Nothing written here yet — ask your assistant to add context.</p>'}
 
@@ -391,6 +444,10 @@ ${note ? `<p class="note">${esc(note)}</p>` : ''}
     <p id="d-summary"></p>
     <div class="section-title">Who wrote it</div>
     <p id="d-who"></p>
+    <details class="peek">
+      <summary>See the prompt first</summary>
+      <pre id="d-prompt"></pre>
+    </details>
     <button class="primary" id="copy">Copy a prompt for your assistant</button>
   </div>
 </aside>`, { wide: true, extraCss: CSS, script: SCRIPT });

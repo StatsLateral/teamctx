@@ -1,6 +1,7 @@
 import { readProject, readConfig, readTree, writeTree, writeTreeMd, appendContribution, writeRoleFile, writeQueueItem, readContributions, listWorkstreamIds } from '../../src/storage.js';
 import { resolveTarget, isProjectLevel } from '../../src/project-level.js';
 import { digestTree } from '../../src/tree-digest.js';
+import { statementsTouchedBy } from '../../src/ops.js';
 import { projectIsEmpty } from '../../src/context-gate.js';
 import { recompileInheritors } from '../../src/recompile.js';
 import { updateShared, generateRoleFile, serializeToMd } from '../../src/context.js';
@@ -200,6 +201,11 @@ export async function contributeCore({
   return {
     id: contribution.id, workstream: targetId, author: actor, source,
     mode: 'applied', summary, operations, rolesRegenerated, pushed, pushError,
+    // What this contribution actually put in the tree, read back off the tree
+    // it was written to. The operations cannot answer it: an add carries no id
+    // until it is applied, and a contribution that also deletes carries only
+    // the id of the statement that is now gone.
+    touched: statementsTouchedBy(updated, contribution.id),
     // Only on the founding one. Every contribution after it lands beside
     // context the team already knows, and a digest each time would be noise.
     ...(founding ? { founding: true, digest: digestTree(updated) } : {}),

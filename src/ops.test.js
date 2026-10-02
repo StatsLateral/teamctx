@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyOps } from './ops.js';
+import { applyOps, statementsTouchedBy } from './ops.js';
 
 const baseWs = {
   id: 'ws1',
@@ -120,5 +120,59 @@ describe('applyOps', () => {
     const next = applyOps(baseWs, ops, newCid);
     expect(next).not.toBe(baseWs);
     expect(next.whys).not.toBe(baseWs.whys);
+  });
+});
+
+describe('what one contribution left behind', () => {
+  const after = ops => statementsTouchedBy(applyOps(baseWs, ops, newCid), newCid);
+
+  it('names a statement it added, which no operation could have named', () => {
+    // An add op carries no id — applyOps mints it — so the tree is the only
+    // place the answer exists. Anything reading the operations instead found
+    // nothing, which is how a link to "what you just added" came out pointing
+    // at no statement at all.
+    const next = applyOps(baseWs, [{ type: 'addWhy', text: 'reduce churn', summary: '' }], newCid);
+    const [id] = statementsTouchedBy(next, newCid);
+    expect(id).toBe(next.whys[1].id);
+  });
+
+  it('names the top of a subtree before the rest of it', () => {
+    const next = applyOps(baseWs, [{
+      type: 'addWhy', text: 'reduce churn', summary: '',
+      whats: [{ text: 'win back lapsed users', summary: '', hows: [{ text: 'send the email', summary: '' }] }],
+    }], newCid);
+    const touched = statementsTouchedBy(next, newCid);
+    const why = next.whys[1];
+    expect(touched).toHaveLength(3);
+    expect(touched[0]).toBe(why.id);
+    expect(touched).toContain(why.whats[0].hows[0].id);
+  });
+
+  it('names a statement it edited, by the id that statement already had', () => {
+    expect(after([{ type: 'editStatement', id: 'what1', text: 'better onboarding', summary: '' }]))
+      .toEqual(['what1']);
+  });
+
+  it('cannot name a statement it deleted, because it is no longer there', () => {
+    expect(after([{ type: 'deleteStatement', id: 'what1', summary: '' }])).toEqual([]);
+  });
+
+  it('names the addition and not the deletion when it did both', () => {
+    const next = applyOps(baseWs, [
+      { type: 'addWhy', text: 'reduce churn', summary: '' },
+      { type: 'deleteStatement', id: 'why1', summary: '' },
+    ], newCid);
+    expect(statementsTouchedBy(next, newCid)).toEqual([next.whys[0].id]);
+    expect(statementsTouchedBy(next, newCid)).not.toContain('why1');
+  });
+
+  it('says nothing about a contribution that changed nothing', () => {
+    expect(after([])).toEqual([]);
+    expect(statementsTouchedBy(baseWs, newCid)).toEqual([]);
+  });
+
+  it('survives a tree that is missing its arrays', () => {
+    expect(statementsTouchedBy(null, newCid)).toEqual([]);
+    expect(statementsTouchedBy({ whys: [{ id: 'a', sourceContributionIds: [newCid] }] }, newCid)).toEqual(['a']);
   });
 });

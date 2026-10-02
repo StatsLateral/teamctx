@@ -54,3 +54,27 @@ describe('a Google sign-in reaching a project', () => {
     expect(await kvGet(keys.connectedProjects('stranger@example.com'))).toBe(null);
   });
 });
+
+describe('which code is serving the connector', () => {
+  it('says so on a GET, so this function can be compared with the other one', async () => {
+    // /oauth/status is a different serverless function. Knowing that one is
+    // current said nothing about this one, which is the function the connector
+    // actually talks to.
+    process.env.VERCEL_GIT_COMMIT_SHA = 'abc123';
+    process.env.VERCEL_GIT_COMMIT_REF = 'main';
+    try {
+      const req = { method: 'GET', query: { owner: 'acme', repo: 'ledger' }, headers: { host: 'x.test' } };
+      const res = { statusCode: 0, body: '', setHeader() {}, end(b) { this.body = b; } };
+      await handler(req, res);
+      expect(res.statusCode).toBe(405);
+      const body = JSON.parse(res.body);
+      expect(body.build.commit).toBe('abc123');
+      expect(body.build.branch).toBe('main');
+      expect(body.build.viewLinks).toContain('contribute');
+      expect(body.build.viewLinks).toContain('task_add');
+    } finally {
+      delete process.env.VERCEL_GIT_COMMIT_SHA;
+      delete process.env.VERCEL_GIT_COMMIT_REF;
+    }
+  });
+});

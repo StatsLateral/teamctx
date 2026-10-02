@@ -36,6 +36,11 @@ export function matchesActor(ref, actor) {
   }
   if (r.includes(':')) {
     if (r === String(actor.key || '').toLowerCase()) return true;
+    // Other identities this same person has proved. A gate pinned from a GitHub
+    // sign-in is a `github:<id>`, and the person behind it signing in with the
+    // address GitHub verified for them is still that person — without this they
+    // are a stranger at their own project.
+    if ((actor.keys || []).some(k => String(k).toLowerCase() === r)) return true;
     // An email is the one identity every surface can agree on, and each names
     // the same person differently: a clone keys them by email, the hosted
     // server by GitHub id, a Google sign-in by the address Google verified.

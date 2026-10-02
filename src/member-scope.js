@@ -45,8 +45,16 @@ export function memberWorkstreams(member) {
 /**
  * The roster entry that is this caller, or null.
  *
- * Matched by key, by verified address, or by GitHub login — every form one person
- * arrives in. Exported so the display name can come from the entry too.
+ * Matched by key, by verified address, by GitHub login, or by another key the
+ * caller has proved is theirs — every form one person arrives in. Exported so
+ * the display name can come from the entry too.
+ *
+ * That last form matters because the gate in front of the page uses it: a sign-in
+ * with no GitHub account of its own still matches a `github:<id>` entry when the
+ * address has proved it owns that account, through `actor.keys`. If this did not
+ * look at the same keys, somebody could be admitted by the gate and then not
+ * found here — and an unfound member is a member with no scope, which is the one
+ * thing their scope exists to prevent.
  */
 export function rosterEntry(config, actor) {
   const members = config?.members || [];
@@ -54,13 +62,15 @@ export function rosterEntry(config, actor) {
   const key = String(actor.key || '').toLowerCase();
   const email = String(actor.email || '').toLowerCase();
   const login = String(actor.login || '').toLowerCase();
+  const proved = (actor.keys || []).map(k => String(k).toLowerCase());
   return members.find(m => {
     const mk = String(m.key || '').toLowerCase();
     const me = String(m.email || '').toLowerCase();
     const ml = String(m.login || '').toLowerCase();
     return (key && (mk === key || key === `git:${me}`))
       || (email && me === email)
-      || (login && ml === login);
+      || (login && ml === login)
+      || (mk && proved.includes(mk));
   }) || null;
 }
 

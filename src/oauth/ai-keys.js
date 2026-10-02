@@ -40,17 +40,80 @@ export async function readPersonalKey({ email, githubId } = {}) {
  *
  * Clearing removes the GitHub-id record too. Otherwise a person who cleared
  * their key would find the old one quietly reappearing from the fallback.
+ *
+ * What clearing does *not* do is reach into the projects the key was shared
+ * with. Removing one there is gated behind a confirmation in `/settings/unshare`
+ * — everyone on that project without a key of their own loses the model the
+ * moment it goes — and clearing a personal key is not that deliberate act. But
+ * leaving them unmentioned is how somebody retires a key and keeps paying for
+ * it, so the clear says which projects still hold it rather than touching them.
  */
-export async function writePersonalKey({ email, githubId, provider, apiKey } = {}) {
+export async function writePersonalKey({ email, githubId, githubLogin, provider, apiKey } = {}) {
   if (!email) throw new Error('a verified email address is required to save a key');
   if (!apiKey) {
     await kvSet(keys.personalAiKey(norm(email)), { cleared: true, clearedAt: new Date().toISOString() });
     if (githubId) await kvSet(keys.aiKey(String(githubId)), null);
-    return null;
+    return { cleared: true, stillShared: await projectsHoldingKey({ email }) };
   }
   const record = { provider: provider || 'anthropic', apiKey };
   await kvSet(keys.personalAiKey(norm(email)), record);
+  // Every project this person has shared *their* key with is running on the key
+  // they had at the time. Replacing it here and leaving those behind means a
+  // project quietly keeps calling a model with a key its owner has retired —
+  // which reads as "the key works from my assistant but not from the website",
+  // because those two resolve different records.
+  record.alsoUpdated = await rotateSharedKeys({ email, githubId, githubLogin, provider, apiKey });
   return record;
+}
+
+/**
+ * Projects still running on this person's shared key.
+ *
+ * Read from the project records rather than from the index of what they have
+ * shared, because that index can outlive the entry it points at — and a warning
+ * that names a project which no longer holds the key sends somebody to unshare
+ * nothing.
+ */
+export async function projectsHoldingKey({ email } = {}) {
+  const who = norm(email);
+  if (!who) return [];
+  const held = [];
+  for (const slug of (await kvGet(keys.keysAddedBy(who)))?.projects || []) {
+    const [owner, repo] = String(slug).split('/');
+    if (!owner || !repo) continue;
+    if ((await kvGet(keys.projectAiKeys(owner, repo)))?.keys?.[who]) held.push(slug);
+  }
+  return held.sort();
+}
+
+/**
+ * Carry a replaced key into the projects it was shared with.
+ *
+ * Only this person's own entries: a project key belongs to whoever added it, and
+ * nobody else's is touched. Returns what changed, so it can be said out loud
+ * rather than happening behind somebody's back.
+ */
+export async function rotateSharedKeys({ email, githubId, githubLogin, provider, apiKey } = {}) {
+  const who = norm(email);
+  const updated = [];
+  for (const slug of (await kvGet(keys.keysAddedBy(who)))?.projects || []) {
+    const [owner, repo] = String(slug).split('/');
+    if (!owner || !repo) continue;
+    const record = await kvGet(keys.projectAiKeys(owner, repo));
+    const existing = record?.keys?.[who];
+    if (!existing || existing.apiKey === apiKey) continue;
+    record.keys[who] = {
+      ...existing,
+      provider: provider || existing.provider || 'anthropic',
+      apiKey,
+      updatedAt: new Date().toISOString(),
+      ...(githubId ? { addedById: String(githubId) } : {}),
+      ...(githubLogin ? { addedByLogin: String(githubLogin) } : {}),
+    };
+    await kvSet(keys.projectAiKeys(owner, repo), record);
+    updated.push(slug);
+  }
+  return updated;
 }
 
 // ---- keys added to a project -------------------------------------------
@@ -188,10 +251,34 @@ async function addToList(listKey, slug) {
  * per-person record marked as carried over, and keeps being the project's
  * fallback. Lent access gains the lender's address. Safe to run repeatedly.
  */
+/**
+ * Note that GitHub vouched for this address on this account.
+ *
+ * The same person, two ways in: a later Google sign-in carrying the address is
+ * the account that made the project, and can be recognised by a gate or a roster
+ * entry written as a GitHub id.
+ *
+ * Its own function because it belongs at every GitHub sign-in, and it used to
+ * happen only inside `adoptGithubRecords` — which runs when the settings page is
+ * rendered. Somebody who signed in, made a project and never opened settings was
+ * never recognised later, which is the bug this was written to fix.
+ */
+export async function linkGithubIdentity({ email, githubId } = {}) {
+  if (!email || !githubId) return;
+  const who = norm(email);
+  const id = String(githubId);
+  const linked = (await kvGet(keys.githubIdentities(who)))?.ids || [];
+  if (!linked.includes(id)) {
+    await kvSet(keys.githubIdentities(who), { ids: [...linked, id] });
+  }
+}
+
 export async function adoptGithubRecords({ email, githubId, githubLogin } = {}) {
   if (!email || !githubId) return;
   const who = norm(email);
   const id = String(githubId);
+
+  await linkGithubIdentity({ email: who, githubId: id });
 
   if (!(await kvGet(keys.personalAiKey(who)))) {
     const legacy = await kvGet(keys.aiKey(id));
@@ -253,3 +340,9 @@ export async function projectsKnownFor(email) {
   return [...new Set(lists.flatMap(l => l?.projects || []))].sort();
 }
 
+
+/** The GitHub accounts this address has proved it owns. */
+export async function githubIdsFor(email) {
+  if (!email) return [];
+  return (await kvGet(keys.githubIdentities(norm(email))))?.ids || [];
+}

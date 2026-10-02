@@ -1,4 +1,5 @@
 import { kvGet, keys } from './kv.js';
+import { githubIdsFor } from './ai-keys.js';
 import { memberByEmail } from '../../cli/commands/member.core.js';
 import { actorFromMember } from '../actor.js';
 import { managerKeys, matchesActor } from '../review.js';
@@ -67,11 +68,21 @@ export async function resolveGoogleMember({ googleUser, owner, repo, ref }) {
     login: null,
     email: googleUser.email,
     source: 'google',
+    // The GitHub accounts this address has proved it owns, recorded when the
+    // same person last signed in with GitHub and it handed over their verified
+    // address. A project created from a GitHub sign-in that exposed no address
+    // is gated on `github:<id>`, which this sign-in could otherwise never match
+    // — so whoever made the project was refused from it for coming back the way
+    // they tell everybody else to.
+    keys: (await githubIdsFor(googleUser.email)).map(id => `github:${id}`),
   };
 
-  // The manager is not on their own roster, and has no reason to be. Without
-  // this they would be turned away from their own project for signing in the
-  // way they tell everyone else to.
+  // Checked before the roster, not after it. A project created before `init`
+  // started adding its creator has no entry for them at all, and one created
+  // since has an entry with no workstreams on it — which reads as project-wide,
+  // not as nothing. Either way the gate is what answers here, so the manager is
+  // not turned away from their own project for signing in the way they tell
+  // everyone else to.
   const gate = managerKeys(config);
   if (gate.some(k => matchesActor(k, asGit))) {
     return { ghToken: cred.token, actor: asGit, member: null, isManager: true };

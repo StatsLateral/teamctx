@@ -106,6 +106,33 @@ function applyDelete(workstream, op) {
   };
 }
 
+/**
+ * The statements one contribution left behind, in the order they are read.
+ *
+ * Every node an add creates and every node an edit touches carries the
+ * contribution's id, and a deleted one is no longer in the tree to be found. So
+ * the written tree answers "what did this change?" exactly, where the operations
+ * cannot: an add op has no id at all — `uid()` mints one in here — and the only
+ * id a contribution that both adds and deletes carries belongs to the statement
+ * it removed.
+ *
+ * Read order puts the top of an added subtree first, which is the right thing to
+ * point somebody at: a contribution that adds a Why along with its Whats and
+ * Hows is about the Why.
+ */
+export function statementsTouchedBy(workstream, contributionId) {
+  const out = [];
+  const touched = node => (node.sourceContributionIds || []).includes(contributionId);
+  for (const why of workstream?.whys || []) {
+    if (touched(why)) out.push(why.id);
+    for (const what of whats(why)) {
+      if (touched(what)) out.push(what.id);
+      for (const how of hows(what)) if (touched(how)) out.push(how.id);
+    }
+  }
+  return out;
+}
+
 export function applyOps(workstream, ops, contributionId) {
   const adds = ops.filter(o => o.type === 'addWhy' || o.type === 'addWhat' || o.type === 'addHow');
   const edits = ops.filter(o => o.type === 'editStatement');

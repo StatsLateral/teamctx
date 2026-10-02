@@ -18,6 +18,71 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   to paste into an assistant. Read-only: adding context and approving it already
   have a place. A part of the work somebody is not on is absent from what the
   page is sent, not hidden once it arrives.
+- **A link from your assistant to the thing it just changed.** Every tool that
+  changes or reports something now hands back `viewUrl`, the page where it can be
+  read, and the tool descriptions tell the assistant to end its reply with it.
+  The link is built from the address the request arrived at rather than from
+  anything recorded in the repository, so a deployment produces links to itself,
+  and it is stamped in the one place every tool call passes — so a handler that
+  forgets cannot produce a result without one. It points at the statement the
+  contribution actually wrote, read off the written tree: ids were being taken
+  from the operations, which an addition does not carry, so an add-only
+  contribution linked to nothing and an add-and-delete linked to the statement it
+  had just removed. Alongside it, `view` carries the ids the link was built from.
+  Part of #103.
+- **A box on the projects page for a project that is not on your list yet.** The
+  list assumed you were already on every project you would ever open, which is
+  true of nobody on their first day: a manager sends a connector link, and there
+  was nowhere to put it. One box now takes the name, that link, the repository on
+  GitHub or a link to a statement inside it, and typing part of a name searches
+  the repositories you can reach — server-side, because how much of a name a
+  browser's datalist will match is the browser's business, and several match only
+  the start of it. Opening a project checks you can actually read it first.
+- **A prompt to copy, written for the person rather than about the structure.**
+  The drawer's prompt opens with the thing you asked about, says in a line where
+  it sits, and then asks the assistant for the context that matters instead of a
+  tour of how the project is organised. It names the repository so an assistant
+  connected to a different project says so rather than answering from the wrong
+  one, and quotes the statement so it answers about that one rather than the
+  nearest thing it can find.
+- **The person who creates a project is on its roster.** They existed only as
+  `managerKey`, which is a gate and not a roster, so `list_members` showed an
+  empty project to the one person who had certainly joined it, and signing in a
+  second way met a project that had never heard of them. Their entry carries no
+  workstreams, which reads as project-wide — so nothing about what they may
+  reach changes, and projects created before this need no migration.
+- **A verified address is linked to the GitHub account behind it at sign-in.**
+  It used to happen only while rendering the settings page, so a manager who set
+  a project up entirely through their assistant and never opened the web app was
+  never recognised later — and the gate on their own project turned them away
+  when they signed in with Google. Only addresses GitHub has confirmed are
+  linked.
+- **A deployment says which code it is running.** `/oauth/status` and the MCP
+  endpoint both report the commit, the branch and which tools hand back a link,
+  read off the loaded modules rather than kept by hand. Settling whether a
+  missing field was a bug in the code or a build older than the code took three
+  rounds of reading source that was not necessarily the source running.
+
+### Fixed
+- **A spoofed `Host` header could choose the address in a link.** Two copies of
+  the base-URL helper read `x-forwarded-host` and believed it. That was only ever
+  a redirect away from whoever sent the header, until the view link started being
+  built from it — a tool result now carries that address to an assistant, which
+  presents it to somebody as a link to click. The request still names the
+  address, so a preview deployment and a custom domain each link to themselves,
+  but only a host the deployment already knows itself by from its environment is
+  believed. See `src/base-url.js`.
+- **Opening a project read an upstream error back to whoever typed the name.**
+  Anyone signed in can put any `owner/repo` into the box on the projects page, so
+  reflecting what GitHub said about it made the page a way to probe repositories
+  and read the answers. A denial is still shown, because that one is written for
+  the reader; anything else goes to the log.
+- **Clearing your key left it running in the projects you shared it with.**
+  Clearing removed the personal record and returned, so every project holding a
+  copy went on calling the model with a key its owner had retired. Removing one
+  from a project is still separate, because everybody there without a key of
+  their own loses the model the moment it goes — but the projects are now named
+  when you clear, instead of going unmentioned.
 
 ### Changed
 - **The web pages carry one look, and it is the one people liked.** teamctx's

@@ -190,6 +190,14 @@ export const keys = {
    */
   personalAiKey: email => `teamctx:aikey:email:${String(email).toLowerCase()}`,
   /**
+   * The GitHub accounts an address has proved it owns.
+   *
+   * Written only when GitHub itself hands us a verified primary address for the
+   * account signing in, which is the only moment the two can honestly be tied
+   * together. Long-lived: it is an identity, not a session.
+   */
+  githubIdentities: email => `teamctx:ghids:${String(email).toLowerCase()}`,
+  /**
    * Every project key added to one project: one per person, by the email of
    * whoever added it. Replaces the single `projectAiKey` record, which let the
    * first person to share block everyone else. A request runs on the primary

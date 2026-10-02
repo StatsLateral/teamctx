@@ -404,3 +404,29 @@ describe('the project picker for a Google sign-in', () => {
     expect(body).toContain('<option value="acme/ledger">');
   });
 });
+
+describe('what a GitHub sign-in records before any page renders', () => {
+  it('notes the account the address has proved, without a visit to settings', async () => {
+    // A manager signs in, creates a project and never opens this page. The link
+    // between their address and their GitHub account used to be written only
+    // while this page rendered, so when they came back with Google they met a
+    // project that had never heard of them — their own.
+    await kvSet(keys.pending('settings:abc'), { kind: 'settings', returnTo: '/projects' });
+    const real = globalThis.fetch;
+    globalThis.fetch = async (u, o) => {
+      const url = String(u);
+      if (url.includes('login/oauth/access_token')) return { ok: true, json: async () => ({ access_token: 'gho' }) };
+      if (url.includes('api.github.com/user')) {
+        return { ok: true, json: async () => ({ id: 77, login: 'maya', name: 'Maya', email: 'Maya@Example.com' }) };
+      }
+      return real(u, o);
+    };
+    try {
+      const res = await real(`${base}/oauth/github/callback?code=c&state=abc`, { redirect: 'manual' });
+      expect(res.status).toBe(303);
+      expect(res.headers.get('location')).toBe('/projects');
+      // Folded, because an address is matched case-insensitively everywhere else.
+      expect((await kvGet(keys.githubIdentities('maya@example.com')))?.ids).toEqual(['77']);
+    } finally { globalThis.fetch = real; }
+  });
+});

@@ -224,7 +224,7 @@ describe('getting there', () => {
   });
 
   it('says so when there are none yet', async () => {
-    expect((await visit('/projects', MANAGER)).body).toMatch(/Nothing here yet/);
+    expect((await visit('/projects', MANAGER)).body).toMatch(/Nothing on your list yet/);
   });
 
   it('leads back to the list from a project', async () => {
@@ -283,18 +283,40 @@ describe('the tree the page draws', () => {
     // several projects, and with what.
     const { body } = await visit('/project/acme/ledger?ws=product', MANAGER);
     const prompt = /data-prompt="([^"]+)"/.exec(body)[1];
-    expect(prompt).toContain('teamctx project acme/ledger');
-    expect(prompt).toContain('your connector may be named something else');
+    // It names the repository and tells the assistant how to check it is on
+    // that one — the version before this said a connector "may be named
+    // something else", which told an assistant on a different project to carry
+    // on, and it did: it answered about the nearest thing it could find.
+    expect(prompt).toContain('connected to the repository acme/ledger');
+    expect(prompt).toContain('get_connect_url');
+    expect(prompt).toContain('stop and tell me');
+    expect(prompt).not.toContain('may be named something else');
     expect(prompt).toContain('the part of the work called &quot;Product&quot;');
-    expect(prompt).toContain('this why: &quot;price it&quot;');
-    expect(prompt).toMatch(/get_workstream|my_brief/);
+    expect(prompt).toContain('quoted word for word');
+    expect(prompt).toContain('Find this why, quoted word for word');
+    expect(prompt).toContain('&quot;price it&quot;');
+    expect(prompt).toContain('say so plainly rather than answering about the closest thing');
   });
 
   it('says so plainly when the statement belongs to the project itself', async () => {
     const { body } = await visit('/project/acme/ledger', MANAGER);
     const prompt = /data-prompt="([^"]+)"/.exec(body)[1];
-    expect(prompt).toContain('the project context itself');
+    expect(prompt).toMatch(/the project.{0,8}s own context \(not one part of the work\)/);
     expect(prompt).toContain('acme/ledger');
+  });
+
+  it('names the part of the work by id as well as by name', async () => {
+    // Two workstreams can read alike; the id is what a tool looks up.
+    const { body } = await visit('/project/acme/ledger?ws=product', MANAGER);
+    const prompt = /data-prompt="([^"]+)"/.exec(body)[1];
+    expect(prompt).toContain('(id: product)');
+  });
+
+  it('carries the address of the page it was copied from', async () => {
+    const { body } = await visit('/project/acme/ledger?ws=product', MANAGER);
+    const prompt = /data-prompt="([^"]+)"/.exec(body)[1];
+    expect(prompt).toMatch(/The page it came from: https?:[^ ]*project\/acme\/ledger/);
+    expect(prompt).toContain('item=w1');
   });
 
   it('shows the project context above a workstream, as inherited', async () => {
@@ -352,6 +374,22 @@ describe('what the data function hands back', () => {
 
   it('gives a member the trees they are on, and no others', async () => {
     await lend();
+    const view = await readProjectView({ owner: 'acme', repo: 'ledger', user: MEMBER_GOOGLE });
+    expect(Object.keys(view.trees)).toEqual(['product']);
+    expect(JSON.stringify(view.trees)).not.toContain('keep the servers up');
+  });
+
+  it('keeps a member scoped when the roster knows them by GitHub id', async () => {
+    // The gate admits somebody on a key their address has proved, so the scope
+    // lookup has to recognise the same key. If only the gate did, the member
+    // would be let in and then not found — and a member nobody can find has no
+    // scope, meaning every tree in the payload.
+    repo.files.set('.teamctx/config.json', JSON.stringify({
+      ...CONFIG,
+      members: [{ key: 'github:4242', name: 'Priya', workstreams: ['product'] }],
+    }));
+    await lend();
+    await kvSet(keys.githubIdentities('priya@example.com'), { ids: ['4242'] });
     const view = await readProjectView({ owner: 'acme', repo: 'ledger', user: MEMBER_GOOGLE });
     expect(Object.keys(view.trees)).toEqual(['product']);
     expect(JSON.stringify(view.trees)).not.toContain('keep the servers up');
@@ -465,5 +503,104 @@ describe('knowing you are the manager', () => {
     await lend();
     const { body } = await visit('/project/acme/ledger', MEMBER_GOOGLE);
     expect(body).not.toMatch(/<span class="role-chip">/);
+  });
+});
+
+describe('what a copied prompt asks for', () => {
+  // Written this way so the newline cannot be mistaken for the escape
+  // sequence of whatever rewrote this file last.
+  const NL = String.fromCharCode(10);
+
+  it('hands over where the statement hangs, so nothing has to go looking', async () => {
+    // An assistant that has to find the parents reads the whole project, and
+    // then answers with the whole project.
+    repo.files.set('.teamctx/workstreams/product.json', JSON.stringify({
+      id: 'product', name: 'Product', tasks: [],
+      whys: [{
+        id: 'w1', text: 'price it', whats: [{
+          id: 'a1', text: 'compare tiers', hows: [{ id: 'h1', text: 'check what rivals charge' }],
+        }],
+      }],
+    }));
+    const { body } = await visit('/project/acme/ledger?ws=product', MANAGER);
+    const prompts = [...body.matchAll(/data-prompt="([^"]+)"/g)].map(m => m[1]);
+    const how = prompts.find(p => p.includes('check what rivals charge'));
+    expect(how).toContain('one of the things &quot;compare tiers&quot; needs');
+    expect(how).toContain('the goal behind that is &quot;price it&quot;');
+    // In those words, and not in the ones the files use: naming them "the What"
+    // and "the Why" taught the assistant to answer in them too.
+    expect(how).not.toContain('the What ');
+    expect(how).not.toContain('the Why ');
+  });
+
+  it('asks about the one statement, not the project around it', async () => {
+    const { body } = await visit('/project/acme/ledger?ws=product', MANAGER);
+    const prompt = /data-prompt="([^"]+)"/.exec(body)[1];
+    expect(prompt).toContain('tell me about that one thing');
+    expect(prompt).toContain('what is still open for it');
+    expect(prompt).toContain('Do not summarise the rest of the project');
+  });
+
+  it("asks for it in a colleague's words, not in the project's", async () => {
+    // What came back read like a tour of the data model: headings, field names,
+    // and a walk back up the tree, to somebody who asked about one line on a
+    // page and does not care how it is stored.
+    const { body } = await visit('/project/acme/ledger?ws=product', MANAGER);
+    const prompt = /data-prompt="([^"]+)"/.exec(body)[1];
+    expect(prompt).toContain('the way a colleague would');
+    expect(prompt).toContain('Do not explain how the project stores any of this');
+    expect(prompt).toContain('do not walk me back up the structure');
+    // What to talk about, and nothing about how to lay it out. Banning headings
+    // and lists was the wrong lever: the subject was wrong, not the shape, and a
+    // model told how to format itself loses formatting it would have chosen well.
+    expect(prompt).not.toMatch(/heading|bullet/i);
+  });
+
+  it("calls a what's parent a goal, which is what it is", async () => {
+    // Every parent was called "the What", so a What was handed its goal's words
+    // under the wrong word — which is worse than no lineage at all.
+    repo.files.set('.teamctx/workstreams/product.json', JSON.stringify({
+      id: 'product', name: 'Product', tasks: [],
+      whys: [{ id: 'w1', text: 'price it', whats: [{ id: 'a1', text: 'compare tiers', hows: [] }] }],
+    }));
+    const { body } = await visit('/project/acme/ledger?ws=product', MANAGER);
+    const prompts = [...body.matchAll(/data-prompt="([^"]+)"/g)].map(m => m[1]);
+    const what = prompts.find(p => p.includes('Find this what'));
+    expect(what).toContain('part of what the goal &quot;price it&quot; needs');
+    expect(what).not.toContain('one of the things &quot;price it&quot; needs');
+  });
+
+  it('says nothing about parents for a goal, which has none', async () => {
+    const { body } = await visit('/project/acme/ledger', MANAGER);
+    const prompt = /data-prompt="([^"]+)"/.exec(body)[1];
+    expect(prompt).not.toContain('the goal behind that');
+    expect(prompt).not.toContain('part of what the goal');
+  });
+
+  it('opens with the question and keeps the instructions below it', async () => {
+    // A hundred words in a single line is correct and frightening: the person
+    // who has just pasted it cannot see its shape, so they delete it. And what
+    // they see first should be their own question, not teamctx clearing its
+    // throat.
+    const { body } = await visit('/project/acme/ledger?ws=product', MANAGER);
+    const prompt = /data-prompt="([^"]+)"/.exec(body)[1];
+    const text = prompt.replace(/&#10;/g, NL);
+    expect(text.split(NL).length).toBeGreaterThan(8);
+    // The question first, in the words somebody would use out loud, and
+    // everything the assistant has to do below it, addressed to the assistant.
+    expect(text.startsWith('Tell me more about &quot;price it&quot;.')).toBe(true);
+    expect(text).toContain(`${NL}${NL}Instructions for the AI agent:${NL}- `);
+    // Every instruction on a line of its own.
+    expect(text.split(NL).filter(l => l.startsWith('- ')).length).toBeGreaterThan(4);
+  });
+
+  it('keeps those newlines inside the attribute, not in the markup', async () => {
+    // A raw newline in an attribute would survive the browser but split the
+    // button across lines; an entity keeps both the markup and the clipboard
+    // right. If this ever regresses, every prompt-reading test above, which
+    // matches up to the closing quote, starts reading half a prompt.
+    const { body } = await visit('/project/acme/ledger?ws=product', MANAGER);
+    expect(body).toContain('&#10;');
+    expect(body).not.toMatch(new RegExp(`data-prompt="[^"]*${NL}`));
   });
 });
