@@ -45,16 +45,16 @@ describe('the founding contribution', () => {
   // state, so the context reads "No context yet" until somebody contributes.
   // The manager finishes setup and finds a project that knows nothing.
   it('names the condition, not "just after init"', () => {
-    // totalWhys covers a manager seeding in the same turn *and* one returning
+    // hasContext covers a manager seeding in the same turn *and* one returning
     // to a project left empty earlier.
-    expect(INSTRUCTIONS).toMatch(/totalWhys/);
+    expect(INSTRUCTIONS).toMatch(/hasContext: false/);
   });
 
-  it('says to apply the first one rather than queue it', () => {
+  it('says the first one lands rather than queueing', () => {
     // Queueing it means asking the manager to approve their own opening
     // message, with nothing yet to review it against.
     expect(INSTRUCTIONS).toMatch(/founding\s+contribution/i);
-    expect(INSTRUCTIONS).toMatch(/apply: true/);
+    expect(INSTRUCTIONS).toMatch(/lands on its own|lands without being asked/i);
   });
 
   it('keeps the queue rule for everything after it', () => {
@@ -73,7 +73,7 @@ describe('the founding contribution', () => {
     // file it has no natural tool-description half. contribute carries a short
     // version so the guidance degrades instead of disappearing.
     const contribute = TOOLS.find(t => t.name === 'contribute').description;
-    expect(contribute).toMatch(/totalWhys/);
+    expect(contribute).toMatch(/hasContext:false/);
     expect(contribute).toMatch(/first contribution/i);
   });
 });

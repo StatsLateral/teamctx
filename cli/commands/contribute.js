@@ -82,17 +82,13 @@ export async function contributeCommand(text, opts = {}) {
  */
 function printFounding(digest) {
   if (!digest) return;
-  const { whys, totals, more } = digest;
-  const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
-  console.log(`\nThis is the project's first context. It now holds ${plural(totals.whys, 'goal')}, `
-    + `${plural(totals.whats, 'requirement')} and ${plural(totals.hows, 'step')}:\n`);
-  for (const why of whys) {
-    console.log(`  • ${why.text}`);
-    for (const what of why.whats) {
-      console.log(`      - ${what.text}`);
-      for (const how of what.hows) console.log(`          · ${how}`);
-    }
-  }
+  const { goal, whys, workstreams, counts, more } = digest;
+  console.log("\nThis is the project's first context. It now holds:\n");
+  if (goal) console.log(`  Goal: ${goal}`);
+  for (const w of whys) console.log(`  Why it matters: ${w}`);
+  for (const w of workstreams) console.log(`  ${w.number ? `${w.number} ` : ''}${w.name} — ${w.tasks} task${w.tasks === 1 ? '' : 's'}, ${w.records} record${w.records === 1 ? '' : 's'}`);
+  const kinds = Object.entries(counts).filter(([k]) => k !== 'tasks').map(([k, n]) => `${n} ${k}`).join(', ');
+  if (kinds || counts.tasks) console.log(`\n  In all: ${[kinds, counts.tasks ? `${counts.tasks} task${counts.tasks === 1 ? '' : 's'}` : ''].filter(Boolean).join(', ')}`);
   if (more) console.log('\n  (trimmed — `teamctx context <role>` prints all of it)');
   console.log('\nRead it over: correcting it now is cheaper than later.');
 }

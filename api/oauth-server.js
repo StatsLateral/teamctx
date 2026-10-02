@@ -1292,7 +1292,9 @@ app.get('/project/:owner/:repo', async (req, res) => {
     }));
   } catch (e) {
     const denied = e instanceof ProjectViewError || e.code === 'MEMBER_ACCESS_DENIED';
-    res.status(denied ? 403 : 500).send(errorPage(e.message));
+    // An old-format project is not a failure of this server: say what to do.
+    const status = e.code === 'LEGACY_FORMAT' ? 409 : denied ? 403 : 500;
+    res.status(status).send(errorPage(e.message));
   }
 });
 

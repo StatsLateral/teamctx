@@ -43,9 +43,9 @@ the team aligned on.
      projects never need a second.
   3. \`contribute\` — put what they have told you into the shared context. This
      is how context gets there; there is no separate import step. If
-     \`get_status\` shows \`totalWhys: 0\`, this is the project's founding
-     contribution — call it with \`apply: true\` so it lands immediately instead
-     of waiting on the manager to review their own first message. Whether that
+     \`get_status\` shows \`hasContext: false\`, this is the project's founding
+     contribution, and the manager's lands on its own — nobody else could
+     review it. Whether that
      content is a long conversation they already had or one sentence they just
      gave you, the call is the same: summarize what you were told, do not ask
      them to restate it in teamctx's terms.
@@ -55,7 +55,7 @@ the team aligned on.
      to send them. This is refused while there is nothing for that person to
      read: the project needs context, and so does any part of the work you put
      them on specifically. \`get_status\` tells you both before you try —
-     \`projectWhys\`, and a count on each workstream. If either is zero, ask
+     \`hasContext\`, and counts on each workstream. If either is empty, ask
      the manager what it is about and \`contribute\` that first.
 
 **Somebody picking up work.** They were invited and want to know what to do.
@@ -73,9 +73,9 @@ the team aligned on.
 
 - **A contribution does not land, it queues — except the founding one.** Say
   "sent for review", not "added", for every contribution but the first. The
-  first (\`totalWhys: 0\`) is the one case where \`apply: true\` is correct: the
-  caller is already the pinned manager, and there is nothing yet to review
-  against. It is not for bulk content — a long conversation or a document is the
+  manager's first (\`hasContext: false\`) lands without being asked: there is
+  nothing yet to review against. \`apply: true\` is the manager's alone and
+  not for bulk content — a long conversation or a document is the
   case review exists for, however much of it there is.
   If the result carries \`applyRefused: true\`, the caller is not the manager and
   the flag was dropped. Nothing was lost: the contribution was kept and took the

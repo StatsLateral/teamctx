@@ -21,7 +21,7 @@ function addRecord(tree, op, c, refs, dropped, onDay) {
     id: mint('rec'), type: p.type, text: String(p.text ?? '').trim(), detail: String(p.detail ?? ''),
     status: 'active', owner: p.owner ?? null, attachedTo: p.attachedTo || { kind: 'project' },
     ...(p.reviewBy ? { reviewBy: p.reviewBy } : {}), ...(p.expiresAt ? { expiresAt: p.expiresAt } : {}),
-    links, sourceContributionIds: [c], approvedBy: null, createdAt: onDay, updatedAt: onDay,
+    links, sourceContributionIds: [c], createdBy: c, approvedBy: null, createdAt: onDay, updatedAt: onDay,
   };
   const v = validateRecord(record);
   if (!v.ok) { dropped.push({ op, reason: v.errors.join('; ') }); return tree; }
@@ -73,7 +73,7 @@ export function applyOps(tree, ops, contributionId, { onDay = today() } = {}) {
     if (!title) { dropped.push({ op: o, reason: 'task title is empty' }); continue; }
     next = { ...next, tasks: [...next.tasks, {
       id: mint('task'), title, owner: o.owner ?? null, status: 'open', createdAt: onDay,
-      doneAt: null, compiledAt: null, sourceContributionIds: [contributionId],
+      doneAt: null, compiledAt: null, sourceContributionIds: [contributionId], createdBy: contributionId,
     }] };
   }
   for (const o of of('editRecord')) next = editRecord(next, o, contributionId, dropped, onDay);
@@ -89,11 +89,22 @@ export function applyOps(tree, ops, contributionId, { onDay = today() } = {}) {
   return { tree: next, dropped };
 }
 
+/**
+ * What one contribution left behind, in the order worth pointing somebody at:
+ * the goal, then what it created (records, then tasks), then what it only
+ * changed. A contribution that adds a decision and retires the old one is about
+ * the new decision, not the one it replaced.
+ */
 export function touchedBy(tree, contributionId) {
   const hit = (x) => (x?.sourceContributionIds || []).includes(contributionId);
+  const created = (x) => x?.createdBy === contributionId;
+  const records = (tree?.records || []).filter(hit);
+  const tasks = (tree?.tasks || []).filter(hit);
   return [
     ...(hit(tree?.goal) ? ['goal'] : []),
-    ...(tree?.records || []).filter(hit).map(r => r.id),
-    ...(tree?.tasks || []).filter(hit).map(t => t.id),
+    ...records.filter(created).map(r => r.id),
+    ...tasks.filter(created).map(t => t.id),
+    ...records.filter(r => !created(r)).map(r => r.id),
+    ...tasks.filter(t => !created(t)).map(t => t.id),
   ];
 }
