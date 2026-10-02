@@ -14,4 +14,4 @@
 - [ ] PR is focused on a single logical change
 - [ ] New plumbing (API clients, file parsers, auth, provider SDK wrappers)
       uses an existing library, or the PR says why not — see
-      [Build vs borrow](../CONTRIBUTING.md#build-vs-borrow)
+      [Build vs borrow](https://github.com/StatsLateral/teamctx/blob/main/CONTRIBUTING.md#build-vs-borrow)

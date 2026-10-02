@@ -33,9 +33,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Documentation
 - **"Borrow first" is now a step, not a hope.** About a quarter of teamctx's
   non-test code re-implements plumbing that maintained projects already provide
-  — a connector per service, a hand-written ZIP and .docx reader, a code path
-  per AI provider, web sign-in and sessions — and nothing in the process ever
-  asked whether a library would do. The feature request template now has a
+  — a connector per service, a hand-written ZIP and .docx reader, web sign-in
+  and cookie sessions — and nothing in the process ever asked whether a library
+  would do. The feature request template now has a
   **required** "Existing open source first" field, the PR checklist asks whether
   new plumbing uses a library or says why not, and `CONTRIBUTING.md` has a
   **Build vs borrow** section drawing the line: borrow connectors, file formats,
