@@ -171,3 +171,48 @@ describe('the project itself against a scope', () => {
     expect(defaultWorkstream(['eng'], null)).toBe('eng');
   });
 });
+
+/**
+ * The creator's own roster entry does not scope them.
+ *
+ * `init` now puts the person who made the project on `members`, so that
+ * `list_members` does not show an empty project to the one person who had
+ * certainly joined it. That entry carries `workstreams: []`, and an entry with
+ * no workstreams on it has to keep meaning project-wide — otherwise the change
+ * that was meant to make a manager visible would be the change that locked them
+ * out of their own project.
+ */
+describe('a manager who is now on their own roster', () => {
+  const creator = { key: 'github:7', name: 'Maya', login: 'maya', workstreams: [] };
+
+  it('reads as project-wide, not as no workstreams at all', () => {
+    expect(memberWorkstreams(creator)).toBe(null);
+  });
+
+  it('keeps the whole project in scope even when read as an ordinary member', () => {
+    // Belt and braces: `scopeFor` short-circuits on `isManager`, so this is the
+    // answer if that shortcut ever stops being taken.
+    const config = { members: [creator] };
+    expect(scopeFor(config, { key: 'github:7' })).toBe(null);
+  });
+
+  it('is in scope for every workstream, the same as before the entry existed', () => {
+    const config = { members: [creator] };
+    const scope = scopeFor(config, { key: 'github:7' });
+    expect(inScope(scope, 'billing')).toBe(true);
+    expect(inScope(scope, 'anything-at-all')).toBe(true);
+  });
+
+  it('answers the same on a project from before, which has no entry for them', () => {
+    // No migration: an older project simply has nobody matching, and a caller
+    // with no roster entry has always meant project-wide.
+    expect(scopeFor({ members: [] }, { key: 'github:7' })).toBe(null);
+  });
+
+  it('still scopes a member who does have workstreams listed', () => {
+    // So the test above is not passing because scoping stopped working.
+    const config = { members: [creator, { key: 'github:9', workstreams: ['billing'] }] };
+    expect(scopeFor(config, { key: 'github:9' })).toEqual(['billing']);
+    expect(inScope(scopeFor(config, { key: 'github:9' }), 'shipping')).toBe(false);
+  });
+});
