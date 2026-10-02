@@ -19,7 +19,7 @@ state carries a `⚠ RISKY:` preamble in its description so the client model
 surfaces the intent to the user before calling, and returns a `reportBack`
 string the client is expected to relay after the call.
 
-Anything that reshapes the project (`init`, `workstream_split`, `role_add`,
+Anything that reshapes the project (`init`, `workstream_add`, `role_add`,
 `role_assign`) or gates approval (`review_approve`, `snapshot_approve`) is
 either manager-gated or explicitly flagged as structural.
 
@@ -30,8 +30,10 @@ either manager-gated or explicitly flagged as structural.
 | Tool | Purpose |
 | --- | --- |
 | `get_context` | Return every workstream's tree as `{workstreams: [{id, tree}, ...]}`. |
-| `list_workstreams` | Enumerate workstreams with `{id, name, isActive, whyCount, roles}`. |
-| `get_workstream({id})` | Fetch a single workstream tree by id. |
+| `list_workstreams` | Enumerate workstreams with `{id, name, parent, number, isActive, recordCount, taskCount, roles}`. |
+| `get_workstream({id})` | Fetch one workstream's records and tasks by id; omit the id for the project. |
+| `list_records({type?, status?, workstream?, owner?, due?})` | Rules, decisions, assumptions, exceptions, open questions, risks and reasons in your scope. `due: true` lists assumptions to re-check and exceptions about to expire. |
+| `get_record({id})` | One record: text, owner, dates, links and where it sits. |
 | `get_role_context({role})` | Return a role's compiled context markdown by slug. |
 | `list_roles` | List all defined roles (slug, name, workstream). |
 | `list_snapshots` | List all snapshots plus the current-approved id. |
@@ -45,7 +47,6 @@ either manager-gated or explicitly flagged as structural.
 | `get_connect_url` | The URL a member pastes into their AI client to reach this project. |
 | `ask({question, role?})` | Answer a question grounded in shared context. |
 | `suggest_roles({workstream?})` | AI-suggest 3-5 roles (dry-run; does not create them). |
-| `suggest_workstream_splits` | AI-propose sub-workstream splits (dry-run). |
 | `list_members` | The people on this project. A member is someone the manager put on the roster — **not** the same as having repository access. |
 | `list_tasks({status?, owner?, workstream?, all?})` | List tasks. Defaults to **open tasks in the caller's active workstream**; `all: true` returns every status across every workstream. |
 | `get_task({id})` | One task by id or unique prefix, plus its prompt path if compiled. |
@@ -80,14 +81,13 @@ marked *(manager-gated)* require the caller to pass `author` matching
 | `task_compile({id, role?, force?})` | **Spends an AI call.** Builds a prompt from the workstream tree, the role and recent decisions; overwrites any existing prompt and commits. **Returns the markdown itself**, not just a path — the caller usually cannot read the file. Skips the call and returns the cached prompt with `alreadyCompiled: true` when the workstream's Whys are unchanged; `force: true` regenerates anyway. Not for loops. |
 | `role_add({name, responsibilities, ...})` | Create a role, generate its context file, commit. |
 | `role_assign({slug, workstream})` | Move a role to a different workstream and regenerate. |
-| `workstream_split({accepted: [...]})` | Apply accepted splits from `suggest_workstream_splits`. |
+| `workstream_add({name, parent?})` | Add a part of the work, optionally under another. Manager only. |
 | `workstream_use({id})` | Change the active workstream. |
 | `review_approve({id, author})` | *(manager-gated)* Apply a queued contribution. |
 | `review_reject({id, reason?, author})` | *(manager-gated)* Archive a queued contribution. |
 | `snapshot_create({message?})` | Freeze the workspace as a pending snapshot. |
 | `snapshot_approve({id, author})` | *(manager-gated)* Approve and set current pointer. |
 | `snapshot_reject({id, reason?, author})` | *(manager-gated)* Reject a pending snapshot. |
-| `reflect({workstream?})` | AI-rewrite a workstream's tree. Can meaningfully change how context reads. |
 | `config_set({key, value})` | Write a single config key. Whitelisted keys only: `provider`, `model`, `githubRawBase`, `managerEmail`, `deployUrl`, `autoPush`. `deployUrl` is manager-only, and cannot be cleared once recorded. |
 
 ## Manager gate
@@ -113,14 +113,15 @@ Every mutating tool's response includes a `reportBack` string like:
 The client is expected to relay this to the user after each mutating call, so
 the user always knows what happened without having to inspect the raw response.
 
-## Breaking change — `get_context` response shape
+## Breaking change — governed records replace Why/What/How
 
-Since the workstream-integration release, `get_context` returns
-`{workstreams: [{id, tree}, ...]}` instead of a single tree. For projects that
-have never been split into sub-workstreams, this is an array of one
-(`workstreams[0].tree` holds what used to be the top-level object). Callers
-that used to read `response.whys` should now read
-`response.workstreams[0].tree.whys`, or call `get_workstream({id: 'main'})`.
+The project and each workstream now hold `{ records, tasks }` (the project also
+a `goal`), not a `whys` tree. `get_context` still returns
+`{workstreams: [{id, tree}, ...]}` with the project first as `id: null`; read
+`tree.goal`, `tree.records` and `tree.tasks`. A project still in the old format
+answers every tool with a message to run `teamctx init` again. `reflect`,
+`workstream_split` and `suggest_workstream_splits` are gone; use
+`workstream_add` and `propose_structure`.
 
 ## Project-dir resolution
 
@@ -146,8 +147,8 @@ still requires the dir to be a git repository.
 ## Environment variables
 
 - `ANTHROPIC_API_KEY` (or `OPENAI_API_KEY` / `GEMINI_API_KEY` depending on
-  provider) — required for `ask`, `contribute`, `reflect`, `role_add`,
-  `suggest_roles`, `suggest_workstream_splits`. Pass via the client's `env`
+  provider) — required for `ask`, `contribute`, `propose_structure`, `role_add`,
+  `suggest_roles`. Pass via the client's `env`
   block, export in your shell, or place in `.env.local` at the project root.
 - `TEAMCTX_PROJECT_DIR` — optional override for the project path.
 

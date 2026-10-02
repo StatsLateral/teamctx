@@ -12,9 +12,9 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 vi.mock('../src/context.js', async (orig) => ({
   ...(await orig()),
   updateShared: vi.fn(async (workstream) => ({
-    workstream: { ...workstream, records: [...(workstream.whys || []), { id: 'n1', type: 'why', text: 'flights booked', status: 'active' }] },
+    workstream: { ...workstream, records: [...(workstream.records || []), { id: 'n1', type: 'why', text: 'flights booked', status: 'active' }] },
     summary: 'adds flights',
-    operations: [{ type: 'addWhy', text: 'flights booked' }],
+    operations: [{ type: 'addRecord', record: { type: 'why', text: 'flights booked' } }],
   })),
 }));
 

@@ -180,12 +180,12 @@ describe('approving inside a workstream', () => {
       workstreams: [{ id: 'delivery', name: 'Delivery' }],
       roles: [{ slug: 'lead', workstream: 'delivery' }],
     });
-    readProject.mockReturnValue({ name: 'Ledger', whys: [{ id: 'p1', text: 'no new vendors' }] });
+    readProject.mockReturnValue({ name: 'Ledger', goal: null, records: [{ id: 'p1', type: 'rule', text: 'no new vendors', status: 'active' }], tasks: [] });
   });
 
   it('still puts the project above it', async () => {
     await approveReview({ id: 'q2', actor: 'Maya' });
-    expect(serializeToMd.mock.calls[0][4].project.whys[0].id).toBe('p1');
-    expect(generateRoleFile.mock.calls[0][5].project.whys[0].id).toBe('p1');
+    expect(serializeToMd.mock.calls[0][4].project.records[0].id).toBe('p1');
+    expect(generateRoleFile.mock.calls[0][5].project.records[0].id).toBe('p1');
   });
 });

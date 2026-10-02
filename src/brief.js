@@ -52,7 +52,11 @@ export function renderBrief({
   const by = lastUpdatedBy ? ` · Source: ${lastUpdatedBy} contribution` : '';
   const out = [`# Context — ${projectName}`, `*Last updated: ${onDay}${by}*`, ''];
 
-  out.push('## Goal', project?.goal?.text ? `${project.goal.text}${tag(project.goal)}` : '*No goal yet.*', '');
+  // Above a workstream, the project is inherited background: said so, so a
+  // reader can tell what they may add to from what is settled above them.
+  if (chain.length) out.push('## Project context *(inherited — read-only here)*', '');
+  out.push(chain.length ? `**Goal:** ${project?.goal?.text || '*none yet*'}${tag(project?.goal)}` : '## Goal',
+    ...(chain.length ? [] : [project?.goal?.text ? `${project.goal.text}${tag(project.goal)}` : '*No goal yet.*']), '');
   const projectLines = section((project?.records || []).filter(r => !onTask(r)), onDay, tag);
   if (projectLines.length) out.push(...projectLines, '');
   for (const t of project?.tasks || []) {

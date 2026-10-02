@@ -82,7 +82,7 @@ export function assertJoinableContext({ config, scope, who, teamctxDir } = {}) {
  * Does this project hold nothing at all yet?
  *
  * The project's own tree and every workstream's, the same sum `get_status`
- * reports as `totalWhys`. One tree being empty says nothing: a new workstream on
+ * reports as `hasContext`. One tree being empty says nothing: a new workstream on
  * a running project starts empty and is not the project starting.
  */
 export function projectIsEmpty(teamctxDir) {

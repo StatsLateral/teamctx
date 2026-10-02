@@ -206,15 +206,7 @@ describe('freshness', () => {
     ]);
   });
 
-  it('files an older contribution recorded as main against the project', () => {
-    const r = stats({
-      workstreams: [],
-      contributions: [contribution({ workstream: 'main', ts: '2026-08-27T00:00:00.000Z' })],
-    });
-    expect(r.freshness).toEqual([
-      { workstream: null, lastContributionAt: '2026-08-27T00:00:00.000Z', daysSince: 2, pending: 0 },
-    ]);
-  });
+
 
   it('looks past the window for the last contribution', () => {
     // "Nothing in 4 weeks" is the finding. Reporting null because the last one
