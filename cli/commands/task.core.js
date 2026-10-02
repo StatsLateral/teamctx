@@ -48,16 +48,19 @@ export class UnknownRoleError extends Error {
 }
 
 /**
- * Fingerprints the Why tree a prompt was compiled from.
+ * Fingerprints the context a prompt was compiled from.
  *
  * `compileTask` skips the AI call when this is unchanged, which is what makes
- * re-running it cheap. Only the name and the whys go in: a task's own fields
- * change constantly and have no bearing on whether the prompt is stale.
+ * re-running it cheap. The name, goal and records go in, and the other tasks'
+ * titles: a task's own status changes constantly and has no bearing on whether
+ * the prompt is stale.
  */
-function whysHash(workstream) {
+function contextHash(tree) {
   const material = JSON.stringify({
-    name: workstream?.name || '',
-    whys: workstream?.whys || [],
+    name: tree?.name || '',
+    goal: tree?.goal?.text || null,
+    records: tree?.records || [],
+    tasks: (tree?.tasks || []).map(t => t.title),
   });
   return createHash('sha1').update(material).digest('hex').slice(0, 16);
 }
@@ -266,7 +269,7 @@ export async function compileTask({
   const { task } = findTask(id, teamctxDir);
   const wsId = resolveTarget(task.workstream);
   const workstream = readTree(wsId, teamctxDir);
-  const currentHash = whysHash(workstream);
+  const currentHash = contextHash(workstream);
 
   if (!force && taskFileExists(task.id, teamctxDir) && task.compiledFromHash === currentHash) {
     return {

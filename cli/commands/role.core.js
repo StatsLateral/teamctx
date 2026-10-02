@@ -39,7 +39,10 @@ export function listRoles({ teamctxDir } = {}) {
 }
 
 export async function suggestRoleDetails({ name, workstream, config }) {
-  const tree = workstream.whys.map(w => `- ${w.text}`).join('\n') || '(no context yet)';
+  const tree = [
+    ...(workstream.goal?.text ? [`- Goal: ${workstream.goal.text}`] : []),
+    ...(workstream.records || []).filter(r => r.status === 'active').map(r => `- ${r.text}`),
+  ].join('\n') || '(no context yet)';
   const prompt = [
     `Given the role "${name}" at a company with this context:`,
     tree,

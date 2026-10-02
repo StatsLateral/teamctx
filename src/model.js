@@ -40,7 +40,7 @@ const recordSchema = {
   },
   allOf: [
     { if: { properties: { type: { const: 'assumption' } } }, then: { required: ['owner', 'reviewBy'], properties: { owner: PERSON } } },
-    { if: { properties: { type: { const: 'exception' } } }, then: { required: ['expiresAt'], properties: { links: { required: ['bends'], properties: { bends: { type: 'string', minLength: 1 } } } } } },
+    { if: { properties: { type: { const: 'exception' } } }, then: { required: ['expiresAt'], properties: { links: { type: 'object', required: ['bends'], properties: { bends: { type: 'string', minLength: 1 } } } } } },
     { if: { properties: { type: { enum: ['question', 'risk'] } } }, then: { required: ['owner'], properties: { owner: PERSON } } },
   ],
 };

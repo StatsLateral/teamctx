@@ -22,11 +22,11 @@ const { callClaude } = await import('../../src/ai.js');
 
 const PROJECT = {
   name: 'Ledger',
-  whys: [{ id: 'p1', text: 'ship the ledger', whats: [{ id: 'a1', text: 'invoicing', hows: [] }] }],
+  records: [{ id: 'p1', type: 'why', text: 'ship the ledger', status: 'active' }, { id: 'a1', type: 'decision', text: 'invoicing', status: 'active' }], tasks: [],
 };
 const WORKSTREAM = {
   id: 'delivery', name: 'Delivery',
-  whys: [{ id: 'w1', text: 'onboard three customers', whats: [] }],
+  records: [{ id: 'w1', type: 'why', text: 'onboard three customers', status: 'active' }], tasks: [],
 };
 const config = { project: 'Ledger', model: 'm' };
 
@@ -48,10 +48,11 @@ describe('a task at project level', () => {
     expect(promptSent()).not.toMatch(/Inherited from the project/);
   });
 
-  it('would duplicate if the project were passed as both halves', async () => {
-    // The bug, pinned: this is what the call used to do unconditionally.
+  it('cannot duplicate even if the project is passed as both halves', async () => {
+    // The old bug: a project-level task rendered the project twice. The brief
+    // renders a project tree on its own whatever else is passed.
     await compileTaskPrompt({ task, workstream: PROJECT, role: null, contributions: [], config, project: PROJECT });
-    expect(occurrences(promptSent(), 'ship the ledger')).toBe(2);
+    expect(occurrences(promptSent(), 'ship the ledger')).toBe(1);
   });
 });
 
@@ -61,8 +62,8 @@ describe('a task inside a workstream', () => {
   it('still gets the project tree above the workstream', async () => {
     await compileTaskPrompt({ task, workstream: WORKSTREAM, role: null, contributions: [], config, project: PROJECT });
     const prompt = promptSent();
-    expect(prompt).toMatch(/Inherited from the project/);
     expect(occurrences(prompt, 'ship the ledger')).toBe(1);
+    expect(prompt.indexOf('ship the ledger')).toBeLessThan(prompt.indexOf('onboard three customers'));
     expect(occurrences(prompt, 'onboard three customers')).toBe(1);
   });
 });

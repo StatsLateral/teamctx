@@ -1,11 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('../../src/storage.js', () => ({
-  readTree: vi.fn(() => ({ id: 'main', name: 'M', whys: [] })),
+  readTree: vi.fn(() => ({ id: 'main', name: 'M', records: [], tasks: [] })),
   writeTree: vi.fn(),
   readTreeMd: vi.fn(() => ''),
   writeTreeMd: vi.fn(),
-  readProject: vi.fn(() => ({ name: '', whys: [] })),
+  readProject: vi.fn(() => ({ name: '', goal: null, records: [], tasks: [] })),
   readConfig: vi.fn(),
   listTasks: vi.fn(() => []),
   readTask: vi.fn(),
@@ -13,7 +13,7 @@ vi.mock('../../src/storage.js', () => ({
   deleteTask: vi.fn(() => ({ id: 't-x', workstream: 'main' })),
   readTaskFile: vi.fn(() => '# cached prompt'),
   listWorkstreamIds: vi.fn(() => ['main']),
-  readWorkstream: vi.fn(() => ({ id: 'main', name: 'M', whys: [] })),
+  readWorkstream: vi.fn(() => ({ id: 'main', name: 'M', records: [], tasks: [] })),
   readContributions: vi.fn(() => []),
   writeTaskFile: vi.fn(),
   taskFilePath: vi.fn(id => `/fake/tasks/${id}.md`),
@@ -265,15 +265,15 @@ describe('taskCompileCommand', () => {
     id: 't-plan', title: 'Plan Q3', owner: 'priya', status: 'open',
     workstream: 'main', createdAt: '2026-07-24', doneAt: null, compiledAt: null,
   };
-  const wsA = { id: 'main', name: 'M', whys: [{ id: 'w1', text: 'a', whats: [] }] };
-  const wsB = { id: 'main', name: 'M', whys: [{ id: 'w1', text: 'b', whats: [] }] };
+  const wsA = { id: 'main', name: 'M', records: [{ id: 'w1', type: 'why', text: 'a', status: 'active' }], tasks: [] };
+  const wsB = { id: 'main', name: 'M', records: [{ id: 'w1', type: 'why', text: 'b', status: 'active' }], tasks: [] };
 
   it('gives a project-level task no inherited half, since it is the project', async () => {
     // Passing the project as both the tree and the thing above it printed every
     // Why twice. This is the default case: the migration folds every task on a
     // project that never split to project level.
     readTask.mockReturnValue({ task: { ...openTask, workstream: null }, workstream: null });
-    readTree.mockReturnValue({ name: 'Ledger', whys: [{ id: 'w1', text: 'a', whats: [] }] });
+    readTree.mockReturnValue({ name: 'Ledger', records: [{ id: 'w1', type: 'why', text: 'a', status: 'active' }], tasks: [] });
     await taskCompileCommand('t-plan', {});
     expect(compileTaskPrompt.mock.calls[0][0].project).toBe(null);
   });
@@ -282,9 +282,9 @@ describe('taskCompileCommand', () => {
     // A real workstream id: `main` resolves to project level now.
     readTask.mockReturnValue({ task: { ...openTask, workstream: 'delivery' }, workstream: 'delivery' });
     readTree.mockReturnValue(wsA);
-    readProject.mockReturnValue({ name: 'Ledger', whys: [{ id: 'p1', text: 'p', whats: [] }] });
+    readProject.mockReturnValue({ name: 'Ledger', records: [{ id: 'p1', type: 'why', text: 'p', status: 'active' }], tasks: [] });
     await taskCompileCommand('t-plan', {});
-    expect(compileTaskPrompt.mock.calls[0][0].project.whys[0].id).toBe('p1');
+    expect(compileTaskPrompt.mock.calls[0][0].project.records[0].id).toBe('p1');
   });
 
   it('calls compileTaskPrompt, writes the file, records compiledAt + compiledFromHash, and commits', async () => {
@@ -342,7 +342,7 @@ describe('taskCompileCommand', () => {
     expect(writeTaskFile).toHaveBeenCalled();
   });
 
-  it('regenerates when the workstream Whys have actually changed', async () => {
+  it('regenerates when the records it was compiled from have actually changed', async () => {
     // Task was compiled against wsA, but workstream now reads as wsB.
     readTree.mockReturnValue(wsA);
     readTask.mockReturnValue({ task: openTask, workstream: 'main' });

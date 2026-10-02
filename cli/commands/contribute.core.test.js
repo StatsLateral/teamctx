@@ -2,13 +2,13 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('../../src/storage.js', () => ({
   writeWorkstreamMd: vi.fn(),
-  readTree: vi.fn(() => ({ id: 'main', name: 'M', whys: [] })),
+  readTree: vi.fn(() => ({ id: 'main', name: 'M', records: [], tasks: [] })),
   writeTree: vi.fn(),
   readTreeMd: vi.fn(() => ''),
   writeTreeMd: vi.fn(),
-  readProject: vi.fn(() => ({ name: '', whys: [] })),
+  readProject: vi.fn(() => ({ name: '', goal: { text: 'An existing goal' }, records: [], tasks: [] })),
   readConfig: vi.fn(),
-  readWorkstream: vi.fn(() => ({ id: 'main', name: 'M', whys: [] })),
+  readWorkstream: vi.fn(() => ({ id: 'main', name: 'M', records: [], tasks: [] })),
   writeTree: vi.fn(),
   writeTreeMd: vi.fn(),
   appendContribution: vi.fn(),
@@ -20,9 +20,10 @@ vi.mock('../../src/storage.js', () => ({
 
 vi.mock('../../src/context.js', () => ({
   updateShared: vi.fn(async () => ({
-    workstream: { id: 'main', name: 'M', whys: [{ id: 'w1', text: 'x' }] },
+    workstream: { id: 'main', name: 'M', records: [{ id: 'w1', type: 'why', text: 'x', status: 'active' }], tasks: [] },
     summary: 's',
-    operations: [{ type: 'addWhy', text: 'x' }],
+    operations: [{ type: 'addRecord', record: { type: 'why', text: 'x' } }],
+    dropped: [],
   })),
   generateRoleFile: vi.fn(() => Promise.resolve('# role md')),
   serializeToMd: vi.fn(() => '# md'),
@@ -45,6 +46,7 @@ vi.mock('../../src/prefs.js', () => ({
 }));
 
 import { contributeCore, sourceTrailer } from './contribute.core.js';
+import { updateShared } from '../../src/context.js';
 import { ManagerGateError } from './review.core.js';
 import { readConfig, writeTree, writeQueueItem, appendContribution } from '../../src/storage.js';
 import { commitContext } from '../../src/git.js';
@@ -206,5 +208,23 @@ describe('provenance reaches the git history', () => {
       expect.stringContaining('Source: import:slack:C1/p2'),
       undefined,
     );
+  });
+});
+
+describe('what the AI proposed that did not validate', () => {
+  it('reports what was dropped and why, keeps it out of the queue item, and never writes it', async () => {
+    readConfig.mockReturnValue({ project: 'p', me: 'satya', managerKey: 'github:1', autoPush: false, roles: [], reviewPolicy: 'all' });
+    updateShared.mockResolvedValueOnce({
+      workstream: { id: 'main', name: 'M', records: [], tasks: [] },
+      summary: 's',
+      operations: [{ type: 'addTask', title: 'kept' }],
+      dropped: [{ op: { type: 'addRecord', record: { type: 'assumption', text: 'no owner' } }, reason: 'owner: must have required property' }],
+    });
+    const r = await contributeCore({ text: 't' });
+    expect(r.mode).toBe('queued');
+    expect(r.dropped).toEqual([{ reason: 'owner: must have required property' }]);
+    const queued = writeQueueItem.mock.calls.at(-1)[0];
+    expect(queued.operations).toEqual([{ type: 'addTask', title: 'kept' }]);
+    expect(JSON.stringify(queued.dropped)).not.toContain('no owner');
   });
 });

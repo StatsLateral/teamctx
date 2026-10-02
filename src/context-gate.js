@@ -39,7 +39,7 @@ export class EmptyContextError extends Error {
  * how much detail is enough rather than a check that anything is there.
  */
 function hasContext(tree) {
-  return (tree?.whys || []).length > 0;
+  return !!tree?.goal || (tree?.records || []).length > 0 || (tree?.tasks || []).length > 0;
 }
 
 function workstreamName(config, id) {

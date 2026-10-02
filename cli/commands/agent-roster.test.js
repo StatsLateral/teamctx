@@ -7,8 +7,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('../../src/storage.js', () => ({
-  readProject: vi.fn(() => ({ name: 'Ledger', whys: [{ id: 'w1', text: 'ship it' }] })),
-  readWorkstream: vi.fn(() => ({ id: 'w', name: 'W', whys: [{ id: 'x1', text: 'do it' }] })),
+  readProject: vi.fn(() => ({ name: 'Ledger', records: [{ id: 'w1', type: 'why', text: 'ship it', status: 'active' }], tasks: [] })),
+  readWorkstream: vi.fn(() => ({ id: 'w', name: 'W', records: [{ id: 'x1', type: 'why', text: 'do it', status: 'active' }], tasks: [] })),
   readConfig: vi.fn(),
   writeConfig: vi.fn(),
 }));
@@ -87,7 +87,7 @@ describe('adding an agent', () => {
   });
 
   it('refuses on a project with nothing written down', async () => {
-    readProject.mockReturnValueOnce({ name: 'Ledger', whys: [] });
+    readProject.mockReturnValueOnce({ name: 'Ledger', records: [], tasks: [] });
     await expect(addAgent({ id: 'a1', name: 'Nightly report' })).rejects.toBeInstanceOf(EmptyContextError);
   });
 
