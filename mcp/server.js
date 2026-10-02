@@ -29,7 +29,7 @@ import {
   addRoleFull, assignRole,
 } from '../cli/commands/role.core.js';
 import {
-  listAllWorkstreams, suggestWorkstreamSplits, splitWorkstreams, useWorkstream, proposeStructure,
+  listAllWorkstreams, useWorkstream, proposeStructure, addWorkstream,
 } from '../cli/commands/workstream.core.js';
 import { contributeCore } from '../cli/commands/contribute.core.js';
 import { buildBrief } from '../cli/commands/brief.core.js';
@@ -37,7 +37,6 @@ import {
   listTasksFiltered, getTask, addTask, setTaskStatus, assignTask, removeTask, compileTask,
 } from '../cli/commands/task.core.js';
 import { listMembers, addMember, removeMember, setMemberWorkstreams } from '../cli/commands/member.core.js';
-import { reflectWorkstream } from '../cli/commands/reflect.core.js';
 import { getConfig, setConfig, repairManagerGate, setReviewPolicy } from '../cli/commands/config.core.js';
 import { resolveActor } from '../src/actor.js';
 import { canApprove, managerKeys } from '../src/review.js';
@@ -171,12 +170,7 @@ export const TOOLS = [
   },
   {
     name: 'propose_structure',
-    description: "Proposes how this project is organised: which parts of its context become workstreams, and for each, how a person's part in it is best expressed — as the tasks assigned to them, as a named role, or as owning the whole thread. Read-only: it writes nothing, and workstream_split is still what creates a workstream. Reach for it when a manager asks how to divide the work or where to put people. Present each proposal in plain language with its reason and let them accept, rename or skip one at a time; never apply the set wholesale. Each proposal also carries the roles that thread could use, which nothing creates until the workstream exists — role_add is still what creates one. On a project with no context yet it says so instead of guessing." + REPORT,
-    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
-  },
-  {
-    name: 'suggest_workstream_splits',
-    description: 'AI-propose sub-workstream splits for the active workstream (dry-run). Returns { splits: [{name, rationale, whyIds, whys}], leftover }. Use workstream_split to accept.',
+    description: "Proposes how this project is organised: which parts of its context become workstreams, and for each, how a person's part in it is best expressed — as the tasks assigned to them, as a named role, or as owning the whole thread. Read-only: it writes nothing, and workstream_add is what creates a workstream. Reach for it when a manager asks how to divide the work or where to put people. Present each part in plain language with its reason and let them accept, rename or skip one at a time; never apply the set wholesale. On a project with no context yet it says so instead of guessing." + REPORT,
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
   },
   {
@@ -342,30 +336,21 @@ export const TOOLS = [
     },
   },
   {
-    name: 'workstream_split',
-    description: RISKY + 'creates new sub-workstreams by moving Why nodes out of the active one. Structural change — reshapes how the project is organized. Callers should pass the accepted array returned (or filtered) from suggest_workstream_splits. Confirm the split names + role moves with the user before calling.' + REPORT,
+    name: 'workstream_add',
+    description: RISKY + "adds a part of the work — at the top of the project, or under another part by passing `parent`. Manager-gated against the authenticated caller. Structure decides who reaches what: somebody on a workstream reaches every part below it, so confirm where it goes before calling. Returns the new workstream with its number (1, 1.2, …)." + REPORT,
     inputSchema: {
       type: 'object',
       properties: {
-        accepted: {
-          type: 'array',
-          items: {
-            type: 'object',
-            properties: {
-              name: { type: 'string' },
-              whyIds: { type: 'array', items: { type: 'string' } },
-              moveRoles: { type: 'array', items: { type: 'string' } },
-            },
-            required: ['name', 'whyIds'],
-          },
-        },
+        name: { type: 'string', description: 'What to call this part of the work, in plain words.' },
+        parent: { type: 'string', description: 'The id of the workstream to put it under. Omit for the top level.' },
       },
-      required: ['accepted'], additionalProperties: false,
+      required: ['name'],
+      additionalProperties: false,
     },
   },
   {
     name: 'workstream_use',
-    description: 'Changes the calling user\'s active workstream. All their subsequent contribute/ask/reflect calls without an explicit workstream target this one. Personal setting — it is not written to the repo and does not affect other users.' + REPORT,
+    description: 'Changes the calling user\'s active workstream. All their subsequent contribute/ask calls without an explicit workstream target this one. Personal setting — it is not written to the repo and does not affect other users.' + REPORT,
     inputSchema: {
       type: 'object',
       properties: {
@@ -429,15 +414,6 @@ export const TOOLS = [
         id: { type: 'string' }, reason: { type: 'string' },
       },
       required: ['id'], additionalProperties: false,
-    },
-  },
-  {
-    name: 'reflect',
-    description: RISKY + 'runs an AI rewrite of the workstream tree — condenses, deduplicates, and reorganizes Why nodes. It replaces the whole tree with the model\'s output: there is no diff, no queue, and nothing smaller to review, so it can lose statements other people wrote. Manager-only unless the project\'s review policy is "none". Confirm the scope with the user first, and say plainly that this rewrites everything rather than adding to it.' + REPORT,
-    inputSchema: {
-      type: 'object',
-      properties: { workstream: { type: 'string' } },
-      additionalProperties: false,
     },
   },
   {
@@ -1370,31 +1346,16 @@ export function makeHandlers(projectRoot) {
           ...r,
           reportBack: r.why
             ? `Tell the user: ${r.why}`
-            : 'Tell the user: this project does not split cleanly yet — one thread is a fine shape for it.',
+            : 'Tell the user: this project does not need more than one part yet — that is a fine shape for it.',
         });
       }
       const lines = r.workstreams
-        .map(w => {
-          const roles = w.roles.length ? `; roles it could use: ${w.roles.map(x => x.name).join(', ')}` : '';
-          return `${w.name} (${w.whys.length} ${w.whys.length === 1 ? 'goal' : 'goals'}) — ${w.rationale}; ${w.membership.means}${roles}`;
-        })
+        .map(w => `${w.name}${w.parent ? ` (under ${w.parent})` : ''} — ${w.rationale}; ${w.membership.means}; ${w.tasks.length} tasks, ${w.records.length} records`)
         .join(' | ');
+      const questions = r.questions.length ? ` Open questions the material raised: ${r.questions.join(' | ')}.` : '';
       return textResult({
         ...r,
-        reportBack: `Tell the user these are suggestions and nothing has changed, then walk through them one at a time: ${lines}`,
-      });
-    },
-
-    async suggest_workstream_splits() {
-      const teamctxDir = dir();
-      const result = await suggestWorkstreamSplits({
-        workstreamId: await targetWorkstream(teamctxDir, readConfig(teamctxDir), undefined),
-        teamctxDir, projectDir: gitCwd,
-      });
-      return textResult({
-        activeId: result.activeId,
-        splits: result.splits,
-        leftover: result.leftover,
+        reportBack: `Tell the user this is a draft and nothing has changed, then walk through it one part at a time: ${lines}.${questions} Add the parts they want with workstream_add.`,
       });
     },
 
@@ -1465,7 +1426,7 @@ export function makeHandlers(projectRoot) {
         source: 'mcp',
       });
       const reportBack = `Tell the user: teamctx initialized at ${r.projectDir} for project "${r.config.project}"` +
-        (r.envVarPresent ? '' : ` — WARNING: ${r.envVarNeeded} is not set in the environment; ask/contribute/reflect will fail until it is.`) +
+        (r.envVarPresent ? '' : ` — WARNING: ${r.envVarNeeded} is not set in the environment; ask/contribute will fail until it is.`) +
         (r.pushed ? '. Committed and pushed.' : '. Committed (no remote configured yet).');
       return textResult({
         projectDir: r.projectDir,
@@ -1513,19 +1474,12 @@ export function makeHandlers(projectRoot) {
       return textResult({ ...r, reportBack });
     },
 
-    async workstream_split(args) {
-      const teamctxDir = dir();
-      const config = readConfig(teamctxDir);
-      const r = await splitWorkstreams({
-        accepted: args.accepted,
-        // Resolved here rather than from the caller's stored preference, which
-        // can still name a workstream they have been scoped off since.
-        workstreamId: await targetWorkstream(teamctxDir, config, undefined),
-        teamctxDir, projectDir: gitCwd,
+    async workstream_add({ name, parent } = {}) {
+      const r = await addWorkstream({ name, parent: parent || null, teamctxDir: dir(), projectDir: gitCwd });
+      return textResult({
+        ...r,
+        reportBack: `Tell the user: added ${r.workstream.number} "${r.workstream.name}"${parent ? ' under its parent' : ''}. Anyone put on it reaches every part below it.`,
       });
-      const summary = r.results.map(x => `"${x.splitName}" (${x.newId}, ${x.movedWhyCount} Whys${x.movedRoles.length ? `, moved roles ${x.movedRoles.join(',')}` : ''})`).join('; ');
-      const reportBack = `Tell the user: split ${targetLabel(r.sourceId, config.project)} into ${r.results.length} new workstream${r.results.length === 1 ? '' : 's'}: ${summary}.`;
-      return textResult({ ...r, reportBack });
     },
 
     async workstream_use({ id } = {}) {
@@ -1576,18 +1530,6 @@ export function makeHandlers(projectRoot) {
       const r = await rejectSnapshot({ prefix: id, reason, teamctxDir: dir(), projectDir: gitCwd });
       const reportBack = `Tell the user: snapshot ${r.id} rejected${r.reason ? ` (reason: ${r.reason})` : ''}.`;
       return textResult({ ...r, reportBack });
-    },
-
-    async reflect({ workstream } = {}) {
-      const teamctxDir = dir();
-      // Reflect rewrites a tree wholesale. Under `reviewPolicy: none` nothing
-      // else stands between a scoped member and a workstream they cannot read.
-      const r = await reflectWorkstream({
-        workstreamId: await targetWorkstream(teamctxDir, readConfig(teamctxDir), workstream),
-        teamctxDir, projectDir: gitCwd,
-      });
-      const reportBack = `Tell the user: reflected ${targetLabel(r.workstreamId, readConfig(teamctxDir).project)}${r.rolesRegenerated.length ? `; regenerated roles: ${r.rolesRegenerated.join(', ')}` : ''}${r.pushed ? '; pushed' : ''}.`;
-      return textResult({ workstreamId: r.workstreamId, rolesRegenerated: r.rolesRegenerated, pushed: r.pushed, pushError: r.pushError, reportBack });
     },
 
     async manager_list() {
@@ -1642,7 +1584,7 @@ export function makeHandlers(projectRoot) {
       const said = {
         all: 'every contribution now waits for the manager',
         additive: 'contributions that only add now land immediately; edits and deletes wait for the manager',
-        none: 'contributions now land immediately, and any member can rewrite the shared context with reflect',
+        none: 'contributions now land immediately',
       }[r.to];
       const what = r.from === r.to
         ? `Review policy was already ${r.to} — nothing changed.`

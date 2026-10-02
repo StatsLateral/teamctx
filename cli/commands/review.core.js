@@ -23,7 +23,7 @@ function workstreamDisplayName(id, workstream, config) {
  * The gate uses `actor` — a stable identity that the caller cannot choose. The
  * display name is only for messages and for the deprecated name-matching path.
  */
-async function currentIdentity(config, teamctxDir, projectDir) {
+export async function currentIdentity(config, teamctxDir, projectDir) {
   const actor = await resolveActor({ config, cwd: projectDir });
   const displayName = await resolveDisplayName({ actor, config, teamctxDir });
   return { actor, displayName };

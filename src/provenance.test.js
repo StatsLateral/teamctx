@@ -2,7 +2,6 @@ import { describe, it, expect } from 'vitest';
 import {
   collectContributorCounts, collectSourceRefs,
   formatContributorLine, formatContributorsSection, formatAuditBlock,
-  preserveSourcesThroughReflect,
 } from './provenance.js';
 
 const contributions = [
@@ -110,54 +109,6 @@ describe('formatContributorsSection', () => {
 
   it('returns empty string when no counts', () => {
     expect(formatContributorsSection([])).toBe('');
-  });
-});
-
-describe('preserveSourcesThroughReflect', () => {
-  const previous = {
-    id: 'main', name: 'M',
-    whys: [
-      { id: 'w1', text: 'grow', sourceContributionIds: ['c-1', 'c-2'],
-        whats: [{ id: 'wt1', text: 'a', sourceContributionIds: ['c-3'], hows: [] }] },
-      { id: 'w2', text: 'ship', sourceContributionIds: ['c-4'], whats: [] },
-    ],
-  };
-
-  it('keeps source ids on nodes whose ids the AI kept', () => {
-    const next = {
-      id: 'main', name: 'M',
-      whys: [{ id: 'w1', text: 'grow revenue', sourceContributionIds: [], whats: [] }],
-    };
-    const result = preserveSourcesThroughReflect(previous, next);
-    expect(result.whys[0].sourceContributionIds).toEqual(['c-1', 'c-2']);
-  });
-
-  it('merges (not overwrites) if the AI already added new source ids', () => {
-    const next = {
-      id: 'main', name: 'M',
-      whys: [{ id: 'w1', text: 'grow revenue', sourceContributionIds: ['c-new'], whats: [] }],
-    };
-    const result = preserveSourcesThroughReflect(previous, next);
-    expect(result.whys[0].sourceContributionIds).toEqual(['c-1', 'c-2', 'c-new']);
-  });
-
-  it('keeps sources on nested whats and hows too', () => {
-    const next = {
-      id: 'main', name: 'M',
-      whys: [{ id: 'w1', text: 'g', sourceContributionIds: [],
-        whats: [{ id: 'wt1', text: 'aa', sourceContributionIds: [], hows: [] }] }],
-    };
-    const result = preserveSourcesThroughReflect(previous, next);
-    expect(result.whys[0].whats[0].sourceContributionIds).toEqual(['c-3']);
-  });
-
-  it('leaves brand-new nodes untouched (no previous match)', () => {
-    const next = {
-      id: 'main', name: 'M',
-      whys: [{ id: 'w-brand-new', text: 'x', sourceContributionIds: ['c-fresh'], whats: [] }],
-    };
-    const result = preserveSourcesThroughReflect(previous, next);
-    expect(result.whys[0].sourceContributionIds).toEqual(['c-fresh']);
   });
 });
 

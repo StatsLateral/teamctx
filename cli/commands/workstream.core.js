@@ -3,7 +3,8 @@ import {
   readTree, writeTree, writeTreeMd, readProject,
   listWorkstreamIds, writeRoleFile, readContributions,
 } from '../../src/storage.js';
-import { proposeSubworkstreams, serializeToMd, generateRoleFile } from '../../src/context.js';
+import { serializeToMd, generateRoleFile } from '../../src/context.js';
+import { callClaude, extractJson } from '../../src/ai.js';
 import { commitContext, pushContext } from '../../src/git.js';
 import { slugify } from '../../src/roles.js';
 import { UnknownWorkstreamError } from './role.core.js';
@@ -11,7 +12,9 @@ import { resolveActor } from '../../src/actor.js';
 import { resolveActiveWorkstream, writePrefs } from '../../src/prefs.js';
 import { resolveTarget, isProjectLevel, targetLabel } from '../../src/project-level.js';
 import { recompileInheritors } from '../../src/recompile.js';
-import { describeMembership, membershipModel } from '../../src/membership-model.js';
+import { describeMembership, membershipModel, MEMBERSHIP_MODELS } from '../../src/membership-model.js';
+import { emptyWorkstream, numberWorkstreams, RECORD_TYPES } from '../../src/model.js';
+import { assertManager, currentIdentity } from './review.core.js';
 
 /** The caller's active workstream — their own preference, then the project default. */
 async function activeId(config, teamctxDir, projectDir) {
@@ -19,8 +22,37 @@ async function activeId(config, teamctxDir, projectDir) {
   return resolveActiveWorkstream({ actor, config, teamctxDir });
 }
 
-export class WorkstreamSplitError extends Error {
-  constructor(msg) { super(msg); this.code = 'WORKSTREAM_SPLIT'; }
+export class WorkstreamParentError extends Error {
+  constructor(parent) { super(`no workstream "${parent}" to put this under`); this.code = 'WORKSTREAM_PARENT'; }
+}
+
+/**
+ * Add a part of the work, at the top or under another part.
+ *
+ * Structure is the manager's: it decides who reaches what, since being on a
+ * workstream means being on everything below it. The registry in
+ * `config.workstreams` holds the shape (parent, order); the workstream's own
+ * file holds its records and tasks.
+ */
+export async function addWorkstream({ name, parent = null, teamctxDir, projectDir } = {}) {
+  const clean = String(name || '').trim();
+  if (!clean) throw new Error('a workstream needs a name');
+  const config = readConfig(teamctxDir);
+  const { actor, displayName } = await currentIdentity(config, teamctxDir, projectDir);
+  assertManager(config, { actor, displayName });
+  const list = config.workstreams || [];
+  if (parent && !list.some(w => w.id === parent)) throw new WorkstreamParentError(parent);
+  const base = slugify(clean) || 'workstream';
+  let id = base;
+  for (let i = 2; list.some(w => w.id === id) || listWorkstreamIds(teamctxDir).includes(id); i++) id = `${base}-${i}`;
+  const siblings = list.filter(w => (w.parent || null) === (parent || null));
+  const order = Math.max(0, ...siblings.map(w => w.order || 0)) + 1;
+  const entry = { id, name: clean, parent: parent || null, order, createdAt: new Date().toISOString() };
+  const next = { ...config, workstreams: [...list, entry] };
+  writeConfig(next, teamctxDir);
+  writeWorkstream(id, emptyWorkstream(id, clean), teamctxDir);
+  const git = await commitAndOptionallyPush(next, `workstream: add ${id}${parent ? ` under ${parent}` : ''}`, projectDir);
+  return { workstream: { ...entry, number: numberWorkstreams(next).get(id) }, ...git };
 }
 
 function knownWorkstreams(config, teamctxDir) {
@@ -38,8 +70,8 @@ export async function listAllWorkstreams({ teamctxDir, projectDir } = {}) {
   const config = readConfig(teamctxDir);
   const active = await activeId(config, teamctxDir, projectDir);
   const declared = config.workstreams || [];
-  const onDisk = new Set(listWorkstreamIds(teamctxDir));
-  const ids = Array.from(new Set([...declared.map(w => w.id), ...onDisk])).sort();
+  const numbers = numberWorkstreams(config);
+  const ids = Array.from(new Set([...declared.map(w => w.id), ...listWorkstreamIds(teamctxDir)]));
   return ids.map(id => {
     const meta = declared.find(w => w.id === id);
     const ws = readWorkstream(id, teamctxDir);
@@ -47,212 +79,88 @@ export async function listAllWorkstreams({ teamctxDir, projectDir } = {}) {
     return {
       id,
       name: meta?.name || ws.name || id,
+      parent: meta?.parent || null,
+      number: numbers.get(id) || null,
       isActive: id === active,
-      whyCount: ws.whys?.length || 0,
+      recordCount: (ws.records || []).filter(r => r.status === 'active').length,
+      taskCount: (ws.tasks || []).length,
       roles,
     };
-  });
-}
-
-export async function suggestWorkstreamSplits({ workstreamId, teamctxDir, projectDir } = {}) {
-  const config = readConfig(teamctxDir);
-  // A caller may hand in the target it has already resolved. The MCP server
-  // does, because a stored preference can name a workstream the member has
-  // since been scoped off, and reading it raw would hand back that tree.
-  const active = workstreamId !== undefined
-    ? resolveTarget(workstreamId)
-    : await activeId(config, teamctxDir, projectDir);
-  // `readTree`, not `readWorkstream`: after the project layer the caller is at
-  // project level unless they chose otherwise, and that is the tree with
-  // everything in it — the one most worth splitting.
-  const source = readTree(active, teamctxDir);
-  const { splits, leftover } = await proposeSubworkstreams(source, config, config.roles || []);
-  const enriched = splits.map(s => ({
-    name: s.name,
-    rationale: s.rationale || '',
-    whyIds: s.whyIds,
-    whys: s.whyIds.map(id => source.whys.find(w => w.id === id)).filter(Boolean),
-    // How a person's part in this thread is best expressed. A proposal, not a
-    // setting: it is returned for the manager to accept or ignore, and nothing
-    // stores it until they do.
-    membership: s.membership,
-  }));
-  const leftoverWhys = leftover.map(id => source.whys.find(w => w.id === id)).filter(Boolean);
-  return { activeId: active, workstream: source, splits: enriched, leftover: leftoverWhys };
+  }).sort((x, y) => String(x.number ?? '~').localeCompare(String(y.number ?? '~'), undefined, { numeric: true }));
 }
 
 /**
- * How this project is structured, proposed in one pass.
+ * How this project could be organised, as a draft in the governed model.
  *
- * Which Whys become workstreams and how people are placed in each are one
- * decision, and asking them separately handed the manager two disconnected
- * lists to reconcile in their head. Reading from the project tree rather than
- * the active workstream is the other half: after the project layer, "a project
- * tree and no workstreams" is the ordinary state and the one where a proposal
- * is most useful.
- *
- * Writes nothing. `workstream_split` remains what writes.
+ * Read-only: it writes nothing. A draft implies who works where, and applying a
+ * wrong guess quietly is worse than making the manager say yes (#124 applies one).
  */
-export async function proposeStructure({ teamctxDir, projectDir } = {}) {
+export async function proposeStructure({ teamctxDir } = {}) {
   const config = readConfig(teamctxDir);
   const project = readProject(teamctxDir);
-  const whys = project.whys || [];
-
-  if (whys.length === 0) {
+  const contributions = readContributions(teamctxDir);
+  const name = config.project || project.name || 'project';
+  const hasAnything = project.goal || (project.records || []).length || (project.tasks || []).length || contributions.length;
+  if (!hasAnything) {
     return {
-      project: config.project || project.name || 'project',
-      workstreams: [],
-      leftover: [],
-      why: 'This project has no context yet, so there is nothing to organise. '
-        + 'Tell me what it is about first.',
+      project: name, goal: null, whys: [], workstreams: [], questions: [],
+      why: 'This project has no context yet, so there is nothing to organise. Tell me what it is about first.',
     };
   }
 
-  const { splits, leftover } = await proposeSubworkstreams(project, config, config.roles || []);
-  return {
-    project: config.project || project.name || 'project',
-    workstreams: splits.map(s => ({
-      name: s.name,
-      rationale: s.rationale || '',
-      whyIds: s.whyIds,
-      whys: s.whyIds.map(id => whys.find(w => w.id === id)).filter(Boolean),
+  const prompt = [
+    `Draft how the project "${name}" could be organised. Nothing is applied; a manager will edit your draft.`,
+    '',
+    'What the project holds now:',
+    JSON.stringify({
+      goal: project.goal?.text || null,
+      records: (project.records || []).filter(r => r.status === 'active').map(r => ({ type: r.type, text: r.text })),
+      tasks: (project.tasks || []).map(t => t.title),
+      roles: (config.roles || []).map(r => r.name),
+    }, null, 2),
+    '',
+    'Recent contributions:',
+    ...contributions.slice(-20).map(c => `- ${String(c.text || '').slice(0, 400)}`),
+    '',
+    'Output STRICT JSON:',
+    `{
+  "goal": "one line",
+  "whys": ["why the goal matters, in plain words"],
+  "workstreams": [
+    { "name": "a part of the work", "parent": "name of another proposed part, or null", "rationale": "why these belong together",
+      "tasks": ["concrete work"], "records": [{ "type": "${RECORD_TYPES.join('|')}", "text": "..." }],
+      "membership": { "model": "${MEMBERSHIP_MODELS.join('|')}", "rationale": "how a person fits" } }
+  ],
+  "questions": ["anything the material contradicts itself on, as an open question"]
+}`,
+    'Use as few parts as the work needs; one is a fine answer. JSON only.',
+  ].join('\n');
+
+  const parsed = extractJson(await callClaude({ prompt, model: config.model, config }));
+  const text = (v) => String(v ?? '').trim();
+  const workstreams = (Array.isArray(parsed.workstreams) ? parsed.workstreams : [])
+    .filter(w => text(w?.name))
+    .map(w => ({
+      name: text(w.name),
+      parent: text(w.parent) || null,
+      rationale: text(w.rationale),
+      tasks: (w.tasks || []).map(text).filter(Boolean),
+      records: (w.records || []).filter(r => RECORD_TYPES.includes(r?.type) && text(r.text)).map(r => ({ type: r.type, text: text(r.text) })),
       membership: {
-        ...s.membership,
-        // Normalised here as well as upstream, so `model` and `means` cannot
-        // disagree: describing one model while naming another would be worse
-        // than either on its own.
-        model: membershipModel(s.membership?.model),
-        means: describeMembership(s.membership?.model),
+        model: membershipModel(w.membership?.model),
+        means: describeMembership(w.membership?.model),
+        rationale: text(w.membership?.rationale),
       },
-      // Suggested, not created. `role_add` is still what creates a role, and it
-      // cannot run until the workstream it binds to exists.
-      //
-      // Nameless entries are dropped here as well as upstream, for the same
-      // reason the membership model is normalised twice: this is the boundary a
-      // caller reads, and it should not depend on what happened before it.
-      roles: (s.roles || []).filter(x => String(x?.name || '').trim()),
-    })),
-    leftover: leftover.map(id => whys.find(w => w.id === id)).filter(Boolean),
+    }));
+  return {
+    project: name,
+    goal: text(parsed.goal) || project.goal?.text || null,
+    whys: (parsed.whys || []).map(text).filter(Boolean),
+    workstreams,
+    questions: (parsed.questions || []).map(text).filter(Boolean),
   };
 }
 
-async function applySplit({ source, sourceId, split, moveRoleSlugs, config, teamctxDir }) {
-  const existingIds = knownWorkstreams(config, teamctxDir);
-  const newId = slugify(split.name);
-  if (!newId) throw new WorkstreamSplitError(`split name "${split.name}" produced an empty id.`);
-  if (existingIds.has(newId)) throw new WorkstreamSplitError(`workstream id "${newId}" already exists.`);
-
-  const movingWhys = source.whys.filter(w => split.whyIds.includes(w.id));
-  if (movingWhys.length === 0) throw new WorkstreamSplitError(`no matching Why nodes for "${split.name}" (source may have changed).`);
-  const remainingWhys = source.whys.filter(w => !split.whyIds.includes(w.id));
-  const newWs = { id: newId, name: split.name, whys: movingWhys };
-  const updatedSource = { ...source, whys: remainingWhys };
-
-  // Splitting the project is the ordinary case now, and the project is not a
-  // workstream: it has its own file and its own compiled page. Writing the
-  // source back through `writeTree` is what keeps a split from creating a
-  // workstream named after nothing.
-  const fromProject = isProjectLevel(sourceId);
-  // What the new workstream inherits: the project as it stands once these Whys
-  // have moved out of it, so a Why is not both inherited and owned.
-  const project = fromProject ? updatedSource : readProject(teamctxDir);
-
-  writeWorkstream(newId, newWs, teamctxDir);
-  writeWorkstreamMd(newId, serializeToMd(newWs, split.name, '', [], { project }), teamctxDir);
-  writeTree(sourceId, updatedSource, teamctxDir);
-  const sourceName = fromProject
-    ? (config.project || source.name || 'project')
-    : (config.workstreams?.find(w => w.id === sourceId)?.name || source.name || sourceId);
-  // With `project` when the source is a workstream: without it the source's
-  // page was rewritten minus its inherited section, and stayed that way until
-  // the next contribute, reflect or approval touched it.
-  writeTreeMd(
-    sourceId,
-    serializeToMd(updatedSource, sourceName, '', [], fromProject ? {} : { project }),
-    teamctxDir,
-  );
-
-  // Whys that just left the project stop being inherited, and a compiled page
-  // does not re-read anything — so every sibling went on showing them as
-  // inherited until something unrelated happened to touch it.
-  if (fromProject) {
-    recompileInheritors({ project: updatedSource, config, teamctxDir });
-  }
-
-  const rolesOnSource = (config.roles || []).filter(r => resolveTarget(r.workstream) === resolveTarget(sourceId));
-  const validMoveSlugs = (moveRoleSlugs || []).filter(s => rolesOnSource.some(r => r.slug === s));
-  const unknownRequested = (moveRoleSlugs || []).filter(s => !rolesOnSource.some(r => r.slug === s));
-
-  const updatedConfig = {
-    ...config,
-    workstreams: [...(config.workstreams || []), { id: newId, name: split.name, createdAt: new Date().toISOString() }],
-    roles: (config.roles || []).map(r => validMoveSlugs.includes(r.slug) ? { ...r, workstream: newId } : r),
-  };
-  writeConfig(updatedConfig, teamctxDir);
-
-  const contributions = readContributions(teamctxDir);
-  for (const slug of validMoveSlugs) {
-    const role = updatedConfig.roles.find(r => r.slug === slug);
-    const md = await generateRoleFile(newWs, role, updatedConfig.project, updatedConfig, contributions, { project });
-    writeRoleFile(slug, md, teamctxDir);
-  }
-  const stillOnSource = (updatedConfig.roles || []).filter(r => resolveTarget(r.workstream) === resolveTarget(sourceId));
-  for (const role of stillOnSource) {
-    // A role left on the project reads the project tree itself — passing it
-    // again as the inherited half would print every Why twice.
-    const md = await generateRoleFile(updatedSource, role, updatedConfig.project, updatedConfig, contributions,
-      fromProject ? {} : { project });
-    writeRoleFile(role.slug, md, teamctxDir);
-  }
-
-  return { newId, movedWhyCount: movingWhys.length, movedRoles: validMoveSlugs, unknownRoles: unknownRequested };
-}
-
-export async function splitWorkstreams({ accepted, workstreamId, teamctxDir, projectDir } = {}) {
-  if (!Array.isArray(accepted) || accepted.length === 0) {
-    throw new WorkstreamSplitError('accepted must be a non-empty array of splits.');
-  }
-  const config = readConfig(teamctxDir);
-  const active = workstreamId !== undefined
-    ? resolveTarget(workstreamId)
-    : await activeId(config, teamctxDir, projectDir);
-  const source = readTree(active, teamctxDir);
-  if ((source.whys || []).length < 2) {
-    throw new WorkstreamSplitError(`${targetLabel(active, config.project)} has fewer than 2 Why nodes — nothing to split.`);
-  }
-
-  const results = [];
-  for (const split of accepted) {
-    const fresh = readConfig(teamctxDir);
-    const src = readTree(active, teamctxDir);
-    const r = await applySplit({
-      source: src, sourceId: active, split,
-      moveRoleSlugs: split.moveRoles || [],
-      config: fresh, teamctxDir,
-    });
-    const finalConfig = readConfig(teamctxDir);
-    const { pushed, pushError } = await commitAndOptionallyPush(
-      finalConfig, `workstream: split "${split.name}" from ${targetLabel(active, finalConfig.project)}`, projectDir,
-    );
-    results.push({ ...r, splitName: split.name, pushed, pushError });
-  }
-  return { sourceId: active, results };
-}
-
-/**
- * Switching workstream is a personal act, so it writes to the caller's
- * preferences rather than the shared config — no repo write, no commit, and no
- * effect on anyone else. `config.activeWorkstream` stays as the project default
- * for people who have never switched.
- */
-/**
- * Move this caller to a workstream, or back to the project.
- *
- * Project level has to be reachable on purpose, not only by never having chosen
- * anything: once somebody switches into a workstream there would otherwise be no
- * way back to the whole picture. `null` — and `main`, from habit — mean the
- * project, and clearing the preference is what returns them there.
- */
 export async function useWorkstream({ id, teamctxDir, projectDir } = {}) {
   const config = readConfig(teamctxDir);
   const target = resolveTarget(id);

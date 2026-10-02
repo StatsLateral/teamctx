@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   POLICIES, DEFAULT_POLICY, NEW_PROJECT_POLICY,
-  reviewPolicy, isAdditive, needsReview, reflectNeedsManager,
+  reviewPolicy, isAdditive, needsReview,
   InvalidReviewPolicyError,
 } from './review-policy.js';
 
@@ -109,32 +109,6 @@ describe('deciding whether a contribution waits', () => {
     // answers whether review is required at all, and a member passing it is not
     // thereby acting as the manager.
     expect(needsReview.length).toBe(2);
-  });
-});
-
-describe('who may rewrite the whole tree with reflect', () => {
-  const gated = { managerKey: 'git:manager@example.com' };
-
-  it('is the manager under "all" and "additive"', () => {
-    expect(reflectNeedsManager({ ...gated, reviewPolicy: 'all' })).toBe(true);
-    expect(reflectNeedsManager({ ...gated, reviewPolicy: 'additive' })).toBe(true);
-  });
-
-  it('is anyone under "none", which is what reflect did before this existed', () => {
-    // A project that relied on members running reflect keeps that behaviour by
-    // choosing `none` — no behaviour becomes unreachable.
-    expect(reflectNeedsManager({ ...gated, reviewPolicy: 'none' })).toBe(false);
-  });
-
-  it('is anyone on a project with no manager pinned', () => {
-    // Same bootstrap case the approval gate has: with nobody pinned there is
-    // no one to assert against, and refusing everyone would strand the project.
-    expect(reflectNeedsManager({ reviewPolicy: 'all' })).toBe(false);
-  });
-
-  it('defaults to manager-only for an existing gated project', () => {
-    // The one behaviour change on upgrade, and the one worth a changelog line.
-    expect(reflectNeedsManager(gated)).toBe(true);
   });
 });
 
