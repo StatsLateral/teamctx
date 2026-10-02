@@ -106,3 +106,9 @@ describe('the model the instructions describe', () => {
     expect(INSTRUCTIONS).toMatch(/workstream_add/);
   });
 });
+
+describe('the labels the instructions teach', () => {
+  it('are the four the MVP governs', () => {
+    expect(INSTRUCTIONS).not.toMatch(/Open question:|Risk:/);
+  });
+});

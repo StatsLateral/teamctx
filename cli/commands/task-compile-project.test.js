@@ -22,11 +22,11 @@ const { callClaude } = await import('../../src/ai.js');
 
 const PROJECT = {
   name: 'Ledger',
-  records: [{ id: 'p1', type: 'why', text: 'ship the ledger', status: 'active' }, { id: 'a1', type: 'decision', text: 'invoicing', status: 'active' }], tasks: [],
+  records: [{ id: 'p1', type: 'assumption', text: 'ship the ledger', status: 'active' }, { id: 'a1', type: 'assumption', text: 'invoicing', status: 'active' }], tasks: [],
 };
 const WORKSTREAM = {
   id: 'delivery', name: 'Delivery',
-  records: [{ id: 'w1', type: 'why', text: 'onboard three customers', status: 'active' }], tasks: [],
+  records: [{ id: 'w1', type: 'assumption', text: 'onboard three customers', status: 'active' }], tasks: [],
 };
 const config = { project: 'Ledger', model: 'm' };
 

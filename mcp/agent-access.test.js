@@ -13,9 +13,9 @@ vi.mock('../src/context.js', async (orig) => ({
   // The one AI call on this path. An add-only proposal, which the `additive`
   // policy would write straight to the tree for anyone else.
   updateShared: vi.fn(async (workstream) => ({
-    workstream: { ...workstream, records: [...(workstream.records || []), { id: 'n1', type: 'why', text: 'nightly numbers', status: 'active' }] },
+    workstream: { ...workstream, records: [...(workstream.records || []), { id: 'n1', type: 'decision', text: 'nightly numbers', status: 'active' }] },
     summary: 'adds nightly numbers',
-    operations: [{ type: 'addRecord', record: { type: 'why', text: 'nightly numbers' } }],
+    operations: [{ type: 'addRecord', record: { type: 'assumption', text: 'nightly numbers' } }],
   })),
 }));
 
@@ -50,14 +50,14 @@ function fakeSession(config = baseConfig()) {
     ['.teamctx/contributions.jsonl', { content: '' }],
     ['.teamctx/project.json', { content: JSON.stringify({
       name: 'Ledger',
-      records: [{ id: 'p1', type: 'why', text: 'ship the ledger', status: 'active' }],
+      records: [{ id: 'p1', type: 'decision', text: 'ship the ledger', status: 'active' }],
       tasks: [
         { id: 'nightly-numbers', title: 'Nightly numbers', owner: 'Nightly report', status: 'open', createdAt: '2026-09-01' },
         { id: 'sams-review', title: 'Sam reviews pricing', owner: 'Sam', ownerKey: 'git:sam@example.com', status: 'open', createdAt: '2026-09-01' },
       ],
     }) }],
-    ['.teamctx/workstreams/pricing.json', { content: JSON.stringify({ id: 'pricing', name: 'Pricing', records: [{ id: 'w1', type: 'why', text: 'price it', status: 'active' }] }) }],
-    ['.teamctx/workstreams/hiring.json', { content: JSON.stringify({ id: 'hiring', name: 'Hiring', records: [{ id: 'h1', type: 'why', text: 'hire', status: 'active' }] }) }],
+    ['.teamctx/workstreams/pricing.json', { content: JSON.stringify({ id: 'pricing', name: 'Pricing', records: [{ id: 'w1', type: 'decision', text: 'price it', status: 'active' }] }) }],
+    ['.teamctx/workstreams/hiring.json', { content: JSON.stringify({ id: 'hiring', name: 'Hiring', records: [{ id: 'h1', type: 'decision', text: 'hire', status: 'active' }] }) }],
   ]);
   const commits = [];
   return {

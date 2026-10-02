@@ -265,15 +265,15 @@ describe('taskCompileCommand', () => {
     id: 't-plan', title: 'Plan Q3', owner: 'priya', status: 'open',
     workstream: 'main', createdAt: '2026-07-24', doneAt: null, compiledAt: null,
   };
-  const wsA = { id: 'main', name: 'M', records: [{ id: 'w1', type: 'why', text: 'a', status: 'active' }], tasks: [] };
-  const wsB = { id: 'main', name: 'M', records: [{ id: 'w1', type: 'why', text: 'b', status: 'active' }], tasks: [] };
+  const wsA = { id: 'main', name: 'M', records: [{ id: 'w1', type: 'decision', text: 'a', status: 'active' }], tasks: [] };
+  const wsB = { id: 'main', name: 'M', records: [{ id: 'w1', type: 'decision', text: 'b', status: 'active' }], tasks: [] };
 
   it('gives a project-level task no inherited half, since it is the project', async () => {
     // Passing the project as both the tree and the thing above it printed every
     // Why twice. This is the default case: the migration folds every task on a
     // project that never split to project level.
     readTask.mockReturnValue({ task: { ...openTask, workstream: null }, workstream: null });
-    readTree.mockReturnValue({ name: 'Ledger', records: [{ id: 'w1', type: 'why', text: 'a', status: 'active' }], tasks: [] });
+    readTree.mockReturnValue({ name: 'Ledger', records: [{ id: 'w1', type: 'decision', text: 'a', status: 'active' }], tasks: [] });
     await taskCompileCommand('t-plan', {});
     expect(compileTaskPrompt.mock.calls[0][0].project).toBe(null);
   });
@@ -282,7 +282,7 @@ describe('taskCompileCommand', () => {
     // A real workstream id: `main` resolves to project level now.
     readTask.mockReturnValue({ task: { ...openTask, workstream: 'delivery' }, workstream: 'delivery' });
     readTree.mockReturnValue(wsA);
-    readProject.mockReturnValue({ name: 'Ledger', records: [{ id: 'p1', type: 'why', text: 'p', status: 'active' }], tasks: [] });
+    readProject.mockReturnValue({ name: 'Ledger', records: [{ id: 'p1', type: 'decision', text: 'p', status: 'active' }], tasks: [] });
     await taskCompileCommand('t-plan', {});
     expect(compileTaskPrompt.mock.calls[0][0].project.records[0].id).toBe('p1');
   });

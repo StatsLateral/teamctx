@@ -84,7 +84,7 @@ describe('touchedBy', () => {
     const { tree } = applyOps(makeProject(), [
       { type: 'addTask', title: 'T' },
       { type: 'setGoal', text: 'G' },
-      { type: 'addRecord', record: { type: 'why', text: 'W', attachedTo: { kind: 'project' } } },
+      { type: 'addRecord', record: { type: 'decision', text: 'W', attachedTo: { kind: 'project' } } },
     ], C);
     const ids = touchedBy(tree, C);
     expect(ids[0]).toBe('goal');
@@ -109,7 +109,7 @@ describe('what a new record may replace', () => {
   it('only an active record of the same type', () => {
     const dec = makeRecord({ id: 'rec-d', type: 'decision' });
     const { tree, dropped } = applyOps(makeProject({ records: [dec] }), [
-      { type: 'addRecord', record: { type: 'why', text: 'x', links: { replaces: 'rec-d' }, attachedTo: { kind: 'project' } } },
+      { type: 'addRecord', record: { type: 'rule', text: 'x', links: { replaces: 'rec-d' }, attachedTo: { kind: 'project' } } },
     ], 'c-1');
     expect(dropped[0].reason).toMatch(/replace/);
     expect(tree.records.find(r => r.id === 'rec-d').status).toBe('active');
@@ -163,5 +163,12 @@ describe('where a record is written decides where it is attached', () => {
     const { tree, dropped } = applyOps(ws, [{ type: 'setGoal', text: 'G' }], 'c-1', { target: 'food' });
     expect(tree.goal).toBeUndefined();
     expect(dropped[0].reason).toMatch(/goal/);
+  });
+});
+
+describe('the goal carries its own reason', () => {
+  it('setGoal keeps why it matters', () => {
+    const { tree } = applyOps(makeProject(), [{ type: 'setGoal', text: 'Win 3 clients', why: 'Our proof points are strongest there' }], 'c-1');
+    expect(tree.goal).toMatchObject({ text: 'Win 3 clients', why: 'Our proof points are strongest there' });
   });
 });

@@ -5,7 +5,7 @@ import {
   InvalidReviewPolicyError,
 } from './review-policy.js';
 
-const add = (type = 'why') => (type === 'task' ? { type: 'addTask', title: 'x' } : { type: 'addRecord', record: { type } });
+const add = (type = 'assumption') => (type === 'task' ? { type: 'addTask', title: 'x' } : { type: 'addRecord', record: { type } });
 const del = () => ({ type: 'removeTask', id: 'abc' });
 const edit = () => ({ type: 'editRecord', id: 'abc', changes: { text: 'y' } });
 
@@ -42,13 +42,13 @@ describe('reading the policy off a config', () => {
   it('still lets a project ask for less, and still reads it back', () => {
     // The point is the default, not removing the choice.
     expect(reviewPolicy({ reviewPolicy: 'additive' })).toBe('additive');
-    expect(needsReview({ reviewPolicy: 'additive' }, [add('why')])).toBe(false);
+    expect(needsReview({ reviewPolicy: 'additive' }, [add('assumption')])).toBe(false);
   });
 });
 
 describe('telling an addition from something that loses information', () => {
   it('counts the three add operations as additive', () => {
-    expect(isAdditive([add('why'), add('assumption'), add('task')])).toBe(true);
+    expect(isAdditive([add('assumption'), add('task')])).toBe(true);
   });
 
   it('counts a delete or an edit as not additive', () => {
@@ -123,8 +123,8 @@ describe('rejecting a policy nobody can act on', () => {
 
 describe('isAdditive on the governed model', () => {
   const rec = (type) => ({ type: 'addRecord', record: { type } });
-  it('tasks and low-stakes records are additive', () => {
-    expect(isAdditive([{ type: 'addTask', title: 't' }, rec('why'), rec('assumption'), rec('question'), rec('risk')])).toBe(true);
+  it('tasks and assumptions are additive', () => {
+    expect(isAdditive([{ type: 'addTask', title: 't' }, rec('assumption')])).toBe(true);
   });
   it('decisions, rules and exceptions never are', () => {
     for (const t of ['decision', 'rule', 'exception']) expect(isAdditive([rec(t)])).toBe(false);
@@ -141,7 +141,7 @@ describe('isAdditive on the governed model', () => {
 
 describe('retiring or settling something is never a quiet addition', () => {
   it('an addition that replaces an existing record is not additive', () => {
-    expect(isAdditive([{ type: 'addRecord', record: { type: 'why', text: 'x', links: { replaces: 'rec-d' } } }])).toBe(false);
+    expect(isAdditive([{ type: 'addRecord', record: { type: 'decision', text: 'x', links: { replaces: 'rec-d' } } }])).toBe(false);
   });
   it('decisions, rules and exceptions need the manager even under "none"', () => {
     for (const t of ['decision', 'rule', 'exception']) {

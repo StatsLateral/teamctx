@@ -103,7 +103,7 @@ export async function proposeStructure({ teamctxDir } = {}) {
   const hasAnything = project.goal || (project.records || []).length || (project.tasks || []).length || contributions.length;
   if (!hasAnything) {
     return {
-      project: name, goal: null, whys: [], workstreams: [], questions: [],
+      project: name, goal: null, why: null, workstreams: [], questions: [],
       why: 'This project has no context yet, so there is nothing to organise. Tell me what it is about first.',
     };
   }
@@ -125,7 +125,7 @@ export async function proposeStructure({ teamctxDir } = {}) {
     'Output STRICT JSON:',
     `{
   "goal": "one line",
-  "whys": ["why the goal matters, in plain words"],
+  "why": "why the goal matters, in plain words",
   "workstreams": [
     { "name": "a part of the work", "parent": "name of another proposed part, or null", "rationale": "why these belong together",
       "tasks": ["concrete work"], "records": [{ "type": "${RECORD_TYPES.join('|')}", "text": "..." }],
@@ -155,7 +155,7 @@ export async function proposeStructure({ teamctxDir } = {}) {
   return {
     project: name,
     goal: text(parsed.goal) || project.goal?.text || null,
-    whys: (parsed.whys || []).map(text).filter(Boolean),
+    why: text(parsed.why) || project.goal?.why || null,
     workstreams,
     questions: (parsed.questions || []).map(text).filter(Boolean),
   };

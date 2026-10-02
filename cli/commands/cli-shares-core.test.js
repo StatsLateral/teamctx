@@ -58,7 +58,7 @@ describe('teamctx contribute', () => {
     ask.mockResolvedValue('n');
     await contributeCommand('a note', {});
     const { onProposed } = contributeCore.mock.calls[0][0];
-    expect(await onProposed({ summary: 's', operations: [{ type: 'addRecord', record: { type: 'why', text: 'x' } }] })).toBe(false);
+    expect(await onProposed({ summary: 's', operations: [{ type: 'addRecord', record: { type: 'decision', text: 'x' } }] })).toBe(false);
   });
 
   it('does not ask at all with --auto-approve', async () => {

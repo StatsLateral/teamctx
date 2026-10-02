@@ -15,7 +15,7 @@ const workstream = {
   id: 'growth',
   name: 'Main',
   records: [
-    { id: 'w1', type: 'why', text: 'grow revenue', status: 'active', sourceContributionIds: ['c-3', 'c-4'] },
+    { id: 'w1', type: 'decision', text: 'grow revenue', status: 'active', sourceContributionIds: ['c-3', 'c-4'] },
     { id: 'wt1', type: 'decision', text: 'double down on LinkedIn', status: 'active', sourceContributionIds: ['c-2', 'c-4'] },
   ],
   tasks: [
@@ -25,7 +25,7 @@ const workstream = {
 
 describe('backwards compatibility with pre-provenance projects', () => {
   it('handles nodes without sourceContributionIds (legacy schema) — no crash, empty footer', () => {
-    const legacyWs = { id: 'growth', name: 'M', records: [{ id: 'w1', type: 'why', text: 'no sources', status: 'active' }], tasks: [{ id: 'h1', title: 'no sources' }] };
+    const legacyWs = { id: 'growth', name: 'M', records: [{ id: 'w1', type: 'decision', text: 'no sources', status: 'active' }], tasks: [{ id: 'h1', title: 'no sources' }] };
     expect(collectContributorCounts(legacyWs, contributions)).toEqual([]);
     expect(collectSourceRefs(legacyWs, contributions)).toEqual({ sources: [], unknown: [] });
     expect(formatContributorLine([])).toBe('');
@@ -33,14 +33,14 @@ describe('backwards compatibility with pre-provenance projects', () => {
 
   it('handles contributions without tagged / source / author fields', () => {
     const oldContribs = [{ id: 'c-old', text: 'legacy entry' }];
-    const ws = { id: 'main', name: 'M', records: [{ id: 'w1', type: 'why', text: 't', status: 'active', sourceContributionIds: ['c-old'] }] };
+    const ws = { id: 'main', name: 'M', records: [{ id: 'w1', type: 'decision', text: 't', status: 'active', sourceContributionIds: ['c-old'] }] };
     expect(collectContributorCounts(ws, oldContribs)).toEqual([]);
     const { sources } = collectSourceRefs(ws, oldContribs);
     expect(sources[0]).toMatchObject({ author: 'unknown', source: 'cli', tagged: null });
   });
 
   it('handles missing contributions.jsonl entries (id references a deleted contribution)', () => {
-    const ws = { id: 'main', name: 'M', records: [{ id: 'w1', type: 'why', text: 't', status: 'active', sourceContributionIds: ['c-ghost'] }] };
+    const ws = { id: 'main', name: 'M', records: [{ id: 'w1', type: 'decision', text: 't', status: 'active', sourceContributionIds: ['c-ghost'] }] };
     const { sources, unknown } = collectSourceRefs(ws, []);
     expect(sources).toEqual([]);
     expect(unknown).toEqual(['c-ghost']);
@@ -63,7 +63,7 @@ describe('collectContributorCounts', () => {
   });
 
   it('ignores contribution ids that resolve to nothing', () => {
-    const ws = { records: [{ id: 'w1', type: 'why', text: 't', status: 'active', sourceContributionIds: ['ghost'] }] };
+    const ws = { records: [{ id: 'w1', type: 'decision', text: 't', status: 'active', sourceContributionIds: ['ghost'] }] };
     expect(collectContributorCounts(ws, contributions)).toEqual([]);
   });
 });
@@ -80,7 +80,7 @@ describe('collectSourceRefs', () => {
   });
 
   it('reports unknown ids that don\'t resolve', () => {
-    const ws = { records: [{ id: 'w1', type: 'why', text: 't', status: 'active', sourceContributionIds: ['ghost'] }] };
+    const ws = { records: [{ id: 'w1', type: 'decision', text: 't', status: 'active', sourceContributionIds: ['ghost'] }] };
     const { sources, unknown } = collectSourceRefs(ws, contributions);
     expect(sources).toEqual([]);
     expect(unknown).toEqual(['ghost']);
@@ -134,7 +134,7 @@ describe('formatAuditBlock', () => {
 
 describe('collectContributorCounts — identity across surfaces', () => {
   const ws = {
-    records: [{ id: 'w1', type: 'why', text: 'why', status: 'active', sourceContributionIds: ['k-1', 'k-2', 'k-3'] }],
+    records: [{ id: 'w1', type: 'decision', text: 'why', status: 'active', sourceContributionIds: ['k-1', 'k-2', 'k-3'] }],
   };
 
   it('counts one person once even when their display name differs per surface', () => {

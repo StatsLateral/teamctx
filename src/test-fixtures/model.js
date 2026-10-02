@@ -5,7 +5,7 @@ export function makeRecord(over = {}) {
   const type = over.type || 'decision';
   const base = {
     id: next('rec'), type, text: `${type} text`, detail: '', status: 'active',
-    owner: ['assumption', 'question', 'risk'].includes(type) ? { key: 'git:owner@x', name: 'Owner' } : null,
+    owner: type === 'assumption' ? { key: 'git:owner@x', name: 'Owner' } : null,
     attachedTo: { kind: 'project' },
     links: { restsOn: [], bends: null, replaces: null, answers: null },
     sourceContributionIds: [], approvedBy: null,

@@ -20,9 +20,9 @@ vi.mock('../../src/storage.js', () => ({
 
 vi.mock('../../src/context.js', () => ({
   updateShared: vi.fn(async () => ({
-    workstream: { id: 'main', name: 'M', records: [{ id: 'w1', type: 'why', text: 'x', status: 'active' }], tasks: [] },
+    workstream: { id: 'main', name: 'M', records: [{ id: 'w1', type: 'decision', text: 'x', status: 'active' }], tasks: [] },
     summary: 's',
-    operations: [{ type: 'addRecord', record: { type: 'why', text: 'x' } }],
+    operations: [{ type: 'addRecord', record: { type: 'decision', text: 'x' } }],
     dropped: [],
   })),
   generateRoleFile: vi.fn(() => Promise.resolve('# role md')),

@@ -58,8 +58,8 @@ const {
 } = await import('../../src/storage.js');
 
 const project = (over = {}) => ({ project: 'p', me: 'Ada', managerKey: 'github:1001', workstreams: [{ id: 'ops', name: 'Ops' }], ...over });
-const ADDS = [{ type: 'addRecord', record: { type: 'why', text: 'go to vietnam' } }, { type: 'addTask', title: 'pick dates' }];
-const WITH_DELETE = [{ type: 'addRecord', record: { type: 'why', text: 'x' } }, { type: 'removeTask', id: 'abc' }];
+const ADDS = [{ type: 'addRecord', record: { type: 'assumption', text: 'go to vietnam' } }, { type: 'addTask', title: 'pick dates' }];
+const WITH_DELETE = [{ type: 'addRecord', record: { type: 'assumption', text: 'x' } }, { type: 'removeTask', id: 'abc' }];
 
 const contribute = () => contributeCore({ text: 'something', source: 'mcp' });
 

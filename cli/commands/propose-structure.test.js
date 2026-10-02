@@ -36,7 +36,7 @@ const PROJECT = {
 };
 const DRAFT = {
   goal: "A relaxed first birthday",
-  whys: ['Family first'],
+  why: 'Family first',
   workstreams: [
     { name: 'Food & cake', parent: null, rationale: 'one person bakes', tasks: ['Bake the cake'],
       records: [{ type: 'decision', text: 'Banana cake' }, { type: 'fact', text: 'dropped' }],
@@ -69,7 +69,7 @@ describe('proposeStructure', () => {
     callClaude.mockResolvedValueOnce(JSON.stringify(DRAFT));
     const r = await proposeStructure({});
     expect(r.goal).toBe('A relaxed first birthday');
-    expect(r.whys).toEqual(['Family first']);
+    expect(r.why).toBe('Family first');
     expect(r.workstreams.map(w => w.name)).toEqual(['Food & cake', 'Cake']);
     expect(r.workstreams[0].records).toEqual([{ type: 'decision', text: 'Banana cake' }]);
     expect(r.workstreams[0].tasks).toEqual(['Bake the cake']);

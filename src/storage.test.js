@@ -68,7 +68,7 @@ describe('workstream files', () => {
   });
 
   it('writes and reads a workstream round-trip under workstreams/<id>.json', () => {
-    const ws = { id: 'product', name: 'Product', records: [{ id: 'rec-1', type: 'why', text: 'launch', status: 'active' }], tasks: [] };
+    const ws = { id: 'product', name: 'Product', records: [{ id: 'rec-1', type: 'decision', text: 'launch', status: 'active' }], tasks: [] };
     writeWorkstream('product', ws, dir);
     expect(readWorkstream('product', dir)).toEqual(ws);
   });

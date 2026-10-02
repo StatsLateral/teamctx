@@ -187,15 +187,13 @@ const SCRIPT = `
  * on (each exception straight after the rule it bends), then the tasks.
  * Only active records — a replaced decision is history, not context.
  */
-const COLUMN_OF = { why: 'why', task: 'task' };
 const numbering = (tree, onDay = today()) => {
   // Only the known types: a type read from the repository is somebody else's
   // text, and it ends up in markup.
   const active = (tree?.records || []).filter(r => RECORD_TYPES.includes(r.type) && isActive(r, onDay) && r.attachedTo?.kind !== 'task');
   const rows = [];
-  active.filter(r => r.type === 'why').forEach((r, i) => rows.push({ node: r, tier: 'why', n: `${i + 1}` }));
   let k = 0;
-  for (const r of active.filter(x => !['why', 'exception'].includes(x.type))) {
+  for (const r of active.filter(x => x.type !== 'exception')) {
     rows.push({ node: r, tier: r.type, n: `${++k}` });
     if (r.type !== 'rule') continue;
     for (const e of active.filter(x => x.type === 'exception' && x.links?.bends === r.id)) {
@@ -205,7 +203,7 @@ const numbering = (tree, onDay = today()) => {
   (tree?.tasks || []).forEach((t, i) => rows.push({ node: { ...t, text: t.title }, tier: 'task', n: `${i + 1}` }));
   return rows;
 };
-const columnOf = (row) => COLUMN_OF[row.tier] || 'record';
+const columnOf = (row) => (row.tier === 'task' ? 'task' : 'record');
 
 /**
  * Where the most recent contribution behind a statement came from.
@@ -313,8 +311,8 @@ function itemButton({ row, contributions, where, project, marked, isProject, own
 }
 
 const columns = ({ rows, contributions, where, project, item, isProject, owner, repo, wsId, origin }) => `<div class="columns">
-  ${['why', 'record', 'task'].map(col => `<section class="col">
-    <div class="col-head">${col === 'why' ? 'Why it matters' : col === 'record' ? 'Rules & decisions' : 'Tasks'}</div>
+  ${['record', 'task'].map(col => `<section class="col">
+    <div class="col-head">${col === 'record' ? 'Rules, decisions & assumptions' : 'Tasks'}</div>
     <div class="col-body">
       ${rows.filter(r => columnOf(r) === col).map(row => itemButton({
     row, contributions, where, project, isProject, owner, repo, wsId, origin, marked: row.node.id === item,

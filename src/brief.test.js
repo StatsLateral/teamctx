@@ -8,9 +8,10 @@ const exc = makeRecord({ type: 'exception', text: 'Chocolate frosting on the adu
 
 describe('renderBrief', () => {
   it('prints the goal and plain labels, never type names', () => {
-    const md = renderBrief({ projectName: 'Party', project: makeProject({ goal: { text: 'A relaxed party' }, records: [makeRecord({ type: 'why', text: 'Family first' })] }), chain: [], onDay: ON });
+    const md = renderBrief({ projectName: 'Party', project: makeProject({ goal: { text: 'A relaxed party', why: 'Family first' }, records: [makeRecord({ type: 'decision', text: 'Banana cake', detail: 'low sugar' })] }), chain: [], onDay: ON });
     expect(md).toContain('A relaxed party');
     expect(md).toContain('Why it matters: Family first');
+    expect(md).toContain('We decided: Banana cake — why: low sugar');
     expect(md).not.toMatch(/\b(decision|assumption|exception|rule|question|risk)\b:/);
   });
 
@@ -32,14 +33,12 @@ describe('renderBrief', () => {
     expect(renderBrief({ projectName: 'P', project: makeProject({ records: [rule, exc] }), chain: [], onDay: '2026-11-01' })).not.toContain('Chocolate frosting');
   });
 
-  it('shows review dates and owners, and leaves out inactive records', () => {
+  it('shows review dates, and leaves out inactive records', () => {
     const md = renderBrief({ projectName: 'P', project: makeProject({ records: [
       makeRecord({ type: 'assumption', text: '20 guests', reviewBy: '2026-10-07', owner: { key: 'k', name: 'Maya' } }),
-      makeRecord({ type: 'question', text: 'Invite daycare friends?', owner: { key: 'k', name: 'Maya' } }),
       makeRecord({ type: 'decision', text: 'Old cake', status: 'replaced' }),
     ] }), chain: [], onDay: ON });
     expect(md).toContain("We're assuming: 20 guests (check by 2026-10-07)");
-    expect(md).toContain('Open question: Invite daycare friends? (Maya)');
     expect(md).not.toContain('Old cake');
   });
 

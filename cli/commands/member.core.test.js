@@ -3,8 +3,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 vi.mock('../../src/storage.js', () => ({
   // Non-empty by default: nobody can be added to a project with nothing in it,
   // so every other test here would be testing the gate instead of itself.
-  readProject: vi.fn(() => ({ name: 'Ledger', records: [{ id: 'w1', type: 'why', text: 'ship it', status: 'active' }], tasks: [] })),
-  readWorkstream: vi.fn(() => ({ id: 'w', name: 'W', records: [{ id: 'x1', type: 'why', text: 'do it', status: 'active' }], tasks: [] })),
+  readProject: vi.fn(() => ({ name: 'Ledger', records: [{ id: 'w1', type: 'decision', text: 'ship it', status: 'active' }], tasks: [] })),
+  readWorkstream: vi.fn(() => ({ id: 'w', name: 'W', records: [{ id: 'x1', type: 'decision', text: 'do it', status: 'active' }], tasks: [] })),
   readConfig: vi.fn(),
   writeConfig: vi.fn(),
 }));
@@ -331,7 +331,7 @@ describe('changing a member\'s scope afterwards', () => {
 
 describe('nobody is brought onto an empty project', () => {
   const EMPTY = { name: 'Ledger', records: [], tasks: [] };
-  const FULL = { name: 'Ledger', records: [{ id: 'w1', type: 'why', text: 'ship it', status: 'active' }], tasks: [] };
+  const FULL = { name: 'Ledger', records: [{ id: 'w1', type: 'decision', text: 'ship it', status: 'active' }], tasks: [] };
 
   it('refuses `member add` while the project has nothing in it', async () => {
     readProject.mockReturnValue(EMPTY);

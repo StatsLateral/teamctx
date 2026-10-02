@@ -10,9 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Breaking
 - **Governed records replace the Why → What → How tree.** A project now holds a
   goal and the reasons it matters, nested workstreams (1, 1.2, …) with tasks, and
-  typed records attached anywhere: decisions, rules, allowed exceptions (each
-  with the rule it bends and an end date), assumptions (with an owner and a date
-  to re-check), open questions and risks. Every brief prints them in plain words
+  four kinds of governed record attached anywhere: decisions, rules, allowed
+  exceptions (each with the rule it bends and an end date) and assumptions (with
+  an owner and a date to re-check). The reason behind each is written with it. Every brief prints them in plain words
   and puts each exception under its rule. Decisions, rules and exceptions always
   need the manager, even under `additive`. There is no migration: run
   `teamctx init` again; an old-format project says so instead of reading as empty.
@@ -22,8 +22,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - `list_records` and `get_record` (scoped like everything else), and
   `teamctx workstream add <name> [--under <id>]` / `workstream_add`.
-- `propose_structure` returns a draft in the new model: goal, whys, parts of the
-  work, tasks, records and open questions it found in the material.
+- `propose_structure` returns a draft in the new model: goal and why it matters,
+  parts of the work, tasks, records, and any contradictions it found in the material.
 - `get_connect_url` says whether the project is ready to join (`joinable`), so the
   link and the member gate agree.
 

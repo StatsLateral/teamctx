@@ -91,7 +91,7 @@ function project(config = CONFIG) {
     ['.teamctx/contributions.jsonl', ''],
     ['.teamctx/project.json', JSON.stringify({ name: 'Ledger', records: [], tasks: [] })],
     ['.teamctx/workstreams/product.json', JSON.stringify({
-      id: 'product', name: 'Product', records: [{ id: 'w1', type: 'why', text: 'price it', status: 'active' }], tasks: [],
+      id: 'product', name: 'Product', records: [{ id: 'w1', type: 'decision', text: 'price it', status: 'active' }], tasks: [],
     })],
   ]);
   repo.prefetchError = null;

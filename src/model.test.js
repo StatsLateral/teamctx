@@ -7,8 +7,8 @@ import {
 import { makeRecord, makeConfig } from './test-fixtures/model.js';
 
 describe('record types and labels', () => {
-  it('has exactly the seven types, each with a plain label', () => {
-    expect(RECORD_TYPES).toEqual(['why', 'decision', 'assumption', 'rule', 'exception', 'question', 'risk']);
+  it('has exactly the four types the MVP governs, each with a plain label', () => {
+    expect(RECORD_TYPES).toEqual(['decision', 'assumption', 'rule', 'exception']);
     for (const t of RECORD_TYPES) expect(LABELS[t]).toMatch(/:$/);
     expect(LABELS.exception).toBe('Allowed:');
   });
@@ -30,8 +30,9 @@ describe('validateRecord', () => {
     expect(r.errors.join(' ')).toMatch(/bends/);
     expect(r.errors.join(' ')).toMatch(/expiresAt/);
   });
-  it('rejects an unknown type and a malformed date', () => {
+  it('rejects an unknown or retired type and a malformed date', () => {
     expect(validateRecord(makeRecord({ type: 'fact' })).ok).toBe(false);
+    for (const t of ['why', 'question', 'risk']) expect(validateRecord(makeRecord({ type: t })).ok).toBe(false);
     expect(validateRecord(makeRecord({ type: 'assumption', owner: { key: 'k', name: 'n' }, reviewBy: 'next week' })).ok).toBe(false);
   });
 });

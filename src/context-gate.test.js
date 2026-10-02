@@ -15,7 +15,7 @@ vi.mock('./storage.js', () => ({
 const { assertJoinableContext, EmptyContextError } = await import('./context-gate.js');
 const { readProject, readWorkstream } = await import('./storage.js');
 
-const FULL = { name: 'Ledger', goal: null, records: [{ id: 'w1', type: 'why', text: 'ship it', status: 'active' }], tasks: [] };
+const FULL = { name: 'Ledger', goal: null, records: [{ id: 'w1', type: 'decision', text: 'ship it', status: 'active' }], tasks: [] };
 const EMPTY = { name: 'Ledger', goal: null, records: [], tasks: [] };
 
 const config = {
@@ -116,7 +116,7 @@ describe('when there is something to read', () => {
 
 describe('what counts as something to read', () => {
   it('one record is enough', () => {
-    readProject.mockReturnValue({ records: [{ id: 'w1', type: 'why', text: 'ship it' }] });
+    readProject.mockReturnValue({ records: [{ id: 'w1', type: 'decision', text: 'ship it' }] });
     expect(() => call()).not.toThrow();
   });
 

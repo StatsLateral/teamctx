@@ -76,15 +76,15 @@ function project() {
       JSON.stringify({ id: 'c-tech', author: 'Dev', source: 'cli', text: 'uptime notes', workstream: 'tech' }),
       JSON.stringify({ id: 'c-loose', author: 'Nobody', source: 'cli', text: 'unreferenced', workstream: null }),
     ].join('\n')],
-    ['.teamctx/project.json', JSON.stringify({ name: 'Ledger', records: [{ id: 'p1', type: 'why', text: 'ship it', status: 'active' }], tasks: [] })],
+    ['.teamctx/project.json', JSON.stringify({ name: 'Ledger', records: [{ id: 'p1', type: 'decision', text: 'ship it', status: 'active' }], tasks: [] })],
     ['.teamctx/workstreams/product.json', JSON.stringify({
       id: 'product', name: 'Product',
-      records: [{ id: 'w1', type: 'why', text: 'price it', status: 'active', detail: 'how we price', sourceContributionIds: ['c-prod'] }],
+      records: [{ id: 'w1', type: 'decision', text: 'price it', status: 'active', detail: 'how we price', sourceContributionIds: ['c-prod'] }],
       tasks: [{ id: 'pricing-page', title: 'Draft the pricing page', owner: 'Priya', status: 'open' }],
     })],
     ['.teamctx/workstreams/tech.json', JSON.stringify({
       id: 'tech', name: 'Tech',
-      records: [{ id: 't1', type: 'why', text: 'keep the servers up', status: 'active', sourceContributionIds: ['c-tech'] }],
+      records: [{ id: 't1', type: 'decision', text: 'keep the servers up', status: 'active', sourceContributionIds: ['c-tech'] }],
       tasks: [
         { id: 'migrate-db', title: 'Migrate the database', owner: 'Dev', status: 'open' },
         { id: 'old-thing', title: 'Something finished', owner: 'Dev', status: 'done' },
@@ -347,7 +347,7 @@ describe('arriving from a link', () => {
 
   it('marks the item the link pointed at', async () => {
     const { body } = await visit('/project/acme/ledger?ws=product&item=w1', MANAGER);
-    expect(body).toMatch(/class="item tier-why marked"/);
+    expect(body).toMatch(/class="item tier-decision marked"/);
   });
 
   it('falls back quietly when the part of the work is not theirs to see', async () => {
@@ -416,7 +416,7 @@ describe('what the data function hands back', () => {
 describe('what a link may and may not open', () => {
   it('opens the drawer for a statement it pointed at', async () => {
     const { body } = await visit('/project/acme/ledger?ws=product&item=w1', MANAGER);
-    expect(body).toMatch(/class="item tier-why marked"/);
+    expect(body).toMatch(/class="item tier-decision marked"/);
   });
 
   it('marks a task, and its drawer carries the task itself, never "undefined"', async () => {
@@ -519,7 +519,7 @@ describe('what a copied prompt asks for', () => {
     repo.files.set('.teamctx/workstreams/product.json', JSON.stringify({
       id: 'product', name: 'Product', tasks: [],
       records: [
-        { id: 'w1', type: 'why', text: 'price it', status: 'active' },
+        { id: 'w1', type: 'decision', text: 'price it', status: 'active' },
         { id: 'r1', type: 'rule', text: 'no discounts over 15%', status: 'active' },
         { id: 'e1', type: 'exception', text: 'Acme may get 20%', status: 'active', expiresAt: '2999-12-31', links: { bends: 'r1' } },
       ],

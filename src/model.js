@@ -1,10 +1,12 @@
 import Ajv from 'ajv';
 
-export const RECORD_TYPES = ['why', 'decision', 'assumption', 'rule', 'exception', 'question', 'risk'];
+// The MVP governs four kinds of thing: what the team decided, what it is
+// assuming, the rules it works by, and the exceptions it allows. The reason
+// behind any of them is its `detail`, not a record of its own.
+export const RECORD_TYPES = ['decision', 'assumption', 'rule', 'exception'];
 export const STATUSES = ['active', 'replaced', 'broken', 'closed'];
 export const LABELS = {
-  why: 'Why it matters:', decision: 'We decided:', assumption: "We're assuming:",
-  rule: 'Rule:', exception: 'Allowed:', question: 'Open question:', risk: 'Risk:',
+  decision: 'We decided:', assumption: "We're assuming:", rule: 'Rule:', exception: 'Allowed:',
 };
 
 const DATE = { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' };
@@ -41,7 +43,6 @@ const recordSchema = {
   allOf: [
     { if: { properties: { type: { const: 'assumption' } } }, then: { required: ['owner', 'reviewBy'], properties: { owner: PERSON } } },
     { if: { properties: { type: { const: 'exception' } } }, then: { required: ['expiresAt'], properties: { links: { type: 'object', required: ['bends'], properties: { bends: { type: 'string', minLength: 1 } } } } } },
-    { if: { properties: { type: { enum: ['question', 'risk'] } } }, then: { required: ['owner'], properties: { owner: PERSON } } },
   ],
 };
 

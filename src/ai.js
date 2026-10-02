@@ -148,10 +148,10 @@ export async function proposeDiff({
     `{
   "summary": "1-2 sentences",
   "operations": [
-    { "type": "setGoal", "text": "one line" },
+    { "type": "setGoal", "text": "one line", "why": "why it matters, one line" },
     { "type": "addRecord", "ref": "optional local name", "record": {
-        "type": "why|decision|assumption|rule|exception|question|risk",
-        "text": "one plain sentence", "detail": "optional",
+        "type": "decision|assumption|rule|exception",
+        "text": "one plain sentence", "detail": "the reason, if one was given",
         "owner": { "name": "person" }, "reviewBy": "YYYY-MM-DD", "expiresAt": "YYYY-MM-DD",
         "links": { "bends": "<rule id or ref>", "replaces": "<id>", "restsOn": ["<id>"], "answers": "<question id>" },
         "attachedTo": { "kind": "task", "id": "<task id or ref>" } } },
@@ -163,10 +163,10 @@ export async function proposeDiff({
   ]
 }`,
     '',
-    'How to classify: why = the reason something matters; decision = something settled; assumption = believed but',
-    'unproven (needs owner + reviewBy); rule = applies until changed; exception = an allowed deviation from ONE rule',
-    '(needs links.bends naming that rule + expiresAt); question = open, needs owner; risk = could go wrong, needs owner',
-    '(put the plan in detail). Concrete work is a task, not a record. Use the smallest set of operations; prefer',
+    'How to classify: decision = something settled; assumption = believed but unproven (needs owner + reviewBy);',
+    'rule = applies until changed; exception = an allowed deviation from ONE rule (needs links.bends naming that rule',
+    '+ expiresAt). The reason behind any of them goes in its detail, never in a record of its own. Open questions and',
+    'risks are not recorded yet. Concrete work is a task, not a record. Use the smallest set of operations; prefer',
     'editing or replacing over a near-duplicate. If the contribution contradicts an active record, add a question',
     'naming both instead of a second contradictory record. Include attachedTo only when a record is about one',
     'specific task; otherwise leave it out and it belongs to this part of the work. Dates are YYYY-MM-DD relative',

@@ -8,7 +8,7 @@ vi.mock('./providers/index.js', () => ({
 
 import { proposeDiff } from './ai.js';
 
-const workstream = { name: 'Ledger', records: [{ id: 'w1', type: 'why', text: 'Existing why', status: 'active' }], tasks: [] };
+const workstream = { name: 'Ledger', records: [{ id: 'w1', type: 'decision', text: 'Existing why', status: 'active' }], tasks: [] };
 const call = () => complete.mock.calls[0][0];
 
 beforeEach(() => complete.mockClear());
@@ -111,5 +111,15 @@ describe('proposeDiff — where records attach', () => {
     const { prompt } = call();
     expect(prompt).not.toContain('"attachedTo": { "kind": "project" }');
     expect(prompt).toMatch(/attachedTo only when[\s\S]*specific task/);
+  });
+});
+
+describe('proposeDiff — four kinds of record', () => {
+  it('offers only decision, assumption, rule and exception, and puts reasons in detail', async () => {
+    await proposeDiff({ workstream: { name: 'F', records: [], tasks: [] }, contribution: 'x', source: 's', config: {}, today: '2026-10-02' });
+    const { prompt } = call();
+    expect(prompt).toContain('"type": "decision|assumption|rule|exception"');
+    expect(prompt).not.toMatch(/\bquestion = |\brisk = |\bwhy = /);
+    expect(prompt).toMatch(/reason.*detail/i);
   });
 });
