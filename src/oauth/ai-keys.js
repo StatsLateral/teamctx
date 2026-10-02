@@ -40,13 +40,20 @@ export async function readPersonalKey({ email, githubId } = {}) {
  *
  * Clearing removes the GitHub-id record too. Otherwise a person who cleared
  * their key would find the old one quietly reappearing from the fallback.
+ *
+ * What clearing does *not* do is reach into the projects the key was shared
+ * with. Removing one there is gated behind a confirmation in `/settings/unshare`
+ * — everyone on that project without a key of their own loses the model the
+ * moment it goes — and clearing a personal key is not that deliberate act. But
+ * leaving them unmentioned is how somebody retires a key and keeps paying for
+ * it, so the clear says which projects still hold it rather than touching them.
  */
 export async function writePersonalKey({ email, githubId, githubLogin, provider, apiKey } = {}) {
   if (!email) throw new Error('a verified email address is required to save a key');
   if (!apiKey) {
     await kvSet(keys.personalAiKey(norm(email)), { cleared: true, clearedAt: new Date().toISOString() });
     if (githubId) await kvSet(keys.aiKey(String(githubId)), null);
-    return null;
+    return { cleared: true, stillShared: await projectsHoldingKey({ email }) };
   }
   const record = { provider: provider || 'anthropic', apiKey };
   await kvSet(keys.personalAiKey(norm(email)), record);
@@ -57,6 +64,26 @@ export async function writePersonalKey({ email, githubId, githubLogin, provider,
   // because those two resolve different records.
   record.alsoUpdated = await rotateSharedKeys({ email, githubId, githubLogin, provider, apiKey });
   return record;
+}
+
+/**
+ * Projects still running on this person's shared key.
+ *
+ * Read from the project records rather than from the index of what they have
+ * shared, because that index can outlive the entry it points at — and a warning
+ * that names a project which no longer holds the key sends somebody to unshare
+ * nothing.
+ */
+export async function projectsHoldingKey({ email } = {}) {
+  const who = norm(email);
+  if (!who) return [];
+  const held = [];
+  for (const slug of (await kvGet(keys.keysAddedBy(who)))?.projects || []) {
+    const [owner, repo] = String(slug).split('/');
+    if (!owner || !repo) continue;
+    if ((await kvGet(keys.projectAiKeys(owner, repo)))?.keys?.[who]) held.push(slug);
+  }
+  return held.sort();
 }
 
 /**

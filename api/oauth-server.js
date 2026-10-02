@@ -414,6 +414,7 @@ async function renderSettings(req, res, user, { newAgent = null } = {}) {
     user, hasKey: !!existing, shared, lent, repos, agents, newAgent,
     saved: req.query.saved === '1',
     rotated: req.query.rotated ? String(req.query.rotated).split(',').filter(Boolean) : [],
+    stillShared: req.query.stillShared ? String(req.query.stillShared).split(',').filter(Boolean) : [],
     error: req.query.error ? String(req.query.error) : null,
     confirmRemove: req.query.confirmRemove ? String(req.query.confirmRemove) : null,
   }));
@@ -682,8 +683,14 @@ app.post('/settings', async (req, res) => {
     return backToSettings(res, 'Your sign-in did not come with a verified email address, so there is nowhere to keep a key. Sign out and sign in again.');
   }
   if (apiKey === '__clear__') {
-    await writePersonalKey({ email: user.email, githubId: user.id, apiKey: null });
-    return res.redirect(303, '/settings?saved=1');
+    // Named, not removed: taking a key out of a project is its own deliberate
+    // act with its own confirmation, and somebody who is not told goes on paying
+    // for a key they believe they retired.
+    const cleared = await writePersonalKey({ email: user.email, githubId: user.id, apiKey: null });
+    const still = cleared?.stillShared || [];
+    return res.redirect(303, still.length
+      ? `/settings?saved=1&stillShared=${encodeURIComponent(still.join(','))}`
+      : '/settings?saved=1');
   }
   if (!apiKey) {
     return res.status(400).send(errorPage('Paste a key, or leave the page.'));
