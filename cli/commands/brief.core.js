@@ -1,7 +1,9 @@
 import {
-  readConfig, readTreeMd, readRoleFile, listTasks, listWorkstreamIds,
+  readConfig, readProject, readRoleFile, listTasks, listWorkstreamIds,
 } from '../../src/storage.js';
 import { resolveTarget, isProjectLevel, targetLabel } from '../../src/project-level.js';
+import { renderBrief } from '../../src/brief.js';
+import { chainFor } from '../../src/recompile.js';
 import { inScope } from '../../src/member-scope.js';
 import { resolveActor } from '../../src/actor.js';
 import { resolveDisplayName } from '../../src/prefs.js';
@@ -45,8 +47,14 @@ function groupByTarget(tasks, config) {
   return [...groups.values()];
 }
 
-function compiled(target, teamctxDir) {
-  try { return readTreeMd(target, teamctxDir) || ''; } catch { return ''; }
+/**
+ * The context for one place, rendered now rather than read from a page compiled
+ * at the last write: an exception that ended yesterday must already be gone.
+ */
+function rendered(target, config, teamctxDir) {
+  const project = readProject(teamctxDir);
+  const chain = isProjectLevel(target) ? [] : chainFor({ config, id: target, teamctxDir });
+  return renderBrief({ projectName: config.project || project.name || 'the project', project, chain });
 }
 
 /**
@@ -86,15 +94,14 @@ export async function buildBrief({
   const open = mine.filter(t => t.status === 'open').sort(byAge);
   const done = mine.filter(t => t.status !== 'open').sort(byAge);
 
-  // The compiled context for each place they stand. `readTreeMd` already holds
-  // the project tree above the workstream's own, so this is the merged view
-  // rather than two halves for a caller to staple together.
+  // The context for each place they stand, the project and every part above it
+  // included, so this is the merged view rather than halves to staple together.
   const context = places
     .filter(id => isProjectLevel(id) || known.has(id))
     .map(id => ({
       workstream: id,
       name: targetLabel(id, config.project),
-      markdown: compiled(id, teamctxDir),
+      markdown: rendered(id, config, teamctxDir),
     }));
 
   // Theirs if a role carries their address; otherwise a role that sits on their

@@ -1,72 +1,7 @@
-function collectExistingSourcesById(workstream) {
-  const byId = new Map();
-  for (const why of workstream?.whys || []) {
-    if (why.id) byId.set(why.id, why.sourceContributionIds || []);
-    for (const what of why.whats || []) {
-      if (what.id) byId.set(what.id, what.sourceContributionIds || []);
-      for (const how of what.hows || []) {
-        if (how.id) byId.set(how.id, how.sourceContributionIds || []);
-      }
-    }
-  }
-  return byId;
-}
-
-function mergeIds(existing, incoming) {
-  const out = [...(existing || [])];
-  const seen = new Set(out);
-  for (const id of incoming || []) {
-    if (!seen.has(id)) { out.push(id); seen.add(id); }
-  }
-  return out;
-}
-
-export function preserveSourcesThroughReflect(previous, next) {
-  const existing = collectExistingSourcesById(previous);
-  const patchWhys = (why) => {
-    const patchedWhats = (why.whats || []).map(patchWhat);
-    const preserved = existing.get(why.id);
-    return {
-      ...why,
-      sourceContributionIds: preserved
-        ? mergeIds(preserved, why.sourceContributionIds || [])
-        : (why.sourceContributionIds || []),
-      whats: patchedWhats,
-    };
-  };
-  const patchWhat = (what) => {
-    const patchedHows = (what.hows || []).map(patchHow);
-    const preserved = existing.get(what.id);
-    return {
-      ...what,
-      sourceContributionIds: preserved
-        ? mergeIds(preserved, what.sourceContributionIds || [])
-        : (what.sourceContributionIds || []),
-      hows: patchedHows,
-    };
-  };
-  const patchHow = (how) => {
-    const preserved = existing.get(how.id);
-    return {
-      ...how,
-      sourceContributionIds: preserved
-        ? mergeIds(preserved, how.sourceContributionIds || [])
-        : (how.sourceContributionIds || []),
-    };
-  };
-  return { ...next, whys: (next.whys || []).map(patchWhys) };
-}
-
-function walkNodes(workstream, fn) {
-  for (const why of workstream?.whys || []) {
-    fn(why, 'why', null);
-    for (const what of why.whats || []) {
-      fn(what, 'what', why);
-      for (const how of what.hows || []) {
-        fn(how, 'how', what);
-      }
-    }
-  }
+function walkNodes(tree, fn) {
+  if (tree?.goal) fn(tree.goal, 'goal', null);
+  for (const r of tree?.records || []) fn(r, 'record', null);
+  for (const t of tree?.tasks || []) fn(t, 'task', null);
 }
 
 function contributionIndex(contributions) {
@@ -120,7 +55,7 @@ export function collectSourceRefs(workstream, contributions) {
         continue;
       }
       if (seenContribs.has(id)) {
-        seenContribs.get(id).nodes.push({ id: node.id, tier, text: node.text });
+        seenContribs.get(id).nodes.push({ id: node.id, tier, text: node.text ?? node.title });
         continue;
       }
       seenContribs.set(id, {
@@ -130,7 +65,7 @@ export function collectSourceRefs(workstream, contributions) {
         source: c.source || 'cli',
         tagged: c.tagged || null,
         text: c.text || '',
-        nodes: [{ id: node.id, tier, text: node.text }],
+        nodes: [{ id: node.id, tier, text: node.text ?? node.title }],
       });
     }
   });

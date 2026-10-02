@@ -72,12 +72,12 @@ beforeEach(() => {
   repo.files = new Map([
     ['.teamctx/config.json', JSON.stringify(CONFIG)],
     ['.teamctx/contributions.jsonl', ''],
-    ['.teamctx/project.json', JSON.stringify({ name: 'Ledger', whys: [{ id: 'p1', text: 'ship the ledger', whats: [] }], tasks: [] })],
+    ['.teamctx/project.json', JSON.stringify({ name: 'Ledger', records: [{ id: 'p1', type: 'decision', text: 'ship the ledger', status: 'active' }], tasks: [] })],
     ['.teamctx/workstreams/product.json', JSON.stringify({
       id: 'product', name: 'Product', tasks: [],
-      whys: [{ id: 'w1', text: 'price it in three tiers', whats: [] }],
+      records: [{ id: 'w1', type: 'decision', text: 'price it in three tiers', status: 'active' }],
     })],
-    ['.teamctx/workstreams/tech.json', JSON.stringify({ id: 'tech', name: 'Tech', whys: [], tasks: [] })],
+    ['.teamctx/workstreams/tech.json', JSON.stringify({ id: 'tech', name: 'Tech', records: [], tasks: [] })],
   ]);
 });
 
@@ -135,7 +135,7 @@ describe('who arrives, and what they see', () => {
     await kvSet(keys.session('s'), MANAGER);
     const body = await (await go(LINK, { session: 's' })).text();
     expect(body).toContain('price it in three tiers');
-    expect(body).toMatch(/class="item tier-why marked"/);
+    expect(body).toMatch(/class="item tier-decision marked"/);
   });
 
   it('shows a member the same item, without them ever having opened the web', async () => {
@@ -145,7 +145,7 @@ describe('who arrives, and what they see', () => {
     await kvSet(keys.session('s'), MEMBER);
     const body = await (await go(LINK, { session: 's' })).text();
     expect(body).toContain('price it in three tiers');
-    expect(body).toMatch(/class="item tier-why marked"/);
+    expect(body).toMatch(/class="item tier-decision marked"/);
   });
 
   it('refuses somebody the project has never heard of', async () => {

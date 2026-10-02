@@ -16,7 +16,7 @@ const write = (rel, text) => {
   writeFileSync(p, text);
 };
 const queued = (id = 'c-1') => ({
-  id, mode: 'queued', summary: 's', operations: [{ type: 'addWhy', text: 't' }], workstream: 'main',
+  id, mode: 'queued', summary: 's', operations: [{ type: 'addRecord', record: { type: 'decision', text: 't' } }], workstream: 'main',
 });
 
 beforeEach(() => {
@@ -79,7 +79,7 @@ describe('importDocuments', () => {
 describe('importDocuments — deduplication across a run', () => {
   const withWhy = (text) => ({
     id: 'c-x', mode: 'queued', summary: 's', workstream: 'main',
-    operations: [{ type: 'addWhy', text }],
+    operations: [{ type: 'addRecord', record: { type: 'decision', text } }],
   });
 
   it('tells each document what earlier ones already proposed', async () => {
@@ -101,18 +101,19 @@ describe('importDocuments — deduplication across a run', () => {
     expect(avoidLists[2]).toEqual(['Move billing off Stripe', 'Staff the ledger team']);
   });
 
-  it('only carries forward new Why nodes, not edits or deletes', async () => {
+  it('carries forward new records and tasks, not edits or status changes', async () => {
     write('docs/a.md', 'alpha');
     write('docs/b.md', 'bravo');
     contributeCore.mockResolvedValueOnce({
       id: 'c-1', mode: 'queued', summary: 's', workstream: 'main',
       operations: [
-        { type: 'editStatement', id: 'w1', text: 'reworded existing' },
-        { type: 'addHow', parentWhatId: 'x1', text: 'a task' },
+        { type: 'editRecord', id: 'w1', changes: { text: 'reworded existing' } },
+        { type: 'setRecordStatus', id: 'w2', status: 'closed' },
+        { type: 'addTask', title: 'a task' },
       ],
     });
     await importDocuments({ paths: ['docs'], cwd: root });
-    expect(contributeCore.mock.calls[1][0].avoid).toEqual([]);
+    expect(contributeCore.mock.calls[1][0].avoid).toEqual(['a task']);
   });
 
   it('carries nothing forward from a document that proposed nothing', async () => {

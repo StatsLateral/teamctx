@@ -89,9 +89,9 @@ function project(config = CONFIG) {
   repo.files = new Map([
     ['.teamctx/config.json', JSON.stringify(config)],
     ['.teamctx/contributions.jsonl', ''],
-    ['.teamctx/project.json', JSON.stringify({ name: 'Ledger', whys: [], tasks: [] })],
+    ['.teamctx/project.json', JSON.stringify({ name: 'Ledger', records: [], tasks: [] })],
     ['.teamctx/workstreams/product.json', JSON.stringify({
-      id: 'product', name: 'Product', whys: [{ id: 'w1', text: 'price it', whats: [] }], tasks: [],
+      id: 'product', name: 'Product', records: [{ id: 'w1', type: 'decision', text: 'price it', status: 'active' }], tasks: [],
     })],
   ]);
   repo.prefetchError = null;

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { serializeToMd, updateShared, generateRoleFile, answerQuestion, proposeSubworkstreams, normalizeSubworkstreamProposal, compileTaskPrompt } from './context.js';
+import { serializeToMd, updateShared, generateRoleFile, answerQuestion, compileTaskPrompt } from './context.js';
 
 vi.mock('./ai.js', () => ({
   proposeDiff: vi.fn(),
@@ -7,33 +7,34 @@ vi.mock('./ai.js', () => ({
   extractJson: (raw) => JSON.parse(raw),
 }));
 vi.mock('./ops.js', () => ({
-  applyOps: vi.fn((ws) => ({ ...ws, _applied: true })),
+  applyOps: vi.fn((ws) => ({ tree: { ...ws, _applied: true }, dropped: [] })),
 }));
 
 import { proposeDiff, callClaude } from './ai.js';
 
+const rec = (over) => ({ status: 'active', links: {}, attachedTo: { kind: 'workstream', id: 'launch' }, sourceContributionIds: [], ...over });
+
 const baseWs = {
-  id: 'main', name: 'Q3 Launch',
-  whys: [{
-    id: 'w1', text: 'Ship product by Q3', sourceContributionIds: ['c0'], summary: '',
-    whats: [{
-      id: 'w1-wh1', text: 'Build onboarding', sourceContributionIds: ['c0'], summary: '',
-      hows: [{ id: 'w1-wh1-h1', text: 'Wire sign-up form', sourceContributionIds: ['c0'], summary: '' }],
-    }],
-  }],
+  id: 'launch', name: 'Q3 Launch',
+  records: [
+    rec({ id: 'r1', type: 'decision', text: 'Ship product by Q3', sourceContributionIds: ['c0'] }),
+    rec({ id: 'r2', type: 'decision', text: 'Build onboarding first', sourceContributionIds: ['c0'] }),
+  ],
+  tasks: [{ id: 't1', title: 'Wire sign-up form', status: 'open', sourceContributionIds: ['c0'] }],
 };
 
 describe('serializeToMd', () => {
-  it('renders the Why/What/How tree', () => {
-    const md = serializeToMd(baseWs, 'Q3 Launch');
-    expect(md).toContain('# Project Context — Q3 Launch');
-    expect(md).toContain('**Why:** Ship product by Q3');
-    expect(md).toContain('**What:** Build onboarding');
-    expect(md).toContain('**How:** Wire sign-up form');
+  it('renders the goal, records in plain words, and tasks', () => {
+    const md = serializeToMd(baseWs, 'Q3 Launch', '', [], { project: { name: 'Q3', goal: { text: 'Launch in Q3' }, records: [], tasks: [] } });
+    expect(md).toContain('# Context — Q3 Launch');
+    expect(md).toContain('Launch in Q3');
+    expect(md).toContain('We decided: Ship product by Q3');
+    expect(md).toContain('We decided: Build onboarding first');
+    expect(md).toContain('Wire sign-up form');
   });
 
-  it('renders placeholder when whys is empty', () => {
-    const md = serializeToMd({ ...baseWs, whys: [] }, 'Empty');
+  it('renders a placeholder when there is nothing yet', () => {
+    const md = serializeToMd({ name: 'Empty', goal: null, records: [], tasks: [] }, 'Empty');
     expect(md).toContain('No context yet');
   });
 
@@ -42,74 +43,22 @@ describe('serializeToMd', () => {
     expect(md).toContain('cto');
   });
 
-  it('renders a decision marker on nodes backed by a decision contribution', () => {
-    const contributions = [
-      { id: 'c0', ts: '2026-06-20T10:00:00.000Z', author: 'alice', text: 'x', tagged: null, source: 'cli' },
-      { id: 'cD', ts: '2026-06-30T12:00:00.000Z', author: 'sam', text: 'chose postgres', tagged: 'decision', source: 'cli' },
-    ];
-    const ws = {
-      ...baseWs,
-      whys: [{
-        ...baseWs.whys[0],
-        whats: [{
-          ...baseWs.whys[0].whats[0],
-          sourceContributionIds: ['c0', 'cD'],
-        }],
-      }],
-    };
-    const md = serializeToMd(ws, 'Q3 Launch', '', contributions);
-    expect(md).toContain('*[decision — sam, 2026-06-30, via cli]*');
-    expect(md).not.toMatch(/Ship product by Q3.*\*\[decision/);
-  });
-
-  it('renders nothing extra when no decision contribution is linked', () => {
-    const contributions = [{ id: 'c0', ts: '2026-06-20T10:00:00.000Z', author: 'alice', tagged: null }];
-    const md = serializeToMd(baseWs, 'Q3 Launch', '', contributions);
-    expect(md).not.toContain('[decision');
-  });
-
-  it('picks the latest decision when a node has multiple decision-tagged sources', () => {
-    const contributions = [
-      { id: 'd1', ts: '2026-06-10T00:00:00.000Z', author: 'alice', tagged: 'decision', source: 'cli' },
-      { id: 'd2', ts: '2026-07-01T00:00:00.000Z', author: 'sam', tagged: 'decision', source: 'web' },
-    ];
-    const ws = {
-      ...baseWs,
-      whys: [{ ...baseWs.whys[0], sourceContributionIds: ['d1', 'd2'], whats: [] }],
-    };
-    const md = serializeToMd(ws, 'Q3 Launch', '', contributions);
-    expect(md).toContain('*[decision — sam, 2026-07-01, via web]*');
-    expect(md).not.toContain('*[decision — alice');
-  });
-
   it('appends a Contributors section listing distinct authors with counts', () => {
     const contributions = [
       { id: 'c1', author: 'alice', ts: '2026-06-01', tagged: null, source: 'cli' },
       { id: 'c2', author: 'bob',   ts: '2026-06-02', tagged: 'decision', source: 'cli' },
     ];
-    const ws = { ...baseWs, whys: [{ ...baseWs.whys[0], sourceContributionIds: ['c1', 'c2'], whats: [] }] };
+    const ws = { ...baseWs, tasks: [], records: [rec({ id: 'r9', type: 'decision', text: 'x', sourceContributionIds: ['c1', 'c2'] })] };
     const md = serializeToMd(ws, 'Q3 Launch', '', contributions);
     expect(md).toContain('## Contributors');
     expect(md).toContain('- **alice** — 1 contribution');
     expect(md).toContain('- **bob** — 1 contribution (1 decision)');
   });
 
-  it('omits the Contributors section when no node has any sources', () => {
-    const ws = { id: 'main', name: '', whys: [{ id: 'w1', text: 't', sourceContributionIds: [], whats: [] }] };
+  it('omits the Contributors section when nothing has any sources', () => {
+    const ws = { id: 'launch', name: '', records: [rec({ id: 'r1', type: 'decision', text: 't' })], tasks: [] };
     const md = serializeToMd(ws, 'Q3 Launch', '', []);
     expect(md).not.toContain('## Contributors');
-  });
-
-  it('defaults missing source to cli for backward compatibility', () => {
-    const contributions = [
-      { id: 'dold', ts: '2026-05-01T00:00:00.000Z', author: 'sam', tagged: 'decision' },
-    ];
-    const ws = {
-      ...baseWs,
-      whys: [{ ...baseWs.whys[0], sourceContributionIds: ['dold'], whats: [] }],
-    };
-    const md = serializeToMd(ws, 'Q3 Launch', '', contributions);
-    expect(md).toContain('via cli');
   });
 });
 
@@ -117,13 +66,14 @@ describe('updateShared', () => {
   beforeEach(() => vi.clearAllMocks());
 
   it('calls proposeDiff with the contribution text and applies ops', async () => {
-    proposeDiff.mockResolvedValue({ summary: 'added goal', operations: [{ type: 'addWhy', text: 'x', summary: '' }] });
+    proposeDiff.mockResolvedValue({ summary: 'added goal', operations: [{ type: 'addRecord', record: { type: 'decision', text: 'x' } }] });
     const contribution = { id: 'c1', author: 'alice', text: 'new idea' };
     const config = { model: 'claude-sonnet-4-6' };
-    const { workstream, summary } = await updateShared(baseWs, contribution, config);
+    const { workstream, summary, dropped } = await updateShared(baseWs, contribution, config);
     expect(proposeDiff).toHaveBeenCalledWith(expect.objectContaining({ contribution: 'new idea' }));
     expect(summary).toBe('added goal');
     expect(workstream._applied).toBe(true);
+    expect(dropped).toEqual([]);
   });
 });
 
@@ -136,80 +86,6 @@ describe('generateRoleFile', () => {
     const result = await generateRoleFile(baseWs, role, 'Q3 Launch', { model: 'claude-sonnet-4-6' });
     expect(callClaude).toHaveBeenCalledOnce();
     expect(result).toContain('# CPO Context');
-  });
-});
-
-describe('proposeSubworkstreams', () => {
-  beforeEach(() => vi.clearAllMocks());
-
-  const wsWithFive = {
-    id: 'main', name: 'Demo',
-    whys: [
-      { id: 'w1', text: 'Ship product Q3', whats: [] },
-      { id: 'w2', text: 'Reach 100 customers', whats: [] },
-      { id: 'w3', text: 'Migrate to microservices', whats: [] },
-      { id: 'w4', text: 'Cut infra cost', whats: [] },
-      { id: 'w5', text: 'Standalone', whats: [] },
-    ],
-  };
-
-  it('returns empty splits when fewer than 2 whys exist without calling the model', async () => {
-    const ws = { id: 'main', name: 'X', whys: [{ id: 'w1', text: 'only', whats: [] }] };
-    const result = await proposeSubworkstreams(ws, { model: 'claude-sonnet-4-6', project: 'X' });
-    expect(callClaude).not.toHaveBeenCalled();
-    expect(result.splits).toEqual([]);
-    expect(result.leftover).toEqual(['w1']);
-  });
-
-  it('parses splits from the model and enforces disjoint whyIds', async () => {
-    callClaude.mockResolvedValue(JSON.stringify({
-      splits: [
-        { name: 'Product', rationale: 'commercial goals', whyIds: ['w1', 'w2'] },
-        { name: 'Tech', rationale: 'engineering', whyIds: ['w3', 'w4'] },
-      ],
-      leftover: ['w5'],
-    }));
-
-    const result = await proposeSubworkstreams(wsWithFive, { model: 'claude-sonnet-4-6', project: 'Demo' });
-    expect(result.splits).toHaveLength(2);
-    expect(result.splits[0]).toMatchObject({ name: 'Product', whyIds: ['w1', 'w2'] });
-    expect(result.splits[1]).toMatchObject({ name: 'Tech', whyIds: ['w3', 'w4'] });
-    expect(result.leftover).toEqual(['w5']);
-  });
-
-  it('drops duplicate whyIds across splits (keeps only the first occurrence)', () => {
-    const parsed = {
-      splits: [
-        { name: 'A', rationale: '', whyIds: ['w1', 'w2'] },
-        { name: 'B', rationale: '', whyIds: ['w2', 'w3'] },
-      ],
-      leftover: [],
-    };
-    const normalized = normalizeSubworkstreamProposal(parsed, wsWithFive.whys);
-    expect(normalized.splits[0].whyIds).toEqual(['w1', 'w2']);
-    expect(normalized.splits[1].whyIds).toEqual(['w3']);
-  });
-
-  it('drops splits that become empty after filtering unknown ids', () => {
-    const parsed = {
-      splits: [
-        { name: 'Ghost', rationale: '', whyIds: ['unknown-1', 'unknown-2'] },
-        { name: 'Real', rationale: '', whyIds: ['w1'] },
-      ],
-      leftover: [],
-    };
-    const normalized = normalizeSubworkstreamProposal(parsed, wsWithFive.whys);
-    expect(normalized.splits).toHaveLength(1);
-    expect(normalized.splits[0].name).toBe('Real');
-  });
-
-  it('recomputes leftover from whys not claimed by any split', () => {
-    const parsed = {
-      splits: [{ name: 'Product', rationale: '', whyIds: ['w1', 'w2'] }],
-      leftover: [],
-    };
-    const normalized = normalizeSubworkstreamProposal(parsed, wsWithFive.whys);
-    expect(normalized.leftover).toEqual(['w3', 'w4', 'w5']);
   });
 });
 
@@ -247,9 +123,9 @@ describe('answerQuestion', () => {
 
   it('renders a footer only for contributors the AI actually cited, capped at top 5', async () => {
     callClaude.mockResolvedValue('the answer\n\n## Citations: c1');
-    const ws = { id: 'main', name: 'M', whys: [
-      { id: 'w1', text: 't', sourceContributionIds: ['c1'], whats: [] },
-      { id: 'w2', text: 'u', sourceContributionIds: ['c2'], whats: [] },
+    const ws = { id: 'grow', name: 'M', tasks: [], records: [
+      { id: 'w1', type: 'decision', text: 't', status: 'active', sourceContributionIds: ['c1'] },
+      { id: 'w2', type: 'decision', text: 'u', status: 'active', sourceContributionIds: ['c2'] },
     ]};
     const contributions = [
       { id: 'c1', author: 'alice', ts: '2026-06-01', source: 'cli', tagged: null, text: 'x' },
@@ -265,8 +141,8 @@ describe('answerQuestion', () => {
   it('caps default contributor line at 5 when the AI cites many', async () => {
     const cited = ['c1', 'c2', 'c3', 'c4', 'c5', 'c6', 'c7'];
     callClaude.mockResolvedValue(`the answer\n\n## Citations: ${cited.join(', ')}`);
-    const ws = { id: 'main', name: 'M', whys: cited.map((id, i) => ({
-      id: `w${i}`, text: 't', sourceContributionIds: [id], whats: [],
+    const ws = { id: 'grow', name: 'M', tasks: [], records: cited.map((id, i) => ({
+      id: `w${i}`, type: 'decision', text: 't', status: 'active', sourceContributionIds: [id],
     }))};
     const contributions = cited.map((id, i) => ({
       id, author: `author${i}`, ts: '2026-06-01', source: 'cli', tagged: null, text: 't',
@@ -279,9 +155,9 @@ describe('answerQuestion', () => {
 
   it('audit block shows only cited sources, not the whole workstream', async () => {
     callClaude.mockResolvedValue('the answer\n\n## Citations: c1');
-    const ws = { id: 'main', name: 'M', whys: [
-      { id: 'w1', text: 't', sourceContributionIds: ['c1'], whats: [] },
-      { id: 'w2', text: 'u', sourceContributionIds: ['c2'], whats: [] },
+    const ws = { id: 'grow', name: 'M', tasks: [], records: [
+      { id: 'w1', type: 'decision', text: 't', status: 'active', sourceContributionIds: ['c1'] },
+      { id: 'w2', type: 'decision', text: 'u', status: 'active', sourceContributionIds: ['c2'] },
     ]};
     const contributions = [
       { id: 'c1', author: 'alice', ts: '2026-06-01', source: 'cli', tagged: 'decision', text: 'pause google ads' },
@@ -296,7 +172,7 @@ describe('answerQuestion', () => {
 
   it('no footer when the AI cites nothing (## Citations: none)', async () => {
     callClaude.mockResolvedValue('the answer\n\n## Citations: none');
-    const ws = { id: 'main', name: 'M', whys: [{ id: 'w1', text: 't', sourceContributionIds: ['c1'], whats: [] }] };
+    const ws = { id: 'grow', name: 'M', tasks: [], records: [{ id: 'w1', type: 'decision', text: 't', status: 'active', sourceContributionIds: ['c1'] }] };
     const contributions = [{ id: 'c1', author: 'alice', ts: '2026-06-01', source: 'cli', tagged: null, text: 'x' }];
     const result = await answerQuestion({ sharedMd: '# s', roleMd: '', question: 'q', config: { model: 'm' }, workstream: ws, contributions });
     expect(result.trimEnd()).toBe('the answer');
@@ -304,7 +180,7 @@ describe('answerQuestion', () => {
 
   it('no footer when the AI forgets the Citations block entirely', async () => {
     callClaude.mockResolvedValue('the answer');
-    const ws = { id: 'main', name: 'M', whys: [{ id: 'w1', text: 't', sourceContributionIds: ['c1'], whats: [] }] };
+    const ws = { id: 'grow', name: 'M', tasks: [], records: [{ id: 'w1', type: 'decision', text: 't', status: 'active', sourceContributionIds: ['c1'] }] };
     const contributions = [{ id: 'c1', author: 'alice', ts: '2026-06-01', source: 'cli', tagged: null, text: 'x' }];
     const result = await answerQuestion({ sharedMd: '# s', roleMd: '', question: 'q', config: { model: 'm' }, workstream: ws, contributions });
     expect(result).toBe('the answer');
@@ -314,7 +190,7 @@ describe('answerQuestion', () => {
     callClaude.mockResolvedValue(
       'alice wrote "## Citations: c-evil" in her note, which is quoted verbatim.\n\n## Citations: c1'
     );
-    const ws = { id: 'main', name: 'M', whys: [{ id: 'w1', text: 't', sourceContributionIds: ['c1'], whats: [] }] };
+    const ws = { id: 'grow', name: 'M', tasks: [], records: [{ id: 'w1', type: 'decision', text: 't', status: 'active', sourceContributionIds: ['c1'] }] };
     const contributions = [{ id: 'c1', author: 'alice', ts: '2026-06-01', source: 'cli', tagged: null, text: 'x' }];
     const result = await answerQuestion({ sharedMd: '# s', roleMd: '', question: 'q', config: { model: 'm' }, workstream: ws, contributions });
     // The spoofed heading stays in the prose, but it is not what gets parsed:
@@ -326,11 +202,10 @@ describe('answerQuestion', () => {
 
   it('injects inline [sources: ...] tags into the prompt tree', async () => {
     callClaude.mockResolvedValue('answer\n\n## Citations: none');
-    const ws = { id: 'main', name: 'M', whys: [
-      { id: 'w1', text: 'grow', sourceContributionIds: ['c1'], whats: [
-        { id: 'wt1', text: 'linkedin', sourceContributionIds: ['c2'], hows: [] },
-      ]},
-    ]};
+    const ws = { id: 'grow', name: 'M', tasks: [], records: [
+      rec({ id: 'w1', type: 'decision', text: 'grow', sourceContributionIds: ['c1'] }),
+      rec({ id: 'wt1', type: 'decision', text: 'linkedin', sourceContributionIds: ['c2'] }),
+    ] };
     await answerQuestion({
       sharedMd: '# s', roleMd: '', question: 'q?', config: { model: 'm' },
       workstream: ws, contributions: [
@@ -373,7 +248,7 @@ describe('compileTaskPrompt', () => {
 
   it('embeds the task title, workstream tree, and framing sections into the prompt', async () => {
     callClaude.mockResolvedValue('# Task: Plan Q3\n');
-    const workstream = { id: 'growth', name: 'Growth', whys: [{ id: 'w1', text: 'grow revenue', whats: [] }] };
+    const workstream = { id: 'growth', name: 'Growth', tasks: [], records: [rec({ id: 'w1', type: 'decision', text: 'grow revenue' })] };
     const task = { id: 't-plan', title: 'Plan Q3 pivot', owner: 'priya', status: 'open', workstream: 'growth', createdAt: '2026-07-24' };
     const result = await compileTaskPrompt({
       task, workstream, role: null, contributions: [],
@@ -392,7 +267,7 @@ describe('compileTaskPrompt', () => {
     callClaude.mockResolvedValue('# md');
     await compileTaskPrompt({
       task: { id: 't-plan', title: 't', owner: 'p', status: 'open', workstream: 'main', createdAt: '2026-07-24' },
-      workstream: { id: 'main', name: 'M', whys: [] },
+      workstream: { id: 'growth', name: 'M', records: [], tasks: [] },
       role: { slug: 'growth', name: 'Head of Growth', responsibilities: 'own paid acquisition' },
       contributions: [],
       config: { model: 'm', project: 'p' },
@@ -402,20 +277,22 @@ describe('compileTaskPrompt', () => {
     expect(prompt).toContain('own paid acquisition');
   });
 
-  it('includes recent decisions on the same workstream', async () => {
+  it('includes the decisions and rules on this part of the work, exceptions under their rule', async () => {
     callClaude.mockResolvedValue('# md');
     await compileTaskPrompt({
       task: { id: 't-plan', title: 't', workstream: 'growth', status: 'open', createdAt: '2026-07-24' },
-      workstream: { id: 'growth', name: 'G', whys: [] },
-      role: null,
-      contributions: [
-        { text: 'Pause Google Ads', author: 'priya', ts: '2026-06-14T10:00:00Z', source: 'cli', tagged: 'decision', workstream: 'growth' },
-        { text: 'Should be ignored', author: 'x', ts: '2026-06-15', source: 'cli', tagged: 'decision', workstream: 'main' },
-      ],
-      config: { model: 'm', project: 'p' },
+      workstream: { id: 'growth', name: 'G', tasks: [], records: [
+        rec({ id: 'd1', type: 'decision', text: 'Pause Google Ads' }),
+        rec({ id: 'r1', type: 'rule', text: 'No spend over 10k' }),
+        rec({ id: 'e1', type: 'exception', text: 'Launch week may spend 15k', expiresAt: '2999-01-01', links: { bends: 'r1' } }),
+        rec({ id: 'w1', type: 'assumption', text: 'Not a decision' }),
+      ] },
+      role: null, contributions: [], config: { model: 'm', project: 'p' },
     });
     const prompt = callClaude.mock.calls[0][0].prompt;
-    expect(prompt).toContain('Pause Google Ads');
-    expect(prompt).not.toContain('Should be ignored');
+    const block = prompt.slice(prompt.indexOf('Decisions and rules on this part of the work'));
+    expect(block).toContain('We decided: Pause Google Ads');
+    expect(block.indexOf('Rule: No spend over 10k')).toBeLessThan(block.indexOf('Allowed: Launch week may spend 15k'));
+    expect(block.split('\n').slice(0, 6).join('\n')).not.toContain('Not a decision');
   });
 });

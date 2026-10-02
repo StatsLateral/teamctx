@@ -3,11 +3,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 vi.mock('../../src/storage.js', () => ({
   writeWorkstreamMd: vi.fn(),
   listWorkstreamIds: vi.fn(() => []),
-  readTree: vi.fn(() => ({ id: 'main', name: 'M', whys: [] })),
+  readTree: vi.fn(() => ({ id: 'tech', name: 'Tech', records: [], tasks: [] })),
   writeTree: vi.fn(),
   readTreeMd: vi.fn(() => ''),
   writeTreeMd: vi.fn(),
-  readProject: vi.fn(() => ({ name: '', whys: [] })),
+  readProject: vi.fn(() => ({ name: '', goal: null, records: [], tasks: [] })),
   readConfig: vi.fn(),
   readWorkstream: vi.fn(),
   writeTree: vi.fn(),
@@ -59,17 +59,19 @@ describe('reviewApproveCommand — workstream-aware', () => {
     readConfig.mockReturnValue(twoWsConfig);
     readQueueItem.mockReturnValue({
       id: 'c-1', workstream: 'tech', author: 'satya', tagged: null,
-      operations: [{ type: 'addWhy', text: 'New tech Why', summary: 's' }],
+      operations: [{ type: 'addRecord', record: { type: 'decision', text: 'New tech Why' } }],
     });
-    readWorkstream.mockReturnValue({ id: 'tech', name: 'Tech', whys: [] });
+    readWorkstream.mockReturnValue({ id: 'tech', name: 'Tech', records: [], tasks: [] });
 
     await reviewApproveCommand('c-1');
 
     expect(readTree.mock.calls[0][0]).toBe('tech');
     const [wsIdArg, wsObjArg] = writeTree.mock.calls[0];
     expect(wsIdArg).toBe('tech');
-    expect(wsObjArg.whys).toHaveLength(1);
-    expect(wsObjArg.whys[0].text).toBe('New tech Why');
+    expect(wsObjArg.records).toHaveLength(1);
+    expect(wsObjArg.records[0].text).toBe('New tech Why');
+    // Who approved it travels with the record, not just with the commit.
+    expect(wsObjArg.records[0].approvedBy).toMatchObject({ name: expect.any(String), at: expect.any(String) });
     expect(writeTreeMd.mock.calls[0][0]).toBe('tech');
   });
 
@@ -77,9 +79,9 @@ describe('reviewApproveCommand — workstream-aware', () => {
     readConfig.mockReturnValue(twoWsConfig);
     readQueueItem.mockReturnValue({
       id: 'c-2', workstream: 'tech', author: 'satya', tagged: null,
-      operations: [{ type: 'addWhy', text: 'x', summary: 's' }],
+      operations: [{ type: 'addRecord', record: { type: 'decision', text: 'x' } }],
     });
-    readWorkstream.mockReturnValue({ id: 'tech', name: 'Tech', whys: [] });
+    readWorkstream.mockReturnValue({ id: 'tech', name: 'Tech', records: [], tasks: [] });
 
     await reviewApproveCommand('c-2');
 
@@ -92,9 +94,9 @@ describe('reviewApproveCommand — workstream-aware', () => {
     readConfig.mockReturnValue(twoWsConfig);
     readQueueItem.mockReturnValue({
       id: 'c-3', workstream: 'tech', author: 'satya', tagged: 'decision',
-      operations: [{ type: 'addWhy', text: 'y', summary: 's' }],
+      operations: [{ type: 'addRecord', record: { type: 'decision', text: 'y' } }],
     });
-    readWorkstream.mockReturnValue({ id: 'tech', name: 'Tech', whys: [] });
+    readWorkstream.mockReturnValue({ id: 'tech', name: 'Tech', records: [], tasks: [] });
     const fakeContribs = [{ id: 'c-3', author: 'satya', ts: '2026-07-21', tagged: 'decision' }];
     readContributions.mockReturnValue(fakeContribs);
 
@@ -115,9 +117,9 @@ describe('reviewApproveCommand — workstream-aware', () => {
     readConfig.mockReturnValue(twoWsConfig);
     readQueueItem.mockReturnValue({
       id: 'c-legacy', author: 'satya', tagged: null,
-      operations: [{ type: 'addWhy', text: 'legacy', summary: 's' }],
+      operations: [{ type: 'addRecord', record: { type: 'decision', text: 'legacy' } }],
     });
-    readTree.mockReturnValue({ name: 'p', whys: [] });
+    readTree.mockReturnValue({ name: 'p', records: [], tasks: [] });
 
     await reviewApproveCommand('c-legacy');
 
@@ -129,9 +131,9 @@ describe('reviewApproveCommand — workstream-aware', () => {
     readConfig.mockReturnValue(twoWsConfig);
     readQueueItem.mockReturnValue({
       id: 'c-4', workstream: 'tech', author: 'satya', tagged: 'decision',
-      operations: [{ type: 'addWhy', text: 'z', summary: 's' }],
+      operations: [{ type: 'addRecord', record: { type: 'decision', text: 'z' } }],
     });
-    readWorkstream.mockReturnValue({ id: 'tech', name: 'Tech', whys: [] });
+    readWorkstream.mockReturnValue({ id: 'tech', name: 'Tech', records: [], tasks: [] });
 
     await reviewApproveCommand('c-4');
 
@@ -153,7 +155,7 @@ describe('approving at project level', () => {
       operations: [{ op: 'add_why', text: 'no new vendors' }],
     });
     readConfig.mockReturnValue({ project: 'Ledger', roles: [{ slug: 'ops', workstream: null }] });
-    readProject.mockReturnValue({ name: 'Ledger', whys: [] });
+    readProject.mockReturnValue({ name: 'Ledger', records: [], tasks: [] });
   });
 
   it('renders the project without an inherited half', async () => {
@@ -178,12 +180,12 @@ describe('approving inside a workstream', () => {
       workstreams: [{ id: 'delivery', name: 'Delivery' }],
       roles: [{ slug: 'lead', workstream: 'delivery' }],
     });
-    readProject.mockReturnValue({ name: 'Ledger', whys: [{ id: 'p1', text: 'no new vendors' }] });
+    readProject.mockReturnValue({ name: 'Ledger', goal: null, records: [{ id: 'p1', type: 'rule', text: 'no new vendors', status: 'active' }], tasks: [] });
   });
 
   it('still puts the project above it', async () => {
     await approveReview({ id: 'q2', actor: 'Maya' });
-    expect(serializeToMd.mock.calls[0][4].project.whys[0].id).toBe('p1');
-    expect(generateRoleFile.mock.calls[0][5].project.whys[0].id).toBe('p1');
+    expect(serializeToMd.mock.calls[0][4].project.records[0].id).toBe('p1');
+    expect(generateRoleFile.mock.calls[0][5].project.records[0].id).toBe('p1');
   });
 });

@@ -17,14 +17,20 @@
  * Neither half is a substitute for the other.
  */
 export const INSTRUCTIONS = `teamctx keeps a team's shared context in their own
-git repository: why they decided something, what that requires, and how it gets
-done — a three-level tree per workstream — plus a compiled view per role. You
-are connected to one project.
+git repository: the goal and why it matters, the decisions the team has made,
+the rules it works by and the exceptions it allows, what it is assuming, and
+the tasks — organised into parts of the work (workstreams) that
+can nest — plus a compiled view per role. The manager approves what becomes the
+team's context. You are connected to one project.
+
+When you repeat any of it to a person, use its plain label — "We decided:",
+"Rule:", "Allowed:", "We're assuming:" — and always
+say an exception together with the rule it bends.
 
 ## Act, do not explain
 
 The people using this mostly do not know teamctx exists. They asked their
-assistant for help with work. Words like "workstream", "why-tree", "context
+assistant for help with work. Words like "workstream", "record", "context
 compile" and "contribution queue" are teamctx's internal vocabulary — using them
 in conversation moves the burden onto the user, which is the failure this
 guidance exists to prevent. Say "this project", "your goals", "your tasks",
@@ -39,13 +45,14 @@ could call, or ask them to choose between tools by name.
 the team aligned on.
 
   1. \`init\` — only if \`get_status\` shows no project yet.
-  2. \`workstream_use\` — if the work splits into strands. One is fine; most
-     projects never need a second.
+  2. \`workstream_add\` — if the work splits into parts. One is fine; most
+     projects never need a second. \`propose_structure\` drafts a split from
+     what they have told you, for them to accept part by part.
   3. \`contribute\` — put what they have told you into the shared context. This
      is how context gets there; there is no separate import step. If
-     \`get_status\` shows \`totalWhys: 0\`, this is the project's founding
-     contribution — call it with \`apply: true\` so it lands immediately instead
-     of waiting on the manager to review their own first message. Whether that
+     \`get_status\` shows \`hasContext: false\`, this is the project's founding
+     contribution, and the manager's lands on its own — nobody else could
+     review it. Whether that
      content is a long conversation they already had or one sentence they just
      gave you, the call is the same: summarize what you were told, do not ask
      them to restate it in teamctx's terms.
@@ -55,7 +62,7 @@ the team aligned on.
      to send them. This is refused while there is nothing for that person to
      read: the project needs context, and so does any part of the work you put
      them on specifically. \`get_status\` tells you both before you try —
-     \`projectWhys\`, and a count on each workstream. If either is zero, ask
+     \`hasContext\`, and counts on each workstream. If either is empty, ask
      the manager what it is about and \`contribute\` that first.
 
 **Somebody picking up work.** They were invited and want to know what to do.
@@ -73,9 +80,9 @@ the team aligned on.
 
 - **A contribution does not land, it queues — except the founding one.** Say
   "sent for review", not "added", for every contribution but the first. The
-  first (\`totalWhys: 0\`) is the one case where \`apply: true\` is correct: the
-  caller is already the pinned manager, and there is nothing yet to review
-  against. It is not for bulk content — a long conversation or a document is the
+  manager's first (\`hasContext: false\`) lands without being asked: there is
+  nothing yet to review against. \`apply: true\` is the manager's alone and
+  not for bulk content — a long conversation or a document is the
   case review exists for, however much of it there is.
   If the result carries \`applyRefused: true\`, the caller is not the manager and
   the flag was dropped. Nothing was lost: the contribution was kept and took the

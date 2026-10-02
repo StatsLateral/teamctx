@@ -15,8 +15,8 @@ vi.mock('./storage.js', () => ({
 const { assertJoinableContext, EmptyContextError } = await import('./context-gate.js');
 const { readProject, readWorkstream } = await import('./storage.js');
 
-const FULL = { name: 'Ledger', whys: [{ id: 'w1', text: 'ship it', whats: [] }] };
-const EMPTY = { name: 'Ledger', whys: [] };
+const FULL = { name: 'Ledger', goal: null, records: [{ id: 'w1', type: 'decision', text: 'ship it', status: 'active' }], tasks: [] };
+const EMPTY = { name: 'Ledger', goal: null, records: [], tasks: [] };
 
 const config = {
   project: 'Ledger',
@@ -115,12 +115,22 @@ describe('when there is something to read', () => {
 });
 
 describe('what counts as something to read', () => {
-  it('one Why is enough', () => {
-    readProject.mockReturnValue({ whys: [{ id: 'w1', text: 'ship it' }] });
+  it('one record is enough', () => {
+    readProject.mockReturnValue({ records: [{ id: 'w1', type: 'decision', text: 'ship it' }] });
     expect(() => call()).not.toThrow();
   });
 
-  it('a tree with no whys key at all is empty', () => {
+  it('a goal alone is enough', () => {
+    readProject.mockReturnValue({ goal: { text: 'ship it' }, records: [], tasks: [] });
+    expect(() => call()).not.toThrow();
+  });
+
+  it('tasks alone are enough', () => {
+    readProject.mockReturnValue({ goal: null, records: [], tasks: [{ id: 't', title: 'do it' }] });
+    expect(() => call()).not.toThrow();
+  });
+
+  it('a tree with nothing in it at all is empty', () => {
     readProject.mockReturnValue({ name: 'Ledger' });
     expect(() => call()).toThrow(EmptyContextError);
   });

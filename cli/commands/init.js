@@ -41,7 +41,7 @@ export async function initCommand() {
     console.log('→ Removed .teamctx/ from .gitignore (it must be tracked in your private repo).\n');
   }
   if (!result.envVarPresent) {
-    console.log(`\nNote: ${result.envVarNeeded} is not set. Add it to .env.local before running teamctx contribute, ask, or reflect.`);
+    console.log(`\nNote: ${result.envVarNeeded} is not set. Add it to .env.local before running teamctx contribute or ask.`);
   }
   if (result.config.autoPush && !result.pushed) {
     console.log('Note: push skipped (no remote yet).');

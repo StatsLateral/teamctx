@@ -8,7 +8,7 @@ vi.mock('./providers/index.js', () => ({
 
 import { proposeDiff } from './ai.js';
 
-const workstream = { name: 'Ledger', whys: [{ id: 'w1', text: 'Existing why', whats: [] }] };
+const workstream = { name: 'Ledger', records: [{ id: 'w1', type: 'decision', text: 'Existing why', status: 'active' }], tasks: [] };
 const call = () => complete.mock.calls[0][0];
 
 beforeEach(() => complete.mockClear());
@@ -78,5 +78,48 @@ describe('proposeDiff — avoid list', () => {
       avoid: ['Move billing off Stripe'],
     });
     expect(call().prompt).toContain('Existing why');
+  });
+});
+
+describe('proposeDiff — governed operations', () => {
+  it('asks for governed operations and gives the current ids and today', async () => {
+    await proposeDiff({
+      workstream: { id: 'food', name: 'Food', records: [{ id: 'rec-1', type: 'rule', text: 'No nuts', status: 'active' }], tasks: [] },
+      contribution: 'Mum may use chocolate frosting on the adults cake until the party',
+      source: 'Maya', config: {}, today: '2026-10-02',
+    });
+    const { prompt, system } = call();
+    expect(prompt).toContain('"addRecord"');
+    expect(prompt).toContain('exception');
+    expect(prompt).toContain('rec-1');
+    expect(prompt).toContain('Today is 2026-10-02');
+    expect(`${system}\n${prompt}`).not.toMatch(/addWhy|addWhat|addHow|Why \/ What \/ How/);
+  });
+
+  it('never shows the model a record that is no longer active', async () => {
+    await proposeDiff({
+      workstream: { name: 'F', records: [{ id: 'rec-old', type: 'decision', text: 'Old plan', status: 'replaced' }], tasks: [] },
+      contribution: 'x', source: 's', config: {}, today: '2026-10-02',
+    });
+    expect(call().prompt).not.toContain('Old plan');
+  });
+});
+
+describe('proposeDiff — where records attach', () => {
+  it('only asks for attachedTo when a record is about one task, never to put it on the project', async () => {
+    await proposeDiff({ workstream: { id: 'food', name: 'Food', records: [], tasks: [] }, contribution: 'x', source: 's', config: {}, today: '2026-10-02' });
+    const { prompt } = call();
+    expect(prompt).not.toContain('"attachedTo": { "kind": "project" }');
+    expect(prompt).toMatch(/attachedTo only when[\s\S]*specific task/);
+  });
+});
+
+describe('proposeDiff — four kinds of record', () => {
+  it('offers only decision, assumption, rule and exception, and puts reasons in detail', async () => {
+    await proposeDiff({ workstream: { name: 'F', records: [], tasks: [] }, contribution: 'x', source: 's', config: {}, today: '2026-10-02' });
+    const { prompt } = call();
+    expect(prompt).toContain('"type": "decision|assumption|rule|exception"');
+    expect(prompt).not.toMatch(/\bquestion = |\brisk = |\bwhy = /);
+    expect(prompt).toMatch(/reason.*detail/i);
   });
 });

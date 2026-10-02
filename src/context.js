@@ -1,93 +1,32 @@
-import { proposeDiff, callClaude, extractJson } from './ai.js';
-import { resolveTarget, targetLabel } from './project-level.js';
-import { membershipModel, isKnownMembership } from './membership-model.js';
+import { proposeDiff, callClaude } from './ai.js';
+import { targetLabel } from './project-level.js';
 import { applyOps } from './ops.js';
+import { renderBrief } from './brief.js';
 import {
   collectContributorCounts, collectSourceRefs,
   formatContributorsSection, formatContributorLine, formatAuditBlock,
 } from './provenance.js';
 
-function decisionMarker(node, contributionsById) {
-  const ids = node.sourceContributionIds || [];
-  let latest = null;
-  for (const id of ids) {
-    const c = contributionsById.get(id);
-    if (c && c.tagged === 'decision') {
-      if (!latest || (c.ts || '') > (latest.ts || '')) latest = c;
-    }
-  }
-  if (!latest) return '';
-  const date = (latest.ts || '').split('T')[0] || 'unknown';
-  const author = latest.author || 'unknown';
-  const source = latest.source || 'cli';
-  return `  *[decision — ${author}, ${date}, via ${source}]*`;
-}
-
-function sourceTag(node) {
-  const ids = node.sourceContributionIds || [];
-  return ids.length ? `  [sources: ${ids.join(', ')}]` : '';
-}
-
-// `includeSourceTags` annotates each node with `[sources: c-x]` for the ask
-// prompt; `includeContributors` appends the `## Contributors` roll-up. The
-// roll-up belongs in the markdown we write to disk, not in prompts we send to
-// the AI, so prompt builders pass `includeContributors: false`.
-function renderTree(whys, contributionsById, tagFor) {
-  return (whys || []).map(why => {
-    let out = `- **Why:** ${why.text}${decisionMarker(why, contributionsById)}${tagFor(why)}\n`;
-    (why.whats || []).forEach(what => {
-      out += `  - **What:** ${what.text}${decisionMarker(what, contributionsById)}${tagFor(what)}\n`;
-      (what.hows || []).forEach(how => {
-        out += `    - **How:** ${how.text}${decisionMarker(how, contributionsById)}${tagFor(how)}\n`;
-      });
-    });
-    return out;
-  }).join('');
-}
-
-/** Render a workstream, with the project tree above it when one is passed. */
-export function serializeToMd(workstream, projectName, lastUpdatedBy = '', contributions = [], { includeSourceTags = false, includeContributors = true, project = null } = {}) {
-  const now = new Date().toISOString().split('T')[0];
-  const byLine = lastUpdatedBy ? ` · Source: ${lastUpdatedBy} contribution` : '';
-  const contributionsById = new Map(contributions.map(c => [c.id, c]));
-  const tagFor = includeSourceTags ? sourceTag : () => '';
-
-  const inheritedWhys = project?.whys || [];
-  // "Project Context — Engineering" above a section called "Project context"
-  // uses the same word for two different things in one document. When there is
-  // an inherited half to distinguish it from, the title stops claiming to be
-  // the project.
-  const title = inheritedWhys.length ? 'Context' : 'Project Context';
-  const header = `# ${title} — ${projectName}\n*Last updated: ${now}${byLine}*\n\n## Why / What / How\n\n`;
-
-  const ownWhys = workstream.whys || [];
-
-  // Empty means empty on both halves. An inherited tree is still context, so a
-  // workstream with none of its own is not a project that knows nothing.
-  if (ownWhys.length === 0 && inheritedWhys.length === 0) {
-    return header + '*No context yet. Run `teamctx contribute` to add the first contribution.*\n';
-  }
-
-  // The inherited half is concatenated here and stored nowhere: a workstream's
-  // JSON never holds project nodes. The compiled page is a different matter —
-  // it is written once and does not re-read anything, so a project-level write
-  // pushes the new tree back through every workstream's page itself. See
-  // `src/recompile.js`, which also says why role files are not in that pass.
-  //
-  // Labelled read-only because a reader has to be able to tell what they may add
-  // to from what is settled above them. Without that line the first thing a
-  // member does is propose an edit to something that was never theirs.
-  const inherited = inheritedWhys.length
-    ? '### Project context\n*Inherited from the project — read-only here.*\n\n'
-      + renderTree(inheritedWhys, contributionsById, tagFor)
-      + `\n### ${workstream.name || 'This workstream'}\n\n`
-    : '';
-
-  const tree = inherited + renderTree(ownWhys, contributionsById, tagFor);
-
-  if (includeSourceTags || !includeContributors) return header + tree;
-  const contributorsSection = formatContributorsSection(collectContributorCounts(workstream, contributions));
-  return header + tree + (contributorsSection ? `\n${contributorsSection}` : '');
+/**
+ * Render a tree as Markdown. A project tree (no `id`) renders alone; a
+ * workstream renders under the project and its ancestors, passed as `chain`
+ * (ancestors first, the workstream last). Without a `chain`, the workstream is
+ * the whole chain.
+ */
+export function serializeToMd(tree, projectName, lastUpdatedBy = '', contributions = [], {
+  includeSourceTags = false, includeContributors = true, project = null, chain = null,
+} = {}) {
+  const isProject = !tree?.id;
+  const md = renderBrief({
+    projectName,
+    project: isProject ? tree : project,
+    chain: chain ?? (isProject ? [] : [tree]),
+    includeSourceTags,
+    lastUpdatedBy,
+  });
+  if (includeSourceTags || !includeContributors) return md;
+  const c = formatContributorsSection(collectContributorCounts(tree, contributions));
+  return c ? `${md}\n${c}` : md;
 }
 
 /**
@@ -95,9 +34,9 @@ export function serializeToMd(workstream, projectName, lastUpdatedBy = '', contr
  * default to the plain contribution behaviour, so existing callers are
  * unaffected.
  */
-export async function updateShared(workstream, contribution, config, { intent, avoid } = {}) {
+export async function updateShared(tree, contribution, config, { intent, avoid } = {}) {
   const { summary, operations } = await proposeDiff({
-    workstream,
+    workstream: tree,
     contribution: contribution.text,
     source: contribution.author,
     model: config.model,
@@ -105,19 +44,22 @@ export async function updateShared(workstream, contribution, config, { intent, a
     intent,
     avoid,
   });
-  const updated = applyOps(workstream, operations, contribution.id);
-  return { workstream: updated, summary, operations };
+  const { tree: updated, dropped } = applyOps(tree, operations, contribution.id);
+  // What was dropped never reaches the queue or the tree: a reviewer approving
+  // a proposal should see exactly what will be written.
+  const kept = operations.filter(o => !dropped.some(d => d.op === o));
+  return { workstream: updated, summary, operations: kept, dropped };
 }
 
-export async function generateRoleFile(workstream, role, projectName, config, contributions = [], { project = null } = {}) {
-  const tree = serializeToMd(workstream, projectName, '', contributions, { includeContributors: false, project });
+export async function generateRoleFile(workstream, role, projectName, config, contributions = [], { project = null, chain = null } = {}) {
+  const tree = serializeToMd(workstream, projectName, '', contributions, { includeContributors: false, project, chain });
   const now = new Date().toISOString().split('T')[0];
 
   const prompt = [
     `Generate a role-specific context file for a team member.`,
     `Project: ${projectName}  Date: ${now}`,
     ``,
-    `Full project context (Why/What/How tree):`,
+    `Full shared context:`,
     tree,
     ``,
     `Role: ${role.name}`,
@@ -132,12 +74,11 @@ export async function generateRoleFile(workstream, role, projectName, config, co
     `## Your Role`,
     `[who you are, what you own, what to ignore]`,
     ``,
-    `## Your Why / What / How`,
-    `[filter and reframe the project tree for this role — same facts, different perspective]`,
-    `[IMPORTANT: preserve any inline "*[decision — author, date, via source]*" markers verbatim on the same line as the statement they annotate. They mark human decisions and must survive the rewrite.]`,
+    `## Your context`,
+    `[filter the shared context for this role — same facts, different perspective. Keep each line's plain label ("Why it matters:", "We decided:", "Rule:", "Allowed:", "We're assuming:") exactly as written, and keep every "Allowed:" line directly under the rule it bends.]`,
     ``,
-    `## Open Decisions (Yours to Make)`,
-    `[items where this role is the decision owner — write "None currently." if none]`,
+    `## Assumptions you own`,
+    `[assumptions owned by this role, with the date to check each by — write "None currently." if none]`,
     ``,
     `## How to Use This File`,
     `Paste into your CLAUDE.md, or use as system context in ChatGPT / Gemini.`,
@@ -149,16 +90,16 @@ export async function generateRoleFile(workstream, role, projectName, config, co
   return callClaude({ prompt, model: config.model, config });
 }
 
-export async function compileTaskPrompt({ task, workstream, role, contributions, config, project = null }) {
+export async function compileTaskPrompt({ task, workstream, role, contributions, config, project = null, chain = null }) {
   const projectName = config?.project || workstream?.name || 'project';
-  const tree = serializeToMd(workstream, projectName, '', contributions, { includeContributors: false, project });
+  const tree = serializeToMd(workstream, projectName, '', contributions, { includeContributors: false, project, chain });
   const now = new Date().toISOString().split('T')[0];
   const roleLine = role ? `Framed for role: ${role.name} — ${role.responsibilities || ''}` : 'No role filter — write for a general team member.';
-  const decisionsList = (contributions || [])
-    .filter(c => c.tagged === 'decision' && resolveTarget(c.workstream) === resolveTarget(task.workstream))
-    .slice(-8)
-    .map(c => `- ${c.text} — ${c.author}, ${(c.ts || '').slice(0, 10)}, via ${c.source || 'cli'}`)
-    .join('\n') || '(none yet)';
+  // The decisions and rules on this task's own chain, each exception under its
+  // rule — never a loose list of everything anyone ever tagged.
+  const settled = (w) => ({ ...w, tasks: [], records: (w?.records || []).filter(r => ['decision', 'rule', 'exception'].includes(r.type)) });
+  const decisionsList = renderBrief({ projectName, project: null, chain: (chain || [workstream]).map(settled) })
+    .split('\n').filter(l => l.trimStart().startsWith('- ')).join('\n') || '(none yet)';
 
   const prompt = [
     `Generate a focused, AI-ready prompt file for ONE specific task.`,
@@ -168,10 +109,10 @@ export async function compileTaskPrompt({ task, workstream, role, contributions,
     `Task id: ${task.id}   Owner: ${task.owner || '(unassigned)'}   Belongs to: ${targetLabel(task.workstream, projectName)}`,
     roleLine,
     ``,
-    `Full workstream context (Why/What/How tree — pick only what's relevant to THIS task):`,
+    `Full context for this part of the work (pick only what's relevant to THIS task):`,
     tree,
     ``,
-    `Recent decisions on this workstream (may or may not be relevant to the task):`,
+    `Decisions and rules on this part of the work (may or may not be relevant to the task):`,
     decisionsList,
     ``,
     `Generate a markdown file with EXACTLY these sections:`,
@@ -182,8 +123,7 @@ export async function compileTaskPrompt({ task, workstream, role, contributions,
     `**Created:** ${task.createdAt || '-'} · **Compiled:** ${now}`,
     ``,
     `## Relevant context`,
-    `[Pull ONLY the Whys / Whats / Hows that bear on this task. Skip everything else.]`,
-    `[IMPORTANT: preserve any inline "*[decision — author, date, via source]*" markers verbatim.]`,
+    `[Pull ONLY the lines that bear on this task, keeping their plain labels. Skip everything else.]`,
     ``,
     `## Related decisions`,
     `[List any decisions above that materially constrain this task. If none, write "None currently."]`,
@@ -195,138 +135,6 @@ export async function compileTaskPrompt({ task, workstream, role, contributions,
   ].join('\n');
 
   return callClaude({ prompt, model: config.model, config });
-}
-
-export async function generateReflection(workstream, contributions, config) {
-  const tree = serializeToMd(workstream, workstream.name, '', contributions, { includeContributors: false });
-  const recent = contributions.slice(-20).map(c => `- ${c.author}: "${c.text}"`).join('\n') || '(none yet)';
-  const system = 'You are improving a team context record. Output STRICT JSON only — no markdown fences.';
-
-  const prompt = [
-    `Review this project Why/What/How context and recent contributions. Return an improved version.`,
-    ``,
-    `Current context:`,
-    tree,
-    ``,
-    `Recent contributions (${Math.min(20, contributions.length)} most recent):`,
-    recent,
-    ``,
-    `Return updated workstream JSON with this exact shape:`,
-    JSON.stringify({ name: workstream.name, whys: workstream.whys }, null, 2),
-    ``,
-    `Improvements: remove stale items, sharpen vague Whys (3-8 words), consolidate near-duplicates.`,
-    `Preserve ALL existing ids on nodes you keep. JSON only.`,
-  ].join('\n');
-
-  return callClaude({ prompt, model: config.model, system, max_tokens: 8192, config });
-}
-
-export async function proposeSubworkstreams(workstream, config, roles = []) {
-  const whys = workstream.whys || [];
-  if (whys.length < 2) {
-    return { splits: [], leftover: whys.map(w => w.id), rationale: 'Not enough Why nodes to cluster.' };
-  }
-
-  const tree = whys.map(w => {
-    const whats = (w.whats || []).map(t => `    - What: ${t.text}`).join('\n');
-    return `- id=${w.id} — Why: ${w.text}${whats ? '\n' + whats : ''}`;
-  }).join('\n');
-
-  const roleHints = roles.length
-    ? roles.map(r => `- ${r.name}: ${r.responsibilities}`).join('\n')
-    : '(no roles defined)';
-
-  const system =
-    'You cluster distinct threads in a shared team Why/What/How context tree. ' +
-    'Two threads are "distinct" when the roles that care about them barely overlap ' +
-    '(e.g. product-strategy vs. engineering-implementation). Output STRICT JSON only.';
-
-  const prompt = [
-    `Project: ${config.project || workstream.name || 'project'}`,
-    '',
-    'Current workstream Why nodes (id + text, optional Whats for context):',
-    tree,
-    '',
-    'Roles on this team (their responsibilities are hints for what natural clusters look like):',
-    roleHints,
-    '',
-    'Return STRICT JSON with this exact shape:',
-    `{
-  "splits": [
-    {
-      "name": "Short 2-4 word name",
-      "rationale": "one-sentence why these belong together",
-      "whyIds": ["<id>", "<id>"],
-      "membership": {
-        "model": "assigned-tasks | named-role | workstream-position",
-        "rationale": "one sentence on why this thread suits that way of working"
-      },
-      "roles": [
-        { "name": "...", "responsibilities": "...", "excludes": "..." }
-      ]
-    }
-  ],
-  "leftover": ["<why id that fits neither cluster>"]
-}`,
-    '',
-    'Rules:',
-    '- Propose 0-4 splits. 0 is valid — output empty splits if no clean split exists.',
-    '- whyIds MUST be disjoint across splits AND leftover; every Why id appears at most once.',
-    '- Only use ids that exist in the tree above.',
-    '- A single cluster with all whys is NOT a useful split — omit it.',
-    '- Names are 2-4 words, capitalized (e.g. "Product Strategy", "Tech Migration").',
-    '',
-    'For "membership", say how a person\'s part in that thread is best expressed:',
-    '- "assigned-tasks" — their part is the tasks given to them, and nothing wider.',
-    '- "named-role" — they hold a named role with responsibilities, and pick up tasks within it.',
-    '- "workstream-position" — they own the thread and decide what the work in it is.',
-    'Choose from the split\'s own character, not from a house style: a thread of',
-    'discrete, orderable jobs suits the first; open-ended judgement suits the last.',
-    'JSON only, no markdown fences.',
-  ].join('\n');
-
-  const raw = await callClaude({ prompt, model: config.model, system });
-  const parsed = extractJson(raw);
-  return normalizeSubworkstreamProposal(parsed, whys);
-}
-
-export function normalizeSubworkstreamProposal(parsed, whys) {
-  const knownIds = new Set(whys.map(w => w.id));
-  const seen = new Set();
-  const splits = [];
-  for (const raw of Array.isArray(parsed.splits) ? parsed.splits : []) {
-    const name = String(raw.name || '').trim();
-    const rationale = String(raw.rationale || '').trim();
-    const whyIds = (Array.isArray(raw.whyIds) ? raw.whyIds : [])
-      .filter(id => knownIds.has(id) && !seen.has(id));
-    whyIds.forEach(id => seen.add(id));
-    // The model is normalised rather than trusted: an invented one falls back
-    // to the narrowest of the three, which claims the least about how somebody
-    // runs their team. `membershipRecognised` keeps the fact that it was
-    // invented, so a caller can say so instead of quietly presenting a guess.
-    const proposed = raw.membership?.model;
-    const membership = {
-      model: membershipModel(proposed),
-      rationale: String(raw.membership?.rationale || '').trim(),
-      ...(proposed !== undefined && !isKnownMembership(proposed) ? { recognised: false } : {}),
-    };
-    // Roles arrive as suggestions attached to a workstream that does not exist
-    // yet, so they are shaped here and created by nothing — `role_add` is still
-    // what creates one, after somebody has agreed to the workstream itself.
-    const roles = (Array.isArray(raw.roles) ? raw.roles : [])
-      .map(r => ({
-        name: String(r?.name || '').trim(),
-        responsibilities: String(r?.responsibilities || '').trim(),
-        excludes: String(r?.excludes || '').trim(),
-      }))
-      .filter(r => r.name);
-
-    if (name && whyIds.length > 0) splits.push({ name, rationale, whyIds, membership, roles });
-  }
-
-  const claimed = new Set(splits.flatMap(s => s.whyIds));
-  const leftover = whys.map(w => w.id).filter(id => !claimed.has(id));
-  return { splits, leftover };
 }
 
 const CITATIONS_HEADING = /\n{1,2}##\s*Citations\s*:?\s*/gi;
@@ -367,7 +175,7 @@ export async function answerQuestion({ sharedMd, roleMd, question, config, openT
   const system = [
     'You are a helpful assistant with access to the team\'s project context.',
     'Answer questions based on the context provided. Be concise and specific.',
-    'When the context shows an inline "*[decision — author, date, via source]*" marker on a statement, treat that statement as a canonical human decision. If your answer relies on it, cite it inline like "(decision — author, date)". If the context contains conflicting statements and one is a decision, prefer the decision.',
+    'Lines labelled "We decided:" and "Rule:" are settled by the team. An "Allowed:" line under a rule is an approved exception to that rule, for what it names, until its date. Prefer settled lines over anything that contradicts them, and say so when you rely on one.',
     useCitedTags ? CITATION_INSTRUCTION : '',
   ].filter(Boolean).join(' ');
   const prompt = `Context:\n\n${context}\n\n---\n\nQuestion: ${question}`;

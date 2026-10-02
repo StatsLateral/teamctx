@@ -5,10 +5,8 @@ import { join } from 'path';
 import { readFileSync, existsSync, writeFileSync } from 'fs';
 import {
   readConfig, writeConfig,
-  readShared, writeShared,
   appendContribution, readContributions,
   writeRoleFile, readRoleFile,
-  writeSharedMd, readSharedMd,
   writeQueueItem, readQueueItem, listQueue, deleteQueueItem,
   writeRejected, listRejected,
   writeSnapshot, readSnapshot, listSnapshots, resolveSnapshotId,
@@ -35,18 +33,6 @@ describe('config', () => {
     const cfg = { project: 'Demo', model: 'claude-sonnet-4-6', autoPush: false, me: 'alice', roles: [] };
     writeConfig(cfg, dir);
     expect(readConfig(dir)).toEqual(cfg);
-  });
-});
-
-describe('workstream', () => {
-  it('returns empty workstream when shared.json does not exist', () => {
-    expect(readShared(dir)).toEqual({ id: 'main', name: '', whys: [] });
-  });
-
-  it('writes and reads workstream round-trip', () => {
-    const ws = { id: 'main', name: 'Q3 Launch', whys: [] };
-    writeShared(ws, dir);
-    expect(readShared(dir)).toEqual(ws);
   });
 });
 
@@ -78,19 +64,19 @@ describe('role files', () => {
 
 describe('workstream files', () => {
   it('returns an empty workstream when the file does not exist', () => {
-    expect(readWorkstream('main', dir)).toEqual({ id: 'main', name: '', whys: [] });
+    expect(readWorkstream('main', dir)).toEqual({ id: 'main', name: '', records: [], tasks: [] });
   });
 
   it('writes and reads a workstream round-trip under workstreams/<id>.json', () => {
-    const ws = { id: 'product', name: 'Product', whys: [{ id: 'w1', text: 'launch', whats: [] }] };
+    const ws = { id: 'product', name: 'Product', records: [{ id: 'rec-1', type: 'decision', text: 'launch', status: 'active' }], tasks: [] };
     writeWorkstream('product', ws, dir);
     expect(readWorkstream('product', dir)).toEqual(ws);
   });
 
   it('lists workstream ids sorted', () => {
-    writeWorkstream('main', { id: 'main', name: 'M', whys: [] }, dir);
-    writeWorkstream('product', { id: 'product', name: 'P', whys: [] }, dir);
-    writeWorkstream('tech', { id: 'tech', name: 'T', whys: [] }, dir);
+    writeWorkstream('main', { id: 'main', name: 'M', records: [], tasks: [] }, dir);
+    writeWorkstream('product', { id: 'product', name: 'P', records: [], tasks: [] }, dir);
+    writeWorkstream('tech', { id: 'tech', name: 'T', records: [], tasks: [] }, dir);
     expect(listWorkstreamIds(dir)).toEqual(['main', 'product', 'tech']);
   });
 
@@ -99,7 +85,7 @@ describe('workstream files', () => {
   });
 
   it('rejects ids with path traversal or invalid characters', () => {
-    expect(() => writeWorkstream('../evil', { id: 'x', name: '', whys: [] }, dir)).toThrow(/invalid workstream id/i);
+    expect(() => writeWorkstream('../evil', { id: 'x', name: '', records: [], tasks: [] }, dir)).toThrow(/invalid workstream id/i);
     expect(() => readWorkstream('../evil', dir)).toThrow(/invalid workstream id/i);
     expect(() => writeWorkstreamMd('a b', 'x', dir)).toThrow(/invalid workstream id/i);
   });
@@ -111,24 +97,6 @@ describe('workstream files', () => {
 
   it('returns empty string when workstream md does not exist', () => {
     expect(readWorkstreamMd('main', dir)).toBe('');
-  });
-});
-
-describe('shared.md', () => {
-  it('writes shared.md into context/', async () => {
-    writeSharedMd('# Project\n\n*No context.*', dir);
-    const { readFileSync } = await import('fs');
-    const content = readFileSync(join(dir, 'context', 'shared.md'), 'utf-8');
-    expect(content).toBe('# Project\n\n*No context.*');
-  });
-
-  it('reads shared.md written previously', () => {
-    writeSharedMd('# Project\n\nHello', dir);
-    expect(readSharedMd(dir)).toBe('# Project\n\nHello');
-  });
-
-  it('returns empty string when shared.md does not exist', () => {
-    expect(readSharedMd(dir)).toBe('');
   });
 });
 
@@ -217,7 +185,7 @@ describe('review queue', () => {
 describe('snapshots', () => {
   const mk = (id, createdAt, extras = {}) => ({
     id, createdAt, createdBy: 'alice', message: 'm', status: 'pending',
-    shared: { id: 'main', name: '', whys: [] },
+    shared: { id: 'main', name: '', records: [], tasks: [] },
     approvedAt: null, approvedBy: null, rejectedAt: null, rejectedBy: null, reason: null,
     ...extras,
   });
@@ -282,7 +250,7 @@ describe('tasks', () => {
     title: 'Plan the Q3 pivot',
     owner: 'priya',
     status: 'open',
-    workstream: 'main',
+    workstream: null,
     createdAt: '2026-07-24',
     doneAt: null,
     compiledAt: null,
@@ -294,18 +262,15 @@ describe('tasks', () => {
   });
 
   it('treats a workstream without a tasks field as empty', () => {
-    writeWorkstream('main', { id: 'main', name: 'M', whys: [] }, dir);
+    writeWorkstream('main', { id: 'main', name: 'M', records: [], tasks: [] }, dir);
     expect(listTasks({}, dir)).toEqual([]);
   });
 
   it('writeTask upserts into the project tree and readTask round-trips', () => {
-    // `main` is project level now, so a task recorded against it lands in the
-    // project tree rather than in a workstream file that no longer exists.
+    // A task with no workstream belongs to the project itself.
     const t = mkTask('t-plan');
     writeTask(t, dir);
     expect(readProject(dir).tasks).toEqual([t]);
-    // Read back normalised: a stored `main` comes out as project level, so
-    // nothing downstream has to keep remembering that the two are the same.
     expect(readTask('t-plan', dir)).toEqual({ task: { ...t, workstream: null }, workstream: null });
   });
 
@@ -318,16 +283,16 @@ describe('tasks', () => {
   });
 
   it('writeTask lands on the workstream named in the task', () => {
-    writeWorkstream('main', { id: 'main', name: 'M', whys: [] }, dir);
-    writeWorkstream('growth', { id: 'growth', name: 'G', whys: [] }, dir);
+    writeWorkstream('main', { id: 'main', name: 'M', records: [], tasks: [] }, dir);
+    writeWorkstream('growth', { id: 'growth', name: 'G', records: [], tasks: [] }, dir);
     writeTask(mkTask('t-plan', { workstream: 'growth' }), dir);
     expect(readWorkstream('main', dir).tasks || []).toEqual([]);
     expect(readWorkstream('growth', dir).tasks).toHaveLength(1);
   });
 
   it('listTasks flattens across all workstreams by default', () => {
-    writeWorkstream('main', { id: 'main', name: 'M', whys: [] }, dir);
-    writeWorkstream('growth', { id: 'growth', name: 'G', whys: [] }, dir);
+    writeWorkstream('main', { id: 'main', name: 'M', records: [], tasks: [] }, dir);
+    writeWorkstream('growth', { id: 'growth', name: 'G', records: [], tasks: [] }, dir);
     writeTask(mkTask('t-main-1'), dir);
     writeTask(mkTask('t-g-1', { workstream: 'growth' }), dir);
     expect(listTasks({}, dir).map(t => t.id).sort()).toEqual(['t-g-1', 't-main-1']);
@@ -335,7 +300,7 @@ describe('tasks', () => {
   });
 
   it('resolveTaskId supports git-style prefix matching', () => {
-    writeWorkstream('main', { id: 'main', name: 'M', whys: [] }, dir);
+    writeWorkstream('main', { id: 'main', name: 'M', records: [], tasks: [] }, dir);
     writeTask(mkTask('t-plan-q3-ads'), dir);
     writeTask(mkTask('t-migrate-auth'), dir);
     expect(resolveTaskId('t-plan', dir)).toBe('t-plan-q3-ads');
@@ -343,7 +308,7 @@ describe('tasks', () => {
   });
 
   it('resolveTaskId throws on no match or ambiguity', () => {
-    writeWorkstream('main', { id: 'main', name: 'M', whys: [] }, dir);
+    writeWorkstream('main', { id: 'main', name: 'M', records: [], tasks: [] }, dir);
     writeTask(mkTask('t-plan-a'), dir);
     writeTask(mkTask('t-plan-b'), dir);
     expect(() => resolveTaskId('nope', dir)).toThrow(/no task matches/);
@@ -351,7 +316,7 @@ describe('tasks', () => {
   });
 
   it('resolveTaskId prefers exact match over prefix', () => {
-    writeWorkstream('main', { id: 'main', name: 'M', whys: [] }, dir);
+    writeWorkstream('main', { id: 'main', name: 'M', records: [], tasks: [] }, dir);
     writeTask(mkTask('t-plan'), dir);
     writeTask(mkTask('t-plan-2'), dir);
     expect(resolveTaskId('t-plan', dir)).toBe('t-plan');

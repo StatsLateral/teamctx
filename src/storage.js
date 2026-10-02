@@ -2,6 +2,7 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync, appendFileSync, rea
 import { join, dirname } from 'path';
 import { getCurrentSession } from './session-context.js';
 import { isProjectLevel, resolveTarget } from './project-level.js';
+import { emptyProject as emptyProjectShape, emptyWorkstream, assertCurrentFormat } from './model.js';
 
 /**
  * Storage layer.
@@ -89,24 +90,6 @@ export function writeConfig(config, dir) {
   writeFileSync(resolve(dir, 'config.json'), JSON.stringify(config, null, 2));
 }
 
-// ---- Shared / main workstream (legacy compat) ----
-
-export function readShared(dir) {
-  if (getCurrentSession()) return readWorkstream('main', dir);
-  const mainWs = resolve(dir, 'workstreams', 'main.json');
-  if (existsSync(mainWs)) return readWorkstream('main', dir);
-  const p = resolve(dir, 'shared.json');
-  if (!existsSync(p)) return { id: 'main', name: '', whys: [] };
-  return JSON.parse(readFileSync(p, 'utf-8'));
-}
-
-export function writeShared(workstream, dir) {
-  if (getCurrentSession()) return writeWorkstream('main', workstream, dir);
-  const mainWs = resolve(dir, 'workstreams', 'main.json');
-  if (existsSync(mainWs)) return writeWorkstream('main', workstream, dir);
-  writeFileSync(resolve(dir, 'shared.json'), JSON.stringify(workstream, null, 2));
-}
-
 // ---- Contributions log ----
 
 export function appendContribution(contribution, dir) {
@@ -156,26 +139,6 @@ export function readRoleFile(slug, dir) {
     return s;
   }
   return readFileSync(resolve(dir, 'context', 'roles', `${slug}.md`), 'utf-8');
-}
-
-// ---- Shared md (legacy compat) ----
-
-export function readSharedMd(dir) {
-  if (getCurrentSession()) return readWorkstreamMd('main', dir);
-  const mainMd = resolve(dir, 'context', 'workstreams', 'main.md');
-  if (existsSync(mainMd)) return readWorkstreamMd('main', dir);
-  const p = resolve(dir, 'context', 'shared.md');
-  if (!existsSync(p)) return '';
-  return readFileSync(p, 'utf-8');
-}
-
-export function writeSharedMd(content, dir) {
-  if (getCurrentSession()) return writeWorkstreamMd('main', content, dir);
-  const mainMd = resolve(dir, 'context', 'workstreams', 'main.md');
-  if (existsSync(mainMd)) return writeWorkstreamMd('main', content, dir);
-  const contextDir = resolve(dir, 'context');
-  mkdirSync(contextDir, { recursive: true });
-  writeFileSync(join(contextDir, 'shared.md'), content);
 }
 
 // ---- Queue ----
@@ -358,21 +321,17 @@ export function writeCurrentSnapshotPointer(pointer, dir) {
  */
 export function readProject(dir) {
   const s = sessionRead(ctxPath('project.json'));
-  if (s !== undefined) return s === null ? emptyProject() : JSON.parse(s);
+  if (s !== undefined) return s === null ? emptyProjectShape() : assertCurrentFormat(JSON.parse(s));
   const p = resolve(dir, 'project.json');
-  if (!existsSync(p)) return emptyProject();
-  return JSON.parse(readFileSync(p, 'utf-8'));
-}
-
-function emptyProject() {
-  return { name: '', whys: [] };
+  if (!existsSync(p)) return emptyProjectShape();
+  return assertCurrentFormat(JSON.parse(readFileSync(p, 'utf-8')));
 }
 
 export function writeProject(project, dir) {
   // `id` is dropped on the way in: a project is not a workstream, and leaving
   // one there invites code to treat it as an id it can pass around.
-  const { id, ...rest } = project || {};
-  const body = JSON.stringify({ name: '', whys: [], ...rest }, null, 2);
+  const { id, whys, ...rest } = project || {};
+  const body = JSON.stringify({ ...emptyProjectShape(), ...rest }, null, 2);
   if (sessionWrite(ctxPath('project.json'), body)) return;
   writeFileSync(resolve(dir, 'project.json'), body);
 }
@@ -403,13 +362,10 @@ function sanitizeWorkstreamId(id) {
 export function readWorkstream(id, dir) {
   sanitizeWorkstreamId(id);
   const s = sessionRead(ctxPath('workstreams', `${id}.json`));
-  if (s !== undefined) {
-    if (s === null) return { id, name: '', whys: [] };
-    return JSON.parse(s);
-  }
+  if (s !== undefined) return s === null ? emptyWorkstream(id) : assertCurrentFormat(JSON.parse(s));
   const p = resolve(dir, 'workstreams', `${id}.json`);
-  if (!existsSync(p)) return { id, name: '', whys: [] };
-  return JSON.parse(readFileSync(p, 'utf-8'));
+  if (!existsSync(p)) return emptyWorkstream(id);
+  return assertCurrentFormat(JSON.parse(readFileSync(p, 'utf-8')));
 }
 
 export function writeWorkstream(id, workstream, dir) {

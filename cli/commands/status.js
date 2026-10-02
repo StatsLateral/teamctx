@@ -16,11 +16,11 @@ export async function statusCommand() {
     ...listWorkstreamIds(),
   ])].sort();
   const workstreams = wsIds.map(id => ({ id, tree: readWorkstream(id) }));
-  // The project tree counts. A project with no workstreams is the normal shape
-  // now, and reporting zero whys for one that has plenty would be a lie.
+  // The project's own records count: a project with no workstreams is a normal
+  // shape, and reporting none for one that has plenty would be a lie.
   const project = readProject();
-  const totalWhys = (project.whys?.length || 0)
-    + workstreams.reduce((n, w) => n + (w.tree.whys?.length || 0), 0);
+  const active = (t) => (t.records || []).filter(r => r.status === 'active').length;
+  const totalRecords = active(project) + workstreams.reduce((n, w) => n + active(w.tree), 0);
   const allTasks = listTasks({});
   const openTasks = allTasks.filter(t => t.status === 'open').length;
   const doneTasks = allTasks.filter(t => t.status === 'done').length;
@@ -31,11 +31,12 @@ export async function statusCommand() {
   console.log(`  Model:        ${config.model}`);
   console.log(`  Provider:     ${config.provider || 'anthropic'}`);
   console.log(`  Auto-push:    ${config.autoPush ? 'on' : 'off'}`);
-  console.log(`  Why nodes:    ${totalWhys} across ${workstreams.length} workstream${workstreams.length !== 1 ? 's' : ''}`);
+  console.log(`  Goal:         ${project.goal?.text || '(none yet)'}`);
+  console.log(`  Records:      ${totalRecords} across ${workstreams.length} workstream${workstreams.length !== 1 ? 's' : ''}`);
   if (workstreams.length > 1) {
     workstreams.forEach(w => {
-      const active = w.id === activeWorkstream ? ' (active)' : '';
-      console.log(`    - ${w.id.padEnd(20)} ${w.tree.whys?.length || 0} Why nodes${active}`);
+      const mark = w.id === activeWorkstream ? ' (active)' : '';
+      console.log(`    - ${w.id.padEnd(20)} ${(w.tree.records || []).length} records${mark}`);
     });
   }
   console.log(`  Contributions: ${contributions.length} total, ${decisions.length} decisions`);

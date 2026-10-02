@@ -11,7 +11,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 vi.mock('../../src/storage.js', () => ({
   readConfig: vi.fn(),
   writeConfig: vi.fn(),
-  readWorkstream: vi.fn(() => ({ id: 'x', name: 'X', whys: [] })),
+  readWorkstream: vi.fn(() => ({ id: 'x', name: 'X', records: [], tasks: [] })),
   readTree: vi.fn(),
   readProject: vi.fn(),
   listWorkstreamIds: vi.fn(() => []),
@@ -35,8 +35,8 @@ const { readConfig, writeConfig, readTree, readProject, listWorkstreamIds } = aw
 const { generateRoleFile } = await import('../../src/context.js');
 const { resolveActiveWorkstream } = await import('../../src/prefs.js');
 
-const PROJECT = { name: 'Ledger', whys: [{ id: 'p1', text: 'no new vendors', whats: [] }] };
-const WS = { id: 'delivery', name: 'Delivery', whys: [] };
+const PROJECT = { name: 'Ledger', records: [{ id: 'p1', type: 'decision', text: 'no new vendors', status: 'active' }], tasks: [] };
+const WS = { id: 'delivery', name: 'Delivery', records: [], tasks: [] };
 
 const role = () => writeConfig.mock.calls[0][0].roles[0];
 
@@ -103,19 +103,6 @@ describe('suggesting roles', () => {
   });
 });
 
-describe('reassigning a role', () => {
-  it('treats a project-level role and one recorded as main as the same place', async () => {
-    readConfig.mockReturnValue({
-      project: 'Ledger', workstreams: [{ id: 'delivery', name: 'Delivery' }],
-      roles: [{ slug: 'ops', workstream: 'main' }],
-    });
-    listWorkstreamIds.mockReturnValue(['delivery']);
-    const r = await assignRole({ slug: 'ops', workstreamId: 'main', teamctxDir: '/x' });
-    expect(r.changed).toBe(false);
-    expect(writeConfig).not.toHaveBeenCalled();
-  });
-});
-
 describe('moving a role back to the project', () => {
   beforeEach(() => {
     readConfig.mockReturnValue({
@@ -126,13 +113,13 @@ describe('moving a role back to the project', () => {
   });
 
   it('is a destination, not a missing argument', async () => {
-    const r = await assignRole({ slug: 'ops', workstreamId: 'main', teamctxDir: '/x' });
+    const r = await assignRole({ slug: 'ops', workstreamId: null, teamctxDir: '/x' });
     expect(r.changed).toBe(true);
     expect(writeConfig.mock.calls[0][0].roles[0].workstream).toBe(null);
   });
 
   it('recompiles the role from the project tree', async () => {
-    await assignRole({ slug: 'ops', workstreamId: 'main', teamctxDir: '/x' });
+    await assignRole({ slug: 'ops', workstreamId: null, teamctxDir: '/x' });
     expect(readTree).toHaveBeenCalledWith(null, '/x');
     expect(generateRoleFile.mock.calls[0][5]?.project).toBeUndefined();
   });

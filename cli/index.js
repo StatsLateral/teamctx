@@ -14,7 +14,6 @@ import { authCommand } from './commands/auth.js';
 import { askCommand } from './commands/ask.js';
 import { briefCommand } from './commands/brief.js';
 import { pullCommand } from './commands/pull.js';
-import { reflectCommand } from './commands/reflect.js';
 import { contextCommand } from './commands/context.js';
 import { statusCommand } from './commands/status.js';
 import { statsCommand } from './commands/stats.js';
@@ -32,28 +31,19 @@ import { setupCommand } from './commands/setup.js';
 import { memberAddCommand, memberListCommand, memberRmCommand, memberScopeCommand } from './commands/member.js';
 import { mcpCommand } from './commands/mcp.js';
 import { connectCommand } from './commands/connect.js';
-import { workstreamProposeCommand, workstreamSuggestCommand, workstreamListCommand, workstreamUseCommand, workstreamSplitCommand } from './commands/workstream.js';
+import { workstreamProposeCommand, workstreamListCommand, workstreamUseCommand, workstreamAddCommand } from './commands/workstream.js';
 import {
   taskAddCommand, taskListCommand, taskShowCommand,
   taskDoneCommand, taskReopenCommand, taskAssignCommand, taskRmCommand,
   taskCompileCommand,
 } from './commands/task.js';
 import { getTeamctxDir } from '../src/storage.js';
-import { migrateIfNeeded } from '../src/migrate.js';
 import { runWithActor } from '../src/actor.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(readFileSync(join(__dirname, '../package.json'), 'utf-8'));
 
 program.name('teamctx').description('AI-native version control for team context').version(pkg.version);
-
-program.hook('preAction', (thisCommand, actionCommand) => {
-  const name = actionCommand.name();
-  if (name === 'init' || name === 'setup') return;
-  try {
-    migrateIfNeeded(getTeamctxDir());
-  } catch { /* not in a teamctx project — command will surface the error */ }
-});
 
 program.command('setup').description('Create a private GitHub repo and initialize teamctx').action(setupCommand);
 program.command('init').description('Set up teamctx in an existing git repo').action(initCommand);
@@ -71,7 +61,7 @@ role.command('assign <slug>').description("Move a role to a workstream and regen
 program.command('brief').description('What you are working on and the context behind it — read this before you start')
   .action(briefCommand);
 program.command('contribute <text>').description('Add context — AI proposes changes and enqueues for manager approval')
-  .option('--decision', 'Tag as a human decision (never pruned by reflect)')
+  .option('--decision', 'Tag as a human decision')
   .option('--auto-approve', 'Skip the y/n confirmation on the proposed diff')
   .option('--apply', 'Apply immediately instead of enqueueing for approval (solo mode)')
   .option('--workstream <id>', 'Target workstream (default: active)')
@@ -93,9 +83,6 @@ program.command('import [selector...]').description('Import documents as contrib
 program.command('auth <connector>').description('Log in to an import connector and save credentials to .env.local')
   .option('--env-file <path>', 'Write to a different file (default: .env.local)')
   .action(authCommand);
-program.command('reflect').description('AI rewrites shared context for clarity')
-  .option('--workstream <id>', 'Target workstream (default: active)')
-  .action(reflectCommand);
 program.command('context <role>').description('Print role context MD to stdout').action(contextCommand);
 program.command('status').description('Show project summary').action(statusCommand);
 program.command('stats').description('Team metrics from your own history — no AI call, nothing leaves the machine')
@@ -158,15 +145,14 @@ snapshot.command('reject <id>').description('Reject a pending snapshot')
   .action(snapshotRejectCommand);
 snapshot.command('current').description('Show the current-approved snapshot').action(snapshotCurrentCommand);
 
-const workstream = program.command('workstream').description('Manage workstreams (Why/What/How trees)');
+const workstream = program.command('workstream').description('Manage the parts of the work (workstreams)');
 workstream.command('propose').description('AI proposes how this project is organised — which parts become workstreams, and how people fit in each')
   .action(workstreamProposeCommand);
-workstream.command('suggest').description('AI proposes how to split the active workstream').action(workstreamSuggestCommand);
-workstream.command('split').description('Interactively accept AI-proposed splits — creates new workstreams')
-  .option('--accept-all', 'Accept every proposed split with AI-suggested names (non-interactive)')
-  .action(workstreamSplitCommand);
+workstream.command('add <name>').description('Add a part of the work, optionally under another one (manager only)')
+  .option('--under <id>', 'Put it under this workstream')
+  .action(workstreamAddCommand);
 workstream.command('list').description('List all workstreams and their assigned roles').action(workstreamListCommand);
-workstream.command('use [id]').description('Set the active workstream for contribute/ask/reflect — omit the id to work on the project itself')
+workstream.command('use [id]').description('Set the active workstream for contribute/ask — omit the id to work on the project itself')
   .action(workstreamUseCommand);
 
 const task = program.command('task').description('Track tasks and compile AI-ready per-task prompts on demand');

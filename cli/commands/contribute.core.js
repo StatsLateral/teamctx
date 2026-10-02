@@ -1,9 +1,9 @@
 import { readProject, readConfig, readTree, writeTree, writeTreeMd, appendContribution, writeRoleFile, writeQueueItem, readContributions, listWorkstreamIds } from '../../src/storage.js';
 import { resolveTarget, isProjectLevel } from '../../src/project-level.js';
-import { digestTree } from '../../src/tree-digest.js';
-import { statementsTouchedBy } from '../../src/ops.js';
+import { digestProject } from '../../src/tree-digest.js';
+import { touchedBy } from '../../src/ops.js';
 import { projectIsEmpty } from '../../src/context-gate.js';
-import { recompileInheritors } from '../../src/recompile.js';
+import { recompileInheritors, chainFor } from '../../src/recompile.js';
 import { updateShared, generateRoleFile, serializeToMd } from '../../src/context.js';
 import { commitContext, pushContext } from '../../src/git.js';
 import { UnknownWorkstreamError } from './role.core.js';
@@ -105,11 +105,17 @@ export async function contributeCore({
   // the flag was not honoured, so the assistant can say where it went rather than
   // ask for it a second time. Nothing is granted by asking; `apply` is simply not
   // a thing a member can do.
-  const mayApply = apply && canApprove(config, { actor: resolved, displayName: resolvedName });
+  // The project holds nothing at all yet — its own tree and every workstream's.
+  // The manager's opening message then has nobody else to review it, so it
+  // lands without asking: otherwise the project sits empty, refusing members,
+  // until the manager approves their own first words. An agent's never does.
+  const founding = projectIsEmpty(teamctxDir);
+  const mayApply = canApprove(config, { actor: resolved, displayName: resolvedName })
+    && (apply || (founding && !reviewRequired));
   const applyRefused = apply && !mayApply;
   // Where the warning about a legacy display-name gate lives — which is worth
   // saying to the one caller who just relied on that gate holding.
-  if (mayApply) assertManager(config, { actor: resolved, displayName: resolvedName });
+  if (mayApply && apply) assertManager(config, { actor: resolved, displayName: resolvedName });
   // `null` is the project itself, which is where a contribution goes when
   // nobody named a workstream — the base everything else inherits from.
   const targetId = resolveTarget(
@@ -124,17 +130,14 @@ export async function contributeCore({
   }
 
   const workstream = readTree(targetId, teamctxDir);
-  // The project holds nothing at all yet — its own tree and every workstream's,
-  // the sum `get_status` reports as `totalWhys`. Asking only whether *this* tree
-  // is empty called a new workstream on a running project "the project's first
-  // context", which is an ordinary thing to do and not that. See
-  // src/tree-digest.js.
-  const founding = projectIsEmpty(teamctxDir);
   const tagged = decision ? 'decision' : null;
   const contribution = newContribution({ text, author: actor, authorKey, tagged, source, workstream: targetId });
   appendContribution(contribution, teamctxDir);
 
-  const { workstream: updated, summary, operations } = await updateShared(workstream, contribution, config, { intent, avoid });
+  const { workstream: updated, summary, operations, dropped = [] } = await updateShared(workstream, contribution, config, { intent, avoid });
+  // Reasons only: what the AI proposed that did not validate, so the caller can
+  // say what was left out without the raw operation travelling any further.
+  const droppedReasons = dropped.map(d => ({ reason: d.reason }));
 
   if (!operations || operations.length === 0) {
     return {
@@ -142,6 +145,7 @@ export async function contributeCore({
       mode: 'no-op', summary: 'No changes to context tree (contribution logged).',
       operations: [], pushed: false, pushError: null,
       ...(applyRefused ? { applyRefused: true } : {}),
+      dropped: droppedReasons,
     };
   }
 
@@ -156,6 +160,7 @@ export async function contributeCore({
       id: contribution.id, workstream: targetId, author: actor, source,
       mode: 'discarded', summary, operations, pushed: false, pushError: null,
       ...(applyRefused ? { applyRefused: true } : {}),
+      dropped: droppedReasons,
     };
   }
 
@@ -169,6 +174,7 @@ export async function contributeCore({
       id: contribution.id, status: 'pending', createdAt: contribution.ts,
       author: contribution.author, source, workstream: targetId,
       text: contribution.text, tagged: contribution.tagged, summary, operations,
+      ...(droppedReasons.length ? { dropped: droppedReasons } : {}),
     }, teamctxDir);
     const { pushed, pushError } = await commitAndOptionallyPush(
       config,
@@ -179,30 +185,28 @@ export async function contributeCore({
       id: contribution.id, workstream: targetId, author: actor, source,
       mode: 'queued', summary, operations, pushed, pushError,
       ...(applyRefused ? { applyRefused: true } : {}),
+      dropped: droppedReasons,
     };
   }
 
   writeTree(targetId, updated, teamctxDir);
   const contributions = readContributions(teamctxDir);
-  // A contribution to the project itself is not inheriting from anything, so it
-  // renders alone; a workstream renders under the project tree it inherits.
+  // A contribution to the project renders alone; a workstream renders under the
+  // project and every part above it. Either way, the parts below inherit the
+  // change, and a compiled page does not re-read anything on its own.
   const project = isProjectLevel(targetId) ? null : readProject(teamctxDir);
+  const chain = isProjectLevel(targetId) ? [] : chainFor({ config, id: targetId, teamctxDir }).map(w => (w.id === targetId ? { ...updated, name: w.name, number: w.number } : w));
   writeTreeMd(
     targetId,
-    serializeToMd(updated, workstreamDisplayName(targetId, updated, config), actor, contributions, { project }),
+    serializeToMd(updated, workstreamDisplayName(targetId, updated, config), actor, contributions, { project, chain: isProjectLevel(targetId) ? null : chain }),
     teamctxDir,
   );
-
-  // A change to the project changes what every workstream inherits, and a
-  // compiled page does not re-read the project on its own.
-  if (isProjectLevel(targetId)) {
-    recompileInheritors({ project: updated, config, contributions, teamctxDir });
-  }
+  recompileInheritors({ project: project ?? updated, config, contributions, teamctxDir });
 
   const rolesOnTarget = (config.roles || []).filter(r => resolveTarget(r.workstream) === targetId);
   const rolesRegenerated = [];
   for (const role of rolesOnTarget) {
-    const md = await generateRoleFile(updated, role, config.project, config, contributions, { project });
+    const md = await generateRoleFile(updated, role, config.project, config, contributions, { project, chain });
     writeRoleFile(role.slug, md, teamctxDir);
     rolesRegenerated.push(role.slug);
   }
@@ -226,9 +230,9 @@ export async function contributeCore({
     // it was written to. The operations cannot answer it: an add carries no id
     // until it is applied, and a contribution that also deletes carries only
     // the id of the statement that is now gone.
-    touched: statementsTouchedBy(updated, contribution.id),
+    touched: touchedBy(updated, contribution.id).filter(id => id !== 'goal'),
     // Only on the founding one. Every contribution after it lands beside
     // context the team already knows, and a digest each time would be noise.
-    ...(founding ? { founding: true, digest: digestTree(updated) } : {}),
+    ...(founding ? { founding: true, digest: digestProject({ project: project ?? updated, workstreams: isProjectLevel(targetId) ? [] : [updated] }) } : {}),
   };
 }

@@ -11,7 +11,6 @@
  * and some of those delete statements other people put there. So the axis that
  * matters is whether a contribution can *lose* information, not who sent it.
  */
-import { managerKeys } from './review.js';
 
 export const POLICIES = ['all', 'additive', 'none'];
 
@@ -39,7 +38,27 @@ export const POLICIES = ['all', 'additive', 'none'];
 export const DEFAULT_POLICY = 'all';
 export const NEW_PROJECT_POLICY = DEFAULT_POLICY;
 
-const ADDITIVE_OPS = new Set(['addWhy', 'addWhat', 'addHow']);
+const NEVER_ADDITIVE_RECORDS = new Set(['decision', 'rule', 'exception']);
+
+// A task, or a record that only adds something low-stakes. Decisions, rules and
+// exceptions change what the whole team must follow, so they always wait.
+function opIsAdditive(op) {
+  if (op?.type === 'addTask') return true;
+  // Replacing retires an existing record as a side effect, which is a change to
+  // what the team relies on, not an addition to it.
+  if (op?.type === 'addRecord') return !NEVER_ADDITIVE_RECORDS.has(op.record?.type) && !op.record?.links?.replaces;
+  return false;
+}
+
+/**
+ * Operations that change what the team must follow: settling or retiring a
+ * decision, rule or exception, or changing any record's status. These need the
+ * manager under every policy — `none` waives review of everything else.
+ */
+function governs(op) {
+  if (op?.type === 'addRecord') return NEVER_ADDITIVE_RECORDS.has(op.record?.type) || !!op.record?.links?.replaces;
+  return op?.type === 'setRecordStatus';
+}
 
 export class InvalidReviewPolicyError extends Error {
   constructor(value) {
@@ -68,7 +87,7 @@ export function isAdditive(operations) {
   // to hold for review. (`contributeCore` returns a no-op before reaching here
   // anyway; this keeps the function answerable on its own terms.)
   if (ops.length === 0) return true;
-  return ops.every(op => ADDITIVE_OPS.has(op?.type));
+  return ops.every(opIsAdditive);
 }
 
 /**
@@ -81,26 +100,9 @@ export function isAdditive(operations) {
  */
 export function needsReview(config, operations) {
   const policy = reviewPolicy(config);
+  if ((operations || []).some(governs)) return true;
   if (policy === 'none') return false;
   if (policy === 'additive') return !isAdditive(operations);
   return true;
 }
 
-/**
- * May this caller rewrite shared context wholesale (`reflect`)?
- *
- * Under `none` anyone may, which is what the command did before this existed —
- * so no project loses a behaviour it was relying on. Under any other policy it
- * is the manager's, because a full-tree rewrite is the most destructive thing
- * in the product and there is no smaller unit of it to review.
- */
-export function reflectNeedsManager(config) {
-  // `managerKeys` is empty both for a project with no manager and for one still
-  // gated by a legacy display name, so reflect stays open on the latter while
-  // `contribute` keeps queueing its destructive operations. The asymmetry is
-  // deliberate: a display name is not a gate — anyone can set that name as
-  // their own — so asserting against it here would only look like protection.
-  // Such a project should re-pin to a real identity; until it does, this is the
-  // same footing every other manager-gated command is on there.
-  return reviewPolicy(config) !== 'none' && managerKeys(config).length > 0;
-}
