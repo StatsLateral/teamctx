@@ -6,6 +6,7 @@ import { providerFromEnv } from '../../../src/oauth/provider.js';
 import {
   readPersonalKey, readProjectKeys, pickProjectKey, recordConnectedProject,
 } from '../../../src/oauth/ai-keys.js';
+import { baseUrlFrom } from '../../../src/base-url.js';
 import { readConfig } from '../../../src/storage.js';
 import { managersOf } from '../../../src/managers.js';
 import { resolveGoogleMember } from '../../../src/oauth/member-access.js';
@@ -295,10 +296,12 @@ function unauthorized(req, res, owner, repo, description) {
 }
 
 function baseUrl(req) {
-  if (process.env.TEAMCTX_BASE_URL) return process.env.TEAMCTX_BASE_URL.replace(/\/$/, '');
-  const host = firstHeader(req, 'x-forwarded-host') || firstHeader(req, 'host');
-  const proto = firstHeader(req, 'x-forwarded-proto') || 'https';
-  return `${proto}://${host}`;
+  // See src/base-url.js. This one matters most: its result is what a tool result
+  // hands an assistant as a link for somebody to click.
+  return baseUrlFrom({
+    host: firstHeader(req, 'x-forwarded-host') || firstHeader(req, 'host'),
+    proto: firstHeader(req, 'x-forwarded-proto'),
+  });
 }
 
 function firstHeader(req, name) {

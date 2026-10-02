@@ -19,6 +19,7 @@ import { runWithSession } from '../src/session-context.js';
 import { initProject } from '../cli/commands/init.core.js';
 import { readProjectView, ProjectViewError } from '../src/oauth/project-view.js';
 import { TOOLS, callTool } from '../mcp/server.js';
+import { baseUrlFrom } from '../src/base-url.js';
 import { isReturnable, parseViewParams } from '../src/view-url.js';
 import { parseProjectRef } from '../src/project-ref.js';
 // Page templates. They used to sit at the bottom of this file, which left it
@@ -59,10 +60,12 @@ app.set('trust proxy', 1);
 app.use(express.urlencoded({ extended: true }));
 
 function baseUrlFor(req) {
-  if (process.env.TEAMCTX_BASE_URL) return process.env.TEAMCTX_BASE_URL.replace(/\/$/, '');
-  const host = req.get('x-forwarded-host') || req.get('host');
-  const proto = req.get('x-forwarded-proto') || 'https';
-  return `${proto}://${host}`;
+  // See src/base-url.js: the request names the address, but only a host this
+  // deployment already knows itself by is believed.
+  return baseUrlFrom({
+    host: req.get('x-forwarded-host') || req.get('host'),
+    proto: req.get('x-forwarded-proto'),
+  });
 }
 
 // ---- Home ------------------------------------------------------------
