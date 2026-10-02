@@ -788,10 +788,12 @@ export function makeHandlers(projectRoot) {
       });
     },
 
-    async list_records(args = {}) {
+    async list_records({ type, status, workstream, owner, due } = {}) {
       const teamctxDir = dir();
       const allowed = await scope(teamctxDir, readConfig(teamctxDir));
-      const records = listRecords({ teamctxDir, scope: allowed, ...args });
+      // Only the declared filters are passed on: scope, date and directory are
+      // the server's to decide, whatever else arrives in the arguments.
+      const records = listRecords({ teamctxDir, scope: allowed, type, status, workstream, owner, due });
       return textResult({ records, ...(allowed ? { scopedTo: allowed } : {}) });
     },
 

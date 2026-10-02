@@ -79,7 +79,7 @@ export function emptyWorkstream(id, name = '') {
 
 export class LegacyFormatError extends Error {
   constructor() {
-    super('This project uses the old Why/What/How format. Run `teamctx init` again to start it in the new format.');
+    super('This project uses the old Why/What/How format, which teamctx no longer reads. Remove the .teamctx folder, then run `teamctx init` to start it in the new format.');
     this.code = 'LEGACY_FORMAT';
   }
 }

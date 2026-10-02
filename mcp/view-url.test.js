@@ -28,7 +28,7 @@ vi.mock('../src/context.js', async (orig) => {
   return {
     ...(await orig()),
     updateShared: vi.fn(async (workstream, contribution) => {
-      const operations = plan.ops || [{ type: 'addRecord', record: { type: 'why', text: 'tiers decided', detail: 'three tiers', attachedTo: { kind: 'workstream', id: 'product' } } }];
+      const operations = plan.ops || [{ type: 'addRecord', record: { type: 'why', text: 'tiers decided', detail: 'three tiers' } }];
       return {
         workstream: applyOps(workstream, operations, contribution.id).tree,
         summary: 'records the pricing decision',
@@ -128,7 +128,7 @@ describe('a link to what was just touched', () => {
     // so taking the first id in the operations pointed at a page with nothing
     // on it — the one thing a link must never do.
     plan.ops = [
-      { type: 'addRecord', record: { type: 'decision', text: 'tiers decided', links: { replaces: 'old' }, attachedTo: { kind: 'workstream', id: 'product' } } },
+      { type: 'addRecord', record: { type: 'decision', text: 'tiers decided', links: { replaces: 'old' } } },
     ];
     const r = await call('contribute', { text: 'three tiers, and drop the old line', workstream: 'product', apply: true },
       { records: [{ id: 'old', type: 'decision', text: 'pricing undecided', status: 'active', detail: '', attachedTo: { kind: 'workstream', id: 'product' }, links: {} }] });
@@ -140,7 +140,7 @@ describe('a link to what was just touched', () => {
   it('points at the record it added, not at a task added beside it', async () => {
     plan.ops = [
       { type: 'addTask', title: 'write the pricing page' },
-      { type: 'addRecord', record: { type: 'why', text: 'tiers decided', detail: 'three tiers', attachedTo: { kind: 'workstream', id: 'product' } } },
+      { type: 'addRecord', record: { type: 'why', text: 'tiers decided', detail: 'three tiers' } },
     ];
     const r = await call('contribute', { text: 'three tiers', workstream: 'product', apply: true });
     const added = tree().records.find(w => w.text === 'tiers decided');

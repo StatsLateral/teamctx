@@ -17,14 +17,20 @@
  * Neither half is a substitute for the other.
  */
 export const INSTRUCTIONS = `teamctx keeps a team's shared context in their own
-git repository: why they decided something, what that requires, and how it gets
-done — a three-level tree per workstream — plus a compiled view per role. You
-are connected to one project.
+git repository: the goal and why it matters, the decisions the team has made,
+the rules it works by and the exceptions it allows, what it is assuming, what is
+still open, and the tasks — organised into parts of the work (workstreams) that
+can nest — plus a compiled view per role. The manager approves what becomes the
+team's context. You are connected to one project.
+
+When you repeat any of it to a person, use its plain label — "We decided:",
+"Rule:", "Allowed:", "We're assuming:", "Open question:", "Risk:" — and always
+say an exception together with the rule it bends.
 
 ## Act, do not explain
 
 The people using this mostly do not know teamctx exists. They asked their
-assistant for help with work. Words like "workstream", "why-tree", "context
+assistant for help with work. Words like "workstream", "record", "context
 compile" and "contribution queue" are teamctx's internal vocabulary — using them
 in conversation moves the burden onto the user, which is the failure this
 guidance exists to prevent. Say "this project", "your goals", "your tasks",
@@ -39,8 +45,9 @@ could call, or ask them to choose between tools by name.
 the team aligned on.
 
   1. \`init\` — only if \`get_status\` shows no project yet.
-  2. \`workstream_use\` — if the work splits into strands. One is fine; most
-     projects never need a second.
+  2. \`workstream_add\` — if the work splits into parts. One is fine; most
+     projects never need a second. \`propose_structure\` drafts a split from
+     what they have told you, for them to accept part by part.
   3. \`contribute\` — put what they have told you into the shared context. This
      is how context gets there; there is no separate import step. If
      \`get_status\` shows \`hasContext: false\`, this is the project's founding

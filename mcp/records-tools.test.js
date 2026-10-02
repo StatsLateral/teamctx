@@ -82,7 +82,7 @@ describe('governed record tools', () => {
 
   it('an old-format project answers with the re-init message, not an empty context', async () => {
     const s = session({ project: { name: 'Ledger', whys: [] } });
-    await expect(as(s, MANAGER, h => h.get_context({}))).rejects.toThrow(/Run `teamctx init` again/);
+    await expect(as(s, MANAGER, h => h.get_context({}))).rejects.toThrow(/Remove the .teamctx folder, then run `teamctx init`/);
   });
 
   it('get_connect_url says the project is not joinable yet when it has no context', async () => {
@@ -94,5 +94,20 @@ describe('governed record tools', () => {
     const r = await as(s, MANAGER, h => json(h.get_connect_url({})));
     expect(r.joinable).toBe(false);
     expect(r.joinableReason).toMatch(/nothing written down yet/);
+  });
+});
+
+import { callTool } from './server.js';
+
+describe('arguments a caller sends cannot widen what they see', () => {
+  it('list_records ignores a scope or date passed in the arguments', async () => {
+    const r = await as(session(), RAVI, h => callTool(h, ROOT, 'list_records', { scope: null, onDay: '1999-01-01', teamctxDir: '/elsewhere' }));
+    const records = JSON.parse(r.content[0].text).records;
+    expect(records.map(x => x.workstream)).not.toContain('expansion');
+    expect(records.map(x => x.workstream)).not.toContain('renewals');
+  });
+  it('get_record ignores a scope passed in the arguments', async () => {
+    const r = await as(session(), RAVI, h => callTool(h, ROOT, 'get_record', { id: 'rec-renewals', scope: null }));
+    expect(r.isError).toBe(true);
   });
 });

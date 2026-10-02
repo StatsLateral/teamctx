@@ -22,7 +22,7 @@ vi.mock('../src/context.js', async (orig) => {
   return {
     ...(await orig()),
     updateShared: vi.fn(async (workstream, contribution) => {
-      const operations = plan.ops || [{ type: 'addRecord', record: { type: 'why', text: 'tiers decided', detail: 'three tiers', attachedTo: { kind: 'workstream', id: 'product' } } }];
+      const operations = plan.ops || [{ type: 'addRecord', record: { type: 'why', text: 'tiers decided', detail: 'three tiers' } }];
       return {
         workstream: applyOps(workstream, operations, contribution.id).tree,
         summary: 'records the pricing decision',

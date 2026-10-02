@@ -51,8 +51,8 @@ export async function updateShared(tree, contribution, config, { intent, avoid }
   return { workstream: updated, summary, operations: kept, dropped };
 }
 
-export async function generateRoleFile(workstream, role, projectName, config, contributions = [], { project = null } = {}) {
-  const tree = serializeToMd(workstream, projectName, '', contributions, { includeContributors: false, project });
+export async function generateRoleFile(workstream, role, projectName, config, contributions = [], { project = null, chain = null } = {}) {
+  const tree = serializeToMd(workstream, projectName, '', contributions, { includeContributors: false, project, chain });
   const now = new Date().toISOString().split('T')[0];
 
   const prompt = [
@@ -90,14 +90,15 @@ export async function generateRoleFile(workstream, role, projectName, config, co
   return callClaude({ prompt, model: config.model, config });
 }
 
-export async function compileTaskPrompt({ task, workstream, role, contributions, config, project = null }) {
+export async function compileTaskPrompt({ task, workstream, role, contributions, config, project = null, chain = null }) {
   const projectName = config?.project || workstream?.name || 'project';
-  const tree = serializeToMd(workstream, projectName, '', contributions, { includeContributors: false, project });
+  const tree = serializeToMd(workstream, projectName, '', contributions, { includeContributors: false, project, chain });
   const now = new Date().toISOString().split('T')[0];
   const roleLine = role ? `Framed for role: ${role.name} — ${role.responsibilities || ''}` : 'No role filter — write for a general team member.';
   // The decisions and rules on this task's own chain, each exception under its
   // rule — never a loose list of everything anyone ever tagged.
-  const decisionsList = renderBrief({ projectName, project: null, chain: [{ ...workstream, tasks: [], records: (workstream?.records || []).filter(r => ['decision', 'rule', 'exception'].includes(r.type)) }] })
+  const settled = (w) => ({ ...w, tasks: [], records: (w?.records || []).filter(r => ['decision', 'rule', 'exception'].includes(r.type)) });
+  const decisionsList = renderBrief({ projectName, project: null, chain: (chain || [workstream]).map(settled) })
     .split('\n').filter(l => l.trimStart().startsWith('- ')).join('\n') || '(none yet)';
 
   const prompt = [

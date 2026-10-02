@@ -587,3 +587,14 @@ describe('what a copied prompt asks for', () => {
     expect(body).not.toMatch(new RegExp(`data-prompt="[^"]*${NL}`));
   });
 });
+
+describe('stored record fields are never trusted as markup', () => {
+  it('a record type crafted to break out of an attribute is not rendered as one', async () => {
+    repo.files.set('.teamctx/workstreams/product.json', JSON.stringify({
+      id: 'product', name: 'Product', tasks: [],
+      records: [{ id: 'evil', type: 'x" onfocus="alert(1)" autofocus x="', text: 'hello', status: 'active', attachedTo: { kind: 'workstream', id: 'product' }, links: {} }],
+    }));
+    const { body } = await visit('/project/acme/ledger?ws=product', MANAGER);
+    expect(body).not.toContain('onfocus="alert(1)"');
+  });
+});

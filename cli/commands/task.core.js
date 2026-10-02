@@ -1,3 +1,5 @@
+import { chainFor } from '../../src/recompile.js';
+import { isActive } from '../../src/model.js';
 import { createHash } from 'crypto';
 import {
   readProject, readConfig, readTree, listTasks, readTask, writeTask, deleteTask,
@@ -61,6 +63,9 @@ function contextHash(tree) {
     goal: tree?.goal?.text || null,
     records: tree?.records || [],
     tasks: (tree?.tasks || []).map(t => t.title),
+    // Which records hold today: an exception that has since expired makes the
+    // prompt stale even though no file changed.
+    active: (tree?.records || []).filter(r => isActive(r)).map(r => r.id),
   });
   return createHash('sha1').update(material).digest('hex').slice(0, 16);
 }
@@ -293,9 +298,11 @@ export async function compileTask({
   // A task on the project is compiled from the project tree, so passing that
   // same tree again as the inherited half printed every Why twice — once under
   // a "read-only here" heading that makes no sense on the thing it came from.
+  // Every part above the task's own, so its prompt carries their rules too.
   const markdown = await compileTaskPrompt({
     task, workstream, role, contributions, config,
     project: isProjectLevel(wsId) ? null : readProject(teamctxDir),
+    chain: isProjectLevel(wsId) ? null : chainFor({ config, id: wsId, teamctxDir }),
   });
   writeTaskFile(task.id, markdown, teamctxDir);
 

@@ -154,10 +154,10 @@ export async function proposeDiff({
         "text": "one plain sentence", "detail": "optional",
         "owner": { "name": "person" }, "reviewBy": "YYYY-MM-DD", "expiresAt": "YYYY-MM-DD",
         "links": { "bends": "<rule id or ref>", "replaces": "<id>", "restsOn": ["<id>"], "answers": "<question id>" },
-        "attachedTo": { "kind": "project" } } },
+        "attachedTo": { "kind": "task", "id": "<task id or ref>" } } },
     { "type": "editRecord", "id": "<existing id>", "changes": { "text": "..." } },
     { "type": "setRecordStatus", "id": "<existing id>", "status": "replaced|broken|closed" },
-    { "type": "addTask", "title": "a concrete piece of work" },
+    { "type": "addTask", "ref": "optional local name", "title": "a concrete piece of work" },
     { "type": "editTask", "id": "<existing task id>", "title": "..." },
     { "type": "removeTask", "id": "<existing task id>" }
   ]
@@ -168,7 +168,9 @@ export async function proposeDiff({
     '(needs links.bends naming that rule + expiresAt); question = open, needs owner; risk = could go wrong, needs owner',
     '(put the plan in detail). Concrete work is a task, not a record. Use the smallest set of operations; prefer',
     'editing or replacing over a near-duplicate. If the contribution contradicts an active record, add a question',
-    'naming both instead of a second contradictory record. Dates are YYYY-MM-DD relative to today. JSON only.',
+    'naming both instead of a second contradictory record. Include attachedTo only when a record is about one',
+    'specific task; otherwise leave it out and it belongs to this part of the work. Dates are YYYY-MM-DD relative',
+    'to today. JSON only.',
     ...(isDocument ? [
       '',
       'This is a document, not a deliberate update. Extract only durable team',

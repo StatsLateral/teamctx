@@ -1,5 +1,5 @@
 import { shell, navBar, esc } from './theme.js';
-import { LABELS, isActive, today } from '../model.js';
+import { LABELS, RECORD_TYPES, isActive, today } from '../model.js';
 
 /**
  * Where a project stands: its context, its work, and what waits on the manager.
@@ -189,7 +189,9 @@ const SCRIPT = `
  */
 const COLUMN_OF = { why: 'why', task: 'task' };
 const numbering = (tree, onDay = today()) => {
-  const active = (tree?.records || []).filter(r => isActive(r, onDay) && r.attachedTo?.kind !== 'task');
+  // Only the known types: a type read from the repository is somebody else's
+  // text, and it ends up in markup.
+  const active = (tree?.records || []).filter(r => RECORD_TYPES.includes(r.type) && isActive(r, onDay) && r.attachedTo?.kind !== 'task');
   const rows = [];
   active.filter(r => r.type === 'why').forEach((r, i) => rows.push({ node: r, tier: 'why', n: `${i + 1}` }));
   let k = 0;
@@ -300,7 +302,7 @@ function itemButton({ row, contributions, where, project, marked, isProject, own
     })}` : null,
   });
   const who = whoTouched(node, contributions);
-  return `<button class="item tier-${tier}${marked ? ' marked' : ''}" id="i-${esc(node.id)}"
+  return `<button class="item tier-${esc(tier)}${marked ? ' marked' : ''}" id="i-${esc(node.id)}"
   data-text="${esc(node.text)}" data-kind="${esc(`${tier === 'task' ? 'Task' : (LABELS[tier] || '').replace(/:$/, '')} ${n}`)}"
   data-summary="${esc(node.detail || node.summary || '')}" data-who="${esc(who.join(', '))}"
   data-prompt="${escAttr(prompt)}">
