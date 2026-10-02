@@ -13,28 +13,20 @@ const contributions = [
 ];
 
 const workstream = {
-  id: 'main',
+  id: 'growth',
   name: 'Main',
-  whys: [
-    {
-      id: 'w1', text: 'grow revenue', sourceContributionIds: ['c-3', 'c-4'],
-      whats: [
-        {
-          id: 'wt1', text: 'double down on LinkedIn', sourceContributionIds: ['c-2', 'c-4'],
-          hows: [
-            { id: 'h1', text: 'reallocate spend', sourceContributionIds: ['c-1'] },
-          ],
-        },
-      ],
-    },
+  records: [
+    { id: 'w1', type: 'why', text: 'grow revenue', status: 'active', sourceContributionIds: ['c-3', 'c-4'] },
+    { id: 'wt1', type: 'decision', text: 'double down on LinkedIn', status: 'active', sourceContributionIds: ['c-2', 'c-4'] },
+  ],
+  tasks: [
+    { id: 'h1', title: 'reallocate spend', status: 'open', sourceContributionIds: ['c-1'] },
   ],
 };
 
 describe('backwards compatibility with pre-provenance projects', () => {
   it('handles nodes without sourceContributionIds (legacy schema) — no crash, empty footer', () => {
-    const legacyWs = { id: 'main', name: 'M', whys: [
-      { id: 'w1', text: 'legacy why', whats: [{ id: 'wt1', text: 'legacy what', hows: [{ id: 'h1', text: 'legacy how' }] }] },
-    ]};
+    const legacyWs = { id: 'growth', name: 'M', records: [{ id: 'w1', type: 'why', text: 'no sources', status: 'active' }], tasks: [{ id: 'h1', title: 'no sources' }] };
     expect(collectContributorCounts(legacyWs, contributions)).toEqual([]);
     expect(collectSourceRefs(legacyWs, contributions)).toEqual({ sources: [], unknown: [] });
     expect(formatContributorLine([])).toBe('');
@@ -42,14 +34,14 @@ describe('backwards compatibility with pre-provenance projects', () => {
 
   it('handles contributions without tagged / source / author fields', () => {
     const oldContribs = [{ id: 'c-old', text: 'legacy entry' }];
-    const ws = { id: 'main', name: 'M', whys: [{ id: 'w1', text: 't', sourceContributionIds: ['c-old'], whats: [] }] };
+    const ws = { id: 'main', name: 'M', records: [{ id: 'w1', type: 'why', text: 't', status: 'active', sourceContributionIds: ['c-old'] }] };
     expect(collectContributorCounts(ws, oldContribs)).toEqual([]);
     const { sources } = collectSourceRefs(ws, oldContribs);
     expect(sources[0]).toMatchObject({ author: 'unknown', source: 'cli', tagged: null });
   });
 
   it('handles missing contributions.jsonl entries (id references a deleted contribution)', () => {
-    const ws = { id: 'main', name: 'M', whys: [{ id: 'w1', text: 't', sourceContributionIds: ['c-ghost'], whats: [] }] };
+    const ws = { id: 'main', name: 'M', records: [{ id: 'w1', type: 'why', text: 't', status: 'active', sourceContributionIds: ['c-ghost'] }] };
     const { sources, unknown } = collectSourceRefs(ws, []);
     expect(sources).toEqual([]);
     expect(unknown).toEqual(['c-ghost']);
@@ -68,11 +60,11 @@ describe('collectContributorCounts', () => {
   });
 
   it('returns [] when workstream has no nodes', () => {
-    expect(collectContributorCounts({ whys: [] }, contributions)).toEqual([]);
+    expect(collectContributorCounts({ records: [] }, contributions)).toEqual([]);
   });
 
   it('ignores contribution ids that resolve to nothing', () => {
-    const ws = { whys: [{ id: 'w1', text: 't', sourceContributionIds: ['ghost'], whats: [] }] };
+    const ws = { records: [{ id: 'w1', type: 'why', text: 't', status: 'active', sourceContributionIds: ['ghost'] }] };
     expect(collectContributorCounts(ws, contributions)).toEqual([]);
   });
 });
@@ -83,13 +75,13 @@ describe('collectSourceRefs', () => {
     expect(unknown).toEqual([]);
     expect(sources.map(s => s.contributionId)).toEqual(['c-1', 'c-2', 'c-3', 'c-4']);
     expect(sources[2].tagged).toBe('decision');
-    expect(sources[0].nodes[0].tier).toBe('how');
+    expect(sources[0].nodes[0]).toMatchObject({ tier: 'task', text: 'reallocate spend' });
     const cFour = sources.find(s => s.contributionId === 'c-4');
     expect(cFour.nodes).toHaveLength(2);
   });
 
   it('reports unknown ids that don\'t resolve', () => {
-    const ws = { whys: [{ id: 'w1', text: 't', sourceContributionIds: ['ghost'], whats: [] }] };
+    const ws = { records: [{ id: 'w1', type: 'why', text: 't', status: 'active', sourceContributionIds: ['ghost'] }] };
     const { sources, unknown } = collectSourceRefs(ws, contributions);
     expect(sources).toEqual([]);
     expect(unknown).toEqual(['ghost']);
@@ -191,10 +183,7 @@ describe('formatAuditBlock', () => {
 
 describe('collectContributorCounts — identity across surfaces', () => {
   const ws = {
-    whys: [{
-      id: 'w1', text: 'why', sourceContributionIds: ['k-1', 'k-2', 'k-3'],
-      whats: [],
-    }],
+    records: [{ id: 'w1', type: 'why', text: 'why', status: 'active', sourceContributionIds: ['k-1', 'k-2', 'k-3'] }],
   };
 
   it('counts one person once even when their display name differs per surface', () => {

@@ -57,16 +57,10 @@ export function preserveSourcesThroughReflect(previous, next) {
   return { ...next, whys: (next.whys || []).map(patchWhys) };
 }
 
-function walkNodes(workstream, fn) {
-  for (const why of workstream?.whys || []) {
-    fn(why, 'why', null);
-    for (const what of why.whats || []) {
-      fn(what, 'what', why);
-      for (const how of what.hows || []) {
-        fn(how, 'how', what);
-      }
-    }
-  }
+function walkNodes(tree, fn) {
+  if (tree?.goal) fn(tree.goal, 'goal', null);
+  for (const r of tree?.records || []) fn(r, 'record', null);
+  for (const t of tree?.tasks || []) fn(t, 'task', null);
 }
 
 function contributionIndex(contributions) {
@@ -120,7 +114,7 @@ export function collectSourceRefs(workstream, contributions) {
         continue;
       }
       if (seenContribs.has(id)) {
-        seenContribs.get(id).nodes.push({ id: node.id, tier, text: node.text });
+        seenContribs.get(id).nodes.push({ id: node.id, tier, text: node.text ?? node.title });
         continue;
       }
       seenContribs.set(id, {
@@ -130,7 +124,7 @@ export function collectSourceRefs(workstream, contributions) {
         source: c.source || 'cli',
         tagged: c.tagged || null,
         text: c.text || '',
-        nodes: [{ id: node.id, tier, text: node.text }],
+        nodes: [{ id: node.id, tier, text: node.text ?? node.title }],
       });
     }
   });
