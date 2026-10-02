@@ -1380,7 +1380,7 @@ Expected: FAIL, `addWorkstream is not a function`.
 
 - [ ] **Step 3: Implement** — in `cli/commands/workstream.core.js`
 
-Imports this needs: `currentIdentity` and `assertManager` from `./review.core.js` (move `currentIdentity` into an export there if it's file-local), `slugify` from wherever `task.core.js` takes it, `writeConfig`/`writeWorkstream` from `../../src/storage.js`, and `emptyWorkstream`/`numberWorkstreams` from `../../src/model.js`.
+Imports this needs: `currentIdentity` and `assertManager` from `./review.core.js` (move `currentIdentity` into an export there if it's file-local), `slugify` from `../../src/roles.js`, `writeConfig`/`writeWorkstream` from `../../src/storage.js`, and `emptyWorkstream`/`numberWorkstreams` from `../../src/model.js`.
 
 ```js
 export class WorkstreamParentError extends Error {
