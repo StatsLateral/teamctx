@@ -30,6 +30,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `api/oauth-server.js` into `src/views/`, which leaves that file with the
   routes it is named for; no page does anything it did not do before.
 
+### Removed
+- **The unused `@vercel/kv` dependency.** Nothing imported it:
+  `src/oauth/kv.js` talks the Upstash Redis REST protocol over `fetch`, reading
+  either the `KV_REST_API_*` or the `UPSTASH_REDIS_REST_*` pair, so the package
+  was install weight that implied a storage backend teamctx does not use — and
+  one Vercel has since retired in favour of Redis through its Marketplace.
+  Existing deployments keep working unchanged; the env var names are untouched.
+  A new check in `package.test.js` reads the import graph and fails on any
+  dependency nothing imports, so the manifest cannot drift again. Closes #105.
+
 ### Documentation
 - **Where a team layer would go is written down.** The intended hierarchy is
   team → project → workstream; today one team is one project.
