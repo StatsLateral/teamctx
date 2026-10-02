@@ -95,8 +95,9 @@ to skip the queue if you want.
 > Log this as a decision: we picked PostgreSQL over MongoDB because our
 > workload is relational and we want joins to be trivial.
 
-Claude calls `contribute` with `decision: true`. Decisions are marked as
-first-class and won't be pruned by `reflect`.
+Claude calls `contribute`; the AI records it as a decision, with your reason
+written beside it. Decisions, rules and exceptions always wait for your
+approval before every member's AI sees them.
 
 ### Review the approval queue
 
@@ -122,19 +123,18 @@ which calls `config_set({key: "manager", value: "Priya"})`.
 Claude calls `snapshot_create`, then `snapshot_approve`. You now have a
 versioned checkpoint you can inspect later.
 
-### Split a workstream
+### Organise the work into parts
 
-> Suggest how to split the main workstream, then walk me through the
-> proposals.
+> Suggest how to organise this project, then walk me through it.
 
-Claude calls `suggest_workstream_splits` (dry-run), presents the proposed
-splits, and only calls `workstream_split` for the ones you accept. You can
-also tell it which roles to move to each new workstream.
+Claude calls `propose_structure` (a draft that changes nothing), walks you
+through each part, and calls `workstream_add` only for the ones you accept.
+Parts can sit under other parts; someone on a part sees everything below it.
 
 ### Restructure carefully
 
-For anything structural — `role_add`, `role_assign`, `workstream_split`,
-`reflect`, `config_set` — Claude sees a ⚠ RISKY warning in the tool
+For anything structural — `role_add`, `role_assign`, `workstream_add`,
+`config_set` — Claude sees a ⚠ RISKY warning in the tool
 description and should confirm intent with you before calling. If it doesn't,
 push back and tell it to confirm first. This is how the safety layer is
 supposed to work.

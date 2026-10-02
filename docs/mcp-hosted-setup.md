@@ -145,11 +145,11 @@ That 401 is not a failure — it is what tells the client where to authenticate.
 3. **Connect** → GitHub consent screen → approve
 4. Tools appear. Reads and writes work immediately.
 
-For the seven tools that call a model — `ask`, `contribute`,
-`submit_contribution`, `reflect`, `role_add`, `suggest_roles`,
-`suggest_workstream_splits` — the user visits
+For the tools that call a model — `ask`, `contribute`,
+`submit_contribution`, `role_add`, `suggest_roles`, `propose_structure`,
+`task_compile` — the user visits
 `https://<your-deployment>.vercel.app/settings` once, signs in with GitHub,
-and saves an API key. The other 21 tools never need it.
+and saves an API key. The other tools never need it.
 
 ### Don't have a repo yet?
 

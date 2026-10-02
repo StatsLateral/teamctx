@@ -32,7 +32,7 @@ Ask your assistant:
 
 > what's the context on this project?
 
-You should get the project's Whys back. If you do, you are connected.
+You should get the project's goal and what it has settled back. If you do, you are connected.
 
 ## What you can do
 
@@ -61,6 +61,6 @@ Usually the URL points at a project you are not on. Check with the manager that
 the URL is the one `teamctx connect` printed for *their* project.
 
 **A tool that calls a model says no key is configured.**
-Some tools (`ask`, `contribute`, `reflect`) need an AI provider key. Either set
+Some tools (`ask`, `contribute`, `propose_structure`) need an AI provider key. Either set
 your own at `<deployment>/settings`, or ask the manager to share the project's.
 The other tools work without one.

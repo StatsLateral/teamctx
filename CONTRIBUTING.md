@@ -67,8 +67,9 @@ Nothing in that table is a target to move toward. It is where to look when the
 need is new, and the notes are there because a column of library names invites a
 rewrite the next section rules out.
 
-**Build.** The things nobody else is going to: the context model (Why → What →
-How, the project layer a workstream inherits), review and governance, member
+**Build.** The things nobody else is going to: the context model (goal, workstreams and
+the governed records — decisions, assumptions, rules, exceptions — each part
+inherits), review and governance, member
 scoping, role compilation, and provenance. That is the product.
 
 The line is not about difficulty. A file parser is hard and still worth

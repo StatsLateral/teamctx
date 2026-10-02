@@ -32,7 +32,7 @@ either manager-gated or explicitly flagged as structural.
 | `get_context` | Return every workstream's tree as `{workstreams: [{id, tree}, ...]}`. |
 | `list_workstreams` | Enumerate workstreams with `{id, name, parent, number, isActive, recordCount, taskCount, roles}`. |
 | `get_workstream({id})` | Fetch one workstream's records and tasks by id; omit the id for the project. |
-| `list_records({type?, status?, workstream?, owner?, due?})` | Rules, decisions, assumptions, exceptions, open questions, risks and reasons in your scope. `due: true` lists assumptions to re-check and exceptions about to expire. |
+| `list_records({type?, status?, workstream?, owner?, due?})` | Rules, decisions, assumptions and allowed exceptions in your scope, each with its reason. `due: true` lists assumptions to re-check and exceptions about to expire. |
 | `get_record({id})` | One record: text, owner, dates, links and where it sits. |
 | `get_role_context({role})` | Return a role's compiled context markdown by slug. |
 | `list_roles` | List all defined roles (slug, name, workstream). |
@@ -55,7 +55,7 @@ either manager-gated or explicitly flagged as structural.
 
 | Tool | Purpose |
 | --- | --- |
-| `contribute({text, workstream?, decision?, apply?, author?})` | Add a contribution. Queues for manager approval — every contribution does, on a new project. `apply: true` writes immediately and is **the manager's alone**; from anyone else the flag is dropped rather than refused, and the result carries `applyRefused: true`. Its one use is a project's founding contribution (`totalWhys: 0`). |
+| `contribute({text, workstream?, decision?, apply?, author?})` | Add a contribution. Queues for manager approval — every contribution does, on a new project. `apply: true` writes immediately and is **the manager's alone**; from anyone else the flag is dropped rather than refused, and the result carries `applyRefused: true`. The manager's founding contribution (`hasContext: false` in `get_status`) lands without it. Decisions, rules, exceptions and status changes always wait for the manager. Anything the AI proposed that was incomplete comes back in `dropped` with a reason. |
 | `submit_contribution` | **Deprecated** alias for `contribute` with `apply: true`. Also manager-gated. Kept for one release; prefer `contribute`. |
 | `task_add({title, owner?, workstream?, compile?, role?})` | Create a task and commit. `compile: true` also compiles its prompt in the same call — **that spends an AI call**. |
 | `task_done({id})` / `task_reopen({id})` | Toggle status and commit. Returns `unchanged: true` without committing if already in that state. |
@@ -78,7 +78,7 @@ marked *(manager-gated)* require the caller to pass `author` matching
 | `manager_remove({email})` | Take a co-manager off, and commit. **Manager-gated.** Removing yourself is stepping down. The primary cannot be removed this way. Refused while the project's lent GitHub access is still that person's. |
 | `manager_transfer({email, step_down?})` | Hand the primary manager role over, and commit. **Primary only.** The new primary needs a working key of their own on this project, checked with the provider's list-models call, which spends nothing. If the project lends GitHub access, the new primary must be the one lending it. The outgoing primary stays a co-manager unless `step_down`, which is refused while the project's lent GitHub access is still theirs. |
 | `task_rm({id})` | Permanently delete a task and its compiled prompt, then commit. No undo short of a git revert. |
-| `task_compile({id, role?, force?})` | **Spends an AI call.** Builds a prompt from the workstream tree, the role and recent decisions; overwrites any existing prompt and commits. **Returns the markdown itself**, not just a path — the caller usually cannot read the file. Skips the call and returns the cached prompt with `alreadyCompiled: true` when the workstream's Whys are unchanged; `force: true` regenerates anyway. Not for loops. |
+| `task_compile({id, role?, force?})` | **Spends an AI call.** Builds a prompt from the project and every part of the work above the task, the role, and the decisions and rules that apply; overwrites any existing prompt and commits. **Returns the markdown itself**, not just a path — the caller usually cannot read the file. Skips the call and returns the cached prompt with `alreadyCompiled: true` when its records are unchanged and none has expired since; `force: true` regenerates anyway. Not for loops. |
 | `role_add({name, responsibilities, ...})` | Create a role, generate its context file, commit. |
 | `role_assign({slug, workstream})` | Move a role to a different workstream and regenerate. |
 | `workstream_add({name, parent?})` | Add a part of the work, optionally under another. Manager only. |
@@ -116,10 +116,11 @@ the user always knows what happened without having to inspect the raw response.
 ## Breaking change — governed records replace Why/What/How
 
 The project and each workstream now hold `{ records, tasks }` (the project also
-a `goal`), not a `whys` tree. `get_context` still returns
+a `goal` with its `why`), not a Why/What/How tree. Records are decisions,
+assumptions, rules and exceptions. `get_context` still returns
 `{workstreams: [{id, tree}, ...]}` with the project first as `id: null`; read
 `tree.goal`, `tree.records` and `tree.tasks`. A project still in the old format
-answers every tool with a message to run `teamctx init` again. `reflect`,
+answers every tool with a message saying to remove the `.teamctx` folder and run `teamctx init`. `reflect`,
 `workstream_split` and `suggest_workstream_splits` are gone; use
 `workstream_add` and `propose_structure`.
 

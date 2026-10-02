@@ -11,6 +11,14 @@ These are **contributor-facing write-ups** for the larger items on the
    are starting points, and a better idea is always welcome.
 3. See [`CONTRIBUTING.md`](../../CONTRIBUTING.md) for setup, tests, and the DCO sign-off.
 
+> **Model change, 2026-10-02.** Proposals written before then describe the old
+> Why → What → How tree, `reflect` and workstream splits. teamctx now keeps a
+> goal, nested workstreams, tasks, and four kinds of governed record —
+> decisions, assumptions, rules and exceptions. The proposals are kept as
+> written, as a record of the reasoning; read them against
+> [the governed-records design](../superpowers/specs/2026-10-02-governed-records-design.md)
+> and [workstreams](../workstreams.md).
+
 [d]: https://github.com/StatsLateral/teamctx/discussions
 
 ## Current proposals
