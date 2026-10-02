@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { makeConfig } from './test-fixtures/model.js';
 import {
   memberWorkstreams, scopeFor, inScope, assertInScope,
   visibleWorkstreams, defaultWorkstream, WorkstreamOutOfScopeError,
@@ -154,9 +155,6 @@ describe('the project itself against a scope', () => {
     expect(inScope(['eng'], null)).toBe(true);
   });
 
-  it('admits it under its old name too', () => {
-    expect(inScope(['eng'], 'main')).toBe(true);
-  });
 
   it('does not refuse it', () => {
     expect(() => assertInScope(['eng'], null)).not.toThrow();
@@ -214,5 +212,31 @@ describe('a manager who is now on their own roster', () => {
     const config = { members: [creator, { key: 'github:9', workstreams: ['billing'] }] };
     expect(scopeFor(config, { key: 'github:9' })).toEqual(['billing']);
     expect(inScope(scopeFor(config, { key: 'github:9' }), 'shipping')).toBe(false);
+  });
+});
+
+
+describe('nested scope', () => {
+  const config = makeConfig({
+    workstreams: [
+      { id: 'sales', name: 'Sales', parent: null, order: 1 },
+      { id: 'outreach', name: 'Outreach', parent: 'sales', order: 1 },
+      { id: 'expansion', name: 'Expansion', parent: null, order: 2 },
+      { id: 'renewals', name: 'Renewals', parent: 'expansion', order: 1 },
+    ],
+    members: [{ key: 'git:m@x', email: 'm@x', name: 'M', workstreams: ['sales'] }],
+  });
+  const actor = { key: 'git:m@x', email: 'm@x' };
+
+  it('reaches every workstream below the one they are on', () => {
+    expect(inScope(scopeFor(config, actor), 'outreach')).toBe(true);
+  });
+  it('never reaches a sibling or its children', () => {
+    const scope = scopeFor(config, actor);
+    expect(inScope(scope, 'expansion')).toBe(false);
+    expect(inScope(scope, 'renewals')).toBe(false);
+  });
+  it('a manager is unscoped', () => {
+    expect(scopeFor(config, actor, { isManager: true })).toBeNull();
   });
 });

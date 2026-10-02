@@ -17,6 +17,7 @@
  */
 
 import { isProjectLevel } from './project-level.js';
+import { descendantsOf } from './model.js';
 
 export class WorkstreamOutOfScopeError extends Error {
   constructor(id, allowed) {
@@ -83,7 +84,11 @@ export function rosterEntry(config, actor) {
  */
 export function scopeFor(config, actor, { isManager = false } = {}) {
   if (isManager) return null;
-  return memberWorkstreams(rosterEntry(config, actor));
+  const listed = memberWorkstreams(rosterEntry(config, actor));
+  if (!listed) return null;
+  // Being on a workstream means being on every part below it. Siblings, and
+  // anything under them, stay out.
+  return [...new Set(listed.flatMap(id => [id, ...descendantsOf(config, id)]))];
 }
 
 /**
