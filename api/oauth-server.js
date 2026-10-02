@@ -1224,10 +1224,18 @@ app.post('/projects', async (req, res) => {
   try {
     await readProjectView({ owner: ref.owner, repo: ref.repo, user });
   } catch (e) {
+    // A denial is written for the person and says which of the three reasons it
+    // was, so it is theirs to read. Anything else came from upstream, and this
+    // route takes an arbitrary `owner/repo` from a form — so reflecting that
+    // text would let any signed-in person probe repositories and read back
+    // whatever GitHub said about them. The detail goes to the log instead.
     const denied = e instanceof ProjectViewError || e.code === 'MEMBER_ACCESS_DENIED';
+    if (!denied) console.warn(`projects: opening ${ref.owner}/${ref.repo} failed:`, e);
     return renderProjects(req, res, user, {
       typed,
-      error: denied ? e.message : `${ref.owner}/${ref.repo} could not be opened: ${e.message}`,
+      error: denied ? e.message
+        : `${ref.owner}/${ref.repo} could not be opened. Check the name, and that the `
+          + 'project has lent GitHub access and has your address on it.',
     });
   }
   // On the list from here on, for the same reason as arriving by link: being able

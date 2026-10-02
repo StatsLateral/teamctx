@@ -11,7 +11,7 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 import http from 'http';
 
-const repo = vi.hoisted(() => ({ files: new Map(), prefetchError: null, reposError: null }));
+const repo = vi.hoisted(() => ({ files: new Map(), prefetchError: null, reposError: null, readError: null }));
 
 vi.mock('../src/adapters/github.js', async (orig) => ({
   ...(await orig()),
@@ -36,7 +36,13 @@ vi.mock('../src/adapters/github.js', async (orig) => ({
       if (`${this.owner}/${this.repo}`.toLowerCase() !== 'acme/ledger') throw new Error('404 Not Found');
     }
 
-    read(p) { return repo.files.has(p) ? { content: repo.files.get(p) } : null; }
+    read(p) {
+      // Not a denial and not a 404: something upstream broke after the
+      // repository was reached. Injected here because every expected
+      // failure is a ProjectViewError, so nothing else reaches that branch.
+      if (repo.readError) throw new Error(repo.readError);
+      return repo.files.has(p) ? { content: repo.files.get(p) } : null;
+    }
 
     write() {}
 
@@ -113,6 +119,7 @@ const listed = email => kvGet(keys.connectedProjects(email)).then(r => r?.projec
 
 beforeEach(() => {
   __resetMemory();
+  repo.readError = null;
   project();
 });
 
@@ -277,6 +284,25 @@ describe('when it cannot be opened', () => {
   it('keeps it off the list when it could not be opened', async () => {
     await openRef(MANAGER, 'acme/nope');
     expect(await listed('maya@example.com')).toEqual([]);
+  });
+
+  it('does not read an unexpected failure back to whoever typed the name', async () => {
+    // Anyone signed in can put any owner/repo in this box. Reflecting what
+    // upstream said would turn it into a way to probe repositories and read the
+    // answers back, so only a denial is shown — that one is written for the
+    // person rather than about the infrastructure.
+    repo.readError = 'getaddrinfo ENOTFOUND internal-kv.acme.local:6379 token=ghp_secret';
+    const { status, body } = await openRef(MANAGER, 'acme/ledger');
+    expect(status).toBe(200);
+    expect(body).not.toContain('ENOTFOUND');
+    expect(body).not.toContain('internal-kv');
+    expect(body).not.toContain('ghp_secret');
+    expect(body).toContain('acme/ledger could not be opened');
+  });
+
+  it('still shows a denial, because that one is written for the reader', async () => {
+    const { body } = await openRef(MANAGER, 'acme/nope');
+    expect(body).toContain('could not be read');
   });
 
   it('tells a Google sign-in that the project has lent no GitHub access', async () => {
