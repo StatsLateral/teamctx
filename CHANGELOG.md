@@ -31,6 +31,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   routes it is named for; no page does anything it did not do before.
 
 ### Documentation
+- **"Borrow first" is now a step, not a hope.** About a quarter of teamctx's
+  non-test code re-implements plumbing that maintained projects already provide
+  — a connector per service, a hand-written ZIP and .docx reader, a code path
+  per AI provider, web sign-in and sessions — and nothing in the process ever
+  asked whether a library would do. The feature request template now has a
+  **required** "Existing open source first" field, the PR checklist asks whether
+  new plumbing uses a library or says why not, and `CONTRIBUTING.md` has a
+  **Build vs borrow** section drawing the line: borrow connectors, file formats,
+  auth and sessions, provider switching and Redis clients; build the context
+  model, review and governance, scoping, compilation and provenance. Existing
+  code is explicitly not to be rewritten for this — a swap happens when a piece
+  breaks or needs extending. Closes #106.
 - **Where a team layer would go is written down.** The intended hierarchy is
   team → project → workstream; today one team is one project.
   `docs/proposals/team-layer.md` records where that layer would slot in —

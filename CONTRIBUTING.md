@@ -35,6 +35,53 @@ Match the surrounding code — naming, structure, and comment density. There is 
 automated linter yet; readability and consistency with neighboring files is the
 bar.
 
+## Build vs borrow
+
+About a quarter of teamctx's non-test code — some 4,000 lines when this was
+written — re-implements plumbing that maintained open-source projects provide: an
+import connector per service, each with its own sign-in, paging and rate limits;
+a hand-written ZIP and .docx reader; separate code per AI provider plus a repair
+pass for broken JSON; web sign-in and cookie sessions. None of that was a wrong
+call at the time. Nothing in the process asked the question.
+
+Every line of it is permanent maintenance — upstream API changes, edge cases,
+security — spent away from the part only teamctx can do. A tab between two words
+in a .docx silently joined them, because our reader did not know `<w:tab/>` was
+whitespace; it was found and fixed inside
+[#41](https://github.com/StatsLateral/teamctx/pull/41). A library would have had
+that case years ago.
+
+So before writing new plumbing, name what already exists.
+
+**Borrow.** Anything a wider community already maintains:
+
+| Need | Where to look first |
+| --- | --- |
+| Connectors, API clients, OAuth per service | [Nango](https://github.com/NangoHQ/nango), [LlamaIndex readers](https://llamahub.ai/) |
+| File formats (.docx, .pdf, .xlsx) | [mammoth](https://github.com/mwilliamson/mammoth.js), [MarkItDown](https://github.com/microsoft/markitdown) |
+| Web sign-in and sessions | [Better Auth](https://www.better-auth.com/), [Auth.js](https://authjs.dev/) |
+| Switching between AI providers | [Vercel AI SDK](https://sdk.vercel.ai/) |
+| Redis | [`@upstash/redis`](https://github.com/upstash/redis-js) |
+
+**Build.** The things nobody else is going to: the context model (Why → What →
+How, the project layer a workstream inherits), review and governance, member
+scoping, role compilation, and provenance. That is the product.
+
+The line is not about difficulty. A file parser is hard and still worth
+borrowing; a review gate is easy and still ours, because its behaviour is a
+product decision rather than a solved problem.
+
+**This does not mean rewriting what is here.** Moving working code costs more
+than keeping it. A swap happens when a piece breaks or needs extending: the next
+connector is where a connector framework earns its place, and the next .docx bug
+is where mammoth does.
+
+Two places ask for this, so it happens when the decision is live rather than
+after the code is written. The feature request template has a required
+**Existing open source first** field, and the PR checklist asks whether new
+plumbing uses a library or says why not. "Nothing fits, and here is what I
+checked" is a complete answer — the point is that somebody looked.
+
 ## Sign your commits (DCO)
 
 teamctx uses the [Developer Certificate of Origin](https://developercertificate.org/).
