@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  PROJECT_LEVEL, LEGACY_MAIN, isProjectLevel, resolveTarget, targetLabel,
+  PROJECT_LEVEL, isProjectLevel, resolveTarget, targetLabel,
 } from './project-level.js';
 
 describe('recognising project level', () => {
@@ -12,15 +12,9 @@ describe('recognising project level', () => {
     expect(isProjectLevel('')).toBe(true);
   });
 
-  it('still accepts "main", so old references keep resolving', () => {
-    // Stored preferences, saved configs and anyone typing from memory. None of
-    // those update themselves when the workstream stops existing.
-    expect(isProjectLevel(LEGACY_MAIN)).toBe(true);
-    expect(isProjectLevel(' main ')).toBe(true);
-  });
-
   it('treats any other id as a workstream', () => {
     expect(isProjectLevel('engineering')).toBe(false);
+    expect(isProjectLevel('main')).toBe(false);
     expect(isProjectLevel('mainline')).toBe(false);
     expect(isProjectLevel('MAIN')).toBe(false);
   });
@@ -28,7 +22,7 @@ describe('recognising project level', () => {
 
 describe('normalising a target', () => {
   it('collapses every project-level spelling to one value', () => {
-    [null, undefined, '', 'main', '  main  '].forEach(v => {
+    [null, undefined, ''].forEach(v => {
       expect(resolveTarget(v)).toBe(PROJECT_LEVEL);
     });
   });
@@ -41,7 +35,6 @@ describe('normalising a target', () => {
 describe('naming it for a person', () => {
   it('uses the project name at project level', () => {
     expect(targetLabel(null, 'Ledger')).toBe('Ledger');
-    expect(targetLabel('main', 'Ledger')).toBe('Ledger');
   });
 
   it('falls back to plain words when there is no name', () => {
