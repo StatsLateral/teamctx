@@ -53,7 +53,7 @@ describe('activity', () => {
 describe('format', () => {
   it('rejects the old Why/What/How shape with the exact message', () => {
     expect(() => assertCurrentFormat({ name: 'x', whys: [] })).toThrow(LegacyFormatError);
-    expect(() => assertCurrentFormat({ name: 'x', whys: [] })).toThrow(/Run `teamctx init` again/);
+    expect(() => assertCurrentFormat({ name: 'x', whys: [] })).toThrow(/Remove the .teamctx folder, then run `teamctx init`/);
   });
   it('accepts the new shape', () => {
     expect(assertCurrentFormat(emptyProject('p'))).toEqual(emptyProject('p'));

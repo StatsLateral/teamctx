@@ -104,3 +104,12 @@ describe('proposeDiff — governed operations', () => {
     expect(call().prompt).not.toContain('Old plan');
   });
 });
+
+describe('proposeDiff — where records attach', () => {
+  it('only asks for attachedTo when a record is about one task, never to put it on the project', async () => {
+    await proposeDiff({ workstream: { id: 'food', name: 'Food', records: [], tasks: [] }, contribution: 'x', source: 's', config: {}, today: '2026-10-02' });
+    const { prompt } = call();
+    expect(prompt).not.toContain('"attachedTo": { "kind": "project" }');
+    expect(prompt).toMatch(/attachedTo only when[\s\S]*specific task/);
+  });
+});

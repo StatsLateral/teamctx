@@ -138,3 +138,18 @@ describe('isAdditive on the governed model', () => {
     expect(needsReview({ reviewPolicy: 'additive' }, [rec('decision')])).toBe(true);
   });
 });
+
+describe('retiring or settling something is never a quiet addition', () => {
+  it('an addition that replaces an existing record is not additive', () => {
+    expect(isAdditive([{ type: 'addRecord', record: { type: 'why', text: 'x', links: { replaces: 'rec-d' } } }])).toBe(false);
+  });
+  it('decisions, rules and exceptions need the manager even under "none"', () => {
+    for (const t of ['decision', 'rule', 'exception']) {
+      expect(needsReview({ reviewPolicy: 'none' }, [{ type: 'addRecord', record: { type: t, text: 'x' } }])).toBe(true);
+    }
+    expect(needsReview({ reviewPolicy: 'none' }, [{ type: 'addTask', title: 't' }])).toBe(false);
+  });
+  it('a status change needs the manager even under "none"', () => {
+    expect(needsReview({ reviewPolicy: 'none' }, [{ type: 'setRecordStatus', id: 'r', status: 'replaced' }])).toBe(true);
+  });
+});

@@ -104,3 +104,64 @@ describe('touchedBy ordering', () => {
     expect(ids).toContain('rec-old');
   });
 });
+
+describe('what a new record may replace', () => {
+  it('only an active record of the same type', () => {
+    const dec = makeRecord({ id: 'rec-d', type: 'decision' });
+    const { tree, dropped } = applyOps(makeProject({ records: [dec] }), [
+      { type: 'addRecord', record: { type: 'why', text: 'x', links: { replaces: 'rec-d' }, attachedTo: { kind: 'project' } } },
+    ], 'c-1');
+    expect(dropped[0].reason).toMatch(/replace/);
+    expect(tree.records.find(r => r.id === 'rec-d').status).toBe('active');
+  });
+});
+
+describe('malformed proposals never crash a contribution', () => {
+  it('drops a record whose links are the wrong shape, and keeps the rest', () => {
+    const { tree, dropped } = applyOps(makeProject(), [
+      { type: 'addRecord', record: { type: 'decision', text: 'x', links: { restsOn: 'rec-abc' }, attachedTo: { kind: 'project' } } },
+      { type: 'addRecord', record: { type: 'decision', text: 'y', links: 'abc', attachedTo: { kind: 'project' } } },
+      { type: 'addRecord', record: { type: 'decision', text: { not: 'text' }, attachedTo: { kind: 'project' } } },
+      { type: 'addTask', title: 'kept' },
+    ], 'c-1');
+    expect(dropped).toHaveLength(3);
+    expect(tree.tasks.map(t => t.title)).toEqual(['kept']);
+  });
+});
+
+describe('edits pass the same checks as additions', () => {
+  const rule = () => makeRecord({ id: 'rec-r', type: 'rule', text: 'No nuts' });
+  const dec = () => makeRecord({ id: 'rec-d', type: 'decision', text: 'Banana cake' });
+  const exc = () => makeRecord({ id: 'rec-e', type: 'exception', text: 'Frosting', expiresAt: '2026-12-31', links: { bends: 'rec-r' } });
+  it('an exception cannot be re-pointed at something that is not a rule', () => {
+    const { dropped } = applyOps(makeProject({ records: [rule(), dec(), exc()] }), [
+      { type: 'editRecord', id: 'rec-e', changes: { links: { bends: 'rec-d' } } },
+      { type: 'editRecord', id: 'rec-e', changes: { links: { bends: 'nope' } } },
+    ], 'c-1');
+    expect(dropped).toHaveLength(2);
+  });
+  it('a record cannot be attached to a task that is not here', () => {
+    const { dropped } = applyOps(makeProject({ records: [dec()] }), [
+      { type: 'editRecord', id: 'rec-d', changes: { attachedTo: { kind: 'task', id: 'task-zzz' } } },
+    ], 'c-1');
+    expect(dropped[0].reason).toMatch(/attachedTo/);
+  });
+});
+
+describe('where a record is written decides where it is attached', () => {
+  it('defaults a record in a workstream to that workstream, and refuses a task that is not there', () => {
+    const ws = { id: 'food', name: 'Food', records: [], tasks: [] };
+    const { tree, dropped } = applyOps(ws, [
+      { type: 'addRecord', record: { type: 'decision', text: 'Banana cake' } },
+      { type: 'addRecord', record: { type: 'decision', text: 'x', attachedTo: { kind: 'task', id: 'task-nope' } } },
+    ], 'c-1', { target: 'food' });
+    expect(tree.records[0].attachedTo).toEqual({ kind: 'workstream', id: 'food' });
+    expect(dropped[0].reason).toMatch(/attachedTo/);
+  });
+  it('a goal can only be set on the project', () => {
+    const ws = { id: 'food', name: 'Food', records: [], tasks: [] };
+    const { tree, dropped } = applyOps(ws, [{ type: 'setGoal', text: 'G' }], 'c-1', { target: 'food' });
+    expect(tree.goal).toBeUndefined();
+    expect(dropped[0].reason).toMatch(/goal/);
+  });
+});

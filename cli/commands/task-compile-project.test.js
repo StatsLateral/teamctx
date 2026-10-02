@@ -67,3 +67,13 @@ describe('a task inside a workstream', () => {
     expect(occurrences(prompt, 'onboard three customers')).toBe(1);
   });
 });
+
+describe('a task in a nested part of the work', () => {
+  it('carries the rules of every part above it, not only its own', async () => {
+    const parent = { id: 'sales', name: 'Sales', number: '1', records: [{ id: 'r1', type: 'rule', text: 'no discounts over 15%', status: 'active', attachedTo: { kind: 'workstream', id: 'sales' }, links: {} }], tasks: [] };
+    const child = { id: 'outreach', name: 'Outreach', number: '1.1', records: [], tasks: [] };
+    const task = { id: 't3', title: 'call the CFO', status: 'open', workstream: 'outreach' };
+    await compileTaskPrompt({ task, workstream: child, role: null, contributions: [], config, project: PROJECT, chain: [parent, child] });
+    expect(promptSent()).toContain('Rule: no discounts over 15%');
+  });
+});

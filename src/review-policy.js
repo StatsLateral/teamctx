@@ -44,8 +44,20 @@ const NEVER_ADDITIVE_RECORDS = new Set(['decision', 'rule', 'exception']);
 // exceptions change what the whole team must follow, so they always wait.
 function opIsAdditive(op) {
   if (op?.type === 'addTask') return true;
-  if (op?.type === 'addRecord') return !NEVER_ADDITIVE_RECORDS.has(op.record?.type);
+  // Replacing retires an existing record as a side effect, which is a change to
+  // what the team relies on, not an addition to it.
+  if (op?.type === 'addRecord') return !NEVER_ADDITIVE_RECORDS.has(op.record?.type) && !op.record?.links?.replaces;
   return false;
+}
+
+/**
+ * Operations that change what the team must follow: settling or retiring a
+ * decision, rule or exception, or changing any record's status. These need the
+ * manager under every policy — `none` waives review of everything else.
+ */
+function governs(op) {
+  if (op?.type === 'addRecord') return NEVER_ADDITIVE_RECORDS.has(op.record?.type) || !!op.record?.links?.replaces;
+  return op?.type === 'setRecordStatus';
 }
 
 export class InvalidReviewPolicyError extends Error {
@@ -88,6 +100,7 @@ export function isAdditive(operations) {
  */
 export function needsReview(config, operations) {
   const policy = reviewPolicy(config);
+  if ((operations || []).some(governs)) return true;
   if (policy === 'none') return false;
   if (policy === 'additive') return !isAdditive(operations);
   return true;

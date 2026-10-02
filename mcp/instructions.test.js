@@ -98,3 +98,11 @@ describe('the tools an agent has to pick between first', () => {
     expect(describeOf('contribute')).toMatch(/sent for review/i);
   });
 });
+
+describe('the model the instructions describe', () => {
+  it('is the governed one, not the old three-level tree', () => {
+    expect(INSTRUCTIONS).not.toMatch(/three-level tree|why-tree|Why\/What\/How/i);
+    expect(INSTRUCTIONS).toMatch(/decisions/);
+    expect(INSTRUCTIONS).toMatch(/workstream_add/);
+  });
+});

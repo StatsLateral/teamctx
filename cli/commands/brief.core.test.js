@@ -10,7 +10,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('../../src/storage.js', () => ({
   readConfig: vi.fn(),
-  readTreeMd: vi.fn(),
+  readProject: vi.fn(() => ({ name: 'Ledger', goal: { text: 'ship the ledger' }, records: [], tasks: [] })),
+  readWorkstream: vi.fn((id) => ({ id, name: id, records: [{ id: `r-${id}`, type: 'decision', text: `${id} decision`, status: 'active', attachedTo: { kind: 'workstream', id }, links: {} }], tasks: [] })),
   readRoleFile: vi.fn(() => '# role file'),
   listTasks: vi.fn(() => []),
   listWorkstreamIds: vi.fn(() => ['delivery', 'docs']),
@@ -21,7 +22,7 @@ vi.mock('../../src/actor.js', () => ({
 vi.mock('../../src/prefs.js', () => ({ resolveDisplayName: vi.fn(async () => 'Priya') }));
 
 const { buildBrief } = await import('./brief.core.js');
-const { readConfig, readTreeMd, readRoleFile, listTasks } = await import('../../src/storage.js');
+const { readConfig, readProject, readWorkstream, readRoleFile, listTasks } = await import('../../src/storage.js');
 const { resolveActor } = await import('../../src/actor.js');
 
 const PRIYA = { key: 'git:priya@example.com', name: 'Priya', email: 'priya@example.com' };
@@ -43,7 +44,6 @@ beforeEach(() => {
   vi.clearAllMocks();
   readConfig.mockReturnValue(config);
   listTasks.mockReturnValue(TASKS);
-  readTreeMd.mockImplementation(id => (id === null ? '# Project page' : `# ${id} page`));
   // Re-seeded every test: `clearAllMocks` clears calls, not implementations, so
   // a caller set by one test would otherwise leak into the next.
   resolveActor.mockResolvedValue(PRIYA);
@@ -94,32 +94,29 @@ describe('how the work is laid out', () => {
 });
 
 describe('the context it carries', () => {
-  it('serves the compiled page, which already holds the project above the workstream', async () => {
+  it('renders the workstream under the project, at the moment it is asked for', async () => {
     const r = await buildBrief({ activeWorkstream: 'delivery', teamctxDir: '/x' });
-    expect(r.context[0].markdown).toBe('# delivery page');
-    expect(readTreeMd).toHaveBeenCalledWith('delivery', '/x');
+    expect(r.context[0].markdown).toContain('ship the ledger');
+    expect(r.context[0].markdown).toContain('We decided: delivery decision');
+    expect(readWorkstream).toHaveBeenCalledWith('delivery', '/x');
   });
 
   it('reads the project when the caller stands there', async () => {
     const r = await buildBrief({ teamctxDir: '/x' });
     expect(r.context[0].workstream).toBe(null);
-    expect(r.context[0].markdown).toBe('# Project page');
+    expect(r.context[0].markdown).toContain('ship the ledger');
   });
 
   it('gives a scoped member their own workstreams and no sibling', async () => {
     const r = await buildBrief({ scope: ['docs'], teamctxDir: '/x' });
     expect(r.context.map(c => c.workstream)).toEqual(['docs']);
+    expect(r.context[0].markdown).not.toContain('delivery decision');
   });
 
-  it('says so plainly when nothing has been compiled yet', async () => {
-    readTreeMd.mockReturnValue('');
+  it('says so plainly when there is nothing yet', async () => {
+    readProject.mockReturnValueOnce({ name: 'Ledger', goal: null, records: [], tasks: [] });
     const r = await buildBrief({ teamctxDir: '/x' });
-    expect(r.context[0].markdown).toBe('');
-  });
-
-  it('survives a compiled page that cannot be read', async () => {
-    readTreeMd.mockImplementation(() => { throw new Error('gone'); });
-    await expect(buildBrief({ teamctxDir: '/x' })).resolves.toBeTruthy();
+    expect(r.context[0].markdown).toContain('No context yet');
   });
 });
 

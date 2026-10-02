@@ -409,3 +409,31 @@ describe('taskShowCommand', () => {
     log.mockRestore();
   });
 });
+
+describe('taskCompileCommand — expiry', () => {
+  const openTask = { id: 't-plan', title: 'Plan Q3 pivot', owner: 'priya', status: 'open', workstream: 'main', createdAt: '2026-07-24' };
+  it('regenerates once an exception the prompt carried has expired, with nothing contributed since', async () => {
+    const ws = { id: 'main', name: 'M', tasks: [], records: [
+      { id: 'r1', type: 'rule', text: 'No nuts', status: 'active' },
+      { id: 'e1', type: 'exception', text: 'Frosting', status: 'active', expiresAt: '2026-10-31', links: { bends: 'r1' } },
+    ] };
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date('2026-10-15T12:00:00Z'));
+      readConfig.mockReturnValue({ project: 'p', me: 'alice', autoPush: false });
+      readTree.mockReturnValue(ws);
+      readTask.mockReturnValue({ task: openTask, workstream: 'main' });
+      await taskCompileCommand('t-plan', {});
+      const savedHash = writeTask.mock.calls[0][0].compiledFromHash;
+
+      vi.clearAllMocks();
+      vi.setSystemTime(new Date('2026-11-15T12:00:00Z'));
+      readConfig.mockReturnValue({ project: 'p', me: 'alice', autoPush: false });
+      readTree.mockReturnValue(ws);
+      readTask.mockReturnValue({ task: { ...openTask, compiledAt: '2026-10-15T12:00:00Z', compiledFromHash: savedHash }, workstream: 'main' });
+      taskFileExists.mockReturnValue(true);
+      await taskCompileCommand('t-plan', {});
+      expect(compileTaskPrompt).toHaveBeenCalled();
+    } finally { vi.useRealTimers(); }
+  });
+});

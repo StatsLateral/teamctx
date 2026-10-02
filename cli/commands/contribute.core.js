@@ -206,7 +206,7 @@ export async function contributeCore({
   const rolesOnTarget = (config.roles || []).filter(r => resolveTarget(r.workstream) === targetId);
   const rolesRegenerated = [];
   for (const role of rolesOnTarget) {
-    const md = await generateRoleFile(updated, role, config.project, config, contributions, { project });
+    const md = await generateRoleFile(updated, role, config.project, config, contributions, { project, chain });
     writeRoleFile(role.slug, md, teamctxDir);
     rolesRegenerated.push(role.slug);
   }
