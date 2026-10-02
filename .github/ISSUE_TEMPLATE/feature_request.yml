@@ -16,8 +16,25 @@ body:
     validations:
       required: true
   - type: textarea
+    id: borrow
+    attributes:
+      label: Existing open source first
+      description: >-
+        Which maintained open-source project or library gets us most of the way
+        (name it and link it), and what is left that only teamctx should build?
+        If nothing fits, say what you checked. See
+        [Build vs borrow](https://github.com/StatsLateral/teamctx/blob/main/CONTRIBUTING.md#build-vs-borrow).
+      placeholder: >-
+        e.g. "mammoth (https://github.com/mwilliamson/mammoth.js) reads the
+        .docx; what is left for us is mapping its headings onto Why / What /
+        How." Or: "checked Nango and LlamaIndex readers — neither covers this
+        API, so the client is ours."
+    validations:
+      required: true
+  - type: textarea
     id: alternatives
     attributes:
       label: Alternatives considered
+      description: Other designs for this feature, as opposed to other libraries.
     validations:
       required: false
