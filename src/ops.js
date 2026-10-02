@@ -1,145 +1,99 @@
-function uid() {
-  return Math.random().toString(36).slice(2, 10);
-}
+import { randomBytes } from 'crypto';
+import { validateRecord, today } from './model.js';
 
-// Legacy trees (or trees written by callers that don't fill defaults) may
-// have Whys without a `whats` array and Whats without a `hows` array. All
-// traversal here defaults to `[]` so a partial tree never crashes iteration.
-const whats = (why) => why.whats || [];
-const hows = (what) => what.hows || [];
+export const OP_TYPES = ['setGoal', 'addRecord', 'editRecord', 'setRecordStatus', 'addTask', 'editTask', 'removeTask'];
+const STATUS_TARGETS = ['replaced', 'broken', 'closed', 'active'];
+const EDITABLE = ['text', 'detail', 'owner', 'reviewBy', 'expiresAt', 'links', 'attachedTo'];
 
-function newHow({ text, summary }, contributionId) {
-  return { id: uid(), text: String(text ?? ''), sourceContributionIds: [contributionId], summary: String(summary ?? '') };
-}
+const mint = (prefix) => `${prefix}-${randomBytes(4).toString('hex')}`;
+const withSource = (item, c) => ({
+  ...item,
+  sourceContributionIds: [...new Set([...(item.sourceContributionIds || []), c])],
+});
 
-function newWhat({ text, summary, hows: whatHows }, contributionId) {
-  return {
-    id: uid(), text: String(text ?? ''), sourceContributionIds: [contributionId], summary: String(summary ?? ''),
-    hows: (whatHows || []).map(h => newHow(h, contributionId)),
+function addRecord(tree, op, c, refs, dropped, onDay) {
+  const p = op.record || {};
+  const links = { restsOn: [], bends: null, replaces: null, answers: null, ...(p.links || {}) };
+  // A link may name another record proposed in this same contribution by its `ref`.
+  for (const k of ['bends', 'replaces', 'answers']) if (links[k] && refs.has(links[k])) links[k] = refs.get(links[k]);
+  links.restsOn = (links.restsOn || []).map(id => refs.get(id) || id);
+  const record = {
+    id: mint('rec'), type: p.type, text: String(p.text ?? '').trim(), detail: String(p.detail ?? ''),
+    status: 'active', owner: p.owner ?? null, attachedTo: p.attachedTo || { kind: 'project' },
+    ...(p.reviewBy ? { reviewBy: p.reviewBy } : {}), ...(p.expiresAt ? { expiresAt: p.expiresAt } : {}),
+    links, sourceContributionIds: [c], approvedBy: null, createdAt: onDay, updatedAt: onDay,
   };
-}
-
-function newWhy({ text, summary, whats: whyWhats }, contributionId) {
-  return {
-    id: uid(), text: String(text ?? ''), sourceContributionIds: [contributionId], summary: String(summary ?? ''),
-    whats: (whyWhats || []).map(w => newWhat(w, contributionId)),
-  };
-}
-
-function findStatement(workstream, id) {
-  for (const why of workstream.whys) {
-    if (why.id === id) return { node: why, tier: 'why' };
-    for (const what of whats(why)) {
-      if (what.id === id) return { node: what, tier: 'what' };
-      for (const how of hows(what)) {
-        if (how.id === id) return { node: how, tier: 'how' };
-      }
-    }
+  const v = validateRecord(record);
+  if (!v.ok) { dropped.push({ op, reason: v.errors.join('; ') }); return tree; }
+  if (record.type === 'exception') {
+    const target = tree.records.find(r => r.id === record.links.bends);
+    if (!target) { dropped.push({ op, reason: `links.bends: no record "${record.links.bends}"` }); return tree; }
+    if (target.type !== 'rule') { dropped.push({ op, reason: 'an exception must bend a rule' }); return tree; }
   }
-  return null;
-}
-
-function appendContrib(stmt, contributionId) {
-  return { ...stmt, sourceContributionIds: [...(stmt.sourceContributionIds || []), contributionId] };
-}
-
-function applyAdd(workstream, op, contributionId) {
-  if (op.type === 'addWhy') {
-    return { ...workstream, whys: [...workstream.whys, newWhy(op, contributionId)] };
+  if (op.ref) refs.set(op.ref, record.id);
+  let records = [...tree.records, record];
+  if (record.links.replaces) {
+    records = records.map(r => r.id === record.links.replaces ? { ...withSource(r, c), status: 'replaced', updatedAt: onDay } : r);
   }
-  if (op.type === 'addWhat') {
-    const idx = workstream.whys.findIndex(w => w.id === op.parentWhyId);
-    if (idx === -1) return workstream;
-    const why = workstream.whys[idx];
-    return {
-      ...workstream,
-      whys: workstream.whys.map((w, i) => i === idx
-        ? { ...why, whats: [...whats(why), newWhat(op, contributionId)] }
-        : w),
-    };
+  return { ...tree, records };
+}
+
+function editRecord(tree, op, c, dropped, onDay) {
+  const i = tree.records.findIndex(r => r.id === op.id);
+  if (i === -1) { dropped.push({ op, reason: `no record "${op.id}"` }); return tree; }
+  const changes = Object.fromEntries(Object.entries(op.changes || {}).filter(([k]) => EDITABLE.includes(k)));
+  const next = { ...withSource(tree.records[i], c), ...changes, updatedAt: onDay };
+  if (changes.links) next.links = { ...tree.records[i].links, ...changes.links };
+  const v = validateRecord(next);
+  if (!v.ok) { dropped.push({ op, reason: v.errors.join('; ') }); return tree; }
+  return { ...tree, records: tree.records.map((r, j) => j === i ? next : r) };
+}
+
+function setStatus(tree, op, c, dropped, onDay) {
+  if (!STATUS_TARGETS.includes(op.status)) { dropped.push({ op, reason: `unknown status "${op.status}"` }); return tree; }
+  if (!tree.records.some(r => r.id === op.id)) { dropped.push({ op, reason: `no record "${op.id}"` }); return tree; }
+  return { ...tree, records: tree.records.map(r => r.id === op.id ? { ...withSource(r, c), status: op.status, updatedAt: onDay } : r) };
+}
+
+export function applyOps(tree, ops, contributionId, { onDay = today() } = {}) {
+  const dropped = [];
+  const refs = new Map();
+  let next = { ...tree, records: [...(tree.records || [])], tasks: [...(tree.tasks || [])] };
+  const of = (t) => (ops || []).filter(o => o?.type === t);
+  for (const o of (ops || [])) if (!OP_TYPES.includes(o?.type)) dropped.push({ op: o, reason: `unknown operation "${o?.type}"` });
+
+  for (const o of of('setGoal')) {
+    const text = String(o.text ?? '').trim();
+    if (!text) { dropped.push({ op: o, reason: 'goal text is empty' }); continue; }
+    next = { ...next, goal: withSource({ ...(next.goal || {}), text, updatedAt: onDay }, contributionId) };
   }
-  if (op.type === 'addHow') {
-    let whyIdx = -1, whatIdx = -1;
-    for (let wi = 0; wi < workstream.whys.length; wi++) {
-      const ti = whats(workstream.whys[wi]).findIndex(t => t.id === op.parentWhatId);
-      if (ti !== -1) { whyIdx = wi; whatIdx = ti; break; }
-    }
-    if (whyIdx === -1) return workstream;
-    const why = workstream.whys[whyIdx];
-    const what = whats(why)[whatIdx];
-    const nextWhat = { ...what, hows: [...hows(what), newHow(op, contributionId)] };
-    const nextWhy = { ...why, whats: whats(why).map((t, i) => i === whatIdx ? nextWhat : t) };
-    return { ...workstream, whys: workstream.whys.map((w, i) => i === whyIdx ? nextWhy : w) };
+  for (const o of of('addRecord')) next = addRecord(next, o, contributionId, refs, dropped, onDay);
+  for (const o of of('addTask')) {
+    const title = String(o.title ?? '').trim();
+    if (!title) { dropped.push({ op: o, reason: 'task title is empty' }); continue; }
+    next = { ...next, tasks: [...next.tasks, {
+      id: mint('task'), title, owner: o.owner ?? null, status: 'open', createdAt: onDay,
+      doneAt: null, compiledAt: null, sourceContributionIds: [contributionId],
+    }] };
   }
-  return workstream;
-}
-
-function applyEdit(workstream, op, contributionId) {
-  if (!findStatement(workstream, op.id)) return workstream;
-  const updateNode = node => ({ ...appendContrib(node, contributionId), text: String(op.text ?? node.text), summary: String(op.summary ?? node.summary) });
-  return {
-    ...workstream,
-    whys: workstream.whys.map(why => {
-      if (why.id === op.id) return { ...updateNode(why), whats: whats(why) };
-      return {
-        ...why,
-        whats: whats(why).map(what => {
-          if (what.id === op.id) return { ...updateNode(what), hows: hows(what) };
-          return { ...what, hows: hows(what).map(how => how.id === op.id ? updateNode(how) : how) };
-        }),
-      };
-    }),
-  };
-}
-
-function applyDelete(workstream, op) {
-  return {
-    ...workstream,
-    whys: workstream.whys
-      .filter(why => why.id !== op.id)
-      .map(why => ({
-        ...why,
-        whats: whats(why)
-          .filter(what => what.id !== op.id)
-          .map(what => ({ ...what, hows: hows(what).filter(how => how.id !== op.id) })),
-      })),
-  };
-}
-
-/**
- * The statements one contribution left behind, in the order they are read.
- *
- * Every node an add creates and every node an edit touches carries the
- * contribution's id, and a deleted one is no longer in the tree to be found. So
- * the written tree answers "what did this change?" exactly, where the operations
- * cannot: an add op has no id at all — `uid()` mints one in here — and the only
- * id a contribution that both adds and deletes carries belongs to the statement
- * it removed.
- *
- * Read order puts the top of an added subtree first, which is the right thing to
- * point somebody at: a contribution that adds a Why along with its Whats and
- * Hows is about the Why.
- */
-export function statementsTouchedBy(workstream, contributionId) {
-  const out = [];
-  const touched = node => (node.sourceContributionIds || []).includes(contributionId);
-  for (const why of workstream?.whys || []) {
-    if (touched(why)) out.push(why.id);
-    for (const what of whats(why)) {
-      if (touched(what)) out.push(what.id);
-      for (const how of hows(what)) if (touched(how)) out.push(how.id);
-    }
+  for (const o of of('editRecord')) next = editRecord(next, o, contributionId, dropped, onDay);
+  for (const o of of('editTask')) {
+    if (!next.tasks.some(t => t.id === o.id)) { dropped.push({ op: o, reason: `no task "${o.id}"` }); continue; }
+    next = { ...next, tasks: next.tasks.map(t => t.id === o.id ? { ...withSource(t, contributionId), title: String(o.title ?? t.title) } : t) };
   }
-  return out;
+  for (const o of of('setRecordStatus')) next = setStatus(next, o, contributionId, dropped, onDay);
+  for (const o of of('removeTask')) {
+    if (!next.tasks.some(t => t.id === o.id)) { dropped.push({ op: o, reason: `no task "${o.id}"` }); continue; }
+    next = { ...next, tasks: next.tasks.filter(t => t.id !== o.id) };
+  }
+  return { tree: next, dropped };
 }
 
-export function applyOps(workstream, ops, contributionId) {
-  const adds = ops.filter(o => o.type === 'addWhy' || o.type === 'addWhat' || o.type === 'addHow');
-  const edits = ops.filter(o => o.type === 'editStatement');
-  const deletes = ops.filter(o => o.type === 'deleteStatement');
-  let next = workstream;
-  for (const op of adds) next = applyAdd(next, op, contributionId);
-  for (const op of edits) next = applyEdit(next, op, contributionId);
-  for (const op of deletes) next = applyDelete(next, op);
-  return next;
+export function touchedBy(tree, contributionId) {
+  const hit = (x) => (x?.sourceContributionIds || []).includes(contributionId);
+  return [
+    ...(hit(tree?.goal) ? ['goal'] : []),
+    ...(tree?.records || []).filter(hit).map(r => r.id),
+    ...(tree?.tasks || []).filter(hit).map(t => t.id),
+  ];
 }

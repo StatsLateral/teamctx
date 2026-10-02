@@ -1,7 +1,7 @@
 import { applyOps } from './ops.js';
 
-export function applyQueueItem(workstream, item) {
-  return applyOps(workstream, item.operations || [], item.id);
+export function applyQueueItem(tree, item) {
+  return applyOps(tree, item.operations || [], item.id).tree;
 }
 
 export function buildRejected(item, rejectedBy, reason) {

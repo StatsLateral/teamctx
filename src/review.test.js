@@ -1,39 +1,30 @@
 import { describe, it, expect } from 'vitest';
 import { applyQueueItem, buildRejected, canApprove, matchesActor, isLegacyManagerRef } from './review.js';
 
-const emptyWorkstream = () => ({ id: 'main', name: 'Demo', whys: [] });
+const emptyWorkstream = () => ({ id: 'sales', name: 'Demo', records: [], tasks: [] });
 
 describe('applyQueueItem', () => {
-  it('applies addWhy op and returns updated workstream', () => {
+  it('applies a queued record and returns the updated tree', () => {
     const ws = emptyWorkstream();
     const item = {
       id: 'c-1',
-      operations: [{ type: 'addWhy', text: 'Ship faster', summary: '...' }],
+      operations: [{ type: 'addRecord', record: { type: 'decision', text: 'Ship faster', attachedTo: { kind: 'workstream', id: 'sales' } } }],
     };
     const next = applyQueueItem(ws, item);
-    expect(next.whys).toHaveLength(1);
-    expect(next.whys[0].text).toBe('Ship faster');
-    expect(next.whys[0].sourceContributionIds).toEqual(['c-1']);
+    expect(next.records).toHaveLength(1);
+    expect(next.records[0].text).toBe('Ship faster');
+    expect(next.records[0].sourceContributionIds).toEqual(['c-1']);
   });
 
-  it('returns unchanged workstream when operations is empty', () => {
+  it('returns an unchanged tree when operations is empty or missing', () => {
     const ws = emptyWorkstream();
-    const next = applyQueueItem(ws, { id: 'c-1', operations: [] });
-    expect(next).toEqual(ws);
+    expect(applyQueueItem(ws, { id: 'c-1', operations: [] })).toEqual(ws);
+    expect(applyQueueItem(ws, { id: 'c-1' })).toEqual(ws);
   });
 
-  it('returns unchanged workstream when operations is missing', () => {
+  it('skips operations that name something no longer there (stale queue)', () => {
     const ws = emptyWorkstream();
-    const next = applyQueueItem(ws, { id: 'c-1' });
-    expect(next).toEqual(ws);
-  });
-
-  it('silently skips ops referencing non-existent parents (stale queue)', () => {
-    const ws = emptyWorkstream();
-    const item = {
-      id: 'c-1',
-      operations: [{ type: 'addWhat', parentWhyId: 'ghost', text: 'orphan', summary: '...' }],
-    };
+    const item = { id: 'c-1', operations: [{ type: 'editRecord', id: 'ghost', changes: { text: 'x' } }] };
     expect(() => applyQueueItem(ws, item)).not.toThrow();
     expect(applyQueueItem(ws, item)).toEqual(ws);
   });
