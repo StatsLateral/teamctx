@@ -10,7 +10,7 @@ import { matchesActor, managerKeys } from '../src/review.js';
 import { readConfigJson } from '../src/oauth/member-access.js';
 import {
   readPersonalKey, writePersonalKey, addProjectKey, removeProjectKey, projectsKeyedBy,
-  adoptGithubRecords, projectsKnownFor,
+  adoptGithubRecords, linkGithubIdentity, projectsKnownFor, recordConnectedProject,
 } from '../src/oauth/ai-keys.js';
 import { primaryEmail } from '../src/oauth/github-identity.js';
 import { lendDecision } from '../src/oauth/lend-decision.js';
@@ -18,6 +18,10 @@ import { GithubSession, listUserOrgs, createRepo, slugifyProjectName, suggestAva
 import { runWithSession } from '../src/session-context.js';
 import { initProject } from '../cli/commands/init.core.js';
 import { readProjectView, ProjectViewError } from '../src/oauth/project-view.js';
+import { TOOLS, callTool } from '../mcp/server.js';
+import { baseUrlFrom } from '../src/base-url.js';
+import { isReturnable, parseViewParams } from '../src/view-url.js';
+import { parseProjectRef } from '../src/project-ref.js';
 // Page templates. They used to sit at the bottom of this file, which left it
 // mostly HTML with the routes buried in it — see #103 part 1.
 import { settingsPage } from '../src/views/settings.js';
@@ -56,10 +60,12 @@ app.set('trust proxy', 1);
 app.use(express.urlencoded({ extended: true }));
 
 function baseUrlFor(req) {
-  if (process.env.TEAMCTX_BASE_URL) return process.env.TEAMCTX_BASE_URL.replace(/\/$/, '');
-  const host = req.get('x-forwarded-host') || req.get('host');
-  const proto = req.get('x-forwarded-proto') || 'https';
-  return `${proto}://${host}`;
+  // See src/base-url.js: the request names the address, but only a host this
+  // deployment already knows itself by is believed.
+  return baseUrlFrom({
+    host: req.get('x-forwarded-host') || req.get('host'),
+    proto: req.get('x-forwarded-proto'),
+  });
 }
 
 // ---- Home ------------------------------------------------------------
@@ -127,8 +133,35 @@ app.get('/oauth/status', async (req, res) => {
     missing: Object.entries({ ...cfg, kv: isPersistent() })
       .filter(([name, present]) => !present && !name.startsWith('google'))
       .map(([name]) => name),
+    // Which code is actually answering, so "it is deployed" stops being a
+    // belief. Three rounds went into whether a missing field in a tool result
+    // was a bug in the code or a build that predated it, and nothing served by
+    // this deployment could say. The commit is what Vercel puts in the
+    // environment; `features` is read off the running code itself, so it cannot
+    // drift from it.
+    build: {
+      commit: process.env.VERCEL_GIT_COMMIT_SHA || process.env.GIT_COMMIT_SHA || null,
+      branch: process.env.VERCEL_GIT_COMMIT_REF || null,
+      features: deployedFeatures(),
+    },
   });
 });
+
+/**
+ * What the code answering this request can do, asked of the code.
+ *
+ * Not a hand-kept list: each entry is a real check against a module that is
+ * loaded here, so it says what is running rather than what was intended. A
+ * client missing `viewUrl` can be told in one request whether the server it
+ * reached has it at all.
+ */
+function deployedFeatures() {
+  return {
+    // The tools that hand back a link to the web view, and the floor under them.
+    viewLinks: TOOLS.filter(t => /viewUrl/.test(t.description || '')).map(t => t.name),
+    viewLinkFloor: typeof callTool === 'function' && /stampViewUrl/.test(String(callTool)),
+  };
+}
 
 // ---- Protected Resource Metadata (RFC 9728) --------------------------
 // Must be served per-MCP-path: the `resource` field has to match the URL the
@@ -258,6 +291,12 @@ app.get('/oauth/github/callback', async (req, res) => {
     if (error) return res.status(400).send(errorPage(`GitHub returned: ${error}`));
     try {
       const githubUser = await loginViaGithub(String(code), baseUrlFor(req));
+      // Here, not when some later page happens to render: this is the moment
+      // GitHub hands over a verified address for the account signing in, and a
+      // project made in the next five minutes is gated on that account.
+      try {
+        await linkGithubIdentity({ email: githubUser.email, githubId: githubUser.id });
+      } catch { /* best effort — never block a sign-in on it */ }
       const sid = randomBytes(24).toString('base64url');
       await kvSet(keys.session(sid), githubUser, { ttlSeconds: TTL.session });
       res.setHeader('Set-Cookie',
@@ -374,6 +413,8 @@ async function renderSettings(req, res, user, { newAgent = null } = {}) {
   res.send(settingsPage({
     user, hasKey: !!existing, shared, lent, repos, agents, newAgent,
     saved: req.query.saved === '1',
+    rotated: req.query.rotated ? String(req.query.rotated).split(',').filter(Boolean) : [],
+    stillShared: req.query.stillShared ? String(req.query.stillShared).split(',').filter(Boolean) : [],
     error: req.query.error ? String(req.query.error) : null,
     confirmRemove: req.query.confirmRemove ? String(req.query.confirmRemove) : null,
   }));
@@ -416,10 +457,15 @@ async function agentsFor(user) {
 const NEEDS_GITHUB = ['/settings/new-project'];
 
 async function waysInFor(returnTo) {
+  // The path alone. A link from a chat carries what it points at in the query
+  // string, and reading that as part of the repository name asked whether
+  // `ledger?ws=product` lends access — which nothing does, so Google was shut
+  // off for every deep link.
+  const path = String(returnTo || '').split('?')[0];
   if (!provider?.googleClientId) {
     return { google: false, why: 'Google sign-in is not set up on this deployment.' };
   }
-  if (NEEDS_GITHUB.includes(returnTo)) {
+  if (NEEDS_GITHUB.includes(path)) {
     return {
       google: false,
       why: 'Creating a project creates a GitHub repository, so that step needs a GitHub account.',
@@ -428,7 +474,7 @@ async function waysInFor(returnTo) {
   // A project is reachable without GitHub only through the access it lends,
   // which is the connector's rule — applied here too, rather than sending
   // somebody through a sign-in that ends in a refusal.
-  const project = /^\/project\/([^/]+)\/([^/]+)$/.exec(returnTo || '');
+  const project = /^\/project\/([^/]+)\/([^/]+)$/.exec(path);
   if (project && !(await kvGet(keys.projectGhCred(project[1], project[2])))?.token) {
     return { google: false, why: lendsNothing(`${project[1]}/${project[2]}`) };
   }
@@ -446,7 +492,7 @@ async function waysInFor(returnTo) {
 app.get('/signin', async (req, res) => {
   const user = await currentUser(req);
   const requestedReturnTo = String(req.query.returnTo || '');
-  const returnTo = RETURN_TO.test(requestedReturnTo) ? requestedReturnTo : null;
+  const returnTo = isReturnable(requestedReturnTo) ? requestedReturnTo : null;
   // Somebody already signed in has nothing to do here.
   if (user) return res.redirect(303, returnTo || '/settings');
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
@@ -460,7 +506,7 @@ app.get('/settings/signin/google', async (req, res) => {
   }
   const state = randomBytes(18).toString('base64url');
   const requestedReturnTo = String(req.query.returnTo || '');
-  const returnTo = RETURN_TO.test(requestedReturnTo) ? requestedReturnTo : null;
+  const returnTo = isReturnable(requestedReturnTo) ? requestedReturnTo : null;
   await kvSet(
     keys.pending(`settings-google:${state}`),
     returnTo ? { kind: 'settings', returnTo } : { kind: 'settings' },
@@ -477,7 +523,7 @@ app.get('/settings/signin/google', async (req, res) => {
 app.get('/settings/signin', async (req, res) => {
   const state = randomBytes(18).toString('base64url');
   const requestedReturnTo = String(req.query.returnTo || '');
-  const returnTo = RETURN_TO.test(requestedReturnTo) ? requestedReturnTo : null;
+  const returnTo = isReturnable(requestedReturnTo) ? requestedReturnTo : null;
   await kvSet(
     keys.pending(`settings:${state}`),
     returnTo ? { kind: 'settings', returnTo } : { kind: 'settings' },
@@ -637,14 +683,28 @@ app.post('/settings', async (req, res) => {
     return backToSettings(res, 'Your sign-in did not come with a verified email address, so there is nowhere to keep a key. Sign out and sign in again.');
   }
   if (apiKey === '__clear__') {
-    await writePersonalKey({ email: user.email, githubId: user.id, apiKey: null });
-    return res.redirect(303, '/settings?saved=1');
+    // Named, not removed: taking a key out of a project is its own deliberate
+    // act with its own confirmation, and somebody who is not told goes on paying
+    // for a key they believe they retired.
+    const cleared = await writePersonalKey({ email: user.email, githubId: user.id, apiKey: null });
+    const still = cleared?.stillShared || [];
+    return res.redirect(303, still.length
+      ? `/settings?saved=1&stillShared=${encodeURIComponent(still.join(','))}`
+      : '/settings?saved=1');
   }
   if (!apiKey) {
     return res.status(400).send(errorPage('Paste a key, or leave the page.'));
   }
-  await writePersonalKey({ email: user.email, githubId: user.id, provider: provider_, apiKey });
-  res.redirect(303, '/settings?saved=1');
+  const saved = await writePersonalKey({
+    email: user.email, githubId: user.id, githubLogin: user.login, provider: provider_, apiKey,
+  });
+  // Said out loud rather than done quietly: replacing a key also replaces the
+  // copy every project it was shared with is running on, and somebody who is
+  // not told will keep debugging a key they believe they already changed.
+  const also = saved?.alsoUpdated || [];
+  res.redirect(303, also.length
+    ? `/settings?saved=1&rotated=${encodeURIComponent(also.join(','))}`
+    : '/settings?saved=1');
 });
 
 /**
@@ -1095,13 +1155,6 @@ app.post('/settings/agents/revoke', async (req, res) => {
   backToSettings(res);
 });
 
-/**
- * Where a sign-in may send somebody afterwards.
- *
- * Allow-listed rather than trusted, because this is the one place a path from
- * the query string drives a redirect.
- */
-const RETURN_TO = /^\/(?:settings(?:\/[a-z-]+)?|projects|project\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+)$/;
 
 const signInFor = (res, path) => res.redirect(303, `/signin?returnTo=${encodeURIComponent(path)}`);
 
@@ -1109,9 +1162,87 @@ const signInFor = (res, path) => res.redirect(303, `/signin?returnTo=${encodeURI
 app.get('/projects', async (req, res) => {
   const user = await currentUser(req);
   if (!user) return signInFor(res, '/projects');
+  await renderProjects(req, res, user);
+});
+
+/**
+ * The list, the box, and whatever the box has to say for itself.
+ *
+ * Shared with the POST so a reference that could not be opened comes back on the
+ * page it was typed on, with the text still in the box — rather than on an error
+ * page, which loses it and leaves nowhere to correct it.
+ */
+async function renderProjects(req, res, user, { typed = '', error = null, search = false } = {}) {
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
   const projects = user.email ? await projectsKnownFor(user.email) : [];
-  res.send(projectsPage({ user, projects }));
+  // Repositories this person can reach, as suggestions. A Google sign-in has no
+  // repository list at all, which is exactly why the box takes a pasted link.
+  let repos = [];
+  if (user.token) {
+    try { repos = await listPushableRepos(user.token); } catch { /* suggestions are optional */ }
+  }
+  // Searched here rather than left to the browser. A datalist narrows on what a
+  // browser decides to match, and several of them match only the start of the
+  // value — so with `owner/repo` in the list, typing a repository's own name
+  // found nothing at all while the owner's name found every one of them. This
+  // matches either, and anywhere in the name.
+  const needle = search ? typed.trim().toLowerCase() : '';
+  const matches = needle
+    ? repos.map(r => r.fullName).filter(name => String(name).toLowerCase().includes(needle)).slice(0, 25)
+    : [];
+  res.send(projectsPage({
+    user, projects, repos, typed, error, query: needle ? typed.trim() : null, matches,
+  }));
+}
+
+/**
+ * Open a project by whatever somebody pasted.
+ *
+ * The access check is `readProjectView` itself rather than a cheaper lookalike:
+ * reading the project is what they are about to do, and a second
+ * implementation of "may they?" is a second thing to keep in step with the
+ * connector. So what comes back here is the same answer, with the same reasons —
+ * no teamctx project in that repository, no GitHub access lent to a Google
+ * sign-in, or an address that is not on the roster.
+ */
+app.post('/projects', async (req, res) => {
+  const user = await currentUser(req);
+  if (!user) return signInFor(res, '/projects');
+  const typed = String(req.body?.ref || '').trim();
+  const ref = parseProjectRef(typed);
+  // Not a reference to a repository, so it is something to look for. Typing part
+  // of a name is the ordinary way to find a project, not a mistake to correct.
+  if (!ref) {
+    if (!typed) {
+      return renderProjects(req, res, user, {
+        error: 'Type the name of a project, or paste the link you were sent.',
+      });
+    }
+    return renderProjects(req, res, user, { typed, search: true });
+  }
+  try {
+    await readProjectView({ owner: ref.owner, repo: ref.repo, user });
+  } catch (e) {
+    // A denial is written for the person and says which of the three reasons it
+    // was, so it is theirs to read. Anything else came from upstream, and this
+    // route takes an arbitrary `owner/repo` from a form — so reflecting that
+    // text would let any signed-in person probe repositories and read back
+    // whatever GitHub said about them. The detail goes to the log instead.
+    const denied = e instanceof ProjectViewError || e.code === 'MEMBER_ACCESS_DENIED';
+    if (!denied) console.warn(`projects: opening ${ref.owner}/${ref.repo} failed:`, e);
+    return renderProjects(req, res, user, {
+      typed,
+      error: denied ? e.message
+        : `${ref.owner}/${ref.repo} could not be opened. Check the name, and that the `
+          + 'project has lent GitHub access and has your address on it.',
+    });
+  }
+  // On the list from here on, for the same reason as arriving by link: being able
+  // to read a project is the only thing that ever qualified it for the list.
+  if (user.email) {
+    try { await recordConnectedProject({ email: user.email, owner: ref.owner, repo: ref.repo }); } catch { /* best effort */ }
+  }
+  res.redirect(303, `/project/${encodeURIComponent(ref.owner)}/${encodeURIComponent(ref.repo)}`);
 });
 
 /**
@@ -1122,24 +1253,42 @@ app.get('/project/:owner/:repo', async (req, res) => {
   const user = await currentUser(req);
   const owner = String(req.params.owner || '');
   const repo = String(req.params.repo || '');
-  if (!user) return signInFor(res, `/project/${owner}/${repo}`);
+  if (!user) {
+    // Carry what the link pointed at through the sign-in and back, or somebody
+    // following a link to one statement lands on the project and has to find it
+    // again — which is the whole thing this was built to save them.
+    const back = new URLSearchParams(parseViewParams(req.query)).toString();
+    return signInFor(res, `/project/${owner}/${repo}${back ? `?${back}` : ''}`);
+  }
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
   try {
     const view = await readProjectView({ owner, repo, user });
-    // Which part of the work to open, and what to point at inside it. Anything
-    // unknown or out of scope falls back to the nearest thing that does exist,
-    // with a quiet note — and the value asked for is never echoed back.
-    const askedWs = String(req.query.ws || '');
-    const known = view.workstreams.some(w => w.id === askedWs);
-    const selected = known ? askedWs : null;
-    const item = String(req.query.item || req.query.task || req.query.review || '') || null;
+    // Remembered now that the project has let them in, so the next visit starts
+    // from the list rather than from the link. A person who arrives by clicking
+    // one has never "added" anything, and being able to read a project is the
+    // only thing that ever qualified it for their list.
+    if (user.email) {
+      try { await recordConnectedProject({ email: user.email, owner, repo }); } catch { /* best effort */ }
+    }
+    // Which part of the work to open, and what to point at inside it. Read
+    // through the link's own rules, so a value the page would not have written
+    // never reaches it, then checked against what exists: anything unknown or
+    // out of scope falls back to the nearest thing that does, with a quiet
+    // note, and the value asked for is never echoed back.
+    const asked = parseViewParams(req.query);
+    const known = view.workstreams.some(w => w.id === asked.ws);
+    const selected = known ? asked.ws : null;
+    const item = asked.item || asked.task || asked.review || null;
     res.send(projectPage({
       user,
       view,
       selected,
       viewMode: req.query.view === 'list' ? 'list' : 'columns',
       item,
-      note: askedWs && !known ? 'That part of the work is not here, or not yours to see.' : null,
+      // So a copied prompt can carry the address of the page it was copied
+      // from, which is the one thing that tells a reader where it came from.
+      origin: baseUrlFor(req),
+      note: asked.ws && !known ? 'That part of the work is not here, or not yours to see.' : null,
     }));
   } catch (e) {
     const denied = e instanceof ProjectViewError || e.code === 'MEMBER_ACCESS_DENIED';

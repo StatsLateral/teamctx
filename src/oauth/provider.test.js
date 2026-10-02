@@ -51,13 +51,21 @@ async function runAuthFlow(provider, { fetchMock, params = {} } = {}) {
 }
 
 /** Happy-path GitHub: token exchange then profile lookup. */
-function githubHappyPath() {
+function githubHappyPath({ email, emails } = {}) {
   return vi.fn(async (url) => {
     if (String(url).includes('login/oauth/access_token')) {
       return { ok: true, json: async () => ({ access_token: 'gho_realtoken' }) };
     }
+    // Checked before `/user`, which it would otherwise match as a prefix.
+    if (String(url).includes('api.github.com/user/emails')) {
+      return emails
+        ? { ok: true, json: async () => emails }
+        // The ordinary answer for a token minted before `user:email` was asked
+        // for, which is what the rest of these tests are exercising.
+        : { ok: false, status: 403, json: async () => ({}) };
+    }
     if (String(url).includes('api.github.com/user')) {
-      return { ok: true, json: async () => ({ id: 4242, login: 'satyagyasingh', name: 'Satya' }) };
+      return { ok: true, json: async () => ({ id: 4242, login: 'satyagyasingh', name: 'Satya', ...(email ? { email } : {}) }) };
     }
     throw new Error(`unexpected fetch: ${url}`);
   });
@@ -134,6 +142,44 @@ describe('handleGithubCallback', () => {
     const record = await kvGet(keys.code(code));
     expect(record.githubToken).toBe('gho_realtoken');
     expect(record.githubUser).toMatchObject({ id: '4242', login: 'satyagyasingh' });
+  });
+
+  it('records the account the address has proved, for a manager who never opens the web app', async () => {
+    // A project can be set up entirely through an assistant. Nothing on this
+    // path renders a page, so if the link between address and account is only
+    // written by the settings page, it is never written for these people — and
+    // the gate on their own project, keyed by GitHub id, turns them away when
+    // they later sign in with Google.
+    const provider = makeProvider();
+    await runAuthFlow(provider, { fetchMock: githubHappyPath({ email: 'Satya@Example.com' }) });
+    expect((await kvGet(keys.githubIdentities('satya@example.com')))?.ids).toEqual(['4242']);
+  });
+
+  it('falls back to the primary verified address when the profile shows none', async () => {
+    const provider = makeProvider();
+    await runAuthFlow(provider, {
+      fetchMock: githubHappyPath({
+        emails: [
+          { email: 'old@example.com', primary: false, verified: true },
+          { email: 'Satya@Example.com', primary: true, verified: true },
+        ],
+      }),
+    });
+    expect((await kvGet(keys.githubIdentities('satya@example.com')))?.ids).toEqual(['4242']);
+  });
+
+  it('will not link an address GitHub has not confirmed, even a primary one', async () => {
+    // This address is what a later Google sign-in matches a `github:<id>` gate
+    // by. GitHub lets you add an address before confirming it, so accepting an
+    // unverified one would let somebody claim a gate pinned to an email they do
+    // not own — the whole point of the link.
+    const provider = makeProvider();
+    await runAuthFlow(provider, {
+      fetchMock: githubHappyPath({
+        emails: [{ email: 'notmine@example.com', primary: true, verified: false }],
+      }),
+    });
+    expect(await kvGet(keys.githubIdentities('notmine@example.com'))).toBe(null);
   });
 
   it('rejects a state that was already consumed (replay)', async () => {

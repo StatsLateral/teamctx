@@ -64,3 +64,34 @@ describe('the gate a new project is born with', () => {
     expect(r.config.managerKey.startsWith('git:')).toBe(true);
   });
 });
+
+describe('the roster a new project is born with', () => {
+  it('has the person who made it on it', async () => {
+    // They used to exist only as the gate, which is not a roster: the project
+    // had never heard of its own owner, and a second sign-in by the same person
+    // met a stranger's project.
+    const r = await initProject({
+      projectDir: '/fake', project: 'Ledger', me: 'Maya', managerKey: 'git:maya@example.com',
+    });
+    const config = r.config;
+    expect(config.members).toHaveLength(1);
+    expect(config.members[0]).toMatchObject({ key: 'git:maya@example.com', name: 'Maya' });
+  });
+
+  it('records the address the gate was pinned with, so both sign-ins find them', async () => {
+    const r = await initProject({
+      projectDir: '/fake', project: 'Ledger', me: 'Maya', managerKey: 'git:maya@example.com',
+    });
+    expect(r.config.members[0].email).toBe('maya@example.com');
+  });
+
+  it('takes the address from the manager email when the gate is a GitHub id', async () => {
+    const r = await initProject({
+      projectDir: '/fake', project: 'Ledger', me: 'Maya',
+      managerKey: 'github:7', managerEmail: 'maya@example.com',
+    });
+    expect(r.config.members[0]).toMatchObject({
+      key: 'github:7', email: 'maya@example.com',
+    });
+  });
+});

@@ -3,6 +3,7 @@ import { InvalidGrantError, InvalidTokenError } from '@modelcontextprotocol/sdk/
 import { kvGet, kvSet, kvTake, kvDelete, keys, TTL } from './kv.js';
 import { googleUserFromCode, googleAuthorizeUrl } from './google.js';
 import { primaryEmail } from './github-identity.js';
+import { linkGithubIdentity } from './ai-keys.js';
 
 /**
  * teamctx's OAuth 2.1 authorization server.
@@ -177,6 +178,12 @@ export class TeamctxOAuthProvider {
 
     const githubToken = await this.#exchangeGithubCode(code);
     const githubUser = await this.#fetchGithubUser(githubToken);
+    // A manager may set a project up entirely through their assistant and never
+    // open the web app, so the connector has to record this too — otherwise the
+    // only account that can be matched to their address is one they never used.
+    try {
+      await linkGithubIdentity({ email: githubUser.email, githubId: githubUser.id });
+    } catch { /* best effort — never block a sign-in on it */ }
 
     const ourCode = newToken(24);
     await kvSet(keys.code(ourCode), {
@@ -227,6 +234,13 @@ export class TeamctxOAuthProvider {
     const user = await res.json();
     return {
       id: String(user.id), login: user.login, name: user.name ?? null,
+      // Both of these are addresses GitHub has confirmed belong to this account,
+      // which is what the rest of the system is entitled to assume: this address
+      // is written into `teamctx:ghids:*`, and a later Google sign-in on it then
+      // matches a `github:<id>` gate. `/user` returns the public profile address,
+      // and GitHub only offers a verified one for that; `primaryEmail` filters on
+      // `verified` itself. An unconfirmed address must never arrive here — it
+      // would let somebody claim a gate pinned to an email they do not own.
       email: user.email ? String(user.email).toLowerCase() : await primaryEmail(githubToken),
     };
   }

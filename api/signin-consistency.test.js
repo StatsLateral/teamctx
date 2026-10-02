@@ -152,3 +152,27 @@ describe('the connector screen follows the same rule', () => {
     expect(connector.match(reason)?.[0]).toBe(dashboard.match(reason)?.[0]);
   });
 });
+
+describe('coming back to what a link pointed at', () => {
+  it('carries the part of the work and the item through sign-in', async () => {
+    // A fragment would have been dropped on the way through GitHub; these are
+    // query parameters for exactly that reason.
+    const { status, location } = await get('/project/acme/ledger?ws=product&item=w1');
+    expect(status).toBe(303);
+    expect(location).toBe('/signin?returnTo=/project/acme/ledger?ws=product&item=w1');
+  });
+
+  it('offers both ways in, each keeping the link', async () => {
+    await lend();
+    const back = encodeURIComponent('/project/acme/ledger?ws=product&item=w1');
+    const { body } = await get(`/signin?returnTo=${back}`);
+    expect(body).toContain('ws%3Dproduct%26item%3Dw1');
+    expect(body).toContain('/settings/signin/google?returnTo=');
+  });
+
+  it('drops a returnTo carrying something it would not have written', async () => {
+    const back = encodeURIComponent('/project/acme/ledger?next=https://evil.example');
+    const { body } = await get(`/signin?returnTo=${back}`);
+    expect(body).not.toContain('evil.example');
+  });
+});
