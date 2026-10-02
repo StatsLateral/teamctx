@@ -121,7 +121,7 @@ describe('TOOLS list', () => {
     for (const n of ['get_context', 'list_workstreams', 'get_workstream', 'get_role_context',
                      'list_roles', 'list_snapshots', 'get_snapshot', 'get_current_snapshot',
                      'list_pending_reviews', 'get_status', 'get_config', 'ask',
-                     'suggest_roles', 'suggest_workstream_splits', 'get_stats']) {
+                     'suggest_roles', 'list_records', 'get_record', 'get_stats']) {
       expect(names).toContain(n);
     }
   });
@@ -130,10 +130,10 @@ describe('TOOLS list', () => {
     const names = TOOLS.map(t => t.name);
     for (const n of ['contribute', 'submit_contribution', 'init',
                      'role_add', 'role_assign',
-                     'workstream_split', 'workstream_use',
+                     'workstream_add', 'workstream_use',
                      'review_approve', 'review_reject',
                      'snapshot_create', 'snapshot_approve', 'snapshot_reject',
-                     'reflect', 'config_set']) {
+                     'config_set']) {
       expect(names).toContain(n);
     }
   });
@@ -141,9 +141,9 @@ describe('TOOLS list', () => {
   it('every Tier 2 (risky) tool warns in its description', () => {
     // workstream_use is deliberately absent: it now writes only the caller's own
     // preference, touching neither the repo nor anyone else's view.
-    const risky = ['init', 'role_add', 'role_assign', 'workstream_split',
+    const risky = ['init', 'role_add', 'role_assign', 'workstream_add',
                    'review_approve', 'review_reject', 'snapshot_create', 'snapshot_approve',
-                   'snapshot_reject', 'reflect', 'config_set'];
+                   'snapshot_reject', 'config_set'];
     for (const name of risky) {
       const t = TOOLS.find(x => x.name === name);
       expect(t, `tool ${name} missing`).toBeTruthy();

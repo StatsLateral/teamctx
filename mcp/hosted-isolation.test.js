@@ -758,10 +758,6 @@ describe('a member scoped to one workstream', () => {
     await refused(h => h.task_add({ title: 'sneak', workstream: 'product' }));
   });
 
-  it('cannot rewrite a sibling workstream through reflect', async () => {
-    await refused(h => h.reflect({ workstream: 'product' }));
-  });
-
   it('cannot read a sibling through suggest_roles or get_stats', async () => {
     await refused(h => h.suggest_roles({ workstream: 'product' }));
     await refused(h => h.get_stats({ workstream: 'product' }));

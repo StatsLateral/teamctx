@@ -3,125 +3,40 @@ import { readConfig } from '../../src/storage.js';
 import { resolveTarget, targetLabel } from '../../src/project-level.js';
 import { UnknownWorkstreamError } from './role.core.js';
 import {
-  listAllWorkstreams, suggestWorkstreamSplits, splitWorkstreams, useWorkstream,
-  WorkstreamSplitError, proposeStructure,
+  listAllWorkstreams, useWorkstream, proposeStructure, addWorkstream, WorkstreamParentError,
 } from './workstream.core.js';
 
 function cliError(err) {
-  if (err instanceof UnknownWorkstreamError || err instanceof WorkstreamSplitError) {
+  if (err instanceof UnknownWorkstreamError || err instanceof WorkstreamParentError || err?.code === 'MANAGER_GATE') {
     console.error(`Error: ${err.message}`);
     process.exit(1);
   }
   throw err;
 }
 
-export async function workstreamSuggestCommand() {
-  // The active workstream is now per-user, so let the core resolve it rather
-  // than reading config.activeWorkstream (which is only the project default).
-  const { splits, leftover, activeId, workstream } = await suggestWorkstreamSplits();
-
-  console.log(`\n→ Analyzed ${targetLabel(activeId, readConfig().project)} (${workstream.whys.length} Why nodes) for candidate splits...\n`);
-
-  if (splits.length === 0) {
-    console.log('No clean split proposed. The current workstream reads as one thread.\n');
-    return;
-  }
-
-  console.log(`Proposed ${splits.length} sub-workstream${splits.length === 1 ? '' : 's'}:\n`);
-  splits.forEach((s, i) => {
-    console.log(`  ${i + 1}. ${s.name}`);
-    if (s.rationale) console.log(`     ${s.rationale}`);
-    s.whys.forEach(why => console.log(`     - ${why.text}`));
-    console.log();
-  });
-
-  if (leftover.length > 0) {
-    console.log(`Left in ${targetLabel(activeId, readConfig().project)}: ${leftover.length} Why node${leftover.length === 1 ? '' : 's'}`);
-    leftover.forEach(why => console.log(`  - ${why.text}`));
-    console.log();
-  }
-
-  console.log('This was a dry-run. Run `teamctx workstream split` to accept and apply.\n');
-}
-
 export async function workstreamListCommand() {
   const config = readConfig();
   const workstreams = await listAllWorkstreams();
   if (workstreams.length === 0) {
-    console.log('No workstreams yet. Run `teamctx init`.\n');
+    console.log('No workstreams yet. Add one with `teamctx workstream add <name>`.\n');
     return;
   }
   console.log(`\nWorkstreams for "${config.project}":\n`);
   workstreams.forEach(w => {
     const marker = w.isActive ? '*' : ' ';
-    console.log(`  ${marker} ${w.id.padEnd(16)} ${w.name}`);
-    console.log(`      ${w.whyCount} Why nodes · roles: ${w.roles.length ? w.roles.join(', ') : '(none)'}`);
+    const indent = '  '.repeat(Math.max(0, String(w.number || '').split('.').length - 1));
+    console.log(`  ${marker} ${indent}${w.number || '-'} ${w.name}  (id: ${w.id})`);
+    console.log(`      ${indent}${w.recordCount} records · ${w.taskCount} tasks · roles: ${w.roles.length ? w.roles.join(', ') : '(none)'}`);
   });
   console.log('\n  * = active workstream (target of `contribute` when --workstream is omitted)\n');
 }
 
-export async function workstreamSplitCommand(opts = {}) {
-  const { activeId, workstream, splits } = await suggestWorkstreamSplits();
-  const label = targetLabel(activeId, readConfig().project);
-  console.log(`\n→ Analyzing ${label} for candidate splits...`);
-  if ((workstream.whys || []).length < 2) {
-    console.log(`\n${label} has fewer than 2 Why nodes — nothing to split.\n`);
-    return;
-  }
-  if (splits.length === 0) {
-    console.log('No clean split proposed. The current workstream reads as one thread.\n');
-    return;
-  }
-
-  const accepted = [];
-  const config = readConfig();
-  for (const proposal of splits) {
-    console.log(`\n  Proposed: ${proposal.name}`);
-    if (proposal.rationale) console.log(`    ${proposal.rationale}`);
-    proposal.whys.forEach(why => console.log(`    - ${why.text}`));
-
-    let entry = { name: proposal.name, whyIds: proposal.whyIds };
-    if (opts.acceptAll) {
-      // no rename; no per-split role prompt in accept-all
-    } else {
-      const answer = (await ask(`  Accept? (y/n/rename)`, 'y')).toLowerCase();
-      if (answer === 'n' || answer === 'no') { console.log('  Skipped.'); continue; }
-      if (answer === 'rename' || answer === 'r') {
-        const newName = await ask('  New name');
-        if (!newName) { console.log('  Skipped.'); continue; }
-        entry.name = newName;
-      }
-      const rolesOnSource = (config.roles || []).filter(r => resolveTarget(r.workstream) === resolveTarget(activeId));
-      if (rolesOnSource.length > 0) {
-        console.log(`\n  Roles currently on ${label}: ${rolesOnSource.map(r => r.slug).join(', ')}`);
-        const roleAnswer = await ask(`  Move any to "${entry.name}"? Comma-separated slugs, or blank`, '');
-        if (roleAnswer) {
-          entry.moveRoles = roleAnswer.split(',').map(s => s.trim()).filter(Boolean);
-        }
-      }
-    }
-    accepted.push(entry);
-  }
-
-  if (accepted.length === 0) {
-    console.log('\nNo splits accepted.\n');
-    return;
-  }
-
-  let result;
-  try { result = await splitWorkstreams({ accepted }); }
-  catch (err) { cliError(err); return; }
-
-  result.results.forEach(r => {
-    if (r.movedRoles.length > 0) {
-      r.movedRoles.forEach(slug => console.log(`  ✓ Moved role "${slug}" to "${r.splitName}" and regenerated its context.`));
-    }
-    if (r.unknownRoles.length > 0) {
-      console.log(`  Note: unknown or non-source slugs ignored: ${r.unknownRoles.join(', ')}`);
-    }
-    console.log(`  ✓ Created workstream "${r.splitName}" (${r.newId}) with ${r.movedWhyCount} Why node${r.movedWhyCount === 1 ? '' : 's'}.`);
-  });
-  console.log('\n✓ Split complete.\n');
+export async function workstreamAddCommand(name, opts = {}) {
+  try {
+    const r = await addWorkstream({ name, parent: opts.under || null });
+    console.log(`\n✓ Added ${r.workstream.number} "${r.workstream.name}" (id: ${r.workstream.id})${opts.under ? ` under ${opts.under}` : ''}.`);
+    console.log('  Anyone put on it reaches every part below it.\n');
+  } catch (err) { cliError(err); }
 }
 
 export async function workstreamUseCommand(id) {
@@ -136,9 +51,8 @@ export async function workstreamUseCommand(id) {
 /**
  * `teamctx workstream propose` — how this project might be organised.
  *
- * Prints and stops. Accepting a proposal is `workstream split`, which is a
- * separate act on purpose: this one implies who works where, and applying a
- * wrong guess quietly is worse than making the manager say yes.
+ * Prints a draft and stops. Nothing is applied: add the parts you want with
+ * `teamctx workstream add`.
  */
 export async function workstreamProposeCommand() {
   let r;
@@ -146,30 +60,25 @@ export async function workstreamProposeCommand() {
   catch (err) { cliError(err); return; }
 
   if (!r.workstreams.length) {
-    console.log(`
-${r.why || 'This project does not split cleanly yet — one thread is a fine shape for it.'}
-`);
+    console.log(`\n${r.why || 'This project does not need more than one part yet — that is a fine shape for it.'}\n`);
     return;
   }
-
-  console.log(`
-How ${r.project} might be organised — suggestions only, nothing has changed.
-`);
+  console.log(`\nHow ${r.project} might be organised — a draft, nothing has changed.\n`);
+  if (r.goal) console.log(`Goal: ${r.goal}`);
+  r.whys.forEach(w => console.log(`  Why it matters: ${w}`));
+  console.log('');
   r.workstreams.forEach((w, i) => {
-    console.log(`${i + 1}. ${w.name}`);
+    console.log(`${i + 1}. ${w.name}${w.parent ? ` (under ${w.parent})` : ''}`);
     if (w.rationale) console.log(`   Why together: ${w.rationale}`);
     console.log(`   People: ${w.membership.means}${w.membership.rationale ? ` — ${w.membership.rationale}` : ''}`);
-    w.whys.forEach(why => console.log(`   - ${why.text}`));
-    if (w.roles.length) {
-      console.log(`   Roles it could use: ${w.roles.map(x => x.name).join(', ')}`);
-    }
+    w.records.forEach(x => console.log(`   - ${x.text}`));
+    w.tasks.forEach(t => console.log(`   - Task: ${t}`));
     console.log('');
   });
-
-  if (r.leftover.length) {
-    console.log('Staying at project level:');
-    r.leftover.forEach(w => console.log(`   - ${w.text}`));
+  if (r.questions.length) {
+    console.log('Open questions:');
+    r.questions.forEach(q => console.log(`   - ${q}`));
     console.log('');
   }
-  console.log('Accept any of these with `teamctx workstream split`.\n');
+  console.log('Add the parts you want with `teamctx workstream add <name> [--under <id>]`.\n');
 }

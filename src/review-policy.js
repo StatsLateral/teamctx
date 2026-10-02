@@ -11,7 +11,6 @@
  * and some of those delete statements other people put there. So the axis that
  * matters is whether a contribution can *lose* information, not who sent it.
  */
-import { managerKeys } from './review.js';
 
 export const POLICIES = ['all', 'additive', 'none'];
 
@@ -94,21 +93,3 @@ export function needsReview(config, operations) {
   return true;
 }
 
-/**
- * May this caller rewrite shared context wholesale (`reflect`)?
- *
- * Under `none` anyone may, which is what the command did before this existed —
- * so no project loses a behaviour it was relying on. Under any other policy it
- * is the manager's, because a full-tree rewrite is the most destructive thing
- * in the product and there is no smaller unit of it to review.
- */
-export function reflectNeedsManager(config) {
-  // `managerKeys` is empty both for a project with no manager and for one still
-  // gated by a legacy display name, so reflect stays open on the latter while
-  // `contribute` keeps queueing its destructive operations. The asymmetry is
-  // deliberate: a display name is not a gate — anyone can set that name as
-  // their own — so asserting against it here would only look like protection.
-  // Such a project should re-pin to a real identity; until it does, this is the
-  // same footing every other manager-gated command is on there.
-  return reviewPolicy(config) !== 'none' && managerKeys(config).length > 0;
-}
