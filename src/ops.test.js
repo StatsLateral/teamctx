@@ -1,178 +1,94 @@
-import { describe, expect, it } from 'vitest';
-import { applyOps, statementsTouchedBy } from './ops.js';
+import { describe, it, expect } from 'vitest';
+import { applyOps, touchedBy, OP_TYPES } from './ops.js';
+import { makeProject, makeRecord } from './test-fixtures/model.js';
 
-const baseWs = {
-  id: 'ws1',
-  name: 'Test',
-  whys: [
-    {
-      id: 'why1',
-      text: 'ship by Q3',
-      sourceContributionIds: ['c0'],
-      summary: 'initial',
-      whats: [
-        {
-          id: 'what1',
-          text: 'build onboarding',
-          sourceContributionIds: ['c0'],
-          summary: 'from c0',
-          hows: [
-            { id: 'how1', text: 'wire sign-up form', sourceContributionIds: ['c0'], summary: 'from c0' },
-          ],
-        },
-      ],
-    },
-  ],
-};
-
-const newCid = 'c1';
+const C = 'c-1';
 
 describe('applyOps', () => {
-  it('addWhy appends a new top-level Why', () => {
-    const ops = [{ type: 'addWhy', text: 'reduce churn', summary: 'added' }];
-    const next = applyOps(baseWs, ops, newCid);
-    expect(next.whys).toHaveLength(2);
-    expect(next.whys[1].text).toBe('reduce churn');
-    expect(next.whys[1].whats).toEqual([]);
-    expect(next.whys[1].sourceContributionIds).toEqual([newCid]);
+  it('sets the goal and records provenance', () => {
+    const { tree } = applyOps(makeProject(), [{ type: 'setGoal', text: 'Win 3 clients by Q4' }], C);
+    expect(tree.goal).toMatchObject({ text: 'Win 3 clients by Q4', sourceContributionIds: [C] });
   });
 
-  it('addWhy with nested whats and hows creates the full subtree', () => {
-    const ops = [{
-      type: 'addWhy', text: 'expand internationally', summary: 'new goal',
-      whats: [{ text: 'localize UI', summary: 'child', hows: [{ text: 'extract strings', summary: 'grandchild' }] }],
-    }];
-    const next = applyOps(baseWs, ops, newCid);
-    expect(next.whys[1].whats[0].text).toBe('localize UI');
-    expect(next.whys[1].whats[0].hows[0].text).toBe('extract strings');
+  it('adds a record with a minted id and active status', () => {
+    const { tree, dropped } = applyOps(makeProject(), [
+      { type: 'addRecord', record: { type: 'decision', text: 'Fixed price', attachedTo: { kind: 'project' } } },
+    ], C);
+    expect(dropped).toEqual([]);
+    expect(tree.records[0]).toMatchObject({ type: 'decision', status: 'active', sourceContributionIds: [C] });
+    expect(tree.records[0].id).toMatch(/^rec-/);
   });
 
-  it('addWhat nests under the right Why', () => {
-    const ops = [{ type: 'addWhat', parentWhyId: 'why1', text: 'build dashboard', summary: 'added' }];
-    const next = applyOps(baseWs, ops, newCid);
-    expect(next.whys[0].whats).toHaveLength(2);
-    expect(next.whys[0].whats[1].text).toBe('build dashboard');
+  it('lets an exception bend a rule added in the same contribution', () => {
+    const { tree, dropped } = applyOps(makeProject(), [
+      { type: 'addRecord', ref: 'r1', record: { type: 'rule', text: 'No nuts', attachedTo: { kind: 'project' } } },
+      { type: 'addRecord', record: { type: 'exception', text: 'Adults cake may have frosting', expiresAt: '2026-12-31', links: { bends: 'r1' }, attachedTo: { kind: 'project' } } },
+    ], C);
+    expect(dropped).toEqual([]);
+    const rule = tree.records.find(r => r.type === 'rule');
+    expect(tree.records.find(r => r.type === 'exception').links.bends).toBe(rule.id);
   });
 
-  it('addWhat with unknown parentWhyId silently no-ops', () => {
-    const next = applyOps(baseWs, [{ type: 'addWhat', parentWhyId: 'ghost', text: 'x', summary: '' }], newCid);
-    expect(next.whys[0].whats).toHaveLength(1);
+  it('drops malformed proposals with a reason instead of writing them', () => {
+    const { tree, dropped } = applyOps(makeProject(), [
+      { type: 'addRecord', record: { type: 'assumption', text: '20 guests', attachedTo: { kind: 'project' } } },
+      { type: 'addRecord', record: { type: 'exception', text: 'x', expiresAt: '2026-12-31', links: { bends: 'rec-missing' }, attachedTo: { kind: 'project' } } },
+      { type: 'addRecord', record: { type: 'fact', text: 'x', attachedTo: { kind: 'project' } } },
+      { type: 'addWhy', text: 'old op' },
+    ], C);
+    expect(tree.records).toEqual([]);
+    expect(dropped.map(d => d.reason).join(' | ')).toMatch(/owner|reviewBy/);
+    expect(dropped.map(d => d.reason).join(' | ')).toMatch(/bends/);
+    expect(dropped).toHaveLength(4);
   });
 
-  it('addHow nests under the right What', () => {
-    const ops = [{ type: 'addHow', parentWhatId: 'what1', text: 'write tests', summary: 'added' }];
-    const next = applyOps(baseWs, ops, newCid);
-    expect(next.whys[0].whats[0].hows).toHaveLength(2);
-    expect(next.whys[0].whats[0].hows[1].text).toBe('write tests');
+  it('refuses an exception that bends something other than a rule', () => {
+    const dec = makeRecord({ id: 'rec-d', type: 'decision' });
+    const { dropped } = applyOps(makeProject({ records: [dec] }), [
+      { type: 'addRecord', record: { type: 'exception', text: 'x', expiresAt: '2026-12-31', links: { bends: 'rec-d' }, attachedTo: { kind: 'project' } } },
+    ], C);
+    expect(dropped[0].reason).toMatch(/must bend a rule/);
   });
 
-  it('addHow with unknown parentWhatId silently no-ops', () => {
-    const next = applyOps(baseWs, [{ type: 'addHow', parentWhatId: 'ghost', text: 'x', summary: '' }], newCid);
-    expect(next.whys[0].whats[0].hows).toHaveLength(1);
+  it('edits, changes status, and marks the older record replaced', () => {
+    const old = makeRecord({ id: 'rec-old', type: 'decision', text: 'Old' });
+    const { tree } = applyOps(makeProject({ records: [old] }), [
+      { type: 'addRecord', record: { type: 'decision', text: 'New', links: { replaces: 'rec-old' }, attachedTo: { kind: 'project' } } },
+      { type: 'editRecord', id: 'rec-old', changes: { detail: 'superseded' } },
+    ], C);
+    expect(tree.records.find(r => r.id === 'rec-old')).toMatchObject({ status: 'replaced', detail: 'superseded' });
   });
 
-  it('editStatement updates text, summary, and appends contributionId', () => {
-    const ops = [{ type: 'editStatement', id: 'why1', text: 'ship by end of Q3', summary: 'tighter' }];
-    const next = applyOps(baseWs, ops, newCid);
-    expect(next.whys[0].text).toBe('ship by end of Q3');
-    expect(next.whys[0].sourceContributionIds).toEqual(['c0', newCid]);
+  it('sets status broken and closed', () => {
+    const a = makeRecord({ id: 'rec-a', type: 'assumption' });
+    const { tree } = applyOps(makeProject({ records: [a] }), [{ type: 'setRecordStatus', id: 'rec-a', status: 'broken' }], C);
+    expect(tree.records[0].status).toBe('broken');
   });
 
-  it('editStatement updates a deeply nested How', () => {
-    const ops = [{ type: 'editStatement', id: 'how1', text: 'wire and validate sign-up form', summary: 'updated' }];
-    const next = applyOps(baseWs, ops, newCid);
-    expect(next.whys[0].whats[0].hows[0].text).toBe('wire and validate sign-up form');
+  it('adds, edits and removes tasks', () => {
+    let { tree } = applyOps(makeProject(), [{ type: 'addTask', title: 'Bake cake' }], C);
+    const id = tree.tasks[0].id;
+    ({ tree } = applyOps(tree, [{ type: 'editTask', id, title: 'Bake the cake' }], 'c-2'));
+    expect(tree.tasks[0]).toMatchObject({ title: 'Bake the cake', status: 'open', owner: null });
+    ({ tree } = applyOps(tree, [{ type: 'removeTask', id }], 'c-3'));
+    expect(tree.tasks).toEqual([]);
   });
 
-  it('editStatement with unknown id silently no-ops', () => {
-    const next = applyOps(baseWs, [{ type: 'editStatement', id: 'ghost', text: 'x', summary: 'y' }], newCid);
-    expect(next).toEqual(baseWs);
-  });
-
-  it('deleteStatement removes a How', () => {
-    const next = applyOps(baseWs, [{ type: 'deleteStatement', id: 'how1', summary: 'obsolete' }], newCid);
-    expect(next.whys[0].whats[0].hows).toEqual([]);
-  });
-
-  it('deleteStatement on a What removes What and children', () => {
-    const next = applyOps(baseWs, [{ type: 'deleteStatement', id: 'what1', summary: 'obsolete' }], newCid);
-    expect(next.whys[0].whats).toEqual([]);
-  });
-
-  it('deleteStatement on a Why removes Why and descendants', () => {
-    const next = applyOps(baseWs, [{ type: 'deleteStatement', id: 'why1', summary: 'obsolete' }], newCid);
-    expect(next.whys).toEqual([]);
-  });
-
-  it('applies ops in order: adds first, then edits, then deletes', () => {
-    const ops = [
-      { type: 'deleteStatement', id: 'what1', summary: 'del' },
-      { type: 'editStatement', id: 'what1', text: 'improved onboarding', summary: 'edited' },
-      { type: 'addWhat', parentWhyId: 'why1', text: 'build dashboard', summary: 'added' },
-    ];
-    const next = applyOps(baseWs, ops, newCid);
-    expect(next.whys[0].whats).toHaveLength(1);
-    expect(next.whys[0].whats[0].text).toBe('build dashboard');
-  });
-
-  it('returns a fresh tree with no shared references', () => {
-    const ops = [{ type: 'addWhy', text: 'x', summary: 'y' }];
-    const next = applyOps(baseWs, ops, newCid);
-    expect(next).not.toBe(baseWs);
-    expect(next.whys).not.toBe(baseWs.whys);
+  it('applies in order setGoal → adds → edits → status → removals', () => {
+    expect(OP_TYPES).toEqual(['setGoal', 'addRecord', 'editRecord', 'setRecordStatus', 'addTask', 'editTask', 'removeTask']);
   });
 });
 
-describe('what one contribution left behind', () => {
-  const after = ops => statementsTouchedBy(applyOps(baseWs, ops, newCid), newCid);
-
-  it('names a statement it added, which no operation could have named', () => {
-    // An add op carries no id — applyOps mints it — so the tree is the only
-    // place the answer exists. Anything reading the operations instead found
-    // nothing, which is how a link to "what you just added" came out pointing
-    // at no statement at all.
-    const next = applyOps(baseWs, [{ type: 'addWhy', text: 'reduce churn', summary: '' }], newCid);
-    const [id] = statementsTouchedBy(next, newCid);
-    expect(id).toBe(next.whys[1].id);
-  });
-
-  it('names the top of a subtree before the rest of it', () => {
-    const next = applyOps(baseWs, [{
-      type: 'addWhy', text: 'reduce churn', summary: '',
-      whats: [{ text: 'win back lapsed users', summary: '', hows: [{ text: 'send the email', summary: '' }] }],
-    }], newCid);
-    const touched = statementsTouchedBy(next, newCid);
-    const why = next.whys[1];
-    expect(touched).toHaveLength(3);
-    expect(touched[0]).toBe(why.id);
-    expect(touched).toContain(why.whats[0].hows[0].id);
-  });
-
-  it('names a statement it edited, by the id that statement already had', () => {
-    expect(after([{ type: 'editStatement', id: 'what1', text: 'better onboarding', summary: '' }]))
-      .toEqual(['what1']);
-  });
-
-  it('cannot name a statement it deleted, because it is no longer there', () => {
-    expect(after([{ type: 'deleteStatement', id: 'what1', summary: '' }])).toEqual([]);
-  });
-
-  it('names the addition and not the deletion when it did both', () => {
-    const next = applyOps(baseWs, [
-      { type: 'addWhy', text: 'reduce churn', summary: '' },
-      { type: 'deleteStatement', id: 'why1', summary: '' },
-    ], newCid);
-    expect(statementsTouchedBy(next, newCid)).toEqual([next.whys[0].id]);
-    expect(statementsTouchedBy(next, newCid)).not.toContain('why1');
-  });
-
-  it('says nothing about a contribution that changed nothing', () => {
-    expect(after([])).toEqual([]);
-    expect(statementsTouchedBy(baseWs, newCid)).toEqual([]);
-  });
-
-  it('survives a tree that is missing its arrays', () => {
-    expect(statementsTouchedBy(null, newCid)).toEqual([]);
-    expect(statementsTouchedBy({ whys: [{ id: 'a', sourceContributionIds: [newCid] }] }, newCid)).toEqual(['a']);
+describe('touchedBy', () => {
+  it('lists the goal, then records, then tasks this contribution wrote', () => {
+    const { tree } = applyOps(makeProject(), [
+      { type: 'addTask', title: 'T' },
+      { type: 'setGoal', text: 'G' },
+      { type: 'addRecord', record: { type: 'why', text: 'W', attachedTo: { kind: 'project' } } },
+    ], C);
+    const ids = touchedBy(tree, C);
+    expect(ids[0]).toBe('goal');
+    expect(ids[1]).toMatch(/^rec-/);
+    expect(ids[2]).toBe(tree.tasks[0].id);
   });
 });

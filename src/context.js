@@ -105,7 +105,7 @@ export async function updateShared(workstream, contribution, config, { intent, a
     intent,
     avoid,
   });
-  const updated = applyOps(workstream, operations, contribution.id);
+  const { tree: updated } = applyOps(workstream, operations, contribution.id);
   return { workstream: updated, summary, operations };
 }
 
