@@ -85,6 +85,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   when you clear, instead of going unmentioned.
 
 ### Changed
+- **A new project reviews every contribution, not only the destructive ones.**
+  `init` used to record `additive`, which let a contribution that only adds
+  become shared context immediately. The reasoning was that somebody adding what
+  they know should not wait on an approval — but it picked the wrong axis.
+  Whether a contribution can *lose* information is not the only thing worth a
+  person's eye; whether anyone has read it is the other. Under `additive`, a
+  member's assistant could add statements that every other member's assistant
+  then reads as the team's own position, which is where a poisoned document or
+  thread lands — the member never wrote those words, and nobody had to agree to
+  them. New projects now queue everything, which is also what the product says of
+  itself. **A project that recorded `additive` keeps it**: no migration, nothing
+  rewritten, and a test holds that. `set_review_policy` now says what `additive`
+  gives up, for a manager who wants it anyway. Closes #109.
+- **Asking to skip review without being the manager no longer loses your
+  words.** `apply: true` is the manager's alone, and it used to throw — before
+  the contribution was logged, so a member whose assistant guessed wrong lost
+  their text and had to write it again. The flag is dropped instead: the
+  contribution is kept and takes the ordinary path, and the result carries
+  `applyRefused: true` so the assistant says where it went rather than sending
+  the same thing twice. Nothing is granted by asking. The one case for
+  `apply: true` is a project's founding contribution (`totalWhys: 0`) — never
+  bulk content like a long conversation or a document, which is the case review
+  exists for.
 - **The web pages carry one look, and it is the one people liked.** teamctx's
   own screens were system fonts on white; the tree view people asked for lives
   in a different app. The tokens, fonts and component styles from

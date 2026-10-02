@@ -75,9 +75,12 @@ the team aligned on.
   "sent for review", not "added", for every contribution but the first. The
   first (\`totalWhys: 0\`) is the one case where \`apply: true\` is correct: the
   caller is already the pinned manager, and there is nothing yet to review
-  against. If \`apply: true\` is refused, the caller is not actually the
-  manager — that is the same gate working as \`review_approve\`, not an error to
-  retry.
+  against. It is not for bulk content — a long conversation or a document is the
+  case review exists for, however much of it there is.
+  If the result carries \`applyRefused: true\`, the caller is not the manager and
+  the flag was dropped. Nothing was lost: the contribution was kept and took the
+  ordinary path, so say where it went. Do not send the same text again, and do
+  not report it as a failure.
 - **Approving is the managers' alone.** A project has a primary manager and
   may have co-managers, who approve exactly as the primary does. If
   \`review_approve\` refuses, the caller is not one of them — that is the gate

@@ -1,6 +1,6 @@
 # Proposal: new projects review everything
 
-**Status:** Proposal (suggestion, not committed) · **Serves:** Managers in control ·
+**Status:** Built · **Serves:** Managers in control ·
 **Issue:** [#109](https://github.com/StatsLateral/teamctx/issues/109)
 · **Rough size:** Small — one constant, the wording around it, and tests
 
@@ -101,9 +101,25 @@ approves their own opening message. The manager can still get a connector link �
 `get_connect_url` is not gated on context — which makes it worse rather than
 better: they can send somebody a link to a project that will not let them in.
 
-Two ways to answer that.
+Three ways to answer that. **The third is what was built**, and it is the one
+nobody listed at first: the two above both leave `apply` as something a caller can
+get wrong, and only differ in who pays for the mistake.
 
-**Guidance (proposed).** Leave the gate alone and make the instruction harder to
+**Asking for `apply` without being the manager no longer fails.** The flag is
+simply dropped. The contribution is logged and takes the ordinary path, and the
+result carries `applyRefused: true` so the assistant says where it went. Nothing
+is granted by asking — `writeTree` is never reached — and nothing is lost by
+asking, which is the part that was wrong before: `assertManager` threw at
+`contribute.core.js:98`, before `appendContribution` at line 121, so a member
+whose assistant guessed wrong lost their text and had to write it again.
+
+That makes the gate hold without the client having to be careful. `apply` becomes
+a request rather than an assertion, which is the ordinary shape for a privileged
+flag: refuse the privilege, keep the work.
+
+The two originally weighed, kept here for the record:
+
+**Guidance alone.** Leave the gate alone and make the instruction harder to
 miss. The trigger stays the machine check, `totalWhys: 0` — not a question to the
 user, because the agent already knows the answer and a user can get it wrong: a
 member on an established project who answers "yes, this is my first time" would
@@ -126,10 +142,17 @@ digest and never read by the gate — so this is two lines. It would need its ow
 `assertManager`, since the existing one runs only under `apply`; otherwise any
 member could found a project unreviewed.
 
-The second is more robust. The first is more honest about where the rule lives:
-review policy is a project's own setting, and carving a hole in the gate for a
-case the guidance already covers makes the gate harder to reason about. Worth
-settling on the issue before either is written.
+Neither was taken. Exempting founding in the gate carves a hole for a case that
+no longer hurts anybody, and guidance alone leaves a client's mistake costing a
+member their words. With a refused `apply` now harmless, the remaining exposure is
+only that a client which forgets the flag leaves a project waiting on its manager
+to approve their own opening message — recoverable, visible in the queue, and
+covered by the description and `mcp/instructions.js`. Pinned by a test either way.
+
+The wording was sharpened alongside it: `apply: true` is for `totalWhys: 0` and
+**never** for bulk content. Importing a long conversation or a document is the
+case review exists for, and without that sentence the new default would be quietly
+undone for the largest contributions anybody sends.
 
 ## Tests
 
@@ -152,8 +175,13 @@ Nothing to borrow. This changes one default in teamctx's own governance logic,
 which is the product. The queue, the policies and the manager gate already exist;
 see [Build vs borrow](../../CONTRIBUTING.md#build-vs-borrow).
 
-## Where to start
+## What was built
 
-`src/review-policy.js`, then follow `NEW_PROJECT_POLICY` to its one call site. The
-wording is the larger half of the diff, and the founding-contribution question is
-the part to settle first.
+| Change | Where |
+| --- | --- |
+| `NEW_PROJECT_POLICY` folded into `DEFAULT_POLICY`, both `all` | `src/review-policy.js` |
+| `apply` from a non-manager degrades instead of throwing | `cli/commands/contribute.core.js` |
+| `applyRefused` on every outcome, and in `reportBack` | `cli/commands/contribute.core.js`, `mcp/server.js` |
+| `apply` is for the founding one, never bulk import | `contribute` description, `mcp/instructions.js`, `docs/mcp.md` |
+| `set_review_policy` says what `additive` gives up | `mcp/server.js` |
+| New-project, no-migration, and founding tests | `cli/commands/contribute-policy.test.js`, `contribute.core.test.js`, `src/review-policy.test.js` |
