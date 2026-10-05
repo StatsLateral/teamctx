@@ -200,3 +200,121 @@ describe('a record resting on a broken assumption, however it is read', () => {
     expect(stored.records[0].needsReview).toBeUndefined();
   });
 });
+
+/**
+ * The moment this was all built for.
+ *
+ * > "We're assuming: buyers need SSO before a pilot" may be broken. The
+ * > decisions "Build SSO first" and "Delay the Acme pilot" rest on it. Review?
+ *
+ * The manager hears it at the point of deciding, not afterwards, which is why
+ * the list rides on the contribute result rather than waiting for a second call.
+ * It answers the same for a queued contribution as for an applied one: the walk
+ * follows `restsOn` and does not care what state the assumption is in yet.
+ */
+describe('breaking an assumption says what it takes with it', () => {
+  const assumption = rec('rec-a1', 'assumption', 'buyers need SSO before a pilot', {
+    owner: { key: 'git:o@x', name: 'O' }, reviewBy: '2026-12-01',
+  });
+  const onIt = (id, text) => rec(id, 'decision', text, {
+    attachedTo: { kind: 'workstream', id: 'sales' },
+    links: { restsOn: ['rec-a1'], bends: null, replaces: null, answers: null },
+  });
+
+  const world = () => session({
+    project: { name: 'Ledger', goal: { text: 'Ship it' }, records: [assumption], tasks: [] },
+    workstreams: {
+      sales: {
+        id: 'sales',
+        name: 'sales',
+        records: [onIt('rec-d1', 'build SSO first'), onIt('rec-d2', 'delay the Acme pilot')],
+        tasks: [],
+      },
+    },
+  });
+
+  const breakIt = () => [{ type: 'setRecordStatus', id: 'rec-a1', status: 'broken' }];
+
+  it('names both decisions on the result of approving the break', async () => {
+    const s = world();
+    s.write('.teamctx/queue/c-9.json', JSON.stringify({
+      id: 'c-9', status: 'pending', author: 'Ada', summary: 'new evidence',
+      workstream: null, operations: breakIt(),
+    }));
+    const r = await as(s, MANAGER, h => json(h.review_approve({ id: 'c-9' })));
+    expect(r.impact[0].text).toBe('buyers need SSO before a pilot');
+    expect(r.impact[0].records.map(x => x.text).sort())
+      .toEqual(['build SSO first', 'delay the Acme pilot']);
+  });
+
+  it('says it in the words the assistant reads back', async () => {
+    const s = world();
+    s.write('.teamctx/queue/c-9.json', JSON.stringify({
+      id: 'c-9', status: 'pending', author: 'Ada', summary: 'new evidence',
+      workstream: null, operations: breakIt(),
+    }));
+    const r = await as(s, MANAGER, h => json(h.review_approve({ id: 'c-9' })));
+    expect(r.reportBack).toContain('2 things rest on');
+    expect(r.reportBack).toContain('build SSO first');
+    expect(r.reportBack).toContain('second look');
+  });
+
+  it('names the tasks that work is being done on', async () => {
+    const s = session({
+      project: { name: 'Ledger', goal: { text: 'Ship it' }, records: [assumption], tasks: [] },
+      workstreams: {
+        sales: {
+          id: 'sales',
+          name: 'sales',
+          records: [rec('rec-d1', 'decision', 'build SSO first', {
+            attachedTo: { kind: 'task', id: 'sso-work' },
+            links: { restsOn: ['rec-a1'], bends: null, replaces: null, answers: null },
+          })],
+          tasks: [{ id: 'sso-work', title: 'Build the SSO flow', owner: 'Ravi', status: 'open' }],
+        },
+      },
+    });
+    s.write('.teamctx/queue/c-9.json', JSON.stringify({
+      id: 'c-9', status: 'pending', author: 'Ada', summary: 'new evidence',
+      workstream: null, operations: breakIt(),
+    }));
+    const r = await as(s, MANAGER, h => json(h.review_approve({ id: 'c-9' })));
+    expect(r.impact[0].tasks.map(t => t.title)).toEqual(['Build the SSO flow']);
+    expect(r.reportBack).toContain('Build the SSO flow');
+  });
+
+  it('says plainly when nothing rests on it', async () => {
+    const s = session({
+      project: { name: 'Ledger', goal: { text: 'Ship it' }, records: [assumption], tasks: [] },
+      workstreams: { sales: { id: 'sales', name: 'sales', records: [], tasks: [] } },
+    });
+    s.write('.teamctx/queue/c-9.json', JSON.stringify({
+      id: 'c-9', status: 'pending', author: 'Ada', summary: 'new evidence',
+      workstream: null, operations: breakIt(),
+    }));
+    const r = await as(s, MANAGER, h => json(h.review_approve({ id: 'c-9' })));
+    expect(r.impact[0].records).toEqual([]);
+    expect(r.reportBack).toContain('Nothing on record rests on');
+  });
+
+  it('carries no impact at all on an ordinary contribution', async () => {
+    const s = world();
+    s.write('.teamctx/queue/c-9.json', JSON.stringify({
+      id: 'c-9', status: 'pending', author: 'Ada', summary: 'a note',
+      workstream: null, operations: [{ type: 'setGoal', text: 'Ship it well' }],
+    }));
+    const r = await as(s, MANAGER, h => json(h.review_approve({ id: 'c-9' })));
+    expect(r.impact).toBeUndefined();
+    expect(r.reportBack).not.toContain('rest on');
+  });
+
+  it('says nothing for a status change that is not a break', async () => {
+    const s = world();
+    s.write('.teamctx/queue/c-9.json', JSON.stringify({
+      id: 'c-9', status: 'pending', author: 'Ada', summary: 'retire it',
+      workstream: null, operations: [{ type: 'setRecordStatus', id: 'rec-a1', status: 'closed' }],
+    }));
+    const r = await as(s, MANAGER, h => json(h.review_approve({ id: 'c-9' })));
+    expect(r.impact).toBeUndefined();
+  });
+});
