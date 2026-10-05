@@ -173,6 +173,23 @@ export function allProjectRecords({ readTree, workstreamIds }) {
 }
 
 /**
+ * The same sentence, on a record handed back as data rather than as prose.
+ *
+ * `get_context`, `list_records` and `get_record` return records for an assistant
+ * to read, not a rendered brief. A list of flagged ids beside the records would
+ * be something the reader has to join up, and a reader that does not join it
+ * acts on a decision that no longer stands. So the sentence goes on the record
+ * it is about.
+ *
+ * Copies, never the stored records: this is how a response is dressed, and the
+ * tree on disk has no such field.
+ */
+export function markNeedsReview(records, flagged) {
+  if (!flagged || !flagged.size) return records || [];
+  return (records || []).map(r => (flagged.has(r?.id) ? { ...r, needsReview: NEEDS_REVIEW } : r));
+}
+
+/**
  * The flags for a whole project, as a set of record ids.
  *
  * A set rather than the map, for the renderers: a brief says one sentence about
