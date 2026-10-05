@@ -147,3 +147,39 @@ export function needsReviewFlags(records, { onDay = today() } = {}) {
 
 /** The one sentence every brief says about a flagged record. */
 export const NEEDS_REVIEW = 'needs review — rests on a broken assumption';
+
+/**
+ * Every record in the project, from the project's own tree and all the others.
+ *
+ * Here rather than at each read path on purpose. A brief is rendered from the
+ * project plus the reader's own chain, which is less than the whole project — so
+ * a caller computing flags from what it happened to have would miss a decision
+ * resting on an assumption recorded somewhere else, and show it as sound. That
+ * is a wrong answer delivered confidently, which is the failure this whole file
+ * exists to prevent.
+ *
+ * It is a wider read than a brief needs, and that is the price of the flag being
+ * right. The records are used to answer one question and are never rendered, so
+ * nothing out of the reader's scope reaches the page — only the flag does, which
+ * says that something they cannot see needs a second look, not what it is.
+ */
+export function allProjectRecords({ readTree, workstreamIds }) {
+  const out = [];
+  for (const id of [null, ...(workstreamIds || [])]) {
+    const tree = readTree(id);
+    for (const r of tree?.records || []) out.push(r);
+  }
+  return out;
+}
+
+/**
+ * The flags for a whole project, as a set of record ids.
+ *
+ * A set rather than the map, for the renderers: a brief says one sentence about
+ * a flagged record and does not name the assumption — which it may not be
+ * allowed to show anyway. Callers wanting to say *what* it is waiting on use
+ * `needsReviewFlags` directly.
+ */
+export function flaggedIds(records, { onDay = today() } = {}) {
+  return new Set(needsReviewFlags(records, { onDay }).keys());
+}

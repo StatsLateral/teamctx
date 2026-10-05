@@ -7,6 +7,7 @@ import { chainFor } from '../../src/recompile.js';
 import { inScope } from '../../src/member-scope.js';
 import { resolveActor } from '../../src/actor.js';
 import { resolveDisplayName } from '../../src/prefs.js';
+import { flaggedInProject } from '../../src/project-records.js';
 
 /**
  * The one thing a member reads before they do anything.
@@ -54,7 +55,15 @@ function groupByTarget(tasks, config) {
 function rendered(target, config, teamctxDir) {
   const project = readProject(teamctxDir);
   const chain = isProjectLevel(target) ? [] : chainFor({ config, id: target, teamctxDir });
-  return renderBrief({ projectName: config.project || project.name || 'the project', project, chain });
+  return renderBrief({
+    projectName: config.project || project.name || 'the project',
+    project,
+    chain,
+    // The reason a member's assistant reads this before doing anything is that
+    // it is current. A decision resting on an assumption that broke is no longer
+    // something to act on, and this is the first place anyone would find out.
+    flagged: flaggedInProject(teamctxDir),
+  });
 }
 
 /**
