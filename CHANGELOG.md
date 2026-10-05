@@ -40,6 +40,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   link and the member gate agree.
 
 ### Fixed
+- Project goal links now open the goal row. Malformed review operations no
+  longer crash the project page; proposal previews retain unchanged links,
+  show exception-to-rule relationships and ignore fields approval cannot edit.
+  Sidebar record counts include expired active exceptions visible on the page.
 - A manager's opening contribution lands without `apply: true`, so a new project
   can take members immediately instead of waiting on the manager to approve
   their own first message. An agent's still queues.

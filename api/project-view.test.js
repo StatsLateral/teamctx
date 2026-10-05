@@ -653,6 +653,76 @@ describe('shared rows, task filters and governance (#127)', () => {
     repo.files.set('.teamctx/workstreams/product.json', JSON.stringify({ ...tree, records: items }));
   }
 
+  it('opens the project goal from its contribution link and preserves the goal link in its drawer', async () => {
+    repo.files.set('.teamctx/project.json', JSON.stringify({ goal: { text: 'Reach ten enterprise pilots' }, records: [], tasks: [] }));
+    const { body } = await visit('/project/acme/ledger?item=goal', MANAGER);
+    const goal = row(body, 'i-goal');
+    expect(goal).toContain('tier-goal marked');
+    expect(goal).toContain('item=goal');
+    expect(body).not.toContain('i-undefined');
+    const inherited = await visit('/project/acme/ledger?ws=product&item=goal', MANAGER);
+    expect(row(inherited.body, 'i-goal')).toContain('tier-goal marked');
+  });
+
+  it('keeps the page readable when a queued proposal includes malformed operations', async () => {
+    repo.files.set('.teamctx/queue/c-1.json', JSON.stringify({
+      id: 'c-1', status: 'pending', author: 'Priya', summary: 'Partial proposal', workstream: 'product',
+      operations: [null, { type: 'addRecord' }, { type: 'addTask', title: 'Valid task proposal' }],
+    }));
+    const { status, body } = await visit('/project/acme/ledger', MANAGER);
+    expect(status).toBe(200);
+    expect(body).toContain('Valid task proposal');
+    expect(body).toContain('Partial proposal');
+    repo.files.set('.teamctx/queue/c-1.json', JSON.stringify({ id: 'c-1', status: 'pending', author: 'Priya', summary: 'Bad operation list', operations: {} }));
+    expect((await visit('/project/acme/ledger', MANAGER)).status).toBe(200);
+  });
+
+  it('shows which rule a proposed exception bends, including a proposed rule reference', async () => {
+    records([{ id: 'rule', key: 'R-9', type: 'rule', text: 'Annual contracts only', status: 'active' }]);
+    repo.files.set('.teamctx/queue/c-1.json', JSON.stringify({
+      id: 'c-1', status: 'pending', author: 'Priya', workstream: 'product',
+      operations: [
+        { type: 'addRecord', record: { type: 'exception', text: 'Acme monthly pilot', links: { bends: 'rule' }, expiresAt: '2999-01-01' } },
+        { type: 'addRecord', ref: 'pilot-rule', record: { type: 'rule', text: 'Pilot lasts two weeks', key: 'R-999' } },
+        { type: 'addRecord', record: { type: 'exception', text: 'Acme gets three weeks', links: { bends: 'pilot-rule' }, expiresAt: '2999-01-01' } },
+      ],
+    }));
+    const { body } = await visit('/project/acme/ledger', MANAGER);
+    expect(row(body, 'proposal-c-1-0')).toContain('↳ bends R-9');
+    expect(row(body, 'proposal-c-1-0')).toContain('Annual contracts only');
+    expect(row(body, 'proposal-c-1-2')).toContain('↳ bends the proposed rule');
+    expect(row(body, 'proposal-c-1-2')).toContain('Pilot lasts two weeks');
+    expect(body).not.toContain('R-999');
+  });
+
+  it('previews only editable fields and merges partial record links as approval does', async () => {
+    records([
+      { id: 'rule', key: 'R-9', type: 'rule', text: 'Annual contracts only', status: 'active' },
+      { id: 'exception', key: 'X-4', type: 'exception', text: 'Acme monthly pilot', status: 'active', expiresAt: '2999-01-01', links: { bends: 'rule' } },
+    ]);
+    repo.files.set('.teamctx/queue/c-1.json', JSON.stringify({
+      id: 'c-1', status: 'pending', author: 'Priya', workstream: 'product',
+      operations: [{ type: 'editRecord', id: 'exception', changes: {
+        text: 'Updated Acme monthly pilot', links: { restsOn: [] }, status: 'broken', id: 'spoofed', key: 'X-999',
+      } }],
+    }));
+    const { body } = await visit('/project/acme/ledger', MANAGER);
+    const proposal = row(body, 'proposal-c-1-0');
+    expect(proposal).toContain('↳ bends R-9');
+    expect(proposal).toContain('Awaiting review · active');
+    expect(proposal).toContain('Updated Acme monthly pilot');
+    expect(proposal).not.toContain('spoofed');
+    expect(proposal).not.toContain('X-999');
+  });
+
+  it('counts expired active exceptions among the visible records in a lane', async () => {
+    records([{ id: 'expired', type: 'exception', text: 'Expired exception', status: 'active', expiresAt: '2000-01-01', links: { bends: 'missing' } }]);
+    const { body } = await visit('/project/acme/ledger?ws=product', MANAGER);
+    const lane = /<a class="lane on"[\s\S]*?<\/a>/.exec(body)[0];
+    expect(lane).toContain('class="count">1');
+    expect(body).toContain('id="i-expired"');
+  });
+
   it('renders a task once in both reading views, with the shared anatomy', async () => {
     for (const mode of ['columns', 'list']) {
       const { body } = await visit(`/project/acme/ledger?ws=product&view=${mode}`, MANAGER);
