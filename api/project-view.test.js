@@ -362,6 +362,8 @@ describe('arriving from a link', () => {
     const byId = await visit('/project/acme/ledger?ws=product&item=w1', MANAGER);
     const byKey = await visit('/project/acme/ledger?ws=product&item=D-7', MANAGER);
     expect(byKey.body).toMatch(/class="item tier-decision marked"/);
+    expect(byKey.body).toContain('<span class="num">D-7</span>');
+    expect(byKey.body).toContain('Tell me more about D-7:');
     expect(byKey.body).toBe(byId.body);
   });
 
@@ -372,6 +374,7 @@ describe('arriving from a link', () => {
     }));
     const { body } = await visit('/project/acme/ledger?task=T-3', MANAGER);
     expect(body).toMatch(/<tr id="t-pricing-page" class="marked"/);
+    expect(body).toContain('<span class="num">T-3</span>');
   });
 
   it('falls back quietly for a key that names nothing', async () => {

@@ -1,6 +1,6 @@
 # Proposal: a key you can say out loud
 
-**Status:** In progress · **Serves:** Managers in control ·
+**Status:** Implemented on `feat/stable-record-keys` · **Serves:** Managers in control ·
 **Issue:** [#126](https://github.com/StatsLateral/teamctx/issues/126)
 · **Spec:** `docs/superpowers/specs/2026-10-04-agent-first-project-view-design.md` (PR #125)
 · **Blocks:** #127, #128, #129, #130, #131
@@ -32,23 +32,29 @@ in and out —
 applyOps(tree, ops, contributionId, { nextKey }) -> { tree, dropped, nextKey }
 ```
 
-— and the caller writes them **only when it writes the tree**. That falls out
-right for the queued path without any special case: `contributeCore` runs
-`applyOps` once to work out what a contribution would do, then throws that tree
-away and writes a queue item. The counters go with it, so a contribution waiting
-on review has burned no keys, and one that is rejected burns none ever. Keys are
-assigned when a record actually lands, in the order records land — which is the
-only order that means anything to a reader.
+— and the caller persists them only on an actual context write. The preview
+run is discarded. At apply time, `withRecordKeys` backfills existing trees and
+re-reads config; `applyOps` runs again against the latest tree and counters.
+This preserves changes that landed while the AI was thinking. Queued and
+discarded proposals reserve nothing. Approval takes the next available keys.
 
-The other path, `cli/commands/task.core.js`, already has `config` and is
-straightforward.
+Direct task creation allocates inside `writeTask`, using the same write boundary.
+Local allocations hold a short exclusive file lock under `.teamctx/.local/`.
+Counters are reserved before trees are written: a failed disk write can leave a
+gap, but cannot make the next writer reuse a key. A stopped process can leave
+the lock file behind; the error explains how to remove it after that process
+has stopped. Hosted writes buffer trees and config in one commit and reject a
+conflicting ref update instead of replaying stale counters; retry the operation.
 
 ### Backfill
 
-Existing projects get keys on first write, in creation order, as one idempotent
-pass. Creation order is `createdAt`, then the first `sourceContributionIds` entry
-(contribution ids carry a timestamp), then position in the file — so it is
-deterministic for records written on the same day, which is most of them.
+Existing projects get keys on their first context write, in creation order, as
+one idempotent pass across the project and all workstream files. Reads and queue
+submissions do not migrate the project. Creation order uses the `createdAt` day,
+then its full timestamp when available, otherwise the timestamp in the first
+`sourceContributionIds` entry, then file position. CLI (`c-`) and MCP (`mcp-`)
+prefixes do not affect ordering. Missing times sort first within their day;
+ties use project-first, sorted workstream-file order and then array position.
 Idempotent because anything already carrying a key is left alone, and the
 counters resume above the highest key found rather than above the count.
 
@@ -61,12 +67,13 @@ id — and an id that looks like a key cannot be confused for one, because
 
 ## Plan
 
-- [ ] `src/record-key.js` — the vocabulary, minting, parsing, and `isKey`
-- [ ] Mint on both creation paths; counters in `config.json`
-- [ ] Backfill, idempotent, on first write
-- [ ] Key accepted as a link alias in `src/view-url.js`
-- [ ] The key shown in prompts and in `contribute` / `task_done` results
-- [ ] CHANGELOG
+- [x] `src/record-key.js` — the vocabulary, minting, parsing, and `isKey`
+- [x] Mint on both creation paths; counters in `config.json`
+- [x] Backfill, idempotent, on first context write
+- [x] Key accepted as a link alias by the project page route
+- [x] Keys shown in briefs, prompts, page rows and `contribute` / `task_done` results
+- [x] Task commands and record lookup accept keys while retaining internal ids
+- [x] CHANGELOG
 
 ## Existing open source first
 

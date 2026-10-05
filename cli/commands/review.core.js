@@ -1,5 +1,5 @@
 import {
-  readProject, readConfig, writeConfig, readTree, writeTree, writeTreeMd, writeRoleFile,
+  readProject, readConfig, writeConfig, withRecordKeys, readTree, writeTree, writeTreeMd, writeRoleFile,
   readQueueItem, deleteQueueItem, writeRejected, readContributions, listQueue,
 } from '../../src/storage.js';
 import { applyQueueItem, buildRejected, canApprove, isLegacyManagerRef } from '../../src/review.js';
@@ -91,14 +91,18 @@ export async function approveReview({ id, teamctxDir, projectDir, actor } = {}) 
   // `null` is the project itself. Defaulting to `main` here would have sent an
   // approved project-level contribution to a workstream that no longer exists.
   const targetId = resolveTarget(item.workstream);
-  const workstream = readTree(targetId, teamctxDir);
-  const { tree: applied, nextKey } = applyQueueItem(workstream, item, { nextKey: config.nextKey });
   // Who approved a record travels with it, not only with the commit.
   const approvedBy = { key: caller?.key || null, name: who, at: new Date().toISOString() };
-  const updated = {
-    ...applied,
-    records: (applied.records || []).map(r => ((r.sourceContributionIds || []).includes(item.id) ? { ...r, approvedBy } : r)),
-  };
+  const updated = withRecordKeys(teamctxDir, current => {
+    const { tree: applied, nextKey } = applyQueueItem(readTree(targetId, teamctxDir), item, { nextKey: current.nextKey });
+    const tree = {
+      ...applied,
+      records: (applied.records || []).map(r => ((r.sourceContributionIds || []).includes(item.id) ? { ...r, approvedBy } : r)),
+    };
+    writeConfig({ ...current, nextKey }, teamctxDir);
+    writeTree(targetId, tree, teamctxDir);
+    return tree;
+  });
   const contributions = readContributions(teamctxDir);
 
   // The inherited half, or nothing when the target *is* the project: rendering
@@ -110,13 +114,6 @@ export async function approveReview({ id, teamctxDir, projectDir, actor } = {}) 
   const chain = isProjectLevel(targetId) ? null
     : chainFor({ config, id: targetId, teamctxDir }).map(w => (w.id === targetId ? { ...updated, name: w.name, number: w.number } : w));
 
-  writeTree(targetId, updated, teamctxDir);
-  // The counters go down with the tree they were spent on, in the same approval.
-  // Written before anything else can fail, so a key can never be in the tree
-  // while the counter that issued it still points at it. Guarded for the same
-  // reason as in `contribute.core.js`: spreading an absent `nextKey` would drop
-  // the field and start the numbering again.
-  if (nextKey) writeConfig({ ...config, nextKey }, teamctxDir);
   writeTreeMd(
     targetId,
     serializeToMd(updated, workstreamDisplayName(targetId, updated, config), item.author, contributions, { project, chain }),

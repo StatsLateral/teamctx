@@ -51,9 +51,9 @@ export async function taskAddCommand(title, opts = {}) {
   // it through to print "[workstream: null]" on every task of an unsplit
   // project — which is every task, on most projects.
   const wsLabel = isProjectLevel(task.workstream) ? '' : ` [workstream: ${task.workstream}]`;
-  reportGit(result, `✓ Task ${task.id} added${wsLabel}`);
+  reportGit(result, `✓ Task ${task.key || task.id} added${wsLabel}`);
   console.log(`  Owner: ${task.owner}`);
-  console.log(`  Compile a prompt for it with: teamctx task compile ${task.id}`);
+  console.log(`  Compile a prompt for it with: teamctx task compile ${task.key || task.id}`);
 }
 
 export async function taskListCommand(opts = {}) {
@@ -83,7 +83,7 @@ export async function taskListCommand(opts = {}) {
 
   const header = ['ID', 'Status', 'Owner', 'Workstream', 'Compiled', 'Title'];
   const rows = tasks.map(t => [
-    t.id,
+    t.key || t.id,
     t.status || '-',
     t.owner || '-',
     t.workstream || '-',
@@ -103,7 +103,7 @@ export async function taskShowCommand(idOrPrefix) {
   let task;
   try { task = getTask({ id: idOrPrefix }); } catch (err) { reportAndExit(err); }
 
-  console.log(`\n# Task ${task.id}`);
+  console.log(`\n# Task ${task.key || task.id}`);
   console.log(`  Title:      ${task.title}`);
   console.log(`  Owner:      ${task.owner || '-'}`);
   console.log(`  Status:     ${task.status}`);
@@ -118,27 +118,27 @@ export async function taskDoneCommand(idOrPrefix) {
   let result;
   try { result = await setTaskStatus({ id: idOrPrefix, status: 'done' }); } catch (err) { reportAndExit(err); }
   if (result.unchanged) {
-    console.log(`\nTask ${result.task.id} is already done.\n`);
+    console.log(`\nTask ${result.task.key || result.task.id} is already done.\n`);
     return;
   }
-  reportGit(result, `✓ Task ${result.task.id} marked done`);
+  reportGit(result, `✓ Task ${result.task.key || result.task.id} marked done`);
 }
 
 export async function taskReopenCommand(idOrPrefix) {
   let result;
   try { result = await setTaskStatus({ id: idOrPrefix, status: 'open' }); } catch (err) { reportAndExit(err); }
   if (result.unchanged) {
-    console.log(`\nTask ${result.task.id} is already open.\n`);
+    console.log(`\nTask ${result.task.key || result.task.id} is already open.\n`);
     return;
   }
-  reportGit(result, `✓ Task ${result.task.id} reopened`);
+  reportGit(result, `✓ Task ${result.task.key || result.task.id} reopened`);
 }
 
 export async function taskAssignCommand(idOrPrefix, opts = {}) {
   if (!opts.owner) fail('--owner <name> is required');
   let result;
   try { result = await assignTask({ id: idOrPrefix, owner: opts.owner }); } catch (err) { reportAndExit(err); }
-  reportGit(result, `✓ Task ${result.task.id} assigned to ${opts.owner}`);
+  reportGit(result, `✓ Task ${result.task.key || result.task.id} assigned to ${opts.owner}`);
 }
 
 export async function taskRmCommand(idOrPrefix) {
@@ -155,14 +155,14 @@ export async function taskCompileCommand(idOrPrefix, opts = {}) {
   } catch (err) { reportAndExit(err); }
 
   if (result.alreadyCompiled) {
-    console.log(`\n✓ Task ${result.task.id} already compiled (workstream Whys unchanged since ${result.task.compiledAt}).`);
+    console.log(`\n✓ Task ${result.task.key || result.task.id} already compiled (workstream Whys unchanged since ${result.task.compiledAt}).`);
     console.log(`  Prompt file: ${result.promptPath}`);
     console.log(`  Re-run with --force to regenerate.\n`);
     return;
   }
 
   const roleTag = result.role ? ` (role: ${result.role})` : '';
-  reportGit(result, `✓ Task prompt compiled for ${result.task.id}${roleTag}`);
+  reportGit(result, `✓ Task prompt compiled for ${result.task.key || result.task.id}${roleTag}`);
   console.log(`  Prompt file: ${result.promptPath}`);
   console.log(`  Copy that file's contents into your AI (ChatGPT, Claude, Cursor, ...).\n`);
 }

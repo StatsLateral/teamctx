@@ -613,7 +613,8 @@ function reportBackContribute(r) {
     : '';
   if (r.mode === 'no-op') return `Tell the user: contribution logged for ${where} but the AI proposed no changes to the tree.${refused}`;
   if (r.mode === 'queued') return `Tell the user: contribution ${r.id} queued for manager approval on ${where} (${r.operations.length} op${r.operations.length === 1 ? '' : 's'}). Manager must run \`teamctx review approve ${r.id}\` or call the review_approve tool.${refused}`;
-  const applied = `Tell the user: contribution ${r.id} applied to ${where} (${r.operations.length} op${r.operations.length === 1 ? '' : 's'})${r.rolesRegenerated?.length ? `, regenerated roles: ${r.rolesRegenerated.join(', ')}` : ''}${r.pushed ? ', committed and pushed' : ', committed'}.${refused}`;
+  const keys = (r.keys || []).map(x => x.key).filter(Boolean);
+  const applied = `Tell the user: contribution ${r.id} applied to ${where} (${r.operations.length} op${r.operations.length === 1 ? '' : 's'})${r.rolesRegenerated?.length ? `, regenerated roles: ${r.rolesRegenerated.join(', ')}` : ''}${r.pushed ? ', committed and pushed' : ', committed'}.${keys.length ? ` Updated: ${keys.join(', ')}.` : ''}${refused}`;
   if (!r.founding) return applied;
   // The project's context started here, out of a conversation the person is
   // about to leave. Read it back while they can still correct it — this is the
@@ -1174,7 +1175,7 @@ export function makeHandlers(projectRoot) {
         return textResult({
           ...added,
           ...link,
-          reportBack: withLink(`Task ${added.task.id} added, owned by ${added.task.owner}.`, link),
+          reportBack: withLink(`Task ${added.task.key || added.task.id} added, owned by ${added.task.owner}.`, link),
         });
       }
 
@@ -1192,7 +1193,7 @@ export function makeHandlers(projectRoot) {
       return textResult({
         ...compiled,
         ...compiledLink,
-        reportBack: withLink(`Task ${added.task.id} added and its prompt compiled`
+        reportBack: withLink(`Task ${added.task.key || added.task.id} added and its prompt compiled`
           + `${compiled.role ? ` for role ${compiled.role}` : ''}.`, compiledLink),
       });
     },
@@ -1216,8 +1217,8 @@ export function makeHandlers(projectRoot) {
         ...r,
         ...doneLink,
         reportBack: withLink(r.unchanged
-          ? `Task ${r.task.id} was already done.`
-          : `Task ${r.task.id} marked done.`, doneLink),
+          ? `Task ${r.task.key || r.task.id} was already done.`
+          : `Task ${r.task.key || r.task.id} marked done.`, doneLink),
       });
     },
 

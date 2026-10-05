@@ -9,7 +9,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import {
-  KEY_PREFIX, isKey, parseKey, mintKey, emptyCounters, countersAbove, inCreationOrder, resolveKey,
+  KEY_PREFIX, isKey, parseKey, mintKey, emptyCounters, countersAbove, inCreationOrder, resolveKey, backfillKeys,
 } from './record-key.js';
 
 describe('what a key looks like', () => {
@@ -132,6 +132,19 @@ describe('counters read off the keys in use', () => {
 });
 
 describe('the order things were created in', () => {
+  it('compares CLI and MCP timestamps, not their source prefixes', () => {
+    const records = [
+      { id: 'later', createdAt: '2026-10-05', sourceContributionIds: ['c-1791200001000-x'] },
+      { id: 'earlier', createdAt: '2026-10-05', sourceContributionIds: ['mcp-1791200000000-y'] },
+    ];
+    expect(inCreationOrder(records).map(r => r.id)).toEqual(['earlier', 'later']);
+  });
+
+  it('orders date-only tasks alongside tasks with full timestamps', () => {
+    const early = { id: 'early', createdAt: '2026-10-05T01:00:00.000Z' };
+    const late = { id: 'late', createdAt: '2026-10-05', sourceContributionIds: [`mcp-${Date.parse('2026-10-05T02:00:00Z')}-x`] };
+    expect(inCreationOrder([late, early]).map(t => t.id)).toEqual(['early', 'late']);
+  });
   const at = (createdAt, over = {}) => ({ createdAt, ...over });
 
   it('is by date first', () => {
@@ -164,6 +177,21 @@ describe('the order things were created in', () => {
     const items = [at('2026-10-03', { id: 'c' }), at('2026-10-01', { id: 'a' })];
     inCreationOrder(items);
     expect(items.map(x => x.id)).toEqual(['c', 'a']);
+  });
+});
+
+describe('backfill across the project', () => {
+  it('preserves issued keys, fills by creation order and does not mutate input', () => {
+    const trees = [
+      { records: [{ id: 'old-key', type: 'decision', key: 'D-8' }, { id: 'later', type: 'decision', createdAt: '2026-10-05' }], tasks: [] },
+      { records: [{ id: 'earlier', type: 'decision', createdAt: '2026-10-04' }], tasks: [{ id: 'task', createdAt: '2026-10-01' }] },
+    ];
+    const once = backfillKeys(trees, { D: 12, T: 9 });
+    expect(once.trees[0].records.map(r => r.key)).toEqual(['D-8', 'D-13']);
+    expect(once.trees[1].records[0].key).toBe('D-12');
+    expect(once.trees[1].tasks[0].key).toBe('T-9');
+    expect(trees[0].records[1].key).toBeUndefined();
+    expect(backfillKeys(once.trees, once.nextKey)).toEqual(once);
   });
 });
 

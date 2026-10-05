@@ -22,6 +22,7 @@ vi.mock('../../src/storage.js', () => ({
   writeTreeMd: vi.fn(),
   readProject: vi.fn(() => ({ name: '', goal: { text: 'An existing goal' }, records: [], tasks: [] })),
   writeConfig: vi.fn(),
+  withRecordKeys: vi.fn((dir, write) => write(readConfig(dir))),
   readConfig: vi.fn(),
   readWorkstream: vi.fn(() => ({ id: 'ops', name: 'p', records: [], tasks: [] })),
   writeTree: vi.fn(),
@@ -297,30 +298,28 @@ describe('what a queued contribution costs', () => {
   });
 
   it('writes them when the contribution actually lands', async () => {
+    caller = MANAGER;
     readConfig.mockReturnValue(project({ reviewPolicy: 'none', nextKey: { D: 4, T: 1, R: 1, A: 1, X: 1 } }));
-    nextKeyAfter = { D: 6, T: 1, R: 1, A: 1, X: 1 };
-    operations = ADDS;
-    const r = await contribute();
+    nextKeyAfter = { D: 99, T: 99, R: 99, A: 99, X: 99 };
+    operations = [{ type: 'addRecord', record: { type: 'decision', text: 'First' } }, { type: 'addRecord', record: { type: 'decision', text: 'Second' } }];
+    const r = await contributeCore({ text: 'something', source: 'mcp', apply: true });
     expect(r.mode).toBe('applied');
     expect(writeConfig.mock.calls.at(-1)[0].nextKey).toEqual({ D: 6, T: 1, R: 1, A: 1, X: 1 });
   });
 
-  it('leaves the stored counters alone when nothing came back to store', async () => {
-    // Spreading an absent `nextKey` drops the field through JSON.stringify, and
-    // a project with no counters numbers from one again — handing out keys it
-    // has already used. So an absent one writes nothing at all.
+  it('allocates from storage even when the preview returns no counters', async () => {
     readConfig.mockReturnValue(project({ reviewPolicy: 'none', nextKey: { D: 4, T: 1, R: 1, A: 1, X: 1 } }));
     nextKeyAfter = undefined;
     operations = ADDS;
     expect((await contribute()).mode).toBe('applied');
-    expect(writeConfig).not.toHaveBeenCalled();
+    expect(writeConfig.mock.calls.at(-1)[0].nextKey).toMatchObject({ D: 4, T: 2 });
   });
 
   it('leaves the stored counters where they were for a discarded proposal', async () => {
     // Belt and braces on the same property: whatever happens between working the
     // ops out and writing, the numbers only move with a write.
     operations = ADDS;
-    await contribute();
+    await contributeCore({ text: 'something', onProposed: async () => false });
     expect(writeConfig).not.toHaveBeenCalled();
     expect(writeTree).not.toHaveBeenCalled();
   });

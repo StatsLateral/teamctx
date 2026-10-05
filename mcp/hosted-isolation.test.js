@@ -507,7 +507,7 @@ describe('tasks on the hosted server', () => {
 /** The same fingerprint compileTask uses to decide whether a prompt is stale. */
 function hashOf(ws) {
   return createHash('sha1')
-    .update(JSON.stringify({ name: ws?.name || '', goal: ws?.goal?.text || null, records: ws?.records || [], tasks: (ws?.tasks || []).map(t => t.title), active: (ws?.records || []).filter(r => r.status === 'active' && !(r.expiresAt && r.expiresAt < new Date().toISOString().slice(0, 10))).map(r => r.id) }))
+    .update(JSON.stringify({ name: ws?.name || '', goal: ws?.goal?.text || null, records: ws?.records || [], tasks: (ws?.tasks || []).map(t => [t.key || null, t.title]), active: (ws?.records || []).filter(r => r.status === 'active' && !(r.expiresAt && r.expiresAt < new Date().toISOString().slice(0, 10))).map(r => r.id) }))
     .digest('hex').slice(0, 16);
 }
 

@@ -98,8 +98,8 @@ function modelForPrompt(tree) {
   return {
     goal: tree.goal?.text ?? null,
     records: (tree.records || []).filter(r => r.status === 'active')
-      .map(r => ({ id: r.id, type: r.type, text: r.text, ...(r.links?.bends ? { bends: r.links.bends } : {}) })),
-    tasks: (tree.tasks || []).map(t => ({ id: t.id, title: t.title, status: t.status })),
+      .map(r => ({ id: r.id, ...(r.key ? { key: r.key } : {}), type: r.type, text: r.text, ...(r.links?.bends ? { bends: r.links.bends } : {}) })),
+    tasks: (tree.tasks || []).map(t => ({ id: t.id, ...(t.key ? { key: t.key } : {}), title: t.title, status: t.status })),
   };
 }
 
@@ -145,6 +145,7 @@ export async function proposeDiff({
     `"""${contribution}"""`,
     '',
     'Propose changes. Output STRICT JSON:',
+    'Keys such as D-3 and T-14 are human handles. When a contribution names a key, resolve it to the matching id above. Use internal ids in operations and links; never assign or edit a key.',
     `{
   "summary": "1-2 sentences",
   "operations": [

@@ -1,9 +1,8 @@
 import { chainFor } from '../../src/recompile.js';
 import { isActive } from '../../src/model.js';
-import { mintKey } from '../../src/record-key.js';
 import { createHash } from 'crypto';
 import {
-  readProject, readConfig, writeConfig, readTree, listTasks, readTask, writeTask, deleteTask,
+  readProject, readConfig, readTree, listTasks, readTask, writeTask, deleteTask, withRecordKeys,
   readWorkstream, readContributions,
   writeTaskFile, readTaskFile, taskFilePath, taskFileExists,
 } from '../../src/storage.js';
@@ -63,7 +62,7 @@ function contextHash(tree) {
     name: tree?.name || '',
     goal: tree?.goal?.text || null,
     records: tree?.records || [],
-    tasks: (tree?.tasks || []).map(t => t.title),
+    tasks: (tree?.tasks || []).map(t => [t.key || null, t.title]),
     // Which records hold today: an exception that has since expired makes the
     // prompt stale even though no file changed.
     active: (tree?.records || []).filter(r => isActive(r)).map(r => r.id),
@@ -199,12 +198,8 @@ export async function addTask({
 
   const resolvedActor = actor || await resolveActor({ config, cwd: projectDir });
   const id = uniqueTaskId(slugify(title), teamctxDir);
-  // This path has `config` in hand, so it is the easy half: mint, then write the
-  // counters beside the task.
-  const minted = mintKey(config.nextKey, 'task');
   const task = {
     id,
-    key: minted.key,
     title: String(title),
     owner: owner || me,
     // Only when the task is the caller's own. A name does not identify a
@@ -217,7 +212,6 @@ export async function addTask({
     compiledAt: null,
   };
   writeTask(task, teamctxDir);
-  writeConfig({ ...config, nextKey: minted.counters }, teamctxDir);
 
   const wsLabel = isProjectLevel(targetWorkstream) ? '' : ` [workstream: ${targetWorkstream}]`;
   const git = await commitAndPush(config, `task: add ${id} by ${me}${wsLabel}`, projectDir);
@@ -278,6 +272,10 @@ export async function compileTask({
 } = {}) {
   const config = readConfig(teamctxDir);
   const { task } = findTask(id, teamctxDir);
+  // A legacy task needs its permanent handle before the model sees it.
+  if (!task.key) withRecordKeys(teamctxDir, () => {
+    task.key = readTask(task.id, teamctxDir).task.key;
+  });
   const wsId = resolveTarget(task.workstream);
   const workstream = readTree(wsId, teamctxDir);
   const currentHash = contextHash(workstream);

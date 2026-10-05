@@ -15,7 +15,7 @@ function line(r, tag) {
   const check = r.type === 'assumption' && r.reviewBy ? ` (check by ${r.reviewBy})` : '';
   // The reason travels with the thing it explains.
   const why = r.detail ? ` — why: ${r.detail}` : '';
-  return `- ${LABELS[r.type]} ${r.text}${why}${check}${tag(r)}`;
+  return `- ${r.key ? `${r.key} ` : ''}${LABELS[r.type]} ${r.text}${why}${check}${tag(r)}`;
 }
 
 function section(records, onDay, tag) {
@@ -27,7 +27,7 @@ function section(records, onDay, tag) {
       out.push(line(r, tag));
       if (r.type !== 'rule') continue;
       for (const e of exceptionsOf(r.id)) {
-        out.push(`  - ${LABELS.exception} ${e.text} (until ${e.expiresAt}, instead of: ${r.text})${tag(e)}`);
+        out.push(`  - ${e.key ? `${e.key} ` : ''}${LABELS.exception} ${e.text} (until ${e.expiresAt}, instead of: ${r.text})${tag(e)}`);
       }
     }
   }
@@ -57,7 +57,7 @@ export function renderBrief({
   const projectLines = section((project?.records || []).filter(r => !onTask(r)), onDay, tag);
   if (projectLines.length) out.push(...projectLines, '');
   for (const t of project?.tasks || []) {
-    out.push(`- Task: ${t.title}${t.owner ? ` — ${t.owner}` : ''}${t.status === 'done' ? ' (done)' : ''}${tag(t)}`);
+    out.push(`- ${t.key ? `${t.key} ` : ''}Task: ${t.title}${t.owner ? ` — ${t.owner}` : ''}${t.status === 'done' ? ' (done)' : ''}${tag(t)}`);
     for (const r of section((project.records || []).filter(x => onTask(x) && x.attachedTo.id === t.id), onDay, tag)) out.push(`  ${r}`);
   }
 
@@ -68,7 +68,7 @@ export function renderBrief({
     if (lines.length) out.push(...lines, '');
     const nums = numberTasks(ws.tasks, ws.number);
     for (const t of ws.tasks || []) {
-      out.push(`- ${nums.get(t.id)} ${t.title}${t.owner ? ` — ${t.owner}` : ''}${t.status === 'done' ? ' (done)' : ''}${tag(t)}`);
+      out.push(`- ${t.key || nums.get(t.id)} ${t.title}${t.owner ? ` — ${t.owner}` : ''}${t.status === 'done' ? ' (done)' : ''}${tag(t)}`);
       for (const r of section((ws.records || []).filter(x => onTask(x) && x.attachedTo.id === t.id), onDay, tag)) out.push(`  ${r}`);
     }
     out.push('');
