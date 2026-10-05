@@ -17,6 +17,7 @@ vi.mock('../../src/storage.js', () => ({
   writeWorkstreamMd: vi.fn(),
   readWorkstream: vi.fn(() => ({ id: 'w', name: 'W', records: [], tasks: [] })),
   listWorkstreamIds: vi.fn(() => []),
+  writeConfig: vi.fn(),
   readConfig: vi.fn(() => ({ project: 'Ledger' })),
   readContributions: vi.fn(() => []),
 }));

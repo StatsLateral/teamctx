@@ -8,6 +8,7 @@ vi.mock('../../src/storage.js', () => ({
   readTreeMd: vi.fn(() => ''),
   writeTreeMd: vi.fn(),
   readProject: vi.fn(() => ({ name: '', goal: null, records: [], tasks: [] })),
+  writeConfig: vi.fn(),
   readConfig: vi.fn(),
   readWorkstream: vi.fn(),
   writeTree: vi.fn(),

@@ -44,11 +44,16 @@ export async function updateShared(tree, contribution, config, { intent, avoid }
     intent,
     avoid,
   });
-  const { tree: updated, dropped } = applyOps(tree, operations, contribution.id);
+  const { tree: updated, dropped, nextKey } = applyOps(tree, operations, contribution.id, {
+    nextKey: config?.nextKey,
+  });
   // What was dropped never reaches the queue or the tree: a reviewer approving
   // a proposal should see exactly what will be written.
   const kept = operations.filter(o => !dropped.some(d => d.op === o));
-  return { workstream: updated, summary, operations: kept, dropped };
+  // Handed back rather than written here. The caller knows whether this tree is
+  // about to be written or put in a queue, and the counters have to go the same
+  // way the tree does — see `mintKey`.
+  return { workstream: updated, summary, operations: kept, dropped, nextKey };
 }
 
 export async function generateRoleFile(workstream, role, projectName, config, contributions = [], { project = null, chain = null } = {}) {

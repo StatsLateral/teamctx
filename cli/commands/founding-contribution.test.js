@@ -24,6 +24,7 @@ vi.mock('../../src/storage.js', () => ({
   writeWorkstreamMd: vi.fn(),
   readTreeMd: vi.fn(() => ''),
   writeTreeMd: vi.fn(),
+  writeConfig: vi.fn(),
   readConfig: vi.fn(() => ({ project: 'Ledger', me: 'Maya', autoPush: false, roles: [], reviewPolicy: 'none' })),
   appendContribution: vi.fn(),
   writeRoleFile: vi.fn(),

@@ -350,6 +350,41 @@ describe('arriving from a link', () => {
     expect(body).toMatch(/class="item tier-decision marked"/);
   });
 
+  it('reaches the same row by key as by id', async () => {
+    // #126's third acceptance criterion. Links carry the internal id, which
+    // never changes; the key is what a person has in front of them, so a link
+    // pasted from the page or out of a prompt has to land in the same place.
+    repo.files.set('.teamctx/workstreams/product.json', JSON.stringify({
+      id: 'product', name: 'Product',
+      records: [{ id: 'w1', key: 'D-7', type: 'decision', text: 'price it', status: 'active', sourceContributionIds: ['c-prod'] }],
+      tasks: [{ id: 'pricing-page', key: 'T-3', title: 'Draft the pricing page', owner: 'Priya', status: 'open' }],
+    }));
+    const byId = await visit('/project/acme/ledger?ws=product&item=w1', MANAGER);
+    const byKey = await visit('/project/acme/ledger?ws=product&item=D-7', MANAGER);
+    expect(byKey.body).toMatch(/class="item tier-decision marked"/);
+    expect(byKey.body).toBe(byId.body);
+  });
+
+  it('reaches a task by its key too', async () => {
+    repo.files.set('.teamctx/workstreams/product.json', JSON.stringify({
+      id: 'product', name: 'Product', records: [],
+      tasks: [{ id: 'pricing-page', key: 'T-3', title: 'Draft the pricing page', owner: 'Priya', status: 'open' }],
+    }));
+    const { body } = await visit('/project/acme/ledger?task=T-3', MANAGER);
+    expect(body).toMatch(/<tr id="t-pricing-page" class="marked"/);
+  });
+
+  it('falls back quietly for a key that names nothing', async () => {
+    // Same quiet landing an unknown id gets — the page, nothing marked, and the
+    // value never written back into it.
+    const { status, body } = await visit('/project/acme/ledger?ws=product&item=D-99', MANAGER);
+    expect(status).toBe(200);
+    // Not "marked" anywhere: that word is in the stylesheet. Nothing *carries*
+    // the class.
+    expect(body).not.toMatch(/class="item[^"]*marked/);
+    expect(body).not.toContain('D-99');
+  });
+
   it('falls back quietly when the part of the work is not theirs to see', async () => {
     await lend();
     const { body } = await visit('/project/acme/ledger?ws=tech', MEMBER_GOOGLE);
@@ -596,5 +631,41 @@ describe('stored record fields are never trusted as markup', () => {
     }));
     const { body } = await visit('/project/acme/ledger?ws=product', MANAGER);
     expect(body).not.toContain('onfocus="alert(1)"');
+  });
+});
+
+/**
+ * A link that points at nothing leaves nothing behind.
+ *
+ * `ws` has always fallen back when it names a part of the work that is not
+ * there, or not this reader's. `item` did not: it rode along in the view
+ * toggle's own links, so a value that pointed at nothing was written back into
+ * the page anyway — which is the one thing this route says it never does.
+ */
+describe('an item that names nothing', () => {
+  it('is not carried into the view toggle, by id or by key', async () => {
+    const byId = await visit('/project/acme/ledger?ws=product&item=rec-gone', MANAGER);
+    const byKey = await visit('/project/acme/ledger?ws=product&item=D-99', MANAGER);
+    expect(byId.body).not.toContain('rec-gone');
+    expect(byKey.body).not.toContain('D-99');
+  });
+
+  it('is dropped even when it would pass the id rules', async () => {
+    // The check is whether it reaches something, not whether it looks plausible.
+    const { body } = await visit('/project/acme/ledger?ws=product&item=w1.but.not', MANAGER);
+    expect(body).not.toContain('w1.but.not');
+  });
+
+  it('still carries one that does, so the toggle keeps the highlight', async () => {
+    // What the carrying was for: losing the highlight on the first click defeats
+    // having landed on it.
+    const { body } = await visit('/project/acme/ledger?ws=product&item=w1', MANAGER);
+    expect(body).toMatch(/href="[^"]*item=w1[^"]*view=list"/);
+  });
+
+  it('is out of scope for a member, so it is dropped for them', async () => {
+    await lend();
+    const { body } = await visit('/project/acme/ledger?item=t1', MEMBER_GOOGLE);
+    expect(body).not.toContain('t1');
   });
 });
