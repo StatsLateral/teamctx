@@ -1,4 +1,5 @@
 import { LABELS, isActive, today, numberTasks } from './model.js';
+import { NEEDS_REVIEW } from './impact.js';
 
 /**
  * The one way a team's context is written out for a person or an AI.
@@ -11,23 +12,23 @@ import { LABELS, isActive, today, numberTasks } from './model.js';
 
 const GROUPS = [['rule', 'decision', 'assumption']];
 
-function line(r, tag) {
+function line(r, tag, flag) {
   const check = r.type === 'assumption' && r.reviewBy ? ` (check by ${r.reviewBy})` : '';
   // The reason travels with the thing it explains.
   const why = r.detail ? ` — why: ${r.detail}` : '';
-  return `- ${LABELS[r.type]} ${r.text}${why}${check}${tag(r)}`;
+  return `- ${LABELS[r.type]} ${r.text}${why}${check}${flag(r)}${tag(r)}`;
 }
 
-function section(records, onDay, tag) {
+function section(records, onDay, tag, flag) {
   const active = (records || []).filter(r => isActive(r, onDay));
   const exceptionsOf = (ruleId) => active.filter(r => r.type === 'exception' && r.links?.bends === ruleId);
   const out = [];
   for (const types of GROUPS) {
     for (const r of active.filter(x => types.includes(x.type))) {
-      out.push(line(r, tag));
+      out.push(line(r, tag, flag));
       if (r.type !== 'rule') continue;
       for (const e of exceptionsOf(r.id)) {
-        out.push(`  - ${LABELS.exception} ${e.text} (until ${e.expiresAt}, instead of: ${r.text})${tag(e)}`);
+        out.push(`  - ${LABELS.exception} ${e.text} (until ${e.expiresAt}, instead of: ${r.text})${flag(e)}${tag(e)}`);
       }
     }
   }
@@ -41,10 +42,18 @@ const onTask = (r) => r.attachedTo?.kind === 'task';
 
 export function renderBrief({
   projectName, project, chain = [], onDay = today(), includeSourceTags = false, lastUpdatedBy = '',
+  flagged = null,
 }) {
   const tag = includeSourceTags
     ? (x) => (x?.sourceContributionIds?.length ? `  [sources: ${x.sourceContributionIds.join(', ')}]` : '')
     : () => '';
+  // What rests on an assumption that broke. Passed in rather than worked out
+  // here, because answering it needs every record in the project and a brief is
+  // rendered from the project plus the reader's own chain — see
+  // `allProjectRecords` in src/impact.js. The sentence says a second look is
+  // owed, never which assumption: that one may be in a part of the work this
+  // reader is not on.
+  const flag = flagged ? (x) => (flagged.has(x?.id) ? ` — ${NEEDS_REVIEW}` : '') : () => '';
   const by = lastUpdatedBy ? ` · Source: ${lastUpdatedBy} contribution` : '';
   const out = [`# Context — ${projectName}`, `*Last updated: ${onDay}${by}*`, ''];
 
@@ -54,22 +63,22 @@ export function renderBrief({
   out.push(chain.length ? `**Goal:** ${project?.goal?.text || '*none yet*'}${tag(project?.goal)}` : '## Goal',
     ...(chain.length ? [] : [project?.goal?.text ? `${project.goal.text}${tag(project.goal)}` : '*No goal yet.*']),
     ...(project?.goal?.why ? [`Why it matters: ${project.goal.why}`] : []), '');
-  const projectLines = section((project?.records || []).filter(r => !onTask(r)), onDay, tag);
+  const projectLines = section((project?.records || []).filter(r => !onTask(r)), onDay, tag, flag);
   if (projectLines.length) out.push(...projectLines, '');
   for (const t of project?.tasks || []) {
     out.push(`- Task: ${t.title}${t.owner ? ` — ${t.owner}` : ''}${t.status === 'done' ? ' (done)' : ''}${tag(t)}`);
-    for (const r of section((project.records || []).filter(x => onTask(x) && x.attachedTo.id === t.id), onDay, tag)) out.push(`  ${r}`);
+    for (const r of section((project.records || []).filter(x => onTask(x) && x.attachedTo.id === t.id), onDay, tag, flag)) out.push(`  ${r}`);
   }
 
   chain.forEach((ws, i) => {
     const inherited = i < chain.length - 1;
     out.push(`## ${ws.number ? `${ws.number} ` : ''}${ws.name || ws.id}${inherited ? ' *(inherited — read-only here)*' : ''}`, '');
-    const lines = section((ws.records || []).filter(r => !onTask(r)), onDay, tag);
+    const lines = section((ws.records || []).filter(r => !onTask(r)), onDay, tag, flag);
     if (lines.length) out.push(...lines, '');
     const nums = numberTasks(ws.tasks, ws.number);
     for (const t of ws.tasks || []) {
       out.push(`- ${nums.get(t.id)} ${t.title}${t.owner ? ` — ${t.owner}` : ''}${t.status === 'done' ? ' (done)' : ''}${tag(t)}`);
-      for (const r of section((ws.records || []).filter(x => onTask(x) && x.attachedTo.id === t.id), onDay, tag)) out.push(`  ${r}`);
+      for (const r of section((ws.records || []).filter(x => onTask(x) && x.attachedTo.id === t.id), onDay, tag, flag)) out.push(`  ${r}`);
     }
     out.push('');
   });
