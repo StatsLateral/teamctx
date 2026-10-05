@@ -1,19 +1,9 @@
 import { shell, navBar, esc } from './theme.js';
-import { LABELS, RECORD_TYPES, isActive, today } from '../model.js';
+import { LABELS, RECORD_TYPES, isActive } from '../model.js';
+import { projectRow, ROW_CSS } from './project-row.js';
+import { workstreamLocation } from './workstream-location.js';
 
-/**
- * Where a project stands: its context, its work, and what waits on the manager.
- *
- * The tree is what teamctx exists to keep, and until now the only way to read it
- * was to ask an assistant — which asks a non-technical manager to know what to
- * ask for. This is the view from `git-for-non-tech-teams`, on teamctx's own data
- * and its own scoping: a sidebar of the parts somebody may see, the tree in
- * numbered Why / What / How columns, and a drawer on each item.
- *
- * Read-only, deliberately. Adding context, approving it and asking questions all
- * have a place already, and a second way to do any of them is a second thing to
- * keep honest. The drawer copies a prompt instead of answering one.
- */
+/** Read-only project context, work and proposals, using one row layout. */
 
 const CSS = `
 /* The header is three short lines, and the tree is what somebody came for:
@@ -40,58 +30,33 @@ const CSS = `
   padding:1px 7px;border-radius:99px}
 .lane-pick{display:none}
 
-/* The tree, in three columns or one list. */
+/* Context in a bounded panel or a plain list. */
 .tree-head{display:flex;align-items:center;gap:12px;margin-bottom:10px}
 .tree-head .section-title{margin:0}
 .toggle{margin-left:auto;display:flex;gap:6px}
 .toggle a{font-family:var(--font-mono);font-size:11px;text-decoration:none;color:var(--soft);
   border:1px solid var(--line);border-radius:6px;padding:4px 9px;background:var(--card)}
 .toggle a.on{color:var(--ink);border-color:var(--accent)}
-.columns{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
-/* A column scrolls inside itself, the way the app this came from did. Without
-   a bound, one long How list drags the page down past everything beside it and
-   the other two columns end up as short marks at the top of a tall blank. */
+.columns{display:grid;grid-template-columns:1fr;gap:10px}
+/* Long context scrolls inside its panel; on phones the page scrolls instead. */
 .col{border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--card);
   display:flex;flex-direction:column;min-width:0;min-height:220px;max-height:calc(100vh - 16rem)}
 .col-head{font-family:var(--font-mono);font-size:11px;text-transform:uppercase;letter-spacing:.08em;
   color:var(--soft);font-weight:600;padding:10px 12px 8px;border-bottom:1px solid var(--line)}
 .col-body{padding:8px;display:flex;flex-direction:column;gap:3px;overflow-y:auto;flex:1}
-.item{display:flex;align-items:flex-start;gap:8px;padding:7px 8px;border-radius:6px;
-  border:1px solid transparent;background:none;text-align:left;width:100%;font:inherit;cursor:pointer}
-.item:hover{background:var(--paper);border-color:var(--line)}
-.item.marked{border-color:var(--accent);background:var(--accent-soft)}
-/* A task or a review pointed at by a link is a row, not a statement — it gets
-   the same emphasis without pretending it can open the drawer. */
-tr.marked td{background:var(--accent-soft)}
-tr.marked td:first-child{box-shadow:inset 3px 0 0 var(--accent)}
-.item .text{flex:1;min-width:0;line-height:1.45;font-size:14px;overflow-wrap:anywhere}
-.item.tier-why .text{font-weight:600;font-family:var(--font-display)}
-.item.tier-what .text{font-weight:500}
-.item.tier-how .text{color:var(--soft)}
-.num{font-family:var(--font-mono);font-size:11px;color:var(--faint);min-width:30px;margin-top:3px}
-.dot{flex-shrink:0;width:10px;height:10px;border-radius:99px;margin-top:6px;background:var(--faint)}
-/* Nothing recorded, so nothing claimed. The space is kept so the text of every
-   row still starts in the same place. */
-.dot.none{background:none}
-.dot.cli{background:var(--ink)}
-.dot.mcp{background:var(--accent)}
-.dot.web{background:var(--grey)}
-.dot.imported{background:var(--indigo)}
 /* The same bound for the single-column reading, so the page itself never grows
    past the window and the toggle does not change how far you have to scroll. */
 .list{max-height:calc(100vh - 16rem);overflow-y:auto;padding-right:4px}
 .list .item{margin-left:0}
-.list .tier-what{margin-left:26px}
-.list .tier-how{margin-left:52px}
 .inherited{border:1px dashed var(--line);border-radius:var(--radius-sm);padding:8px 10px;margin-bottom:10px;
   background:var(--accent-soft)}
 .inherited .section-title{margin-bottom:6px}
-/* Read here, opened where it lives: these belong to the project, and the drawer
-   for them is on the project's own lane. */
-.inherit-row{display:flex;align-items:flex-start;gap:8px;padding:5px 8px}
-.inherit-row .text{flex:1;font-family:var(--font-display);font-weight:600;font-size:14px}
 .empty{color:var(--faint);font-style:italic;font-size:13px;padding:14px;border:1px dashed var(--line);
   border-radius:var(--radius-sm);text-align:center}
+.task-filters{display:flex;flex-wrap:wrap;gap:12px;align-items:end;margin-bottom:12px}
+.task-filters label{display:flex;flex-direction:column;gap:4px;font-size:12px}
+.task-filters select{max-width:260px}
+.proposal{margin-bottom:12px;border:1px solid var(--line);border-radius:6px}
 
 /* The drawer. */
 .drawer{position:fixed;top:0;right:0;height:100vh;width:min(520px,100vw);background:var(--card);
@@ -169,10 +134,8 @@ const SCRIPT = `
       b.textContent = 'Could not copy'; setTimeout(back, 2500);
     });
   });
-  // Only a statement opens the drawer. A task or a review row carries the same
-  // marker but none of the statement's data, and reading it would have put the
-  // word "undefined" in the drawer and then on somebody's clipboard.
-  var statement = document.querySelector('.item.marked');
+  // Shared rows carry the text and prompt for their drawer.
+  var statement = document.querySelector('.item.marked[data-prompt]');
   var row = document.querySelector('.marked');
   if (row) row.scrollIntoView({ block: 'center' });
   if (statement) open(statement);
@@ -183,14 +146,13 @@ const SCRIPT = `
 }());`;
 
 /**
- * The rows a part of the work shows: why it matters, then what the team relies
- * on (each exception straight after the rule it bends), then the tasks.
- * Only active records — a replaced decision is history, not context.
+ * Context rows, with each exception after its rule. Expired active exceptions
+ * stay visible with warnings. Retired records appear only when reading history.
  */
-const numbering = (tree, onDay = today()) => {
+const numbering = (tree, history = false) => {
   // Only the known types: a type read from the repository is somebody else's
   // text, and it ends up in markup.
-  const active = (tree?.records || []).filter(r => RECORD_TYPES.includes(r.type) && isActive(r, onDay) && r.attachedTo?.kind !== 'task');
+  const active = (tree?.records || []).filter(r => RECORD_TYPES.includes(r.type) && (history || r.status === 'active'));
   const rows = [];
   let k = 0;
   for (const r of active.filter(x => x.type !== 'exception')) {
@@ -200,29 +162,12 @@ const numbering = (tree, onDay = today()) => {
       rows.push({ node: e, tier: 'exception', n: `${k}a`, parent: r });
     }
   }
-  (tree?.tasks || []).forEach((t, i) => rows.push({ node: { ...t, text: t.title }, tier: 'task', n: `${i + 1}` }));
+  for (const e of active.filter(x => x.type === 'exception' && !rows.some(row => row.node.id === x.id))) {
+    rows.push({ node: e, tier: 'exception', n: `${++k}` });
+  }
+  if (tree?.goal?.text) rows.unshift({ node: tree.goal, tier: 'goal', n: '—' });
   return rows;
 };
-const columnOf = (row) => (row.tier === 'task' ? 'task' : 'record');
-
-/**
- * Where the most recent contribution behind a statement came from.
- *
- * The old app coloured these by `human` / `human+AI` / `ai-service`, which its
- * own data model recorded. teamctx records something different and more
- * reliable: which surface the contribution arrived through — `cli`, `mcp`,
- * `web`, or a connector's own name when it was imported. Mapping the old names
- * onto these would have been a guess dressed as provenance, and one of the three
- * colours could never have been reached at all.
- */
-function kindOf(node, contributions) {
-  const ids = node.sourceContributionIds || [];
-  const source = (ids.length ? contributions[ids[ids.length - 1]]?.source : '') || '';
-  if (source === 'cli') return 'cli';
-  if (source === 'mcp') return 'mcp';
-  if (source === 'web') return 'web';
-  return source ? 'imported' : 'none';
-}
 
 /** Everybody whose contribution touched a statement, by name. */
 const whoTouched = (node, contributions) => [...new Set(
@@ -250,10 +195,10 @@ const whoTouched = (node, contributions) => [...new Set(
  * the data model instead of the work — and telling a model how to format itself
  * costs it the formatting it would have chosen well.
  */
-function promptFor({ node, tier, where, wsId, isProject, owner, repo, link, parent, grand }) {
+function promptFor({ node, tier, where, isProject, owner, repo, link, parent, pending }) {
   const place = isProject
     ? "the project's own context (not one part of the work)"
-    : `the part of the work called "${where}"${wsId ? ` (id: ${wsId})` : ''}`;
+    : `the part of the work called "${where}"`;
 
   // Where it hangs, said in plain English. The lineage has to be here — an
   // assistant left to find the parents reads the whole project, and then answers
@@ -273,7 +218,7 @@ function promptFor({ node, tier, where, wsId, isProject, owner, repo, link, pare
     line(
       'Instructions for the AI agent:',
       `- Confirm you are connected to the repository ${owner}/${repo}. get_connect_url returns a URL containing the owner and repo. If it is a different one, stop and tell me, rather than answering from the project you are connected to.`,
-      `- Find this, quoted word for word, in ${place}: "${node.text}". If it is not there, say so plainly rather than answering about the closest thing you can find.`,
+      `- Find this, quoted word for word, in ${pending ? 'the pending review queue for ' : ''}${place}: "${node.text}". If it is not there, say so plainly rather than answering about the closest thing you can find.`,
       '- Then tell me about that one thing, the way a colleague would: why it is there, what it requires, and what is still open for it.',
       '- Do not explain how the project stores any of this, do not walk me back up the structure it sits in, and do not name its parts. Where something has not been decided yet, say so and move on.',
       '- Keep to this one thing. Do not summarise the rest of the project, list its other goals or tasks, or report what is open elsewhere, unless I ask.',
@@ -291,36 +236,27 @@ function promptFor({ node, tier, where, wsId, isProject, owner, repo, link, pare
  */
 const escAttr = (v) => esc(v).replace(/\n/g, '&#10;');
 
-function itemButton({ row, contributions, where, project, marked, isProject, owner, repo, wsId, origin }) {
-  const { node, tier, n, parent, grand } = row;
+function itemButton({ row, contributions, where, marked, isProject, owner, repo, wsId, origin, pending = false, id, linkId = row.node.id }) {
+  const { node, tier, n, parent } = row;
   const prompt = promptFor({
-    node, tier, where, wsId, isProject, owner, repo, parent, grand,
+    node: { ...node, text: tier === 'task' ? node.title : node.text }, tier, where, isProject, owner, repo, parent, pending,
     link: origin ? `${origin}/project/${owner}/${repo}?${new URLSearchParams({
-      ...(isProject ? {} : { ws: wsId }), item: node.id,
+      ...(isProject ? {} : { ws: wsId }), ...(linkId ? { item: linkId } : {}),
     })}` : null,
   });
-  const who = whoTouched(node, contributions);
-  return `<button class="item tier-${esc(tier)}${marked ? ' marked' : ''}" id="i-${esc(node.id)}"
-  data-text="${esc(node.text)}" data-kind="${esc(`${tier === 'task' ? 'Task' : (LABELS[tier] || '').replace(/:$/, '')} ${node.key || n}`)}"
+  const who = pending && node.author ? [node.author] : whoTouched(node, contributions);
+  return projectRow({ node, type: tier, contributions, where, fallbackKey: n, marked, pending,
+    id: id || `${tier === 'task' ? 't' : 'i'}-${node.id}`,
+    relation: parent ? `↳ bends ${parent.key || 'the rule above'}` : '',
+    attributes: ` data-text="${esc(tier === 'task' ? node.title : node.text)}" data-kind="${esc(`${tier === 'task' ? 'Task' : (LABELS[tier] || tier).replace(/:$/, '')} ${node.key || (pending ? 'Pending' : n)}`)}"
   data-summary="${esc(node.detail || node.summary || '')}" data-who="${esc(who.join(', '))}"
-  data-prompt="${escAttr(prompt)}">
-  <span class="dot ${kindOf(node, contributions)}"></span>
-  <span class="num">${esc(node.key || n)}</span>
-  <span class="text">${esc(node.text)}</span>
-</button>`;
+  data-prompt="${escAttr(prompt)}"` });
 }
 
-const columns = ({ rows, contributions, where, project, item, isProject, owner, repo, wsId, origin }) => `<div class="columns">
-  ${['record', 'task'].map(col => `<section class="col">
-    <div class="col-head">${col === 'record' ? 'Rules, decisions & assumptions' : 'Tasks'}</div>
-    <div class="col-body">
-      ${rows.filter(r => columnOf(r) === col).map(row => itemButton({
-    row, contributions, where, project, isProject, owner, repo, wsId, origin, marked: row.node.id === item,
-  })).join('')
-    || '<p class="muted" style="margin:6px 8px">Nothing here yet.</p>'}
-    </div>
-  </section>`).join('')}
-</div>`;
+const columns = (options) => `<div class="columns"><section class="col">
+  <div class="col-head">Rules, decisions & assumptions</div>
+  <div class="col-body">${options.rows.map(row => itemButton({ ...options, row, marked: row.node.id === options.item })).join('')}</div>
+</section></div>`;
 
 const list = ({ rows, contributions, where, project, item, isProject, owner, repo, wsId, origin }) => `<div class="list">
   ${rows.map(row => itemButton({
@@ -328,11 +264,68 @@ const list = ({ rows, contributions, where, project, item, isProject, owner, rep
   })).join('')}
 </div>`;
 
-export const projectPage = ({ user, view, selected, viewMode = 'columns', item = null, note = null, origin = null }) => {
+function historyHref({ base, selected, viewMode, item, history, taskWs, taskOwner }) {
+  const query = new URLSearchParams({ taskWs, taskOwner });
+  if (selected) query.set('ws', selected);
+  if (viewMode === 'list') query.set('view', 'list');
+  if (!history) {
+    query.set('history', '1');
+    if (item) query.set('item', item);
+  }
+  return `${base}?${query}`;
+}
+
+function queueRows({ q, view, item, origin }) {
+  const tree = q.workstream ? view.trees[q.workstream] : view.projectTree;
+  const render = (node, tier, index) => itemButton({
+    row: { node: { ...node, source: q.source, author: q.author }, tier, n: '—' }, contributions: view.contributions,
+    where: q.where, isProject: !q.workstream, wsId: q.workstream,
+    owner: view.owner, repo: view.repo, origin, pending: true,
+    id: `proposal-${q.id}-${index}`, linkId: q.id,
+  });
+  const proposals = (q.operations || []).map((op, i) => {
+    // Keys on queued additions have not been allocated. Displaying the page
+    // must never imply that a proposed key has been reserved.
+    if (op.type === 'addRecord') return render({ ...op.record, key: null }, op.record?.type, i);
+    if (op.type === 'addTask') return render({ title: op.title, owner: op.owner }, 'task', i);
+    if (op.type === 'setGoal') return render({ text: op.text }, 'goal', i);
+    const record = (tree?.records || []).find(r => r.id === op.id);
+    if (record && ['editRecord', 'setRecordStatus'].includes(op.type)) {
+      return render({ ...record, ...(op.type === 'editRecord' ? op.changes : { status: op.status }), key: record.key }, record.type, i);
+    }
+    const task = (tree?.tasks || []).find(t => t.id === op.id);
+    if (task && ['editTask', 'removeTask'].includes(op.type)) {
+      return render({ ...task, title: op.title || task.title, status: op.type === 'removeTask' ? 'Removing' : task.status }, 'task', i);
+    }
+    return '';
+  }).join('');
+  return `<div class="proposal">${itemButton({
+    row: { node: { id: q.id, text: q.summary || '(no summary)', owner: q.author, author: q.author, source: q.source }, tier: 'review', n: '—' },
+    contributions: view.contributions, where: q.where, isProject: !q.workstream, wsId: q.workstream,
+    owner: view.owner, repo: view.repo, origin, pending: true, id: `r-${q.id}`, marked: q.id === item,
+  })}${proposals}</div>`;
+}
+
+export const projectPage = ({ user, view, selected, viewMode = 'columns', item = null, note = null, origin = null, filters = {}, history = false }) => {
   const isProject = selected === null;
   const tree = isProject ? view.projectTree : view.trees[selected];
-  const where = isProject ? (view.project || 'the project') : (view.workstreams.find(w => w.id === selected)?.name || selected);
-  const rows = numbering(tree);
+  const where = workstreamLocation(view.workstreams, selected, view.project);
+  // A deep link to history must remain useful without changing the stored record.
+  history ||= [view.projectTree, tree].some(t => (t?.records || []).some(r => r.id === item && r.status !== 'active'));
+  const rows = numbering(tree, history);
+  const allTasks = [...view.tasks.open, ...view.tasks.done];
+  const owners = [...new Set(allTasks.map(t => t.owner).filter(Boolean))].sort();
+  const workstreamValues = ['@all', '@project', ...view.workstreams.map(w => w.id)];
+  let taskWs = workstreamValues.includes(filters.workstream) ? filters.workstream : selected || '@all';
+  let taskOwner = ['@all', '@unassigned', ...owners].includes(filters.owner) ? filters.owner : '@all';
+  const linkedTask = allTasks.find(t => t.id === item);
+  if (linkedTask) {
+    if (taskWs !== '@all' && taskWs !== (linkedTask.workstream || '@project')) taskWs = linkedTask.workstream || '@project';
+    if (taskOwner !== '@all' && taskOwner !== (linkedTask.owner || '@unassigned')) taskOwner = '@all';
+  }
+  const tasks = allTasks.filter(t => (t.status === 'open' || t.id === item)
+    && (taskWs === '@all' || (t.workstream || '@project') === taskWs)
+    && (taskOwner === '@all' || (t.owner || '@unassigned') === taskOwner));
   const base = `/project/${encodeURIComponent(view.owner)}/${encodeURIComponent(view.repo)}`;
   const laneHref = (ws) => `${base}?${new URLSearchParams(ws === null ? {} : { ws }).toString()}`;
   const modeHref = (mode) => {
@@ -341,23 +334,20 @@ export const projectPage = ({ user, view, selected, viewMode = 'columns', item =
     // the first click defeats having landed on it.
     if (item) q.set('item', item);
     if (mode === 'list') q.set('view', 'list');
+    if (history) q.set('history', '1');
+    q.set('taskWs', taskWs);
+    q.set('taskOwner', taskOwner);
     return `${base}${q.toString() ? `?${q}` : ''}`;
   };
 
   // The project's goal and its active records sit above a workstream's, the way
   // teamctx composes context: inherited, not owned, and said so.
-  const inheritedRows = isProject ? [] : [
-    ...(view.projectTree?.goal?.text ? [{ text: `Goal: ${view.projectTree.goal.text}`, node: view.projectTree.goal }] : []),
-    ...(view.projectTree?.records || []).filter(r => isActive(r) && r.type !== 'exception')
-      .map(r => ({ text: `${r.key ? `${r.key} ` : ''}${LABELS[r.type]} ${r.text}`, node: r })),
-  ];
+  const inheritedRows = isProject ? [] : numbering(view.projectTree, history);
   const inherited = inheritedRows.length
     ? `<div class="inherited">
       <div class="section-title">Project context — inherited</div>
-      ${inheritedRows.map(w => `<div class="inherit-row">
-        <span class="dot ${kindOf(w.node, view.contributions)}"></span>
-        <span class="text">${esc(w.text)}</span>
-      </div>`).join('')}
+      ${inheritedRows.map(row => itemButton({ row, contributions: view.contributions, where: view.project,
+        isProject: true, owner: view.owner, repo: view.repo, origin, marked: row.node.id === item })).join('')}
     </div>`
     : '';
 
@@ -396,8 +386,9 @@ ${note ? `<p class="note">${esc(note)}</p>` : ''}
     <div class="tree-head">
       <span class="section-title">${esc(where)}</span>
       <span class="toggle">
-        <a href="${modeHref('columns')}" class="${viewMode === 'columns' ? 'on' : ''}">⊞ columns</a>
-        <a href="${modeHref('list')}" class="${viewMode === 'list' ? 'on' : ''}">≡ list</a>
+        <a href="${esc(modeHref('columns'))}" class="${viewMode === 'columns' ? 'on' : ''}">⊞ columns</a>
+        <a href="${esc(modeHref('list'))}" class="${viewMode === 'list' ? 'on' : ''}">≡ list</a>
+        <a href="${esc(historyHref({ base, selected, viewMode, item, history, taskWs, taskOwner }))}" class="${history ? 'on' : ''}">${history ? 'Hide history' : 'Show history'}</a>
       </span>
     </div>
     ${inherited}
@@ -418,28 +409,30 @@ ${note ? `<p class="note">${esc(note)}</p>` : ''}
 
     <section style="margin-top:2rem">
       <div class="section-title">Tasks</div>
-      ${view.tasks.open.length ? `<table>
-        <tr><th>Task</th><th>Who has it</th><th>Where</th></tr>
-        ${view.tasks.open.map(t => `<tr id="t-${esc(t.id)}"${t.id === item ? ' class="marked"' : ''}>
-          <td>${t.key ? `<span class="num">${esc(t.key)}</span> ` : ''}${esc(t.title)}</td>
-          <td class="muted">${t.owner ? esc(t.owner) : 'nobody yet'}</td>
-          <td class="muted">${esc(t.where)}</td>
-        </tr>`).join('')}
-      </table>` : '<p class="muted">Nothing open.</p>'}
+      <form class="task-filters" method="GET" action="${base}">
+        ${selected ? `<input type="hidden" name="ws" value="${esc(selected)}">` : ''}
+        ${viewMode === 'list' ? '<input type="hidden" name="view" value="list">' : ''}
+        ${history ? '<input type="hidden" name="history" value="1">' : ''}
+        <label>Where <select name="taskWs">
+          ${[['@all', 'All work'], ['@project', view.project || 'Overall project'], ...view.workstreams.map(w => [w.id, workstreamLocation(view.workstreams, w.id)])]
+    .map(([value, label]) => `<option value="${esc(value)}"${value === taskWs ? ' selected' : ''}>${esc(label)}</option>`).join('')}
+        </select></label>
+        <label>Owner <select name="taskOwner">
+          ${[['@all', 'Everyone'], ['@unassigned', 'Unassigned'], ...owners.map(o => [o, o])].map(([value, label]) => `<option value="${esc(value)}"${value === taskOwner ? ' selected' : ''}>${esc(label)}</option>`).join('')}
+        </select></label><button type="submit">Filter tasks</button>
+      </form>
+      <div class="task-list">${tasks.length ? tasks.map(t => itemButton({
+        row: { node: t, tier: 'task', n: '—' }, contributions: view.contributions, where: t.where,
+        isProject: !t.workstream, wsId: t.workstream, owner: view.owner, repo: view.repo,
+        origin, marked: t.id === item,
+      })).join('') : '<p class="muted">No open tasks match these filters.</p>'}</div>
       ${view.tasks.done.length ? `<p class="muted">${view.tasks.done.length}
         task${view.tasks.done.length === 1 ? '' : 's'} already done.</p>` : ''}
     </section>
 
     ${view.pending ? `<section style="margin-top:2rem">
       <div class="section-title">Waiting on you</div>
-      ${view.pending.length ? `<table>
-        <tr><th>From</th><th>What</th><th>Where</th></tr>
-        ${view.pending.map(q => `<tr id="r-${esc(q.id)}"${q.id === item ? ' class="marked"' : ''}>
-          <td>${esc(q.author)}</td>
-          <td>${esc(q.summary || '(no summary)')}</td>
-          <td class="muted">${esc(q.where)}</td>
-        </tr>`).join('')}
-      </table>` : '<p class="muted">Nothing is waiting for review.</p>'}
+      ${view.pending.length ? view.pending.map(q => queueRows({ q, view, item, origin })).join('') : '<p class="muted">Nothing is waiting for review.</p>'}
     </section>` : ''}
   </main>
 </div>
@@ -462,5 +455,5 @@ ${note ? `<p class="note">${esc(note)}</p>` : ''}
     </details>
     <button class="primary" id="copy">Copy a prompt for your assistant</button>
   </div>
-</aside>`, { wide: true, extraCss: CSS, script: SCRIPT });
+</aside>`, { wide: true, extraCss: `${CSS}\n${ROW_CSS}`, script: SCRIPT });
 };

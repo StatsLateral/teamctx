@@ -107,6 +107,11 @@ async function visit(path, user) {
 
 const lend = () => kvSet(keys.projectGhCred('acme', 'ledger'), { token: 'gh-lent', lentByEmail: 'maya@example.com' });
 
+function rowPrompt(body) {
+  const id = body.includes('id="i-w1"') ? 'i-w1' : 'i-p1';
+  return new RegExp(`id="${id}"[^>]*data-prompt="([^"]+)"`).exec(body)[1];
+}
+
 beforeEach(() => {
   __resetMemory();
   project();
@@ -282,7 +287,7 @@ describe('the tree the page draws', () => {
     // new conversation it names nothing an assistant can act on — which of
     // several projects, and with what.
     const { body } = await visit('/project/acme/ledger?ws=product', MANAGER);
-    const prompt = /data-prompt="([^"]+)"/.exec(body)[1];
+    const prompt = rowPrompt(body);
     // It names the repository and tells the assistant how to check it is on
     // that one — the version before this said a connector "may be named
     // something else", which told an assistant on a different project to carry
@@ -300,21 +305,22 @@ describe('the tree the page draws', () => {
 
   it('says so plainly when the statement belongs to the project itself', async () => {
     const { body } = await visit('/project/acme/ledger', MANAGER);
-    const prompt = /data-prompt="([^"]+)"/.exec(body)[1];
+    const prompt = rowPrompt(body);
     expect(prompt).toMatch(/the project.{0,8}s own context \(not one part of the work\)/);
     expect(prompt).toContain('acme/ledger');
   });
 
-  it('names the part of the work by id as well as by name', async () => {
-    // Two workstreams can read alike; the id is what a tool looks up.
+  it('names the part of the work without exposing its internal id', async () => {
+    // Breadcrumb names locate the work; internal ids stay in link targets.
     const { body } = await visit('/project/acme/ledger?ws=product', MANAGER);
-    const prompt = /data-prompt="([^"]+)"/.exec(body)[1];
-    expect(prompt).toContain('(id: product)');
+    const prompt = rowPrompt(body);
+    expect(prompt).toContain('&quot;Product&quot;');
+    expect(prompt).not.toContain('(id: product)');
   });
 
   it('carries the address of the page it was copied from', async () => {
     const { body } = await visit('/project/acme/ledger?ws=product', MANAGER);
-    const prompt = /data-prompt="([^"]+)"/.exec(body)[1];
+    const prompt = rowPrompt(body);
     expect(prompt).toMatch(/The page it came from: https?:[^ ]*project\/acme\/ledger/);
     expect(prompt).toContain('item=w1');
   });
@@ -373,7 +379,7 @@ describe('arriving from a link', () => {
       tasks: [{ id: 'pricing-page', key: 'T-3', title: 'Draft the pricing page', owner: 'Priya', status: 'open' }],
     }));
     const { body } = await visit('/project/acme/ledger?task=T-3', MANAGER);
-    expect(body).toMatch(/<tr id="t-pricing-page" class="marked"/);
+    expect(body).toMatch(/class="item tier-task marked" id="t-pricing-page"/);
     expect(body).toContain('<span class="num">T-3</span>');
   });
 
@@ -461,7 +467,7 @@ describe('what a link may and may not open', () => {
     // A task is an item in its own right now, so the drawer it opens must hold
     // its title rather than a statement's missing fields.
     const { body } = await visit('/project/acme/ledger?ws=product&task=pricing-page', MANAGER);
-    expect(body).toMatch(/<tr id="t-pricing-page" class="marked">/);
+    expect(body).toMatch(/class="item tier-task marked" id="t-pricing-page"/);
     const marked = /<button class="item[^"]*marked"[^>]*data-text="([^"]*)"/.exec(body);
     if (marked) expect(marked[1]).not.toBe('undefined');
     expect(body).not.toContain('data-text="undefined"');
@@ -469,19 +475,22 @@ describe('what a link may and may not open', () => {
 
   it('gives a marked row something to look at', async () => {
     const { body } = await visit('/project/acme/ledger?ws=product&task=pricing-page', MANAGER);
-    expect(body).toContain('tr.marked td');
+    expect(body).toContain('.item.marked{');
+    expect(body).toContain('data-text="Draft the pricing page"');
   });
 
   it('keeps what was pointed at when the view is switched', async () => {
     const { body } = await visit('/project/acme/ledger?ws=product&item=w1', MANAGER);
-    expect(body).toMatch(/href="[^"]*ws=product[^"]*item=w1[^"]*view=list"/);
+    expect(body).toMatch(/href="[^"]*ws=product[^"]*item=w1[^"]*view=list[^"]*"/);
   });
 
-  it('does not make inherited project context look clickable', async () => {
-    // Those rows belong to the project's own lane and carry no statement data.
+  it('opens inherited context with the same row layout and its own project link', async () => {
     const { body } = await visit('/project/acme/ledger?ws=product', MANAGER);
-    const band = body.slice(body.indexOf('inherited'), body.indexOf('tree-head'));
-    expect(band).not.toContain('class="item');
+    expect(body).toContain('class="item tier-decision" id="i-p1"');
+    const prompt = /id="i-p1"[^>]*data-prompt="([^"]+)"/.exec(body)[1];
+    expect(prompt).toContain("the project's own context");
+    expect(prompt).toContain('?item=p1');
+    expect(prompt).not.toContain('?ws=product');
   });
 });
 
@@ -571,7 +580,7 @@ describe('what a copied prompt asks for', () => {
 
   it('asks about the one statement, not the project around it', async () => {
     const { body } = await visit('/project/acme/ledger?ws=product', MANAGER);
-    const prompt = /data-prompt="([^"]+)"/.exec(body)[1];
+    const prompt = rowPrompt(body);
     expect(prompt).toContain('tell me about that one thing');
     expect(prompt).toContain('what is still open for it');
     expect(prompt).toContain('Do not summarise the rest of the project');
@@ -582,7 +591,7 @@ describe('what a copied prompt asks for', () => {
     // and a walk back up the tree, to somebody who asked about one line on a
     // page and does not care how it is stored.
     const { body } = await visit('/project/acme/ledger?ws=product', MANAGER);
-    const prompt = /data-prompt="([^"]+)"/.exec(body)[1];
+    const prompt = rowPrompt(body);
     expect(prompt).toContain('the way a colleague would');
     expect(prompt).toContain('Do not explain how the project stores any of this');
     expect(prompt).toContain('do not walk me back up the structure');
@@ -594,7 +603,7 @@ describe('what a copied prompt asks for', () => {
 
   it('says nothing about parents for a goal, which has none', async () => {
     const { body } = await visit('/project/acme/ledger', MANAGER);
-    const prompt = /data-prompt="([^"]+)"/.exec(body)[1];
+    const prompt = rowPrompt(body);
     expect(prompt).not.toContain('an allowed exception to the rule');
   });
 
@@ -604,7 +613,7 @@ describe('what a copied prompt asks for', () => {
     // they see first should be their own question, not teamctx clearing its
     // throat.
     const { body } = await visit('/project/acme/ledger?ws=product', MANAGER);
-    const prompt = /data-prompt="([^"]+)"/.exec(body)[1];
+    const prompt = rowPrompt(body);
     const text = prompt.replace(/&#10;/g, NL);
     expect(text.split(NL).length).toBeGreaterThan(8);
     // The question first, in the words somebody would use out loud, and
@@ -637,6 +646,168 @@ describe('stored record fields are never trusted as markup', () => {
   });
 });
 
+describe('shared rows, task filters and governance (#127)', () => {
+  const row = (html, id) => new RegExp(`<button[^>]*id="${id}"[\\s\\S]*?</button>`).exec(html)?.[0];
+  function records(items) {
+    const tree = JSON.parse(repo.files.get('.teamctx/workstreams/product.json'));
+    repo.files.set('.teamctx/workstreams/product.json', JSON.stringify({ ...tree, records: items }));
+  }
+
+  it('renders a task once in both reading views, with the shared anatomy', async () => {
+    for (const mode of ['columns', 'list']) {
+      const { body } = await visit(`/project/acme/ledger?ws=product&view=${mode}`, MANAGER);
+      expect(body.match(/id="t-pricing-page"/g)).toHaveLength(1);
+      const task = row(body, 't-pricing-page');
+      for (const text of ['class="num"', 'class="type-label">Task', 'class="row-owner">Priya', 'class="row-state"', 'class="dot none"', 'class="row-where">Product']) expect(task).toContain(text);
+      expect(row(body, 'i-w1')).toContain('class="type-label">Decision');
+      expect(row(body, 'i-p1')).toContain('class="row-state"');
+      expect(row(body, 'r-c-1')).toContain('Awaiting review');
+    }
+  });
+
+  it('filters by workstream and owner, with a useful empty state', async () => {
+    const product = await visit('/project/acme/ledger?taskWs=product&taskOwner=Priya', MANAGER);
+    expect(product.body).toContain('id="t-pricing-page"');
+    expect(product.body).not.toContain('id="t-migrate-db"');
+    const mismatch = await visit('/project/acme/ledger?taskWs=product&taskOwner=Dev', MANAGER);
+    expect(mismatch.body).not.toContain('id="t-pricing-page"');
+    expect(mismatch.body).toContain('No open tasks match these filters');
+    const all = await visit('/project/acme/ledger?ws=product&taskWs=@all', MANAGER);
+    expect(all.body).toContain('id="t-migrate-db"');
+  });
+
+  it('filters project tasks and unassigned tasks separately', async () => {
+    repo.files.set('.teamctx/project.json', JSON.stringify({ records: [], tasks: [{ id: 'project-task', title: 'Project task', status: 'open', owner: null }] }));
+    const { body } = await visit('/project/acme/ledger?taskWs=@project&taskOwner=@unassigned', MANAGER);
+    expect(body).toContain('id="t-project-task"');
+    expect(body).not.toContain('id="t-pricing-page"');
+    expect(row(body, 't-project-task')).toContain('class="row-where">Ledger');
+  });
+
+  it('preserves filters and history in view toggles and the filter form', async () => {
+    const { body } = await visit('/project/acme/ledger?ws=product&view=list&history=1&taskWs=tech&taskOwner=Dev', MANAGER);
+    expect(body).toMatch(/href="[^"]*history=1[^"]*taskWs=tech[^"]*taskOwner=Dev"/);
+    const form = /<form class="task-filters"[\s\S]*?<\/form>/.exec(body)[0];
+    for (const hidden of ['name="ws" value="product"', 'name="view" value="list"', 'name="history" value="1"']) expect(form).toContain(hidden);
+    expect(form).toContain('value="Dev" selected');
+  });
+
+  it('names nested locations in tasks and proposals, without raw ids as labels', async () => {
+    repo.files.set('.teamctx/config.json', JSON.stringify({ ...CONFIG, workstreams: [
+      { id: 'product', name: 'Pricing', parent: 'tech' }, { id: 'tech', name: 'Launch' },
+    ] }));
+    const { body } = await visit('/project/acme/ledger', MANAGER);
+    expect(row(body, 't-pricing-page')).toContain('class="row-where">Launch › Pricing');
+    expect(row(body, 'r-c-1')).toContain('class="row-where">Launch › Pricing');
+    expect(body).not.toContain('(id: product)');
+    expect(body).not.toContain('class="row-where">product');
+    expect(body).not.toContain('class="row-where">tech');
+  });
+
+  it('does not reveal a hidden ancestor through breadcrumbs or filters', async () => {
+    repo.files.set('.teamctx/config.json', JSON.stringify({ ...CONFIG, workstreams: [
+      { id: 'product', name: 'Pricing', parent: 'tech' }, { id: 'tech', name: 'Secret launch' },
+    ] }));
+    await lend();
+    const view = await readProjectView({ owner: 'acme', repo: 'ledger', user: MEMBER_GOOGLE });
+    expect(view.tasks.open[0].where).toBe('Pricing');
+    const { body } = await visit('/project/acme/ledger?taskWs=tech&taskOwner=Unknown', MEMBER_GOOGLE);
+    expect(body).not.toContain('Secret launch');
+    expect(body).not.toContain('value="tech"');
+    expect(body).not.toContain('Unknown');
+    expect(body).toContain('id="t-pricing-page"');
+  });
+
+  it('keeps linked tasks visible through conflicting filters, including completed tasks', async () => {
+    const { body } = await visit('/project/acme/ledger?task=pricing-page&taskWs=tech&taskOwner=Dev', MANAGER);
+    expect(body).toContain('class="item tier-task marked" id="t-pricing-page"');
+    expect(body).toContain('value="product" selected');
+    const done = await visit('/project/acme/ledger?task=old-thing', MANAGER);
+    expect(done.body).toContain('class="item tier-task marked" id="t-old-thing"');
+    expect(row(done.body, 't-old-thing')).toContain('class="status-chip">done');
+  });
+
+  it('shows overdue review and expired exception chips on active rows', async () => {
+    records([
+      { id: 'a1', key: 'A-1', type: 'assumption', text: 'buyers need SSO', status: 'active', reviewBy: '2000-01-01', owner: { name: 'Priya' } },
+      { id: 'r1', key: 'R-1', type: 'rule', text: 'SSO before pilot', status: 'active' },
+      { id: 'x1', key: 'X-1', type: 'exception', text: 'Acme pilot without SSO', status: 'active', expiresAt: '2000-01-01', links: { bends: 'r1' } },
+    ]);
+    const { body } = await visit('/project/acme/ledger?ws=product', MANAGER);
+    expect(row(body, 'i-a1')).toContain('warning-chip">Review overdue 2000-01-01');
+    expect(row(body, 'i-a1')).toContain('class="row-owner">Priya');
+    expect(row(body, 'i-x1')).toContain('warning-chip">Expired 2000-01-01');
+    expect(row(body, 'i-x1')).toContain('↳ bends R-1');
+    expect(body.indexOf('id="i-r1"')).toBeLessThan(body.indexOf('id="i-x1"'));
+  });
+
+  it('hides retired records until history is requested, and opens history for a direct link', async () => {
+    records(['replaced', 'broken', 'closed'].map((status, i) => ({ id: `h${i}`, key: `D-${i + 1}`, type: 'decision', text: `retired ${status}`, status })));
+    const current = await visit('/project/acme/ledger?ws=product', MANAGER);
+    expect(current.body).not.toContain('retired replaced');
+    const history = await visit('/project/acme/ledger?ws=product&history=1', MANAGER);
+    for (const status of ['replaced', 'broken', 'closed']) expect(history.body).toContain(`retired ${status}`);
+    const linked = await visit('/project/acme/ledger?item=D-1', MANAGER);
+    expect(linked.body).toContain('class="item tier-decision marked" id="i-h0"');
+    expect(linked.body).toContain('Hide history');
+    const hide = /href="([^"]+)"[^>]*>Hide history/.exec(linked.body)[1].replaceAll('&amp;', '&');
+    const hiddenAgain = await visit(hide, MANAGER);
+    expect(hiddenAgain.body).not.toContain('retired replaced');
+  });
+
+  it('retains task-attached context and orphaned active exceptions', async () => {
+    records([
+      { id: 'attached', type: 'decision', text: 'Pricing work must use annual plans', status: 'active', attachedTo: { kind: 'task', id: 'pricing-page' } },
+      { id: 'orphan', type: 'exception', text: 'Legacy exception', status: 'active', expiresAt: '2000-01-01', links: { bends: 'removed-rule' } },
+    ]);
+    const { body } = await visit('/project/acme/ledger?ws=product', MANAGER);
+    expect(body).toContain('id="i-attached"');
+    expect(row(body, 'i-orphan')).toContain('warning-chip');
+  });
+
+  it('shows proposed additions without allocated keys and edits with their existing key', async () => {
+    records([{ id: 'w1', key: 'D-7', type: 'decision', text: 'price it', status: 'active' }]);
+    repo.files.set('.teamctx/queue/c-1.json', JSON.stringify({
+      id: 'c-1', status: 'pending', author: 'Priya', source: 'mcp', summary: 'Pricing changes', workstream: 'product',
+      operations: [
+        { type: 'addRecord', record: { type: 'rule', text: 'New proposed rule', key: 'R-999' } },
+        { type: 'addTask', title: 'New proposed task' },
+        { type: 'editRecord', id: 'w1', changes: { text: 'Updated price' } },
+        { type: 'setRecordStatus', id: 'w1', status: 'replaced' },
+      ],
+    }));
+    const before = [...repo.files];
+    const { body } = await visit('/project/acme/ledger', MANAGER);
+    expect(row(body, 'proposal-c-1-0')).toContain('class="num">Pending');
+    expect(row(body, 'proposal-c-1-1')).toContain('class="type-label">Task');
+    expect(row(body, 'proposal-c-1-2')).toContain('class="num">D-7');
+    expect(row(body, 'proposal-c-1-3')).toContain('Awaiting review · replaced');
+    expect(row(body, 'proposal-c-1-0')).toContain('data-who="Priya"');
+    expect(row(body, 'proposal-c-1-0')).toContain('item=c-1');
+    expect(body).not.toContain('R-999');
+    expect(body).not.toContain('item=undefined');
+    expect([...repo.files]).toEqual(before);
+  });
+
+  it('escapes hostile owner, location, text and source values', async () => {
+    const hostile = '<img src=x onerror="alert(1)">';
+    repo.files.set('.teamctx/config.json', JSON.stringify({ ...CONFIG, workstreams: [{ id: 'product', name: hostile }] }));
+    records([{ id: 'w1', type: 'assumption', text: hostile, status: 'active', owner: { name: hostile }, reviewBy: '2000-01-01' }]);
+    const { body } = await visit(`/project/acme/ledger?ws=product&taskOwner=${encodeURIComponent(hostile)}`, MANAGER);
+    expect(body).not.toContain(hostile);
+    expect(body).toContain('&lt;img');
+    expect(body).not.toContain('onerror="alert(1)"');
+  });
+
+  it('preserves signed-out history and filter selections through sign-in', async () => {
+    const path = '/project/acme/ledger?view=list&history=1&taskWs=%40all&taskOwner=Mary%20Jane';
+    const result = await visit(path);
+    expect(result.status).toBe(303);
+    expect(result.location).toContain('history=1');
+    expect(new URLSearchParams(result.location.split('?returnTo=')[1].split('?')[1]).get('taskOwner')).toBe('Mary Jane');
+  });
+});
+
 /**
  * A link that points at nothing leaves nothing behind.
  *
@@ -663,7 +834,7 @@ describe('an item that names nothing', () => {
     // What the carrying was for: losing the highlight on the first click defeats
     // having landed on it.
     const { body } = await visit('/project/acme/ledger?ws=product&item=w1', MANAGER);
-    expect(body).toMatch(/href="[^"]*item=w1[^"]*view=list"/);
+    expect(body).toMatch(/href="[^"]*item=w1[^"]*view=list[^"]*"/);
   });
 
   it('is out of scope for a member, so it is dropped for them', async () => {
