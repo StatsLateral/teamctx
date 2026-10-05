@@ -91,6 +91,14 @@ describe('what sign-in may send somebody back to', () => {
     }
   });
 
+  it('preserves the task filters and history but rejects malformed navigation values', () => {
+    expect(isReturnable('/project/a/b?history=1&taskWs=%40project&taskOwner=Mary%20Jane')).toBe(true);
+    expect(isReturnable('/project/a/b?taskWs=%40all&taskOwner=%40unassigned')).toBe(true);
+    for (const suffix of ['history=2', 'taskWs=../private', 'taskOwner=%00', 'taskOwner=%3Cscript%3E', `taskOwner=${'x'.repeat(129)}`]) {
+      expect(isReturnable(`/project/a/b?${suffix}`)).toBe(false);
+    }
+  });
+
   it('refuses anywhere that is not this site', () => {
     for (const path of ['https://evil.example/steal', '//evil.example', '/\\evil.example',
                         'javascript:alert(1)', '', '/project/acme/ledger#frag']) {

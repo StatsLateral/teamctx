@@ -20,6 +20,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `workstream_split` and `teamctx workstream suggest` / `suggest_workstream_splits`.
 
 ### Added
+- The project page uses one row layout for records, inherited context, tasks
+  and review proposals. Tasks appear in one list with workstream and owner
+  filters and named location breadcrumbs. Overdue assumptions and expired
+  exceptions show warning chips; replaced, broken and closed records are
+  available through Show history, including direct links to retired records.
 - Stable project-wide task and record keys: `T-14`, `D-3`, `R-2`, `A-2`, `X-1`.
   Existing records and tasks are backfilled in creation order on the first
   context write. Keys survive edits and are never reused after deletion;
