@@ -15,6 +15,8 @@ import { answerQuestion } from '../src/context.js';
 import { commitContext } from '../src/git.js';
 import { connectorUrl, originRemote } from '../cli/commands/connect.core.js';
 import { buildViewUrl } from '../src/view-url.js';
+import { flaggedInProject } from '../src/project-records.js';
+import { markNeedsReview } from '../src/impact.js';
 import { computeStats } from '../src/metrics.js';
 import { initProject } from '../cli/commands/init.core.js';
 import {
@@ -769,10 +771,16 @@ export function makeHandlers(projectRoot) {
       // and leaving it out meant a contribution to the project landed correctly
       // and then read as lost — nothing returned it, so the same question gave
       // a different answer each time as writes piled up unseen.
+      // Worked out once over every record in the project, then applied to the
+      // trees this caller may see. A decision here can rest on an assumption in
+      // a part of the work they are not on: the flag has to cross that line even
+      // though the assumption itself must not.
+      const flagged = flaggedInProject(teamctxDir);
+      const marked = (tree) => ({ ...tree, records: markNeedsReview(tree?.records, flagged) });
       const workstreams = [
-        { id: null, tree: readProject(teamctxDir) },
+        { id: null, tree: marked(readProject(teamctxDir)) },
         ...visibleWorkstreams(allowed, [...ids].sort())
-          .map(id => ({ id, tree: readWorkstream(id, teamctxDir) })),
+          .map(id => ({ id, tree: marked(readWorkstream(id, teamctxDir)) })),
       ];
       return textResult({ workstreams, ...(allowed ? { scopedTo: allowed } : {}) });
     },
@@ -794,13 +802,19 @@ export function makeHandlers(projectRoot) {
       // Only the declared filters are passed on: scope, date and directory are
       // the server's to decide, whatever else arrives in the arguments.
       const records = listRecords({ teamctxDir, scope: allowed, type, status, workstream, owner, due });
-      return textResult({ records, ...(allowed ? { scopedTo: allowed } : {}) });
+      return textResult({
+        records: markNeedsReview(records, flaggedInProject(teamctxDir)),
+        ...(allowed ? { scopedTo: allowed } : {}),
+      });
     },
 
     async get_record({ id } = {}) {
       const teamctxDir = dir();
       const allowed = await scope(teamctxDir, readConfig(teamctxDir));
-      return textResult(getRecord({ teamctxDir, scope: allowed, id }));
+      const record = getRecord({ teamctxDir, scope: allowed, id });
+      // Asking about one record is the most pointed way to ask whether it still
+      // stands, so this is the last place the flag should be missing.
+      return textResult(markNeedsReview([record], flaggedInProject(teamctxDir))[0]);
     },
 
     async get_workstream({ id } = {}) {
