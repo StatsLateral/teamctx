@@ -1,6 +1,6 @@
 # Proposal: when an assumption breaks, say what rests on it
 
-**Status:** In progress · **Serves:** Managers in control ·
+**Status:** Built · **Serves:** Managers in control ·
 **Issue:** [#120](https://github.com/StatsLateral/teamctx/issues/120)
 · **Design spec:** `docs/superpowers/specs/2026-10-02-governed-records-design.md`
 · **Blocks:** [#118](https://github.com/StatsLateral/teamctx/issues/118) sections 1 and 2
@@ -116,15 +116,35 @@ A small graph walk with a visited set — no library, per the issue; see
       Five mutations checked: dropping the visited set, following one level only,
       filtering instead of pruning in `skip`, ignoring `isActive`, and letting a
       missing `brokenAt` pass. Each fails at least one test.
-- [ ] `brokenAt` / `reviewedAt` in `src/ops.js`, and the re-confirm path
-- [ ] `src/brief.js` renders the flag
-- [ ] The impact list on contribute and review results
-- [ ] A test per read path: `my_brief`, `get_context`, task prompts, the page
-- [ ] CHANGELOG
+- [x] `brokenAt` / `reviewedAt` in `src/ops.js`, and the re-confirm path
+- [x] `src/brief.js` renders the flag, and `src/project-records.js` gathers for it
+- [x] The impact list and its spoken sentence on contribute and review results
+- [x] A test per read path, all six: `my_brief`, `get_context`, `list_records`,
+      `get_record`, the compiled task prompt, the page
+- [x] CHANGELOG
 
-## Open question
+## What the mutation sweep found that review would not have
 
-Whether a dependent in a workstream the reader cannot see should still be counted
-in the "these N things rest on this" number given to a manager. A manager sees
-everything, so this only bites if the count is ever shown to a scoped member —
-which it should not be. Worth stating in code rather than leaving to chance.
+Two gaps, both of the same kind: a thing that was correct and unreached.
+
+The task-prompt renderer took `flagged` and rendered it, with no test — so
+removing the wiring changed nothing that failed. Once tested, its **call site**
+still was not: dropping `flagged` in `task.core.js` left the renderer passing and
+every real prompt silently unflagged. Each of the four read paths now fails a
+test when its own wiring is removed, which is what #120's second acceptance
+criterion was actually asking for.
+
+## Settled along the way
+
+The open question about counting a dependent a reader cannot see: the count is
+only ever given to a manager, on the result of breaking an assumption. What a
+scoped member gets is the flag on a record they can already see — no count, no
+ids, no assumption text. So the question does not arise, and
+`src/oauth/project-view.js` has a test both ways round.
+
+## What is left for #118
+
+The web screen. This gives it the two things its first two sections need: what
+rests on a broken assumption, and which records are waiting on one. Sections 2
+and 3 of #118 can be built on `restingOn` and `needsReviewFlags` without reading
+`restsOn` again.

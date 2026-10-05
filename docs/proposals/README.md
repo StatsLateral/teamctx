@@ -43,7 +43,6 @@ These are **contributor-facing write-ups** for the larger items on the
 | [Project context as a layer workstreams inherit](project-context-layer.md) | Structured workstreams · Managers in control | Large (a new tree, every compile path, a migration) |
 | [Nobody is brought onto an empty project](member-context-gate.md) | Managers in control | Small (one check, two call sites) |
 
-| [When an assumption breaks, say what rests on it](broken-assumption-impact.md) | Managers in control | Medium (a graph walk, the flag on every read path) |
 
 ## Shipped proposals 🎉
 
@@ -54,5 +53,6 @@ Kept for reference — these were built (see [CHANGELOG](../../CHANGELOG.md)):
 | [Provider-agnostic AI layer](provider-agnostic-ai.md) | `src/providers/` — Claude, OpenAI, Gemini behind one interface |
 | [Public API + MCP server](external-api-and-mcp.md) | `teamctx mcp` full tool surface (#14); hosted variant in review (#17) |
 | [New projects review everything](review-everything-by-default.md) | `reviewPolicy: all` at init; a refused `apply` queues instead of failing |
+| [When an assumption breaks, say what rests on it](broken-assumption-impact.md) | the impact walk, the flag on six read paths, and the warning while deciding |
 | [Manager approval queue](manager-approval-queue.md) | `teamctx review list/approve/reject` + manager identity gate |
 | [Local team-productivity metrics](local-metrics.md) | `teamctx stats` + read-only `get_stats` MCP tool (#28) |
