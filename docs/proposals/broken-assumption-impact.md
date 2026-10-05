@@ -64,6 +64,13 @@ kept in step.
 needsReviewFlags(records, { onDay })  // -> Map(recordId -> [broken assumption ids])
 ```
 
+**Pruning, not filtering.** When the manager re-confirms a decision, the walk has
+to stop there rather than carry on flagging the rule that rests on that decision:
+they have answered that question. A record that also rests on something broken by
+its own separate path stays flagged, which is why each assumption is walked on its
+own. The first draft of `src/impact.js` filtered the result instead of pruning the
+walk, and flagged everything underneath a repaired link.
+
 ### 3. Clearing it
 
 The issue gives two ways out, and they cost differently:
@@ -105,7 +112,10 @@ A small graph walk with a visited set — no library, per the issue; see
 
 ## Progress
 
-- [ ] `src/impact.js` — the walk and the flags, with tests
+- [x] `src/impact.js` — the walk and the flags, with 25 tests (`f895891`).
+      Five mutations checked: dropping the visited set, following one level only,
+      filtering instead of pruning in `skip`, ignoring `isActive`, and letting a
+      missing `brokenAt` pass. Each fails at least one test.
 - [ ] `brokenAt` / `reviewedAt` in `src/ops.js`, and the re-confirm path
 - [ ] `src/brief.js` renders the flag
 - [ ] The impact list on contribute and review results
