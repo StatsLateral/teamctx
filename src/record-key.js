@@ -82,13 +82,41 @@ export function countersAbove(keys) {
  * here is a guess: it is the most specific thing available, then the next.
  */
 export function inCreationOrder(items) {
+  const timestamp = (item) => {
+    if (String(item.createdAt || '').includes('T')) {
+      const instant = Date.parse(item.createdAt);
+      if (Number.isFinite(instant)) return instant;
+    }
+    const match = /^(?:c|mcp)-(\d+)-/.exec(item.sourceContributionIds?.[0] || '');
+    return match ? Number(match[1]) : 0;
+  };
   return (items || [])
     .map((item, at) => ({ item, at }))
-    .sort((a, b) => String(a.item.createdAt || '').localeCompare(String(b.item.createdAt || ''))
-      || String((a.item.sourceContributionIds || [])[0] || '')
-        .localeCompare(String((b.item.sourceContributionIds || [])[0] || ''))
+    .sort((a, b) => String(a.item.createdAt || '').slice(0, 10).localeCompare(String(b.item.createdAt || '').slice(0, 10))
+      || timestamp(a.item) - timestamp(b.item)
       || a.at - b.at)
     .map(({ item }) => item);
+}
+
+/** Number all trees together, preserving issued keys and counters after deletes. */
+export function backfillKeys(trees, nextKey) {
+  const copies = trees.map(tree => ({ ...tree,
+    records: (tree.records || []).map(r => ({ ...r })),
+    tasks: (tree.tasks || []).map(t => ({ ...t })),
+  }));
+  const items = copies.flatMap(t => [...t.records, ...t.tasks]);
+  let counters = countersAbove(items.map(x => x.key));
+  for (const prefix of KEY_PREFIXES) {
+    if (Number.isSafeInteger(nextKey?.[prefix])) counters[prefix] = Math.max(counters[prefix], nextKey[prefix]);
+  }
+  for (const item of inCreationOrder(items)) {
+    if (item.key) continue;
+    const minted = mintKey(counters, item.type || 'task');
+    if (!minted.key) continue;
+    item.key = minted.key;
+    counters = minted.counters;
+  }
+  return { trees: copies, nextKey: counters };
 }
 
 /**

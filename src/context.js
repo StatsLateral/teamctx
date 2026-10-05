@@ -66,6 +66,7 @@ export async function generateRoleFile(workstream, role, projectName, config, co
     ``,
     `Full shared context:`,
     tree,
+    `Keep the stored record and task keys beside every line you retain.`,
     ``,
     `Role: ${role.name}`,
     `Responsibilities: ${role.responsibilities}`,
@@ -111,6 +112,7 @@ export async function compileTaskPrompt({ task, workstream, role, contributions,
     `Project: ${projectName}   Date: ${now}`,
     ``,
     `Task title: ${task.title}`,
+    task.key ? `Task key: ${task.key}. Keep this key in the heading and keep record keys beside their context lines.` : '',
     `Task id: ${task.id}   Owner: ${task.owner || '(unassigned)'}   Belongs to: ${targetLabel(task.workstream, projectName)}`,
     roleLine,
     ``,
@@ -122,7 +124,7 @@ export async function compileTaskPrompt({ task, workstream, role, contributions,
     ``,
     `Generate a markdown file with EXACTLY these sections:`,
     ``,
-    `# Task: ${task.title}`,
+    `# Task: ${task.key ? `${task.key} — ` : ''}${task.title}`,
     ``,
     `**Owner:** ${task.owner || '(unassigned)'} · **Belongs to:** ${targetLabel(task.workstream, projectName)} · **Status:** ${task.status}`,
     `**Created:** ${task.createdAt || '-'} · **Compiled:** ${now}`,
@@ -168,7 +170,7 @@ export async function answerQuestion({ sharedMd, roleMd, question, config, openT
     ? serializeToMd(workstream, workstream.name || config?.project || 'project', '', contribs, { includeSourceTags: true, project })
     : sharedMd;
   const tasksMd = (openTasks && openTasks.length)
-    ? `## Open Tasks\n\n${openTasks.map(t => `- ${t.id} — ${t.title} (owner: ${t.owner || '?'})`).join('\n')}`
+    ? `## Open Tasks\n\n${openTasks.map(t => `- ${t.key || t.id} — ${t.title} (owner: ${t.owner || '?'})`).join('\n')}`
     : '';
 
   const context = [

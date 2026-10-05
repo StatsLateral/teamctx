@@ -74,6 +74,7 @@ export async function contributeCommand(text, opts = {}) {
     console.log(`\n→ Regenerated ${r.rolesRegenerated.length} role file${r.rolesRegenerated.length !== 1 ? 's' : ''}: ${r.rolesRegenerated.join(', ')}`);
   }
   console.log(`\n✓ Applied${where} — committed.${pushNote(r)}`);
+  if (r.keys?.length) console.log(`  Updated: ${r.keys.map(x => x.key).join(', ')}`);
   if (r.founding) printFounding(r.digest);
 }
 
