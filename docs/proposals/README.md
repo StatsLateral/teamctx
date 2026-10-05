@@ -43,6 +43,8 @@ These are **contributor-facing write-ups** for the larger items on the
 | [Project context as a layer workstreams inherit](project-context-layer.md) | Structured workstreams · Managers in control | Large (a new tree, every compile path, a migration) |
 | [Nobody is brought onto an empty project](member-context-gate.md) | Managers in control | Small (one check, two call sites) |
 
+| [When an assumption breaks, say what rests on it](broken-assumption-impact.md) | Managers in control | Medium (a graph walk, the flag on every read path) |
+
 ## Shipped proposals 🎉
 
 Kept for reference — these were built (see [CHANGELOG](../../CHANGELOG.md)):
