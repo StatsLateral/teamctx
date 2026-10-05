@@ -1,4 +1,4 @@
-import { readProject, readConfig, readTree, writeTree, writeTreeMd, appendContribution, writeRoleFile, writeQueueItem, readContributions, listWorkstreamIds } from '../../src/storage.js';
+import { readProject, readConfig, writeConfig, readTree, writeTree, writeTreeMd, appendContribution, writeRoleFile, writeQueueItem, readContributions, listWorkstreamIds } from '../../src/storage.js';
 import { resolveTarget, isProjectLevel } from '../../src/project-level.js';
 import { digestProject } from '../../src/tree-digest.js';
 import { touchedBy } from '../../src/ops.js';
@@ -134,7 +134,7 @@ export async function contributeCore({
   const contribution = newContribution({ text, author: actor, authorKey, tagged, source, workstream: targetId });
   appendContribution(contribution, teamctxDir);
 
-  const { workstream: updated, summary, operations, dropped = [] } = await updateShared(workstream, contribution, config, { intent, avoid });
+  const { workstream: updated, summary, operations, dropped = [], nextKey } = await updateShared(workstream, contribution, config, { intent, avoid });
   // Reasons only: what the AI proposed that did not validate, so the caller can
   // say what was left out without the raw operation travelling any further.
   const droppedReasons = dropped.map(d => ({ reason: d.reason }));
@@ -190,6 +190,15 @@ export async function contributeCore({
   }
 
   writeTree(targetId, updated, teamctxDir);
+  // The keys these records carry were minted above; the counters that issued
+  // them go down in the same write. The queue branch returns before here, so a
+  // contribution waiting on review has spent nothing — and one that is rejected
+  // never will.
+  //
+  // Only when there are counters to write. Spreading an absent `nextKey` would
+  // drop the field on the way through `JSON.stringify`, and a project with no
+  // counters starts them again from one — handing out keys it has already used.
+  if (nextKey) writeConfig({ ...config, nextKey }, teamctxDir);
   const contributions = readContributions(teamctxDir);
   // A contribution to the project renders alone; a workstream renders under the
   // project and every part above it. Either way, the parts below inherit the

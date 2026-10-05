@@ -12,6 +12,7 @@ const MEMBER = { key: 'github:2002', name: 'Ravi', login: 'ravi', source: 'githu
 const MANAGER = { key: 'github:1001', name: 'Ada', login: 'ada', source: 'github' };
 let caller = MEMBER;
 let operations = [];
+let nextKeyAfter = { T: 1, D: 1, R: 1, A: 1, X: 1 };
 
 vi.mock('../../src/storage.js', () => ({
   writeWorkstreamMd: vi.fn(),
@@ -20,6 +21,7 @@ vi.mock('../../src/storage.js', () => ({
   readTreeMd: vi.fn(() => ''),
   writeTreeMd: vi.fn(),
   readProject: vi.fn(() => ({ name: '', goal: { text: 'An existing goal' }, records: [], tasks: [] })),
+  writeConfig: vi.fn(),
   readConfig: vi.fn(),
   readWorkstream: vi.fn(() => ({ id: 'ops', name: 'p', records: [], tasks: [] })),
   writeTree: vi.fn(),
@@ -36,6 +38,8 @@ vi.mock('../../src/context.js', () => ({
     dropped: [],
     summary: 'a summary',
     operations,
+    // What the real one hands back, so the write path here is the real one too.
+    nextKey: nextKeyAfter,
   })),
   generateRoleFile: vi.fn(async () => '# role'),
   serializeToMd: vi.fn(() => '# md'),
@@ -53,7 +57,7 @@ vi.mock('../../src/prefs.js', () => ({
 const { contributeCore } = await import('./contribute.core.js');
 const { NEW_PROJECT_POLICY } = await import('../../src/review-policy.js');
 const {
-  readConfig, writeQueueItem, writeTree,
+  readConfig, writeConfig, writeQueueItem, writeTree,
   writeWorkstreamMd, readWorkstream, listWorkstreamIds,
 } = await import('../../src/storage.js');
 
@@ -63,7 +67,7 @@ const WITH_DELETE = [{ type: 'addRecord', record: { type: 'assumption', text: 'x
 
 const contribute = () => contributeCore({ text: 'something', source: 'mcp' });
 
-beforeEach(() => { vi.clearAllMocks(); caller = MEMBER; operations = ADDS; });
+beforeEach(() => { vi.clearAllMocks(); caller = MEMBER; operations = ADDS; nextKeyAfter = { T: 1, D: 1, R: 1, A: 1, X: 1 }; });
 
 describe('a project that has never heard of the policy', () => {
   it('queues a member\'s contribution exactly as it always did', async () => {
@@ -266,6 +270,58 @@ describe('founding a project under the new default', () => {
     const r = await contributeCore({ text: 'what I think this is about', source: 'mcp', apply: true });
     expect(r.mode).toBe('queued');
     expect(r.applyRefused).toBe(true);
+    expect(writeTree).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * A contribution that waits on review spends no keys.
+ *
+ * This is the reason the counters travel in and out of `applyOps` rather than
+ * being written there. `contributeCore` runs the ops to find out what a
+ * contribution *would* do, then either writes that tree or puts the proposal in
+ * a queue. If keys were spent at the point of working it out, a contribution
+ * sitting in a queue for a week would be holding `D-4` — and one that is
+ * rejected would hold it for ever, so the project's decisions would read
+ * `D-1, D-2, D-3, D-5` with nothing to explain the gap.
+ */
+describe('what a queued contribution costs', () => {
+  beforeEach(() => readConfig.mockReturnValue(project({ reviewPolicy: 'all', nextKey: { D: 4, T: 1, R: 1, A: 1, X: 1 } })));
+
+  it('writes no counters while it is only queued', async () => {
+    operations = ADDS;
+    const r = await contribute();
+    expect(r.mode).toBe('queued');
+    expect(writeQueueItem).toHaveBeenCalled();
+    expect(writeConfig).not.toHaveBeenCalled();
+  });
+
+  it('writes them when the contribution actually lands', async () => {
+    readConfig.mockReturnValue(project({ reviewPolicy: 'none', nextKey: { D: 4, T: 1, R: 1, A: 1, X: 1 } }));
+    nextKeyAfter = { D: 6, T: 1, R: 1, A: 1, X: 1 };
+    operations = ADDS;
+    const r = await contribute();
+    expect(r.mode).toBe('applied');
+    expect(writeConfig.mock.calls.at(-1)[0].nextKey).toEqual({ D: 6, T: 1, R: 1, A: 1, X: 1 });
+  });
+
+  it('leaves the stored counters alone when nothing came back to store', async () => {
+    // Spreading an absent `nextKey` drops the field through JSON.stringify, and
+    // a project with no counters numbers from one again — handing out keys it
+    // has already used. So an absent one writes nothing at all.
+    readConfig.mockReturnValue(project({ reviewPolicy: 'none', nextKey: { D: 4, T: 1, R: 1, A: 1, X: 1 } }));
+    nextKeyAfter = undefined;
+    operations = ADDS;
+    expect((await contribute()).mode).toBe('applied');
+    expect(writeConfig).not.toHaveBeenCalled();
+  });
+
+  it('leaves the stored counters where they were for a discarded proposal', async () => {
+    // Belt and braces on the same property: whatever happens between working the
+    // ops out and writing, the numbers only move with a write.
+    operations = ADDS;
+    await contribute();
+    expect(writeConfig).not.toHaveBeenCalled();
     expect(writeTree).not.toHaveBeenCalled();
   });
 });

@@ -1,8 +1,9 @@
 import { chainFor } from '../../src/recompile.js';
 import { isActive } from '../../src/model.js';
+import { mintKey } from '../../src/record-key.js';
 import { createHash } from 'crypto';
 import {
-  readProject, readConfig, readTree, listTasks, readTask, writeTask, deleteTask,
+  readProject, readConfig, writeConfig, readTree, listTasks, readTask, writeTask, deleteTask,
   readWorkstream, readContributions,
   writeTaskFile, readTaskFile, taskFilePath, taskFileExists,
 } from '../../src/storage.js';
@@ -198,8 +199,12 @@ export async function addTask({
 
   const resolvedActor = actor || await resolveActor({ config, cwd: projectDir });
   const id = uniqueTaskId(slugify(title), teamctxDir);
+  // This path has `config` in hand, so it is the easy half: mint, then write the
+  // counters beside the task.
+  const minted = mintKey(config.nextKey, 'task');
   const task = {
     id,
+    key: minted.key,
     title: String(title),
     owner: owner || me,
     // Only when the task is the caller's own. A name does not identify a
@@ -212,6 +217,7 @@ export async function addTask({
     compiledAt: null,
   };
   writeTask(task, teamctxDir);
+  writeConfig({ ...config, nextKey: minted.counters }, teamctxDir);
 
   const wsLabel = isProjectLevel(targetWorkstream) ? '' : ` [workstream: ${targetWorkstream}]`;
   const git = await commitAndPush(config, `task: add ${id} by ${me}${wsLabel}`, projectDir);

@@ -90,3 +90,22 @@ export function inCreationOrder(items) {
       || a.at - b.at)
     .map(({ item }) => item);
 }
+
+/**
+ * The internal id a key names, or the value unchanged.
+ *
+ * Links keep carrying the internal id, which is what never changes and what the
+ * tools hand back. But the key is what a person has in front of them — on the
+ * page, in a prompt, in something somebody pasted into a chat — so `?task=T-14`
+ * has to reach the same row as `?task=task-1a2b3c4d`.
+ *
+ * A value that is not a key is returned untouched, because most of them are ids
+ * and this sits in front of every link. A key naming nothing is also returned
+ * untouched: it then resolves to no row, which is the same quiet fallback an
+ * unknown id already gets rather than an error about a thing that is not there.
+ */
+export function resolveKey(value, { records = [], tasks = [] } = {}) {
+  if (!isKey(value)) return value;
+  const found = [...records, ...tasks].find(x => x?.key === value);
+  return found?.id ?? value;
+}

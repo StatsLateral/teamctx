@@ -9,7 +9,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import {
-  KEY_PREFIX, isKey, parseKey, mintKey, emptyCounters, countersAbove, inCreationOrder,
+  KEY_PREFIX, isKey, parseKey, mintKey, emptyCounters, countersAbove, inCreationOrder, resolveKey,
 } from './record-key.js';
 
 describe('what a key looks like', () => {
@@ -164,5 +164,40 @@ describe('the order things were created in', () => {
     const items = [at('2026-10-03', { id: 'c' }), at('2026-10-01', { id: 'a' })];
     inCreationOrder(items);
     expect(items.map(x => x.id)).toEqual(['c', 'a']);
+  });
+});
+
+describe('a key standing in for an id in a link', () => {
+  const records = [{ id: 'rec-abc', key: 'R-2' }, { id: 'rec-def', key: 'D-1' }];
+  const tasks = [{ id: 'task-123', key: 'T-14' }];
+
+  it('resolves to the id the key names', () => {
+    expect(resolveKey('R-2', { records, tasks })).toBe('rec-abc');
+    expect(resolveKey('T-14', { records, tasks })).toBe('task-123');
+  });
+
+  it('leaves an internal id alone, which is most of what arrives here', () => {
+    expect(resolveKey('rec-abc', { records, tasks })).toBe('rec-abc');
+    expect(resolveKey('task-123', { records, tasks })).toBe('task-123');
+  });
+
+  it('leaves a key naming nothing alone, so it falls back the way an unknown id does', () => {
+    // Not an error: a link to something out of this reader's scope, or to
+    // something since deleted, should land on the page quietly.
+    expect(resolveKey('T-99', { records, tasks })).toBe('T-99');
+  });
+
+  it('passes null and undefined through, since a link need not point at anything', () => {
+    expect(resolveKey(null, { records, tasks })).toBe(null);
+    expect(resolveKey(undefined, { records, tasks })).toBe(undefined);
+  });
+
+  it('works with nothing to search, rather than throwing', () => {
+    expect(resolveKey('T-1')).toBe('T-1');
+    expect(resolveKey('T-1', {})).toBe('T-1');
+  });
+
+  it('does not match on a record that has no key at all', () => {
+    expect(resolveKey('T-1', { records: [{ id: 'rec-x' }], tasks: [] })).toBe('T-1');
   });
 });

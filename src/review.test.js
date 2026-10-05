@@ -10,7 +10,7 @@ describe('applyQueueItem', () => {
       id: 'c-1',
       operations: [{ type: 'addRecord', record: { type: 'decision', text: 'Ship faster', attachedTo: { kind: 'workstream', id: 'sales' } } }],
     };
-    const next = applyQueueItem(ws, item);
+    const { tree: next } = applyQueueItem(ws, item);
     expect(next.records).toHaveLength(1);
     expect(next.records[0].text).toBe('Ship faster');
     expect(next.records[0].sourceContributionIds).toEqual(['c-1']);
@@ -18,15 +18,15 @@ describe('applyQueueItem', () => {
 
   it('returns an unchanged tree when operations is empty or missing', () => {
     const ws = emptyWorkstream();
-    expect(applyQueueItem(ws, { id: 'c-1', operations: [] })).toEqual(ws);
-    expect(applyQueueItem(ws, { id: 'c-1' })).toEqual(ws);
+    expect(applyQueueItem(ws, { id: 'c-1', operations: [] }).tree).toEqual(ws);
+    expect(applyQueueItem(ws, { id: 'c-1' }).tree).toEqual(ws);
   });
 
   it('skips operations that name something no longer there (stale queue)', () => {
     const ws = emptyWorkstream();
     const item = { id: 'c-1', operations: [{ type: 'editRecord', id: 'ghost', changes: { text: 'x' } }] };
     expect(() => applyQueueItem(ws, item)).not.toThrow();
-    expect(applyQueueItem(ws, item)).toEqual(ws);
+    expect(applyQueueItem(ws, item).tree).toEqual(ws);
   });
 });
 

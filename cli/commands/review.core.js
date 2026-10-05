@@ -1,5 +1,5 @@
 import {
-  readProject, readConfig, readTree, writeTree, writeTreeMd, writeRoleFile,
+  readProject, readConfig, writeConfig, readTree, writeTree, writeTreeMd, writeRoleFile,
   readQueueItem, deleteQueueItem, writeRejected, readContributions, listQueue,
 } from '../../src/storage.js';
 import { applyQueueItem, buildRejected, canApprove, isLegacyManagerRef } from '../../src/review.js';
@@ -92,7 +92,7 @@ export async function approveReview({ id, teamctxDir, projectDir, actor } = {}) 
   // approved project-level contribution to a workstream that no longer exists.
   const targetId = resolveTarget(item.workstream);
   const workstream = readTree(targetId, teamctxDir);
-  const applied = applyQueueItem(workstream, item);
+  const { tree: applied, nextKey } = applyQueueItem(workstream, item, { nextKey: config.nextKey });
   // Who approved a record travels with it, not only with the commit.
   const approvedBy = { key: caller?.key || null, name: who, at: new Date().toISOString() };
   const updated = {
@@ -111,6 +111,12 @@ export async function approveReview({ id, teamctxDir, projectDir, actor } = {}) 
     : chainFor({ config, id: targetId, teamctxDir }).map(w => (w.id === targetId ? { ...updated, name: w.name, number: w.number } : w));
 
   writeTree(targetId, updated, teamctxDir);
+  // The counters go down with the tree they were spent on, in the same approval.
+  // Written before anything else can fail, so a key can never be in the tree
+  // while the counter that issued it still points at it. Guarded for the same
+  // reason as in `contribute.core.js`: spreading an absent `nextKey` would drop
+  // the field and start the numbering again.
+  if (nextKey) writeConfig({ ...config, nextKey }, teamctxDir);
   writeTreeMd(
     targetId,
     serializeToMd(updated, workstreamDisplayName(targetId, updated, config), item.author, contributions, { project, chain }),

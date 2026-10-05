@@ -20,6 +20,7 @@ import { initProject } from '../cli/commands/init.core.js';
 import { readProjectView, ProjectViewError } from '../src/oauth/project-view.js';
 import { TOOLS, callTool } from '../mcp/server.js';
 import { baseUrlFrom } from '../src/base-url.js';
+import { resolveKey } from '../src/record-key.js';
 import { isReturnable, parseViewParams } from '../src/view-url.js';
 import { parseProjectRef } from '../src/project-ref.js';
 // Page templates. They used to sit at the bottom of this file, which left it
@@ -1278,7 +1279,24 @@ app.get('/project/:owner/:repo', async (req, res) => {
     const asked = parseViewParams(req.query);
     const known = view.workstreams.some(w => w.id === asked.ws);
     const selected = known ? asked.ws : null;
-    const item = asked.item || asked.task || asked.review || null;
+    // A key resolves to the same thing its id does. Links carry the internal id,
+    // which never changes — but the key is what a person has in front of them, on
+    // the page or in a prompt, so `?task=T-14` has to reach the row that
+    // `?task=task-1a2b…` reaches. Resolved against what this reader was actually
+    // sent, so a key in a part of the work they are not on resolves to nothing,
+    // the same as an unknown id.
+    const reachable = {
+      records: [...(view.projectTree?.records || []), ...Object.values(view.trees || {}).flatMap(t => t.records || [])],
+      tasks: [...(view.tasks?.open || []), ...(view.tasks?.done || [])],
+    };
+    const wanted = resolveKey(asked.item || asked.task || asked.review || null, reachable);
+    // Dropped unless it names something this reader was actually sent. `ws`
+    // already falls back that way; `item` did not, and rode along in the view
+    // toggle's own links — so a value that pointed at nothing was still written
+    // back into the page, which is the one thing this route says it never does.
+    const reaches = [...reachable.records, ...reachable.tasks].some(x => x?.id === wanted)
+      || (view.pending || []).some(q => q.id === wanted);
+    const item = reaches ? wanted : null;
     res.send(projectPage({
       user,
       view,
