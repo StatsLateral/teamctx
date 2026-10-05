@@ -1,7 +1,8 @@
 import { shell, navBar, esc } from './theme.js';
-import { LABELS, RECORD_TYPES, isActive } from '../model.js';
+import { LABELS, RECORD_TYPES } from '../model.js';
 import { projectRow, ROW_CSS } from './project-row.js';
 import { workstreamLocation } from './workstream-location.js';
+import { EDITABLE_RECORD_FIELDS } from '../ops.js';
 
 /** Read-only project context, work and proposals, using one row layout. */
 
@@ -165,7 +166,7 @@ const numbering = (tree, history = false) => {
   for (const e of active.filter(x => x.type === 'exception' && !rows.some(row => row.node.id === x.id))) {
     rows.push({ node: e, tier: 'exception', n: `${++k}` });
   }
-  if (tree?.goal?.text) rows.unshift({ node: tree.goal, tier: 'goal', n: '—' });
+  if (tree?.goal?.text) rows.unshift({ node: { ...tree.goal, id: 'goal' }, tier: 'goal', n: '—' });
   return rows;
 };
 
@@ -247,7 +248,7 @@ function itemButton({ row, contributions, where, marked, isProject, owner, repo,
   const who = pending && node.author ? [node.author] : whoTouched(node, contributions);
   return projectRow({ node, type: tier, contributions, where, fallbackKey: n, marked, pending,
     id: id || `${tier === 'task' ? 't' : 'i'}-${node.id}`,
-    relation: parent ? `↳ bends ${parent.key || 'the rule above'}` : '',
+    relation: parent ? `↳ bends ${parent.key || (pending ? 'the proposed rule' : 'the rule above')}` : '',
     attributes: ` data-text="${esc(tier === 'task' ? node.title : node.text)}" data-kind="${esc(`${tier === 'task' ? 'Task' : (LABELS[tier] || tier).replace(/:$/, '')} ${node.key || (pending ? 'Pending' : n)}`)}"
   data-summary="${esc(node.detail || node.summary || '')}" data-who="${esc(who.join(', '))}"
   data-prompt="${escAttr(prompt)}"` });
@@ -277,21 +278,42 @@ function historyHref({ base, selected, viewMode, item, history, taskWs, taskOwne
 
 function queueRows({ q, view, item, origin }) {
   const tree = q.workstream ? view.trees[q.workstream] : view.projectTree;
-  const render = (node, tier, index) => itemButton({
-    row: { node: { ...node, source: q.source, author: q.author }, tier, n: '—' }, contributions: view.contributions,
-    where: q.where, isProject: !q.workstream, wsId: q.workstream,
-    owner: view.owner, repo: view.repo, origin, pending: true,
-    id: `proposal-${q.id}-${index}`, linkId: q.id,
-  });
-  const proposals = (q.operations || []).map((op, i) => {
+  const operations = Array.isArray(q.operations) ? q.operations : [];
+  const render = (node, tier, index) => {
+    const bends = node.links?.bends;
+    const existingRule = tier === 'exception' && bends
+      ? (tree?.records || []).find(r => r.type === 'rule' && r.id === bends) : null;
+    const proposedRule = tier === 'exception' && bends && !existingRule
+      ? operations.find(op => op?.type === 'addRecord' && op.ref === bends && op.record?.type === 'rule')?.record : null;
+    const parent = existingRule || (proposedRule ? { ...proposedRule, key: null } : null);
+    return itemButton({
+      row: { node: { ...node, source: q.source, author: q.author }, tier, n: '—', parent }, contributions: view.contributions,
+      where: q.where, isProject: !q.workstream, wsId: q.workstream,
+      owner: view.owner, repo: view.repo, origin, pending: true,
+      id: `proposal-${q.id}-${index}`, linkId: q.id,
+    });
+  };
+  const proposals = operations.map((op, i) => {
+    if (!op || typeof op !== 'object') return '';
     // Keys on queued additions have not been allocated. Displaying the page
     // must never imply that a proposed key has been reserved.
-    if (op.type === 'addRecord') return render({ ...op.record, key: null }, op.record?.type, i);
+    if (op.type === 'addRecord') {
+      if (!RECORD_TYPES.includes(op.record?.type)) return '';
+      return render({ ...op.record, key: null }, op.record.type, i);
+    }
     if (op.type === 'addTask') return render({ title: op.title, owner: op.owner }, 'task', i);
     if (op.type === 'setGoal') return render({ text: op.text }, 'goal', i);
     const record = (tree?.records || []).find(r => r.id === op.id);
-    if (record && ['editRecord', 'setRecordStatus'].includes(op.type)) {
-      return render({ ...record, ...(op.type === 'editRecord' ? op.changes : { status: op.status }), key: record.key }, record.type, i);
+    if (record && op.type === 'editRecord') {
+      // Approval permits only these fields and merges links rather than
+      // replacing them. The preview must describe the same change.
+      const changes = Object.fromEntries(Object.entries(op.changes || {}).filter(([key]) => EDITABLE_RECORD_FIELDS.includes(key)));
+      const next = { ...record, ...changes };
+      if (changes.links) next.links = { ...record.links, ...changes.links };
+      return render(next, record.type, i);
+    }
+    if (record && op.type === 'setRecordStatus') {
+      return render({ ...record, status: op.status }, record.type, i);
     }
     const task = (tree?.tasks || []).find(t => t.id === op.id);
     if (task && ['editTask', 'removeTask'].includes(op.type)) {
@@ -369,8 +391,8 @@ ${note ? `<p class="note">${esc(note)}</p>` : ''}
   <aside>
     <div class="section-title">The work</div>
     <div class="lanes">
-      ${lane(null, view.project || 'Project', [], (view.projectTree?.records || []).filter(r => isActive(r)).length, isProject)}
-      ${view.workstreams.map(w => lane(w.id, w.name, w.members, (view.trees[w.id]?.records || []).filter(r => isActive(r)).length, w.id === selected)).join('')}
+      ${lane(null, view.project || 'Project', [], (view.projectTree?.records || []).filter(r => RECORD_TYPES.includes(r.type) && r.status === 'active').length, isProject)}
+      ${view.workstreams.map(w => lane(w.id, w.name, w.members, (view.trees[w.id]?.records || []).filter(r => RECORD_TYPES.includes(r.type) && r.status === 'active').length, w.id === selected)).join('')}
     </div>
 <form class="lane-pick" method="GET" action="${base}">
       ${viewMode === 'list' ? '<input type="hidden" name="view" value="list">' : ''}

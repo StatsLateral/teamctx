@@ -1293,7 +1293,10 @@ app.get('/project/:owner/:repo', async (req, res) => {
     // sent, so a key in a part of the work they are not on resolves to nothing,
     // the same as an unknown id.
     const reachable = {
-      records: [...(view.projectTree?.records || []), ...Object.values(view.trees || {}).flatMap(t => t.records || [])],
+      records: [
+        ...(view.projectTree?.goal?.text ? [{ ...view.projectTree.goal, id: 'goal', key: null }] : []),
+        ...(view.projectTree?.records || []), ...Object.values(view.trees || {}).flatMap(t => t.records || []),
+      ],
       tasks: [...(view.tasks?.open || []), ...(view.tasks?.done || [])],
     };
     const wanted = resolveKey(asked.item || asked.task || asked.review || null, reachable);

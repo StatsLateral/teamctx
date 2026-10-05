@@ -49,8 +49,13 @@ needed.
 - [x] Scoped payloads, hidden ancestors, hostile stored text and unknown filters.
 - [x] Full test suite and CHANGELOG.
 
-Validation: 2,122 tests passed across 122 files. The route tests exercise filters,
+Validation: 2,127 tests passed across 122 files. The route tests exercise filters,
 scope boundaries, pending additions/edits, history and links. A headless Chrome
 check at 1440px and 390px confirmed no horizontal overflow, exactly one task row,
 matching row anatomy, both warning chips, and a working task drawer with the
 correct copied prompt. No dependencies were added.
+
+Follow-up review reproduced and fixed goal deep links, malformed queue-operation
+crashes, missing rule relationships in proposed exceptions, partial-link edit
+previews and counts excluding visible expired exceptions. Five regression tests
+cover these cases; proposal field permissions are shared with record approval.
