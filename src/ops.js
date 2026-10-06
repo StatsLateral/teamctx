@@ -2,7 +2,7 @@ import { randomBytes } from 'crypto';
 import { validateRecord, today } from './model.js';
 import { mintKey, emptyCounters } from './record-key.js';
 
-export const OP_TYPES = ['setGoal', 'addRecord', 'editRecord', 'setRecordStatus', 'addTask', 'editTask', 'removeTask'];
+export const OP_TYPES = ['setGoal', 'addRecord', 'editRecord', 'addEvidence', 'setRecordStatus', 'addTask', 'editTask', 'removeTask'];
 const STATUS_TARGETS = ['replaced', 'broken', 'closed', 'active'];
 export const EDITABLE_RECORD_FIELDS = ['text', 'detail', 'owner', 'reviewBy', 'expiresAt', 'links', 'attachedTo'];
 
@@ -120,6 +120,46 @@ function statusStamps(record, status, at) {
   return {};
 }
 
+/**
+ * Evidence that an assumption may no longer hold.
+ *
+ * Only the quote comes from the distiller. `source`, `by` and `at` are stamped
+ * from the contribution before this runs — see `stampEvidence` in
+ * `src/context.js` — so a model never gets to say who said something or when,
+ * and the queue item carries exactly what will be written.
+ *
+ * An assumption that is already broken still takes it: a second piece of
+ * evidence corroborates the first, and should not be lost because somebody
+ * else broke the assumption before this was approved. A replaced or closed one
+ * is history, and evidence against history is dropped with a reason.
+ */
+const EVIDENCE_STATUSES = ['active', 'broken'];
+
+function addEvidence(tree, op, c, dropped, onDay) {
+  const existing = tree.records.find(r => r.id === op.id);
+  if (!existing) { dropped.push({ op, reason: `no record "${op.id}"` }); return tree; }
+  if (existing.type !== 'assumption') { dropped.push({ op, reason: 'evidence is recorded against an assumption' }); return tree; }
+  if (!EVIDENCE_STATUSES.includes(existing.status)) {
+    dropped.push({ op, reason: `the assumption is ${existing.status}, so there is nothing for evidence to test` });
+    return tree;
+  }
+  const e = op.evidence;
+  const text = isObj(e) && typeof e.text === 'string' ? e.text.trim() : '';
+  if (!text) { dropped.push({ op, reason: 'evidence text is empty' }); return tree; }
+  const entry = {
+    text,
+    source: typeof e.source === 'string' && e.source ? e.source : null,
+    at: typeof e.at === 'string' && e.at ? e.at : null,
+    by: typeof e.by === 'string' && e.by ? e.by : null,
+  };
+  return {
+    ...tree,
+    records: tree.records.map(r => (r.id === op.id
+      ? { ...withSource(r, c), evidence: [...(r.evidence || []), entry], updatedAt: onDay }
+      : r)),
+  };
+}
+
 function setStatus(tree, op, c, dropped, onDay, at) {
   if (!STATUS_TARGETS.includes(op.status)) { dropped.push({ op, reason: `unknown status "${op.status}"` }); return tree; }
   const existing = tree.records.find(r => r.id === op.id);
@@ -204,6 +244,11 @@ export function applyOps(tree, ops, contributionId, {
     if (typeof o.title !== 'string' || !o.title.trim()) { dropped.push({ op: o, reason: 'task title is empty' }); return t; }
     return { ...t, tasks: t.tasks.map(x => x.id === o.id ? { ...withSource(x, contributionId), title: o.title.trim() } : x) };
   });
+  // Evidence before status. A break makes no difference — evidence lands on a
+  // broken assumption too — but a contribution that retires an assumption and
+  // gives the reason in the same breath would otherwise lose the reason: by the
+  // time it arrived, the record would be history.
+  each(of('addEvidence'), (t, o) => addEvidence(t, o, contributionId, dropped, onDay));
   each(of('setRecordStatus'), (t, o) => setStatus(t, o, contributionId, dropped, onDay, at));
   each(of('removeTask'), (t, o) => {
     if (!t.tasks.some(x => x.id === o.id)) { dropped.push({ op: o, reason: `no task "${o.id}"` }); return t; }

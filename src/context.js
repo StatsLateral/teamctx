@@ -35,6 +35,30 @@ export function serializeToMd(tree, projectName, lastUpdatedBy = '', contributio
  * default to the plain contribution behaviour, so existing callers are
  * unaffected.
  */
+/**
+ * Who said it, where, and when — from the contribution, never from the model.
+ *
+ * The distiller proposes evidence against an assumption and quotes the part of
+ * the contribution that bears on it. Everything else about that evidence is a
+ * fact about the contribution, which the server already holds, so it is written
+ * here and anything the model put in those fields is discarded. Done before the
+ * proposal is applied or queued, so the queue item carries exactly what an
+ * approval will write.
+ */
+export function stampEvidence(operations, contribution) {
+  return (operations || []).map(op => (op?.type === 'addEvidence'
+    ? {
+      ...op,
+      evidence: {
+        text: typeof op.evidence?.text === 'string' ? op.evidence.text : '',
+        source: contribution?.source || null,
+        by: contribution?.author || null,
+        at: contribution?.ts || null,
+      },
+    }
+    : op));
+}
+
 export async function updateShared(tree, contribution, config, { intent, avoid, comparisonRecords, operationsToCheck } = {}) {
   const proposal = await proposeDiff({
     workstream: tree,
@@ -48,7 +72,7 @@ export async function updateShared(tree, contribution, config, { intent, avoid, 
     operationsToCheck,
   });
   const { summary, contradictions = [] } = proposal;
-  const operations = operationsToCheck ?? proposal.operations;
+  const operations = stampEvidence(operationsToCheck ?? proposal.operations, contribution);
   const { tree: updated, dropped, nextKey } = applyOps(tree, operations, contribution.id, {
     nextKey: config?.nextKey,
   });
