@@ -5,7 +5,10 @@ const TYPES = { decision: 'Decision', assumption: 'Assumption', rule: 'Rule', ex
 const SOURCE_LABELS = { cli: 'CLI', mcp: 'MCP', web: 'Web', imported: 'Imported', none: 'No source recorded' };
 
 export const ROW_CSS = `
-.item{display:grid;grid-template-columns:58px 112px minmax(0,1fr) 110px 170px 12px;gap:10px;
+/* One grid for the rows and the header above them, so the headings line up with
+   what they name. The source column is wide enough to carry its heading. */
+.item,.row-head{display:grid;grid-template-columns:58px 112px minmax(0,1fr) 110px 170px 44px;gap:10px}
+.item{
   align-items:start;padding:10px 8px;border:1px solid transparent;border-radius:6px;
   background:none;text-align:left;width:100%;font:inherit;color:inherit;cursor:pointer}
 .item:hover{background:var(--paper);border-color:var(--line)}
@@ -18,12 +21,19 @@ export const ROW_CSS = `
   color:var(--soft);background:var(--grey-soft);overflow-wrap:anywhere}
 .warning-chip{color:var(--amber);background:var(--amber-soft)}
 .dot{flex-shrink:0;width:10px;height:10px;border-radius:99px;margin-top:6px;background:var(--faint)}
+.item .dot{justify-self:center}
+.row-head{padding:0 9px 6px;margin-bottom:4px;border-bottom:1px solid var(--line);font-family:var(--font-mono);
+  font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--faint)}
+.row-head span:last-child{text-align:center}
 .dot.none{background:none}
 .dot.cli{background:var(--ink)}
 .dot.mcp{background:var(--accent)}
 .dot.web{background:var(--grey)}
 .dot.imported{background:var(--indigo)}
 @media(max-width:1200px){
+  /* The row reflows into two lines here, so a one-line header would point at
+     the wrong things. */
+  .row-head{display:none}
   .item{grid-template-columns:58px 100px minmax(0,1fr) 12px}
   .item .dot{grid-column:4;grid-row:1}
   .row-owner{grid-column:2;grid-row:2}
@@ -58,6 +68,19 @@ function governance(node, type, onDay, pending) {
   }
   if (node.needsReview) chips.push(['Needs review — rests on a broken assumption', true]);
   return chips.map(([label, warning]) => `<span class="governance-chip${warning ? ' warning-chip' : ''}">${esc(label)}</span>`).join('');
+}
+
+/**
+ * The headings for the row anatomy below, in the same grid.
+ *
+ * The row is fixed — key, type, text, owner, status, source — and without
+ * headings nobody could tell what each part was. `text` names the third column
+ * for the list it sits on: a statement in the context, a task in the tasks.
+ */
+export function rowHeader({ text = 'Statement' } = {}) {
+  return `<div class="row-head" aria-hidden="true"><span>Key</span><span>Type</span><span>${esc(text)}</span>`
+    + '<span>Owner</span><span>Status</span>'
+    + '<span title="How it arrived: dark CLI, green MCP, grey web, indigo imported">Source</span></div>';
 }
 
 /** One row anatomy in every part of the page, including unapproved proposals. */
