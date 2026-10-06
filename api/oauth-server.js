@@ -1319,7 +1319,7 @@ app.get('/project/:owner/:repo', async (req, res) => {
       item,
       filters: { workstream: req.query.taskWs, owner: req.query.taskOwner },
       history: req.query.history === '1',
-      tab: req.query.tab === 'tasks' ? 'tasks' : req.query.tab === 'context' ? 'context' : null,
+      tab: ['context', 'tasks', 'review'].includes(req.query.tab) ? req.query.tab : null,
       page: /^[1-9]\d{0,3}$/.test(String(req.query.page || '')) ? Number(req.query.page) : 1,
       inheritedPage: /^[1-9]\d{0,3}$/.test(String(req.query.ipage || '')) ? Number(req.query.ipage) : 1,
       // So a copied prompt can carry the address of the page it was copied
