@@ -77,9 +77,25 @@ export async function listPendingReviews({ teamctxDir } = {}) {
   return listQueue(teamctxDir);
 }
 
+/**
+ * Refuse the approval only when the resolution itself would not apply.
+ *
+ * Any dropped operation used to block it, which is too much: a queue item can
+ * carry an unrelated `editRecord` on a record that was legitimately retired
+ * while the item sat waiting, and that drops with "no record …". The conflict
+ * may have been resolved perfectly, and the item could then never be approved,
+ * only rejected — the manager's own answer thrown away because of something
+ * else in the same contribution.
+ *
+ * So only the operations a conflict actually names are checked. Whatever else
+ * went stale is dropped the way it always is, with the rest of the contribution
+ * landing around it.
+ */
 function assertConflictApplied(item, dropped) {
-  if (item.contradictions?.length && dropped?.length) {
-    throw new ContradictionResolutionError(`The conflict resolution cannot be applied: ${dropped.map(d => d.reason).join('; ')}. The contribution remains queued.`);
+  const conflicted = new Set((item.contradictions || []).map(c => c.operationIndex));
+  const blocking = (dropped || []).filter(d => conflicted.has(d.index));
+  if (blocking.length) {
+    throw new ContradictionResolutionError(`The conflict resolution cannot be applied: ${blocking.map(d => d.reason).join('; ')}. The contribution remains queued.`);
   }
 }
 

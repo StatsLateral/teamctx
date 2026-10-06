@@ -16,7 +16,10 @@ vi.mock('./oauth/kv.js', () => ({
   keys: { prefs: (actorKey, owner, repo) => `teamctx:prefs:${actorKey}:${owner}/${repo}` },
 }));
 
-import { readPrefs, writePrefs, resolveActiveWorkstream, resolveDisplayName, resolveIdentity, ensureGitignored } from './prefs.js';
+import { readPrefs, writePrefs, resolveActiveWorkstream, resolveDisplayName, resolveIdentity } from './prefs.js';
+// Moved to its own module so the record-key lock can keep itself out of the
+// repository too, without `storage.js` importing `prefs.js` back.
+import { ensureGitignored } from './local-dir.js';
 
 const ALICE = { key: 'git:alice@example.com', name: 'Alice' };
 const BOB = { key: 'github:99', name: 'Bob' };

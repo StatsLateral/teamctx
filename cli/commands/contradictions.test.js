@@ -237,6 +237,45 @@ describe('contradiction review through the real provider and storage paths', () 
     expect(listQueue(dir)).toHaveLength(1);
   });
 
+  it('approves a resolved conflict even when something else in it went stale', async () => {
+    // The manager's answer must not be thrown away because of an unrelated
+    // operation. A queue item can sit for days, and an `editRecord` in it can
+    // name a record that was legitimately retired in the meantime — that drops,
+    // as it should, but the conflict beside it was resolved correctly. Blocking
+    // on any dropped operation left the item approvable never, only rejectable.
+    writeProject(makeProject({ records: [
+      makeRecord({ id: 'old', key: 'D-1', text: oldText }),
+      makeRecord({ id: 'doomed', key: 'D-2', text: 'Still here when this was written' }),
+    ] }), dir);
+    response([add(newText), { type: 'editRecord', id: 'doomed', changes: { text: 'reworded' } }],
+      [{ operationIndex: 0, recordId: 'old' }]);
+    const queued = await contribute();
+
+    // Days pass, and the edited record is retired by somebody else. The edit in
+    // the queue item now names nothing and will drop on approval — which is
+    // correct, and has nothing to do with the conflict beside it.
+    writeProject(makeProject({ records: [makeRecord({ id: 'old', key: 'D-1', text: oldText })] }), dir);
+
+    await approve(queued.id, ['old']);
+
+    // The conflict landed: the old record retired, the new one active.
+    const records = readProject(dir).records;
+    expect(records.find(r => r.id === 'old').status).toBe('replaced');
+    expect(records.some(r => r.text === newText && r.status === 'active')).toBe(true);
+    expect(listQueue(dir)).toHaveLength(0);
+  });
+
+  it('still refuses when the resolution itself is what will not apply', async () => {
+    // The case the check exists for, unchanged: the conflicting operation is the
+    // one that drops.
+    const queued = await contribute();
+    const item = readQueueItem(queued.id, dir);
+    item.operations[0].record.text = '';
+    writeQueueItem(item, dir);
+    await expect(approve(queued.id, ['old'])).rejects.toThrow(/cannot be applied/);
+    expect(listQueue(dir)).toHaveLength(1);
+  });
+
   it('gives the provider explicit instructions about unrelated topics, exceptions and manager authority', async () => {
     await contribute();
     const prompt = complete.mock.calls[0][0].prompt;

@@ -4,6 +4,7 @@ import { getCurrentSession } from './session-context.js';
 import { getTeamctxDir } from './storage.js';
 import { kvGet, kvSet, keys } from './oauth/kv.js';
 import { isProjectLevel } from './project-level.js';
+import { ensureGitignored, LOCAL_DIR } from './local-dir.js';
 import { rosterEntry } from './member-scope.js';
 
 /**
@@ -28,9 +29,7 @@ import { rosterEntry } from './member-scope.js';
  * Stored shape: { name?, activeWorkstream? }
  */
 
-const LOCAL_DIR = '.local';
 const PREFS_FILE = 'prefs.json';
-const IGNORE_ENTRY = '.teamctx/.local/';
 
 /**
  * CLI callers usually omit `teamctxDir` and let the storage layer find it, so
@@ -73,32 +72,6 @@ function writeLocal(actorKey, next, teamctxDir) {
   ensureGitignored(teamctxDir);
 }
 
-/**
- * Add the ignore entry when the file is first written, not at `init`.
- *
- * Anyone who clones an already-initialized project never runs `init`, so an
- * entry written there would not exist on their machine — and their personal
- * settings would be committed and pushed to the whole team.
- */
-export function ensureGitignored(teamctxDir) {
-  const projectDir = dirname(localDir(teamctxDir));
-  const gitignorePath = join(projectDir, '.gitignore');
-  let current = '';
-  try { current = readFileSync(gitignorePath, 'utf-8'); } catch { /* no .gitignore yet */ }
-
-  const alreadyIgnored = current
-    .split('\n')
-    .map(l => l.trim())
-    .some(l => l === IGNORE_ENTRY || l === '.teamctx/.local' || l === '.teamctx/.local/*');
-  if (alreadyIgnored) return false;
-
-  if (!existsSync(gitignorePath)) {
-    writeFileSync(gitignorePath, `${IGNORE_ENTRY}\n`);
-    return true;
-  }
-  appendFileSync(gitignorePath, `${current.endsWith('\n') || current === '' ? '' : '\n'}${IGNORE_ENTRY}\n`);
-  return true;
-}
 
 /** Read this actor's preferences. Returns {} when none are set. */
 export async function readPrefs(actor, teamctxDir) {
