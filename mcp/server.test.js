@@ -76,11 +76,51 @@ import {
 import { updateShared, generateRoleFile, answerQuestion } from '../src/context.js';
 import { commitContext, pushContext } from '../src/git.js';
 import { writePrefs } from '../src/prefs.js';
+import { makeRecord } from '../src/test-fixtures/model.js';
 
 const baseWs = { id: 'main', name: 'Demo', records: [] };
 const baseConfig = { project: 'Demo', me: 'alice', model: 'claude-sonnet-4-6', roles: [], autoPush: false, activeWorkstream: null, workstreams: [{ id: 'main', name: 'Demo' }] };
 const ROOT = '/proj';
 const TDIR = '/proj/.teamctx';
+
+describe('contradiction reporting and manager replacement', () => {
+  const conflict = { operationIndex: 0, proposedText: 'The entry offer is an assessment', record: { id: 'old', key: 'D-1', type: 'decision', text: 'The entry offer is a pricing audit', workstream: null } };
+  const ops = [{ type: 'addRecord', record: { type: 'decision', text: conflict.proposedText } }];
+  const tree = { name: 'Demo', records: [makeRecord({ id: 'old', key: 'D-1', text: conflict.record.text })], tasks: [] };
+  function seed() {
+    readConfig.mockReturnValue({ ...baseConfig, workstreams: [], roles: [], reviewPolicy: 'none' });
+    readProject.mockReturnValue(tree);
+    readTree.mockReturnValue(tree);
+    listWorkstreamIds.mockReturnValue([]);
+  }
+
+  it('reports the contradiction and the actual reason direct apply was refused', async () => {
+    seed();
+    updateShared.mockResolvedValue({ summary: 'Entry offer', operations: ops, contradictions: [conflict], dropped: [] });
+    const result = await makeHandlers(ROOT).contribute({ text: conflict.proposedText, apply: true });
+    const payload = JSON.parse(result.content[0].text);
+    expect(payload.mode).toBe('queued');
+    expect(payload.reportBack).toContain('Contradicts');
+    expect(payload.reportBack).toContain(conflict.proposedText);
+    expect(payload.reportBack).toContain('contradictions require explicit manager review');
+    expect(writeTree).not.toHaveBeenCalled();
+  });
+
+  it('returns conflict metadata on the review list and forwards the manager replacement selection', async () => {
+    seed();
+    const queued = { id: 'q-conflict', workstream: null, author: 'alice', operations: ops, contradictions: [conflict] };
+    listQueue.mockReturnValue([queued]);
+    readQueueItem.mockReturnValue(queued);
+    const handlers = makeHandlers(ROOT);
+    const listed = JSON.parse((await handlers.list_pending_reviews()).content[0].text);
+    expect(listed.pending[0].contradictions).toEqual([conflict]);
+    await expect(handlers.review_approve({ id: queued.id })).rejects.toThrow(/Contradicts/);
+    const result = JSON.parse((await handlers.review_approve({ id: queued.id, replaces: ['D-1'] })).content[0].text);
+    expect(result.operations[0].record.links.replaces).toBe('old');
+    expect(writeTree.mock.calls[0][1].records[0].status).toBe('replaced');
+    expect(TOOLS.find(t => t.name === 'review_approve').inputSchema.properties.replaces.items.type).toBe('string');
+  });
+});
 
 beforeEach(() => vi.clearAllMocks());
 

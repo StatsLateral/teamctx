@@ -128,7 +128,9 @@ member.command('rm <username-or-email>').description('Remove someone from the pr
 
 const review = program.command('review').description('Review pending contributions awaiting manager approval');
 review.command('list').description('List all pending contributions').action(reviewListCommand);
-review.command('approve <id>').description('Approve a pending contribution — applies it to shared context').action(reviewApproveCommand);
+review.command('approve <id>').description('Approve a pending contribution — applies it to shared context')
+  .option('--replaces <record>', 'Replace a flagged decision or rule (id or key; repeat for multiple conflicts)', (value, previous) => [...previous, value], [])
+  .action(reviewApproveCommand);
 review.command('reject <id>').description('Reject a pending contribution — archives with optional reason')
   .option('--reason <text>', 'Reason for rejection (archived alongside the item)')
   .action(reviewRejectCommand);

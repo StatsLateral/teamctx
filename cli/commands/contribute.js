@@ -2,6 +2,7 @@ import { LABELS } from '../../src/model.js';
 import { ask } from '../prompt.js';
 import { contributeCore } from './contribute.core.js';
 import { isProjectLevel } from '../../src/project-level.js';
+import { contradictionLabel } from '../../src/contradictions.js';
 
 /**
  * `teamctx contribute`, over the same code the MCP server calls.
@@ -33,10 +34,11 @@ export async function contributeCommand(text, opts = {}) {
       source: opts.source || 'cli',
       // The terminal's one addition: show what was proposed and let the person
       // stop it before anything is written.
-      onProposed: async ({ summary, operations, willQueue }) => {
+      onProposed: async ({ summary, operations, willQueue, contradictions = [] }) => {
         console.log(`\nProposed changes (${operations.length} op${operations.length !== 1 ? 's' : ''}):`);
         console.log(`  Summary: ${summary}`);
         operations.forEach(op => console.log(`  ${describeOp(op)}`));
+        contradictions.forEach(c => console.log(`  ${contradictionLabel(c)}`));
         if (opts.autoApprove) return true;
         // `willQueue` is the core's own decision, not a guess from the flags.
         // Under the `additive` policy — what `init` writes now — an add-only

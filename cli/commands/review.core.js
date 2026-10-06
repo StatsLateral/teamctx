@@ -11,6 +11,7 @@ import { resolveDisplayName } from '../../src/prefs.js';
 import { sourceTrailer } from './contribute.core.js';
 import { resolveTarget, isProjectLevel } from '../../src/project-level.js';
 import { recompileInheritors, chainFor } from '../../src/recompile.js';
+import { resolveContradictions, ContradictionResolutionError } from '../../src/contradictions.js';
 
 function workstreamDisplayName(id, workstream, config) {
   if (isProjectLevel(id)) return config.project || workstream.name || 'project';
@@ -76,7 +77,13 @@ export async function listPendingReviews({ teamctxDir } = {}) {
   return listQueue(teamctxDir);
 }
 
-export async function approveReview({ id, teamctxDir, projectDir, actor } = {}) {
+function assertConflictApplied(item, dropped) {
+  if (item.contradictions?.length && dropped?.length) {
+    throw new ContradictionResolutionError(`The conflict resolution cannot be applied: ${dropped.map(d => d.reason).join('; ')}. The contribution remains queued.`);
+  }
+}
+
+export async function approveReview({ id, replaces, teamctxDir, projectDir, actor } = {}) {
   const config = readConfig(teamctxDir);
   // The gate reads the resolved identity, never the caller-supplied `actor`.
   // That argument is attribution only: it is a claim, not a credential.
@@ -91,10 +98,19 @@ export async function approveReview({ id, teamctxDir, projectDir, actor } = {}) 
   // `null` is the project itself. Defaulting to `main` here would have sent an
   // approved project-level contribution to a workstream that no longer exists.
   const targetId = resolveTarget(item.workstream);
+  // Check before acquiring the key lock: an unresolved conflict must not even
+  // backfill existing records, let alone apply or delete the queued proposal.
+  const resolvedItem = resolveContradictions(item, { replaces, config, teamctxDir });
+  if (item.contradictions?.length) {
+    const preview = applyQueueItem(readTree(targetId, teamctxDir), resolvedItem, { nextKey: config.nextKey });
+    assertConflictApplied(resolvedItem, preview.dropped);
+  }
   // Who approved a record travels with it, not only with the commit.
   const approvedBy = { key: caller?.key || null, name: who, at: new Date().toISOString() };
   const updated = withRecordKeys(teamctxDir, current => {
-    const { tree: applied, nextKey } = applyQueueItem(readTree(targetId, teamctxDir), item, { nextKey: current.nextKey });
+    item = resolveContradictions(item, { replaces, config: current, teamctxDir });
+    const { tree: applied, nextKey, dropped } = applyQueueItem(readTree(targetId, teamctxDir), item, { nextKey: current.nextKey });
+    assertConflictApplied(item, dropped);
     const tree = {
       ...applied,
       records: (applied.records || []).map(r => ((r.sourceContributionIds || []).includes(item.id) ? { ...r, approvedBy } : r)),
@@ -154,6 +170,7 @@ export async function approveReview({ id, teamctxDir, projectDir, actor } = {}) 
     author: item.author,
     approvedBy: approvedBy.name,
     operations: item.operations || [],
+    ...(item.contradictions?.length ? { contradictions: item.contradictions } : {}),
     rolesRegenerated,
     pushed,
     pushError,

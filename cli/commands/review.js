@@ -1,4 +1,5 @@
 import { listPendingReviews, approveReview, rejectReview, ManagerGateError, QueueItemNotFoundError } from './review.core.js';
+import { contradictionLabel, ContradictionResolutionError } from '../../src/contradictions.js';
 
 export async function reviewListCommand() {
   const queue = await listPendingReviews();
@@ -21,20 +22,23 @@ export async function reviewListCommand() {
   console.log(fmt(header));
   console.log(widths.map(w => '-'.repeat(w)).join('  '));
   rows.forEach(r => console.log(fmt(r)));
+  for (const item of queue) {
+    for (const conflict of item.contradictions || []) console.log(`\n${item.id}: ${contradictionLabel(conflict)}`);
+  }
   console.log('');
 }
 
 function handleCliError(err) {
-  if (err instanceof ManagerGateError || err instanceof QueueItemNotFoundError) {
+  if (err instanceof ManagerGateError || err instanceof QueueItemNotFoundError || err instanceof ContradictionResolutionError) {
     console.error(`Error: ${err.message}`);
     process.exit(1);
   }
   throw err;
 }
 
-export async function reviewApproveCommand(id) {
+export async function reviewApproveCommand(id, opts = {}) {
   let result;
-  try { result = await approveReview({ id }); }
+  try { result = await approveReview({ id, ...(opts.replaces?.length ? { replaces: opts.replaces } : {}) }); }
   catch (err) { handleCliError(err); return; }
 
   if (result.rolesRegenerated.length > 0) {
