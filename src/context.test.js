@@ -11,6 +11,7 @@ vi.mock('./ops.js', () => ({
 }));
 
 import { proposeDiff, callClaude } from './ai.js';
+import { applyOps } from './ops.js';
 
 const rec = (over) => ({ status: 'active', links: {}, attachedTo: { kind: 'workstream', id: 'launch' }, sourceContributionIds: [], ...over });
 
@@ -74,6 +75,28 @@ describe('updateShared', () => {
     expect(summary).toBe('added goal');
     expect(workstream._applied).toBe(true);
     expect(dropped).toEqual([]);
+  });
+
+  it('leaves out a dropped operation even when what came back is a copy of it', async () => {
+    // `applyOps` replaces an operation whose record attaches to a task added in
+    // the same contribution, so what it reports as dropped is a *copy*. Matching
+    // the objects let that operation through as kept: it was reported to the
+    // person as applied and written into the queue item, then dropped again on
+    // approval — where it blocked the approval outright.
+    const ops = [
+      { type: 'addTask', ref: 'T', title: 'Build it' },
+      { type: 'addRecord', record: { type: 'decision', text: 'x', attachedTo: { kind: 'task', id: 'T' } } },
+    ];
+    proposeDiff.mockResolvedValue({ summary: 's', operations: ops });
+    applyOps.mockReturnValue({
+      tree: baseWs,
+      // A copy, as the real one hands back, carrying where it sat.
+      dropped: [{ op: { ...ops[1] }, index: 1, reason: 'no task' }],
+      nextKey: undefined,
+    });
+
+    const { operations } = await updateShared(baseWs, { id: 'c1', author: 'a', text: 't' }, { model: 'm' });
+    expect(operations).toEqual([ops[0]]);
   });
 });
 

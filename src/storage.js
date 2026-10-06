@@ -1,5 +1,6 @@
-import { readFileSync, writeFileSync, mkdirSync, existsSync, appendFileSync, readdirSync, unlinkSync, openSync, closeSync } from 'fs';
+import { readFileSync, writeFileSync, mkdirSync, existsSync, appendFileSync, readdirSync, unlinkSync, openSync, closeSync, statSync } from 'fs';
 import { backfillKeys, mintKey } from './record-key.js';
+import { ensureGitignored } from './local-dir.js';
 import { join, dirname } from 'path';
 import { getCurrentSession } from './session-context.js';
 import { isProjectLevel, resolveTarget } from './project-level.js';
@@ -91,6 +92,34 @@ export function writeConfig(config, dir) {
   writeFileSync(resolve(dir, 'config.json'), JSON.stringify(config, null, 2));
 }
 
+/**
+ * Take over a lock whose owner is gone, or report that it is still warm.
+ *
+ * The age is read and the file removed as two steps, which two processes could
+ * interleave — so the caller re-opens with `wx` and the loser of that race gets
+ * EEXIST and reports the lock held, rather than both proceeding.
+ */
+function claimStaleLock(lock) {
+  try {
+    if (Date.now() - statSync(lock).mtimeMs < LOCK_STALE_MS) return false;
+    unlinkSync(lock);
+    return true;
+  } catch (error) {
+    // Gone between the stat and the unlink: somebody else finished normally, so
+    // the lock is free either way.
+    return error.code === 'ENOENT';
+  }
+}
+
+/**
+ * How long a lock may sit before it is treated as abandoned.
+ *
+ * A context write is one AI call and a few file writes. Ten minutes is far
+ * longer than that and far shorter than a person's patience, so a lock older
+ * than this belonged to a process that is gone.
+ */
+const LOCK_STALE_MS = 10 * 60 * 1000;
+
 /** A synchronous context write: backfill and mint against the latest counters.
  * The local exclusive file prevents two CLI processes allocating the same key.
  * Hosted writes are buffered together; the adapter rejects stale key commits.
@@ -100,10 +129,24 @@ export function withRecordKeys(dir, write) {
   let fd;
   if (lock) {
     mkdirSync(dirname(lock), { recursive: true });
+    // Before the lock exists, not after. `commitContext` stages the whole of
+    // `.teamctx/`, and `.teamctx/.local/` only reaches .gitignore the first time
+    // somebody writes a *preference* — so in a clone where nobody has run
+    // `teamctx config name`, a lock left behind by a killed process gets
+    // committed and pushed by the next command that commits at all. Everyone who
+    // pulls is then locked out of every key-allocating path until the deletion
+    // is committed too.
+    ensureGitignored(dir);
     try { fd = openSync(lock, 'wx'); }
     catch (error) {
       if (error.code !== 'EEXIST') throw error;
-      throw new Error('Another context write holds record-keys.lock. Retry after it finishes. If its process stopped, remove .teamctx/.local/record-keys.lock before retrying.');
+      // Held, or abandoned. A process killed between `openSync` and the
+      // `finally` leaves this behind, and telling somebody to delete a file to
+      // get their work done is a worse answer than noticing it is cold.
+      if (!claimStaleLock(lock)) {
+        throw new Error('Another context write holds record-keys.lock. Retry after it finishes. If its process stopped, remove .teamctx/.local/record-keys.lock before retrying.');
+      }
+      fd = openSync(lock, 'wx');
     }
   }
   try {

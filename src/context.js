@@ -53,7 +53,10 @@ export async function updateShared(tree, contribution, config, { intent, avoid, 
   });
   // What was dropped never reaches the queue or the tree: a reviewer approving
   // a proposal should see exactly what will be written.
-  const kept = operations.filter(o => !dropped.some(d => d.op === o));
+  // By position, not by identity: `applyOps` copies an operation whose record
+  // attaches to a task added alongside it, so comparing the objects let a
+  // dropped operation through as a kept one.
+  const kept = operations.filter((o, i) => !dropped.some(d => d.index === i));
   // Handed back rather than written here. The caller knows whether this tree is
   // about to be written or put in a queue, and the counters have to go the same
   // way the tree does — see `mintKey`.
