@@ -211,3 +211,26 @@ describe('evidence against an assumption, in what the model is given', () => {
     expect(await prompt()).toMatch(/Never addEvidence on a decision, rule or exception/);
   });
 });
+
+describe('relying on an assumption is not evidence against it', () => {
+  // Found in testing: "Because buyers need SSO before a pilot, we decided to
+  // build SSO first" came back as evidence against that assumption plus a
+  // break — the opposite of what it says — and "this rests on the assumption
+  // that…" came back as nothing at all.
+  const prompt = async () => {
+    await proposeDiff({ workstream, contribution: 'note', source: 'alice', config: { model: 'm' } });
+    return call().prompt;
+  };
+
+  it('says a contribution that relies on it records a decision resting on it', async () => {
+    const p = await prompt();
+    expect(p).toMatch(/Nor is a contribution that RELIES on the assumption/);
+    expect(p).toMatch(/links\.restsOn naming the assumption, and no\s+addEvidence and no break/);
+  });
+
+  it('keeps the hands-off rule to a contribution that breaks one', async () => {
+    const p = await prompt();
+    expect(p).toMatch(/When you do propose a break, do not also edit/);
+    expect(p).toMatch(/a new decision\s+that rests on an assumption is recorded as usual/);
+  });
+});
