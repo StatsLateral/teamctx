@@ -38,25 +38,40 @@ const CSS = `
 .toggle a{font-family:var(--font-mono);font-size:11px;text-decoration:none;color:var(--soft);
   border:1px solid var(--line);border-radius:6px;padding:4px 9px;background:var(--card)}
 .toggle a.on{color:var(--ink);border-color:var(--accent)}
-.columns{display:grid;grid-template-columns:1fr;gap:10px}
-/* Long context scrolls inside its panel; on phones the page scrolls instead. */
-.col{border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--card);
-  display:flex;flex-direction:column;min-width:0;min-height:220px;max-height:calc(100vh - 16rem)}
-.col-head{font-family:var(--font-mono);font-size:11px;text-transform:uppercase;letter-spacing:.08em;
-  color:var(--soft);font-weight:600;padding:10px 12px 8px;border-bottom:1px solid var(--line)}
-.col-body{padding:8px;display:flex;flex-direction:column;gap:3px;overflow-y:auto;flex:1}
-/* The same bound for the single-column reading, so the page itself never grows
-   past the window and the toggle does not change how far you have to scroll. */
+/* One reading of the context. There used to be a columns/list toggle; once
+   tasks moved to their own list (#127) the two rendered the same rows, so the
+   toggle offered a choice that changed nothing. Long context scrolls inside
+   its box; on phones the page scrolls instead. */
 .list{max-height:calc(100vh - 16rem);overflow-y:auto;padding-right:4px}
 .list .item{margin-left:0}
+/* Retired records, shown only while reading history. Dimmed so that turning
+   history on visibly adds something, rather than mixing them in unnoticed. */
+.item.retired{opacity:.6}
+.item.retired:hover{opacity:.9}
 .inherited{border:1px dashed var(--line);border-radius:var(--radius-sm);padding:8px 10px;margin-bottom:10px;
   background:var(--accent-soft)}
 .inherited .section-title{margin-bottom:6px}
 .empty{color:var(--faint);font-style:italic;font-size:13px;padding:14px;border:1px dashed var(--line);
   border-radius:var(--radius-sm);text-align:center}
-.task-filters{display:flex;flex-wrap:wrap;gap:12px;align-items:end;margin-bottom:12px}
-.task-filters label{display:flex;flex-direction:column;gap:4px;font-size:12px}
-.task-filters select{max-width:260px}
+/* The task list's heading and its filters share a line. The theme styles every
+   select as a full-width form field, which is right on a settings page and
+   wrong in a toolbar — so these are put back to the size of what they say. */
+.tasks-head{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;margin-bottom:10px}
+.tasks-head .section-title{margin:0}
+.tasks-head .count{font-family:var(--font-mono);font-size:11px;color:var(--faint)}
+.task-filters{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:0 0 0 auto}
+.task-filters .pick{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);
+  border-radius:99px;background:var(--card);padding:2px 4px 2px 12px;margin:0}
+.task-filters .pick:focus-within{border-color:var(--accent)}
+.task-filters .pick span{font-family:var(--font-mono);font-size:11px;color:var(--faint);
+  text-transform:uppercase;letter-spacing:.06em}
+.task-filters select{width:auto;max-width:220px;border:0;background:transparent;font-size:13px;
+  padding:4px 6px;color:var(--ink);cursor:pointer;margin:0}
+.task-filters select:focus{outline:none}
+.task-filters .apply{font-size:12px;padding:4px 10px;border-radius:99px}
+.task-filters .clear{font-size:12px;color:var(--soft)}
+/* With JavaScript the filters apply as they change, so the button only clutters. */
+.js .task-filters .apply{display:none}
 .proposal{margin-bottom:12px;border:1px solid var(--line);border-radius:6px}
 
 /* The drawer. */
@@ -84,17 +99,17 @@ const CSS = `
   .layout{grid-template-columns:1fr}
   .lanes{display:none}
   .lane-pick{display:block}
-  .columns{grid-template-columns:1fr}
   /* On a phone the window is the scroller; a box inside a box is a trap. */
-  .col,.list{max-height:none}
+  .list{max-height:none}
+  .task-filters{margin-left:0}
 }`;
 
 /**
  * Everything the page does after it loads, which is not much on purpose.
  *
  * Opening a drawer, copying a prompt, and finding whatever a link pointed at.
- * The view toggle is a link the server answers, so it survives with JavaScript
- * off — and so does the whole page, minus the drawer.
+ * The filters and the history link are answered by the server, so they work
+ * with JavaScript off — and so does the whole page, minus the drawer.
  */
 const SCRIPT = `
 (function () {
@@ -144,6 +159,11 @@ const SCRIPT = `
   // button does the same thing — the small screen is not a worse place to read.
   var pick = document.getElementById('lane-pick');
   if (pick) pick.addEventListener('change', function () { this.form.submit(); });
+  // The task filters likewise: choosing applies, and their button is hidden.
+  document.documentElement.classList.add('js');
+  document.querySelectorAll('.task-filters select').forEach(function (s) {
+    s.addEventListener('change', function () { this.form.submit(); });
+  });
 }());`;
 
 /**
@@ -254,21 +274,15 @@ function itemButton({ row, contributions, where, marked, isProject, owner, repo,
   data-prompt="${escAttr(prompt)}"` });
 }
 
-const columns = (options) => `<div class="columns"><section class="col">
-  <div class="col-head">Rules, decisions & assumptions</div>
-  <div class="col-body">${options.rows.map(row => itemButton({ ...options, row, marked: row.node.id === options.item })).join('')}</div>
-</section></div>`;
-
 const list = ({ rows, contributions, where, project, item, isProject, owner, repo, wsId, origin }) => `<div class="list">
   ${rows.map(row => itemButton({
     row, contributions, where, project, isProject, owner, repo, wsId, origin, marked: row.node.id === item,
   })).join('')}
 </div>`;
 
-function historyHref({ base, selected, viewMode, item, history, taskWs, taskOwner }) {
+function historyHref({ base, selected, item, history, taskWs, taskOwner }) {
   const query = new URLSearchParams({ taskWs, taskOwner });
   if (selected) query.set('ws', selected);
-  if (viewMode === 'list') query.set('view', 'list');
   if (!history) {
     query.set('history', '1');
     if (item) query.set('item', item);
@@ -328,13 +342,19 @@ function queueRows({ q, view, item, origin }) {
   })}${proposals}</div>`;
 }
 
-export const projectPage = ({ user, view, selected, viewMode = 'columns', item = null, note = null, origin = null, filters = {}, history = false }) => {
+export const projectPage = ({ user, view, selected, item = null, note = null, origin = null, filters = {}, history = false }) => {
   const isProject = selected === null;
   const tree = isProject ? view.projectTree : view.trees[selected];
   const where = workstreamLocation(view.workstreams, selected, view.project);
   // A deep link to history must remain useful without changing the stored record.
   history ||= [view.projectTree, tree].some(t => (t?.records || []).some(r => r.id === item && r.status !== 'active'));
   const rows = numbering(tree, history);
+  // How much history there is to show, here and in what this part inherits.
+  // The link said "Show history" on a project with none, and turning it on then
+  // changed nothing — which reads as a broken button. It is offered only when it
+  // will add something, and says how much.
+  const retired = [tree, isProject ? null : view.projectTree]
+    .flatMap(t => (t?.records || []).filter(r => RECORD_TYPES.includes(r.type) && r.status !== 'active')).length;
   const allTasks = [...view.tasks.open, ...view.tasks.done];
   const owners = [...new Set(allTasks.map(t => t.owner).filter(Boolean))].sort();
   const workstreamValues = ['@all', '@project', ...view.workstreams.map(w => w.id)];
@@ -350,17 +370,6 @@ export const projectPage = ({ user, view, selected, viewMode = 'columns', item =
     && (taskOwner === '@all' || (t.owner || '@unassigned') === taskOwner));
   const base = `/project/${encodeURIComponent(view.owner)}/${encodeURIComponent(view.repo)}`;
   const laneHref = (ws) => `${base}?${new URLSearchParams(ws === null ? {} : { ws }).toString()}`;
-  const modeHref = (mode) => {
-    const q = new URLSearchParams(selected === null ? {} : { ws: selected });
-    // Whatever the link pointed at survives the toggle — losing the highlight on
-    // the first click defeats having landed on it.
-    if (item) q.set('item', item);
-    if (mode === 'list') q.set('view', 'list');
-    if (history) q.set('history', '1');
-    q.set('taskWs', taskWs);
-    q.set('taskOwner', taskOwner);
-    return `${base}${q.toString() ? `?${q}` : ''}`;
-  };
 
   // The project's goal and its active records sit above a workstream's, the way
   // teamctx composes context: inherited, not owned, and said so.
@@ -395,7 +404,6 @@ ${note ? `<p class="note">${esc(note)}</p>` : ''}
       ${view.workstreams.map(w => lane(w.id, w.name, w.members, (view.trees[w.id]?.records || []).filter(r => RECORD_TYPES.includes(r.type) && r.status === 'active').length, w.id === selected)).join('')}
     </div>
 <form class="lane-pick" method="GET" action="${base}">
-      ${viewMode === 'list' ? '<input type="hidden" name="view" value="list">' : ''}
       <select id="lane-pick" name="ws">
         <option value=""${isProject ? ' selected' : ''}>${esc(view.project || 'Project')}</option>
         ${view.workstreams.map(w => `<option value="${esc(w.id)}"${w.id === selected ? ' selected' : ''}>${esc(w.name)}</option>`).join('')}
@@ -407,15 +415,13 @@ ${note ? `<p class="note">${esc(note)}</p>` : ''}
   <main>
     <div class="tree-head">
       <span class="section-title">${esc(where)}</span>
-      <span class="toggle">
-        <a href="${esc(modeHref('columns'))}" class="${viewMode === 'columns' ? 'on' : ''}">⊞ columns</a>
-        <a href="${esc(modeHref('list'))}" class="${viewMode === 'list' ? 'on' : ''}">≡ list</a>
-        <a href="${esc(historyHref({ base, selected, viewMode, item, history, taskWs, taskOwner }))}" class="${history ? 'on' : ''}">${history ? 'Hide history' : 'Show history'}</a>
-      </span>
+      ${retired || history ? `<span class="toggle">
+        <a href="${esc(historyHref({ base, selected, item, history, taskWs, taskOwner }))}" class="${history ? 'on' : ''}">${history ? 'Hide history' : `Show history (${retired})`}</a>
+      </span>` : ''}
     </div>
     ${inherited}
     ${rows.length
-    ? (viewMode === 'list' ? list : columns)({
+    ? list({
       rows,
       contributions: view.contributions,
       where,
@@ -430,19 +436,24 @@ ${note ? `<p class="note">${esc(note)}</p>` : ''}
     : '<p class="empty">Nothing written here yet — ask your assistant to add context.</p>'}
 
     <section style="margin-top:2rem">
-      <div class="section-title">Tasks</div>
-      <form class="task-filters" method="GET" action="${base}">
-        ${selected ? `<input type="hidden" name="ws" value="${esc(selected)}">` : ''}
-        ${viewMode === 'list' ? '<input type="hidden" name="view" value="list">' : ''}
-        ${history ? '<input type="hidden" name="history" value="1">' : ''}
-        <label>Where <select name="taskWs">
-          ${[['@all', 'All work'], ['@project', view.project || 'Overall project'], ...view.workstreams.map(w => [w.id, workstreamLocation(view.workstreams, w.id)])]
+      <div class="tasks-head">
+        <span class="section-title">Tasks</span>
+        <span class="count">${tasks.length} open</span>
+        <form class="task-filters" method="GET" action="${base}">
+          ${selected ? `<input type="hidden" name="ws" value="${esc(selected)}">` : ''}
+          ${history ? '<input type="hidden" name="history" value="1">' : ''}
+          <label class="pick"><span>Where</span><select name="taskWs" aria-label="Which part of the work">
+            ${[['@all', 'All work'], ['@project', view.project || 'Overall project'], ...view.workstreams.map(w => [w.id, workstreamLocation(view.workstreams, w.id)])]
     .map(([value, label]) => `<option value="${esc(value)}"${value === taskWs ? ' selected' : ''}>${esc(label)}</option>`).join('')}
-        </select></label>
-        <label>Owner <select name="taskOwner">
-          ${[['@all', 'Everyone'], ['@unassigned', 'Unassigned'], ...owners.map(o => [o, o])].map(([value, label]) => `<option value="${esc(value)}"${value === taskOwner ? ' selected' : ''}>${esc(label)}</option>`).join('')}
-        </select></label><button type="submit">Filter tasks</button>
-      </form>
+          </select></label>
+          <label class="pick"><span>Owner</span><select name="taskOwner" aria-label="Whose tasks">
+            ${[['@all', 'Everyone'], ['@unassigned', 'Unassigned'], ...owners.map(o => [o, o])].map(([value, label]) => `<option value="${esc(value)}"${value === taskOwner ? ' selected' : ''}>${esc(label)}</option>`).join('')}
+          </select></label>
+          <button type="submit" class="apply">Apply</button>
+          ${taskWs !== (selected || '@all') || taskOwner !== '@all'
+    ? `<a class="clear" href="${esc(`${base}${selected ? `?${new URLSearchParams({ ws: selected })}` : ''}`)}">Clear</a>` : ''}
+        </form>
+      </div>
       <div class="task-list">${tasks.length ? tasks.map(t => itemButton({
         row: { node: t, tier: 'task', n: '—' }, contributions: view.contributions, where: t.where,
         isProject: !t.workstream, wsId: t.workstream, owner: view.owner, repo: view.repo,

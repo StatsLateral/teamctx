@@ -25,6 +25,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   filters and named location breadcrumbs. Overdue assumptions and expired
   exceptions show warning chips; replaced, broken and closed records are
   available through Show history, including direct links to retired records.
+  The columns/list toggle is gone: once tasks had their own list the two views
+  showed the same rows. Show history appears only when something has been
+  retired, says how many, and dims what it adds. The task filters sit beside
+  the heading as compact pickers that apply as you choose.
 - Stable project-wide task and record keys: `T-14`, `D-3`, `R-2`, `A-2`, `X-1`.
   Existing records and tasks are backfilled in creation order on the first
   context write. Keys survive edits and are never reused after deletion;
