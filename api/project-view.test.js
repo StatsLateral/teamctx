@@ -331,11 +331,16 @@ describe('the tree the page draws', () => {
     expect(body).toContain('ship it');
   });
 
-  it('offers both views, and switches on a plain link', async () => {
-    const columns = await visit('/project/acme/ledger', MANAGER);
-    expect(columns.body).toContain('class="columns"');
-    const asList = await visit('/project/acme/ledger?view=list', MANAGER);
-    expect(asList.body).toContain('class="list"');
+  it('has one view of the context, and an old link to the other still lands', async () => {
+    // The columns/list toggle went once tasks moved to their own list (#127):
+    // both rendered the same rows, so the choice changed nothing.
+    const page = await visit('/project/acme/ledger', MANAGER);
+    expect(page.body).toContain('class="list"');
+    expect(page.body).not.toContain('class="columns"');
+    expect(page.body).not.toMatch(/columns<\/a>|list<\/a>/);
+    const old = await visit('/project/acme/ledger?view=list', MANAGER);
+    expect(old.status).toBe(200);
+    expect(old.body).toContain('class="list"');
   });
 
   it('says so plainly when a part of the work holds nothing yet', async () => {
@@ -479,9 +484,13 @@ describe('what a link may and may not open', () => {
     expect(body).toContain('data-text="Draft the pricing page"');
   });
 
-  it('keeps what was pointed at when the view is switched', async () => {
+  it('keeps what was pointed at when history is turned on', async () => {
+    repo.files.set('.teamctx/workstreams/product.json', JSON.stringify({
+      id: 'product', name: 'Product', tasks: [],
+      records: [{ id: 'w1', type: 'decision', text: 'price it', status: 'active' }, { id: 'old', type: 'decision', text: 'retired one', status: 'replaced' }],
+    }));
     const { body } = await visit('/project/acme/ledger?ws=product&item=w1', MANAGER);
-    expect(body).toMatch(/href="[^"]*ws=product[^"]*item=w1[^"]*view=list[^"]*"/);
+    expect(body).toMatch(/href="[^"]*ws=product[^"]*history=1[^"]*item=w1[^"]*"/);
   });
 
   it('opens inherited context with the same row layout and its own project link', async () => {
@@ -495,12 +504,9 @@ describe('what a link may and may not open', () => {
 });
 
 describe('a tree longer than the window', () => {
-  it('scrolls inside its column rather than stretching the page', async () => {
-    // One long How list otherwise drags the page down past everything beside
-    // it, leaving the other two columns as short marks at the top of a blank.
+  it('scrolls inside its box rather than stretching the page', async () => {
     const { body } = await visit('/project/acme/ledger?ws=product', MANAGER);
-    expect(body).toMatch(/\.col\{[^}]*max-height/);
-    expect(body).toMatch(/\.col-body\{[^}]*overflow-y:auto/);
+    expect(body).toMatch(/\.list\{[^}]*max-height[^}]*overflow-y:auto/);
   });
 
   it('bounds the list the same way, so the toggle does not change the scrolling', async () => {
@@ -511,7 +517,7 @@ describe('a tree longer than the window', () => {
   it('lets the window do the scrolling on a phone', async () => {
     const { body } = await visit('/project/acme/ledger?ws=product', MANAGER);
     const narrow = body.slice(body.indexOf('@media(max-width:760px)'));
-    expect(narrow).toMatch(/\.col,\.list\{max-height:none\}/);
+    expect(narrow).toMatch(/\.list\{max-height:none\}/);
   });
 });
 
@@ -773,11 +779,12 @@ describe('shared rows, task filters and governance (#127)', () => {
     expect(row(body, 't-project-task')).toContain('class="row-where">Ledger');
   });
 
-  it('preserves filters and history in view toggles and the filter form', async () => {
-    const { body } = await visit('/project/acme/ledger?ws=product&view=list&history=1&taskWs=tech&taskOwner=Dev', MANAGER);
-    expect(body).toMatch(/href="[^"]*history=1[^"]*taskWs=tech[^"]*taskOwner=Dev"/);
+  it('preserves filters and history in the history link and the filter form', async () => {
+    const { body } = await visit('/project/acme/ledger?ws=product&history=1&taskWs=tech&taskOwner=Dev', MANAGER);
+    expect(body).toMatch(/href="[^"]*taskWs=tech[^"]*taskOwner=Dev[^"]*"[^>]*>Hide history/);
     const form = /<form class="task-filters"[\s\S]*?<\/form>/.exec(body)[0];
-    for (const hidden of ['name="ws" value="product"', 'name="view" value="list"', 'name="history" value="1"']) expect(form).toContain(hidden);
+    for (const hidden of ['name="ws" value="product"', 'name="history" value="1"']) expect(form).toContain(hidden);
+    expect(form).not.toContain('name="view"');
     expect(form).toContain('value="Dev" selected');
   });
 
@@ -837,7 +844,8 @@ describe('shared rows, task filters and governance (#127)', () => {
     const history = await visit('/project/acme/ledger?ws=product&history=1', MANAGER);
     for (const status of ['replaced', 'broken', 'closed']) expect(history.body).toContain(`retired ${status}`);
     const linked = await visit('/project/acme/ledger?item=D-1', MANAGER);
-    expect(linked.body).toContain('class="item tier-decision marked" id="i-h0"');
+    // Marked because the link pointed at it, and dimmed because it is retired.
+    expect(linked.body).toContain('class="item tier-decision marked retired" id="i-h0"');
     expect(linked.body).toContain('Hide history');
     const hide = /href="([^"]+)"[^>]*>Hide history/.exec(linked.body)[1].replaceAll('&amp;', '&');
     const hiddenAgain = await visit(hide, MANAGER);
@@ -919,11 +927,15 @@ describe('an item that names nothing', () => {
     expect(body).not.toContain('w1.but.not');
   });
 
-  it('still carries one that does, so the toggle keeps the highlight', async () => {
+  it('still carries one that does, so turning on history keeps the highlight', async () => {
     // What the carrying was for: losing the highlight on the first click defeats
     // having landed on it.
+    repo.files.set('.teamctx/workstreams/product.json', JSON.stringify({
+      id: 'product', name: 'Product', tasks: [],
+      records: [{ id: 'w1', type: 'decision', text: 'price it', status: 'active' }, { id: 'old', type: 'decision', text: 'gone', status: 'replaced' }],
+    }));
     const { body } = await visit('/project/acme/ledger?ws=product&item=w1', MANAGER);
-    expect(body).toMatch(/href="[^"]*item=w1[^"]*view=list[^"]*"/);
+    expect(body).toMatch(/href="[^"]*history=1[^"]*item=w1[^"]*"/);
   });
 
   it('is out of scope for a member, so it is dropped for them', async () => {
@@ -1070,5 +1082,87 @@ describe('evidence against an assumption, in the queue', () => {
     const { body } = await visit('/project/acme/ledger', MEMBER_GOOGLE);
     expect(body).not.toContain('Evidence against');
     expect(body).not.toContain('all piloted without SSO');
+  });
+});
+
+/**
+ * History is offered only when it will add something.
+ *
+ * "Show history" sat on every page, and on a project with nothing retired
+ * turning it on changed nothing — which reads as a broken button. Now it says
+ * how much there is, is absent when there is none, and what it adds is dimmed
+ * so the difference is visible.
+ */
+describe('the history link', () => {
+  const withRecords = (records) => repo.files.set('.teamctx/workstreams/product.json', JSON.stringify({
+    id: 'product', name: 'Product', tasks: [], records,
+  }));
+
+  it('is not offered when nothing here has been retired', async () => {
+    withRecords([{ id: 'w1', type: 'decision', text: 'price it', status: 'active' }]);
+    const { body } = await visit('/project/acme/ledger?ws=product', MANAGER);
+    expect(body).not.toContain('Show history');
+  });
+
+  it('says how much history there is', async () => {
+    withRecords([
+      { id: 'w1', type: 'decision', text: 'price it', status: 'active' },
+      { id: 'h1', type: 'decision', text: 'old', status: 'replaced' },
+      { id: 'h2', type: 'decision', text: 'older', status: 'closed' },
+    ]);
+    const { body } = await visit('/project/acme/ledger?ws=product', MANAGER);
+    expect(body).toContain('Show history (2)');
+  });
+
+  it('counts what this part inherits from the project too', async () => {
+    withRecords([{ id: 'w1', type: 'decision', text: 'price it', status: 'active' }]);
+    repo.files.set('.teamctx/project.json', JSON.stringify({ name: 'Ledger', tasks: [], records: [
+      { id: 'p1', type: 'decision', text: 'ship it', status: 'active' },
+      { id: 'p2', type: 'decision', text: 'gone', status: 'replaced' },
+    ] }));
+    const { body } = await visit('/project/acme/ledger?ws=product', MANAGER);
+    expect(body).toContain('Show history (1)');
+  });
+
+  it('dims what it adds, so turning it on visibly changes the page', async () => {
+    withRecords([
+      { id: 'w1', type: 'decision', text: 'price it', status: 'active' },
+      { id: 'h1', type: 'decision', text: 'old', status: 'replaced' },
+    ]);
+    const { body } = await visit('/project/acme/ledger?ws=product&history=1', MANAGER);
+    expect(body).toMatch(/class="item tier-decision retired" id="i-h1"/);
+    expect(body).toMatch(/class="item tier-decision" id="i-w1"/);
+    expect(body).toContain('Hide history');
+  });
+});
+
+describe('the task filters', () => {
+  it('sit beside the heading with a count, as compact pickers', async () => {
+    const { body } = await visit('/project/acme/ledger', MANAGER);
+    const head = /<div class="tasks-head">[\s\S]*?<\/form>\s*<\/div>/.exec(body)[0];
+    expect(head).toContain('class="section-title">Tasks<');
+    expect(head).toMatch(/class="count">\d+ open</);
+    expect(head).toMatch(/<label class="pick"><span>Where<\/span><select name="taskWs"/);
+    expect(head).toMatch(/<label class="pick"><span>Owner<\/span><select name="taskOwner"/);
+  });
+
+  it('apply on change, keeping a button for a browser without JavaScript', async () => {
+    const { body } = await visit('/project/acme/ledger', MANAGER);
+    expect(body).toContain("document.querySelectorAll('.task-filters select')");
+    expect(body).toContain('<button type="submit" class="apply">Apply</button>');
+    expect(body).toMatch(/\.js \.task-filters \.apply\{display:none\}/);
+  });
+
+  it('are not full-width form fields', async () => {
+    // The theme makes every select width:100%, which is what made these ugly.
+    const { body } = await visit('/project/acme/ledger', MANAGER);
+    expect(body).toMatch(/\.task-filters select\{width:auto/);
+  });
+
+  it('offer a way back only when a filter is on', async () => {
+    const plain = await visit('/project/acme/ledger', MANAGER);
+    expect(plain.body).not.toMatch(/class="clear"/);
+    const filtered = await visit('/project/acme/ledger?taskOwner=Dev', MANAGER);
+    expect(filtered.body).toMatch(/<a class="clear" href="\/project\/acme\/ledger">Clear<\/a>/);
   });
 });
