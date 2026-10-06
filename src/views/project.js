@@ -1,6 +1,6 @@
 import { shell, navBar, esc } from './theme.js';
 import { LABELS, RECORD_TYPES } from '../model.js';
-import { projectRow, ROW_CSS } from './project-row.js';
+import { projectRow, ROW_CSS, rowHeader } from './project-row.js';
 import { workstreamLocation } from './workstream-location.js';
 import { EDITABLE_RECORD_FIELDS } from '../ops.js';
 
@@ -68,10 +68,23 @@ const CSS = `
 .task-filters select{width:auto;max-width:220px;border:0;background:transparent;font-size:13px;
   padding:4px 6px;color:var(--ink);cursor:pointer;margin:0}
 .task-filters select:focus{outline:none}
-.task-filters .apply{font-size:12px;padding:4px 10px;border-radius:99px}
+.task-filters .apply{font-size:12px;padding:4px 12px;border-radius:99px}
 .task-filters .clear{font-size:12px;color:var(--soft)}
-/* With JavaScript the filters apply as they change, so the button only clutters. */
-.js .task-filters .apply{display:none}
+/* Context and Tasks as tabs over one panel, rather than one long page with the
+   tasks somewhere below the context. The active tab is the highlighted one. */
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin:0 0 14px;scroll-margin-top:12px}
+.tabs a{text-decoration:none;color:var(--soft);font-size:14px;font-weight:500;padding:8px 14px;
+  border:1px solid transparent;border-bottom:none;border-radius:var(--radius-sm) var(--radius-sm) 0 0;
+  margin-bottom:-1px}
+.tabs a:hover{color:var(--ink)}
+.tabs a[aria-current="page"]{color:var(--ink);background:var(--card);border-color:var(--line);
+  box-shadow:inset 0 2px 0 var(--accent)}
+.tabs .n{font-family:var(--font-mono);font-size:11px;color:var(--faint);margin-left:6px}
+.pager{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:10px;
+  font-size:13px;color:var(--soft)}
+.pager a{text-decoration:none;border:1px solid var(--line);border-radius:99px;padding:3px 12px;
+  background:var(--card);color:var(--ink)}
+.pager .off{visibility:hidden}
 .proposal{margin-bottom:12px;border:1px solid var(--line);border-radius:6px}
 
 /* The drawer. */
@@ -159,11 +172,6 @@ const SCRIPT = `
   // button does the same thing — the small screen is not a worse place to read.
   var pick = document.getElementById('lane-pick');
   if (pick) pick.addEventListener('change', function () { this.form.submit(); });
-  // The task filters likewise: choosing applies, and their button is hidden.
-  document.documentElement.classList.add('js');
-  document.querySelectorAll('.task-filters select').forEach(function (s) {
-    s.addEventListener('change', function () { this.form.submit(); });
-  });
 }());`;
 
 /**
@@ -280,15 +288,6 @@ const list = ({ rows, contributions, where, project, item, isProject, owner, rep
   })).join('')}
 </div>`;
 
-function historyHref({ base, selected, item, history, taskWs, taskOwner }) {
-  const query = new URLSearchParams({ taskWs, taskOwner });
-  if (selected) query.set('ws', selected);
-  if (!history) {
-    query.set('history', '1');
-    if (item) query.set('item', item);
-  }
-  return `${base}?${query}`;
-}
 
 function queueRows({ q, view, item, origin }) {
   const tree = q.workstream ? view.trees[q.workstream] : view.projectTree;
@@ -342,7 +341,34 @@ function queueRows({ q, view, item, origin }) {
   })}${proposals}</div>`;
 }
 
-export const projectPage = ({ user, view, selected, item = null, note = null, origin = null, filters = {}, history = false }) => {
+/** How many rows one page of a list shows. */
+export const PAGE_SIZE = 20;
+
+/**
+ * Split rows into pages without separating an exception from its rule.
+ *
+ * An exception reads as a contradiction without the rule it bends, so it stays
+ * on the page its rule is on even when that page runs one or two over.
+ */
+export function paginate(rows, size = PAGE_SIZE) {
+  const pages = [];
+  for (const row of rows) {
+    const last = pages[pages.length - 1];
+    const keepWithRule = row.tier === 'exception' && row.parent && last;
+    if (!last || (last.length >= size && !keepWithRule)) pages.push([row]);
+    else last.push(row);
+  }
+  return pages.length ? pages : [[]];
+}
+
+/** The page to show: the one holding what a link points at, else the one asked for. */
+function pageFor(pages, asked, item, idOf = r => r.node?.id) {
+  const holding = item ? pages.findIndex(p => p.some(r => idOf(r) === item)) : -1;
+  if (holding >= 0) return holding + 1;
+  return Math.min(Math.max(1, asked || 1), pages.length);
+}
+
+export const projectPage = ({ user, view, selected, item = null, note = null, origin = null, filters = {}, history = false, tab = null, page = 1, inheritedPage: askedInherited = 1 }) => {
   const isProject = selected === null;
   const tree = isProject ? view.projectTree : view.trees[selected];
   const where = workstreamLocation(view.workstreams, selected, view.project);
@@ -369,16 +395,56 @@ export const projectPage = ({ user, view, selected, item = null, note = null, or
     && (taskWs === '@all' || (t.workstream || '@project') === taskWs)
     && (taskOwner === '@all' || (t.owner || '@unassigned') === taskOwner));
   const base = `/project/${encodeURIComponent(view.owner)}/${encodeURIComponent(view.repo)}`;
-  const laneHref = (ws) => `${base}?${new URLSearchParams(ws === null ? {} : { ws }).toString()}`;
+  // A link to a task opens the Tasks tab, a link to a record the Context tab;
+  // otherwise the tab asked for, and Context by default.
+  // A link carrying task filters is about tasks too, so an old filtered link
+  // still lands on the list it filtered.
+  const filtering = filters.workstream !== undefined || filters.owner !== undefined;
+  const onTasks = linkedTask ? true : (item && rows.some(r => r.node.id === item)) ? false
+    : tab === 'tasks' || (tab !== 'context' && filtering);
+  // Every link and form in the panel lands back on the panel, not the top of
+  // the page — a filter or a page turn reloads, and the reader was down here.
+  const panelHref = (params) => {
+    const q = new URLSearchParams();
+    if (selected) q.set('ws', selected);
+    for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== null && v !== '') q.set(k, v);
+    return `${base}${q.toString() ? `?${q}` : ''}#panel`;
+  };
+  const taskParams = { tab: 'tasks', taskWs: taskWs !== (selected || '@all') ? taskWs : '', taskOwner: taskOwner !== '@all' ? taskOwner : '' };
+  const laneHref = (ws) => `${base}?${new URLSearchParams({ ...(ws === null ? {} : { ws }), ...(onTasks ? { tab: 'tasks' } : {}) }).toString()}`;
+
+  // In a workstream there are two context tables — the project's, inherited,
+  // and this part's own — and each pages on its own: `page` for this part,
+  // `ipage` for the inherited one. Each pager keeps the other's place.
+  const inheritedRows = isProject ? [] : numbering(view.projectTree, history);
+  const inheritedPages = paginate(inheritedRows);
+  const inheritedAt = onTasks ? 1 : pageFor(inheritedPages, askedInherited, item);
+  const contextPages = paginate(rows);
+  const contextPage = onTasks ? 1 : pageFor(contextPages, page, item);
+  const contextParams = {
+    history: history ? '1' : '',
+    page: contextPage > 1 ? contextPage : '',
+    ipage: inheritedAt > 1 ? inheritedAt : '',
+  };
+  const taskPages = paginate(tasks.map(t => ({ node: t })));
+  const taskPage = onTasks ? pageFor(taskPages, page, item) : 1;
+  // `key` is which page parameter this pager turns; everything else in `params`
+  // is carried as it is, so turning one table's page leaves the other's alone.
+  const pager = (pages, at, params, key = 'page') => (pages.length < 2 ? '' : `<nav class="pager" aria-label="Pages">
+      <a class="${at > 1 ? '' : 'off'}" href="${esc(panelHref({ ...params, [key]: at - 1 > 1 ? at - 1 : '' }))}">← Previous</a>
+      <span>Page ${at} of ${pages.length}</span>
+      <a class="${at < pages.length ? '' : 'off'}" href="${esc(panelHref({ ...params, [key]: at + 1 }))}">Next →</a>
+    </nav>`);
 
   // The project's goal and its active records sit above a workstream's, the way
   // teamctx composes context: inherited, not owned, and said so.
-  const inheritedRows = isProject ? [] : numbering(view.projectTree, history);
   const inherited = inheritedRows.length
     ? `<div class="inherited">
       <div class="section-title">Project context — inherited</div>
-      ${inheritedRows.map(row => itemButton({ row, contributions: view.contributions, where: view.project,
+      ${rowHeader()}
+      ${inheritedPages[inheritedAt - 1].map(row => itemButton({ row, contributions: view.contributions, where: view.project,
         isProject: true, owner: view.owner, repo: view.repo, origin, marked: row.node.id === item })).join('')}
+      ${pager(inheritedPages, inheritedAt, contextParams, 'ipage')}
     </div>`
     : '';
 
@@ -413,16 +479,48 @@ ${note ? `<p class="note">${esc(note)}</p>` : ''}
   </aside>
 
   <main>
+    <nav class="tabs" id="panel" aria-label="What to show">
+      <a href="${esc(panelHref({ history: history ? '1' : '' }))}"${onTasks ? '' : ' aria-current="page"'}>Context<span class="n">${rows.length}</span></a>
+      <a href="${esc(panelHref(taskParams))}"${onTasks ? ' aria-current="page"' : ''}>Tasks<span class="n">${tasks.length} open</span></a>
+    </nav>
+    ${onTasks ? `<section>
+      <div class="tasks-head">
+        <span class="section-title">Tasks${taskWs === '@all' ? '' : ` — ${esc(taskWs === '@project' ? (view.project || 'Overall project') : workstreamLocation(view.workstreams, taskWs))}`}</span>
+        <form class="task-filters" method="GET" action="${esc(`${base}#panel`)}">
+          ${selected ? `<input type="hidden" name="ws" value="${esc(selected)}">` : ''}
+          <input type="hidden" name="tab" value="tasks">
+          <label class="pick"><span>Where</span><select name="taskWs" aria-label="Which part of the work">
+            ${[['@all', 'All work'], ['@project', view.project || 'Overall project'], ...view.workstreams.map(w => [w.id, workstreamLocation(view.workstreams, w.id)])]
+    .map(([value, label]) => `<option value="${esc(value)}"${value === taskWs ? ' selected' : ''}>${esc(label)}</option>`).join('')}
+          </select></label>
+          <label class="pick"><span>Owner</span><select name="taskOwner" aria-label="Whose tasks">
+            ${[['@all', 'Everyone'], ['@unassigned', 'Unassigned'], ...owners.map(o => [o, o])].map(([value, label]) => `<option value="${esc(value)}"${value === taskOwner ? ' selected' : ''}>${esc(label)}</option>`).join('')}
+          </select></label>
+          <button type="submit" class="apply">Filter</button>
+          ${taskWs !== (selected || '@all') || taskOwner !== '@all'
+    ? `<a class="clear" href="${esc(panelHref({ tab: 'tasks' }))}">Clear</a>` : ''}
+        </form>
+      </div>
+      ${tasks.length ? rowHeader({ text: 'Task' }) : ''}
+      <div class="task-list">${tasks.length ? taskPages[taskPage - 1].map(({ node: t }) => itemButton({
+        row: { node: t, tier: 'task', n: '—' }, contributions: view.contributions, where: t.where,
+        isProject: !t.workstream, wsId: t.workstream, owner: view.owner, repo: view.repo,
+        origin, marked: t.id === item,
+      })).join('') : '<p class="muted">No open tasks match these filters.</p>'}</div>
+      ${pager(taskPages, taskPage, taskParams)}
+      ${view.tasks.done.length ? `<p class="muted">${view.tasks.done.length}
+        task${view.tasks.done.length === 1 ? '' : 's'} already done.</p>` : ''}
+    </section>` : `<section>
     <div class="tree-head">
       <span class="section-title">${esc(where)}</span>
       ${retired || history ? `<span class="toggle">
-        <a href="${esc(historyHref({ base, selected, item, history, taskWs, taskOwner }))}" class="${history ? 'on' : ''}">${history ? 'Hide history' : `Show history (${retired})`}</a>
+        <a href="${esc(panelHref({ history: history ? '' : '1', item: history ? '' : item }))}" class="${history ? 'on' : ''}">${history ? 'Hide history' : `Show history (${retired})`}</a>
       </span>` : ''}
     </div>
     ${inherited}
     ${rows.length
-    ? list({
-      rows,
+    ? `${rowHeader()}${list({
+      rows: contextPages[contextPage - 1],
       contributions: view.contributions,
       where,
       project: view.project || view.repo,
@@ -432,39 +530,13 @@ ${note ? `<p class="note">${esc(note)}</p>` : ''}
       repo: view.repo,
       wsId: selected,
       origin,
-    })
+    })}${pager(contextPages, contextPage, contextParams)}`
     : '<p class="empty">Nothing written here yet — ask your assistant to add context.</p>'}
-
-    <section style="margin-top:2rem">
-      <div class="tasks-head">
-        <span class="section-title">Tasks</span>
-        <span class="count">${tasks.length} open</span>
-        <form class="task-filters" method="GET" action="${base}">
-          ${selected ? `<input type="hidden" name="ws" value="${esc(selected)}">` : ''}
-          ${history ? '<input type="hidden" name="history" value="1">' : ''}
-          <label class="pick"><span>Where</span><select name="taskWs" aria-label="Which part of the work">
-            ${[['@all', 'All work'], ['@project', view.project || 'Overall project'], ...view.workstreams.map(w => [w.id, workstreamLocation(view.workstreams, w.id)])]
-    .map(([value, label]) => `<option value="${esc(value)}"${value === taskWs ? ' selected' : ''}>${esc(label)}</option>`).join('')}
-          </select></label>
-          <label class="pick"><span>Owner</span><select name="taskOwner" aria-label="Whose tasks">
-            ${[['@all', 'Everyone'], ['@unassigned', 'Unassigned'], ...owners.map(o => [o, o])].map(([value, label]) => `<option value="${esc(value)}"${value === taskOwner ? ' selected' : ''}>${esc(label)}</option>`).join('')}
-          </select></label>
-          <button type="submit" class="apply">Apply</button>
-          ${taskWs !== (selected || '@all') || taskOwner !== '@all'
-    ? `<a class="clear" href="${esc(`${base}${selected ? `?${new URLSearchParams({ ws: selected })}` : ''}`)}">Clear</a>` : ''}
-        </form>
-      </div>
-      <div class="task-list">${tasks.length ? tasks.map(t => itemButton({
-        row: { node: t, tier: 'task', n: '—' }, contributions: view.contributions, where: t.where,
-        isProject: !t.workstream, wsId: t.workstream, owner: view.owner, repo: view.repo,
-        origin, marked: t.id === item,
-      })).join('') : '<p class="muted">No open tasks match these filters.</p>'}</div>
-      ${view.tasks.done.length ? `<p class="muted">${view.tasks.done.length}
-        task${view.tasks.done.length === 1 ? '' : 's'} already done.</p>` : ''}
-    </section>
+    </section>`}
 
     ${view.pending ? `<section style="margin-top:2rem">
       <div class="section-title">Waiting on you</div>
+      ${view.pending.length ? rowHeader({ text: 'Proposal' }) : ''}
       ${view.pending.length ? view.pending.map(q => queueRows({ q, view, item, origin })).join('') : '<p class="muted">Nothing is waiting for review.</p>'}
     </section>` : ''}
   </main>

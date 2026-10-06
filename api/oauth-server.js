@@ -1259,7 +1259,7 @@ app.get('/project/:owner/:repo', async (req, res) => {
     // following a link to one statement lands on the project and has to find it
     // again — which is the whole thing this was built to save them.
     const navigation = new URLSearchParams(parseViewParams(req.query));
-    for (const key of ['view', 'history', 'taskWs', 'taskOwner']) {
+    for (const key of ['view', 'history', 'taskWs', 'taskOwner', 'tab', 'page', 'ipage']) {
       const value = req.query[key];
       if (typeof value !== 'string') continue;
       const parameter = new URLSearchParams({ [key]: value });
@@ -1319,6 +1319,9 @@ app.get('/project/:owner/:repo', async (req, res) => {
       item,
       filters: { workstream: req.query.taskWs, owner: req.query.taskOwner },
       history: req.query.history === '1',
+      tab: req.query.tab === 'tasks' ? 'tasks' : req.query.tab === 'context' ? 'context' : null,
+      page: /^[1-9]\d{0,3}$/.test(String(req.query.page || '')) ? Number(req.query.page) : 1,
+      inheritedPage: /^[1-9]\d{0,3}$/.test(String(req.query.ipage || '')) ? Number(req.query.ipage) : 1,
       // So a copied prompt can carry the address of the page it was copied
       // from, which is the one thing that tells a reader where it came from.
       origin: baseUrlFor(req),
