@@ -20,6 +20,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `workstream_split` and `teamctx workstream suggest` / `suggest_workstream_splits`.
 
 ### Added
+- **A note that contradicts an assumption is put to the manager as evidence.**
+  #120 says what rested on an assumption once it breaks; somebody still had to
+  notice it broke, and that notice arrives as a meeting note or a document that
+  never names the assumption. A contribution that argues against an active
+  assumption now proposes the quote as `evidence` on it together with a break,
+  and the manager sees *"Evidence against 'We're assuming: …': "<quote>" (from
+  <who> via <where>)"* beside what would be affected. It always waits for the
+  manager, even when the manager sent it with `apply`; who said it, where and
+  when come from the contribution, never from the model. Evidence is kept only
+  beside a break of the same assumption, so a supporting observation or a mere
+  mention is not recorded as evidence. An edit that changes nothing is now
+  dropped rather than stamped onto a record's history. Evidence is caught
+  against assumptions in the part of the work the note is contributed to.
+  Closes #122.
 - **When an assumption breaks, teamctx says what was standing on it.** A decision
   or rule can name the assumptions it rests on, and that link had been stored
   since the governed-records model landed while nothing read it — so the one
