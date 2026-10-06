@@ -110,6 +110,7 @@ export async function importDocuments({
         mode: r.mode,
         summary: r.summary,
         operations: r.operations || [],
+        ...(r.contradictions?.length ? { contradictions: r.contradictions } : {}),
         workstream: r.workstream,
       });
       // What earlier documents proposed adding, so a later one about the same

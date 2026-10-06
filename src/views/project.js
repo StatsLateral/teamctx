@@ -3,6 +3,7 @@ import { LABELS, RECORD_TYPES } from '../model.js';
 import { projectRow, ROW_CSS } from './project-row.js';
 import { workstreamLocation } from './workstream-location.js';
 import { EDITABLE_RECORD_FIELDS } from '../ops.js';
+import { contradictionLabel } from '../contradictions.js';
 
 /** Read-only project context, work and proposals, using one row layout. */
 
@@ -237,7 +238,7 @@ function promptFor({ node, tier, where, isProject, owner, repo, link, parent, pe
  */
 const escAttr = (v) => esc(v).replace(/\n/g, '&#10;');
 
-function itemButton({ row, contributions, where, marked, isProject, owner, repo, wsId, origin, pending = false, id, linkId = row.node.id }) {
+function itemButton({ row, contributions, where, marked, isProject, owner, repo, wsId, origin, pending = false, id, linkId = row.node.id, warnings = [] }) {
   const { node, tier, n, parent } = row;
   const prompt = promptFor({
     node: { ...node, text: tier === 'task' ? node.title : node.text }, tier, where, isProject, owner, repo, parent, pending,
@@ -246,7 +247,7 @@ function itemButton({ row, contributions, where, marked, isProject, owner, repo,
     })}` : null,
   });
   const who = pending && node.author ? [node.author] : whoTouched(node, contributions);
-  return projectRow({ node, type: tier, contributions, where, fallbackKey: n, marked, pending,
+  return projectRow({ node, type: tier, contributions, where, fallbackKey: n, marked, pending, warnings,
     id: id || `${tier === 'task' ? 't' : 'i'}-${node.id}`,
     relation: parent ? `↳ bends ${parent.key || (pending ? 'the proposed rule' : 'the rule above')}` : '',
     attributes: ` data-text="${esc(tier === 'task' ? node.title : node.text)}" data-kind="${esc(`${tier === 'task' ? 'Task' : (LABELS[tier] || tier).replace(/:$/, '')} ${node.key || (pending ? 'Pending' : n)}`)}"
@@ -291,6 +292,7 @@ function queueRows({ q, view, item, origin }) {
       where: q.where, isProject: !q.workstream, wsId: q.workstream,
       owner: view.owner, repo: view.repo, origin, pending: true,
       id: `proposal-${q.id}-${index}`, linkId: q.id,
+      warnings: (q.contradictions || []).filter(c => c.operationIndex === index).map(contradictionLabel),
     });
   };
   const proposals = operations.map((op, i) => {
@@ -325,6 +327,7 @@ function queueRows({ q, view, item, origin }) {
     row: { node: { id: q.id, text: q.summary || '(no summary)', owner: q.author, author: q.author, source: q.source }, tier: 'review', n: '—' },
     contributions: view.contributions, where: q.where, isProject: !q.workstream, wsId: q.workstream,
     owner: view.owner, repo: view.repo, origin, pending: true, id: `r-${q.id}`, marked: q.id === item,
+    warnings: (q.contradictions || []).map(contradictionLabel),
   })}${proposals}</div>`;
 }
 
