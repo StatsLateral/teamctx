@@ -89,6 +89,20 @@ describe('contradiction review through the real provider and storage paths', () 
     expect(records[1].id).not.toBe('old');
   });
 
+  it('reports the replacement as a new record, not as the one it replaced', async () => {
+    // The stored data was always right; the approval result was not. It
+    // carried the old record's id and key in the proposal, so it named the new
+    // decision D-1 while the tree held it as D-2.
+    response([{ type: 'editRecord', id: 'old', changes: { text: newText } }]);
+    const queued = await contribute();
+    const r = await approve(queued.id, ['old']);
+    const proposed = r.operations.find(o => o.type === 'addRecord').record;
+    expect(proposed.id).toBeUndefined();
+    expect(proposed.key).toBeUndefined();
+    expect(proposed.status).toBeUndefined();
+    expect(proposed).toMatchObject({ text: newText, links: expect.objectContaining({ replaces: 'old' }) });
+  });
+
   it('rejects a flagged contribution without allocating keys', async () => {
     const queued = await contribute();
     const rejected = await run(() => rejectReview({ id: queued.id, reason: 'Keep pricing audits', teamctxDir: dir }));
