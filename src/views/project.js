@@ -69,7 +69,14 @@ const CSS = `
 .task-filters select{width:auto;max-width:220px;border:0;background:transparent;font-size:13px;
   padding:4px 6px;color:var(--ink);cursor:pointer;margin:0}
 .task-filters select:focus{outline:none}
-.task-filters .apply{font-size:12px;padding:4px 12px;border-radius:99px}
+.task-filters .apply{font-size:12px;font-weight:600;padding:5px 14px;border-radius:99px;
+  background:var(--accent);color:#fff;border:1px solid var(--accent)}
+.task-filters .apply:hover:not(:disabled){filter:brightness(1.08)}
+/* Nothing to apply: the choice is what is already shown. */
+.task-filters .apply:disabled{background:var(--grey-soft);color:var(--faint);border-color:var(--line);opacity:1}
+/* What history added, said where it was added. */
+.history-note{font-size:12px;color:var(--soft);background:var(--grey-soft);border-radius:var(--radius-sm);
+  padding:6px 10px;margin:0 0 10px}
 .task-filters .clear{font-size:12px;color:var(--soft)}
 /* Context and Tasks as tabs over one panel, rather than one long page with the
    tasks somewhere below the context. The active tab is the highlighted one. */
@@ -173,6 +180,19 @@ const SCRIPT = `
   // button does the same thing — the small screen is not a worse place to read.
   var pick = document.getElementById('lane-pick');
   if (pick) pick.addEventListener('change', function () { this.form.submit(); });
+  // The Filter button is live only when the choice differs from what is shown.
+  // Without JavaScript it simply stays live, so filtering still works.
+  var filters = document.querySelector('.task-filters');
+  if (filters) {
+    var apply = filters.querySelector('.apply');
+    var selects = filters.querySelectorAll('select');
+    var shown = Array.prototype.map.call(selects, function (s) { return s.value; }).join('|');
+    var sync = function () {
+      apply.disabled = Array.prototype.map.call(selects, function (s) { return s.value; }).join('|') === shown;
+    };
+    Array.prototype.forEach.call(selects, function (s) { s.addEventListener('change', sync); });
+    sync();
+  }
 }());`;
 
 /**
@@ -403,8 +423,15 @@ export const projectPage = ({ user, view, selected, item = null, note = null, or
   // A link carrying task filters is about tasks too, so an old filtered link
   // still lands on the list it filtered.
   const filtering = filters.workstream !== undefined || filters.owner !== undefined;
-  const onTasks = linkedTask ? true : (item && rows.some(r => r.node.id === item)) ? false
-    : tab === 'tasks' || (tab !== 'context' && filtering);
+  // The review queue is the manager's, so its tab exists only for them.
+  const reviewing = Array.isArray(view.pending);
+  const linkedReview = reviewing && item && view.pending.some(q => q.id === item);
+  const active = linkedTask ? 'tasks'
+    : (item && rows.some(r => r.node.id === item)) ? 'context'
+      : linkedReview ? 'review'
+        : tab === 'review' && reviewing ? 'review'
+          : tab === 'tasks' || (tab !== 'context' && filtering) ? 'tasks' : 'context';
+  const onTasks = active === 'tasks';
   // Every link and form in the panel lands back on the panel, not the top of
   // the page — a filter or a page turn reloads, and the reader was down here.
   const panelHref = (params) => {
@@ -433,6 +460,11 @@ export const projectPage = ({ user, view, selected, item = null, note = null, or
   const taskPage = onTasks ? pageFor(taskPages, page, item) : 1;
   // `key` is which page parameter this pager turns; everything else in `params`
   // is carried as it is, so turning one table's page leaves the other's alone.
+  // The queue pages by proposal rather than by row: one proposal can carry
+  // several changes, and splitting it across pages would hide part of what is
+  // being approved.
+  const reviewPages = reviewing ? paginate(view.pending.map(q => ({ node: q })), 10) : [[]];
+  const reviewPage = active === 'review' ? pageFor(reviewPages, page, item) : 1;
   const pager = (pages, at, params, key = 'page') => (pages.length < 2 ? '' : `<nav class="pager" aria-label="Pages">
       <a class="${at > 1 ? '' : 'off'}" href="${esc(panelHref({ ...params, [key]: at - 1 > 1 ? at - 1 : '' }))}">← Previous</a>
       <span>Page ${at} of ${pages.length}</span>
@@ -483,10 +515,16 @@ ${note ? `<p class="note">${esc(note)}</p>` : ''}
 
   <main>
     <nav class="tabs" id="panel" aria-label="What to show">
-      <a href="${esc(panelHref({ history: history ? '1' : '' }))}"${onTasks ? '' : ' aria-current="page"'}>Context<span class="n">${rows.length}</span></a>
+      <a href="${esc(panelHref({ history: history ? '1' : '' }))}"${active === 'context' ? ' aria-current="page"' : ''}>Context<span class="n">${rows.length}</span></a>
       <a href="${esc(panelHref(taskParams))}"${onTasks ? ' aria-current="page"' : ''}>Tasks<span class="n">${tasks.length} open</span></a>
+      ${reviewing ? `<a href="${esc(panelHref({ tab: 'review' }))}"${active === 'review' ? ' aria-current="page"' : ''}>Waiting on you<span class="n">${view.pending.length}</span></a>` : ''}
     </nav>
-    ${onTasks ? `<section>
+    ${active === 'review' ? `<section>
+      <div class="tree-head"><span class="section-title">Waiting on you</span></div>
+      ${view.pending.length ? `${rowHeader({ text: 'Proposal' })}
+      ${reviewPages[reviewPage - 1].map(({ node: q }) => queueRows({ q, view, item, origin })).join('')}
+      ${pager(reviewPages, reviewPage, { tab: 'review' })}` : '<p class="muted">Nothing is waiting for review.</p>'}
+    </section>` : onTasks ? `<section>
       <div class="tasks-head">
         <span class="section-title">Tasks${taskWs === '@all' ? '' : ` — ${esc(taskWs === '@project' ? (view.project || 'Overall project') : workstreamLocation(view.workstreams, taskWs))}`}</span>
         <form class="task-filters" method="GET" action="${esc(`${base}#panel`)}">
@@ -520,6 +558,7 @@ ${note ? `<p class="note">${esc(note)}</p>` : ''}
         <a href="${esc(panelHref({ history: history ? '' : '1', item: history ? '' : item }))}" class="${history ? 'on' : ''}">${history ? 'Hide history' : `Show history (${retired})`}</a>
       </span>` : ''}
     </div>
+    ${history && retired ? `<p class="history-note">Showing ${retired} retired record${retired === 1 ? '' : 's'} — replaced, broken or closed — dimmed, with their status. Current context is not dimmed.</p>` : ''}
     ${inherited}
     ${rows.length
     ? `${rowHeader()}${list({
@@ -536,12 +575,6 @@ ${note ? `<p class="note">${esc(note)}</p>` : ''}
     })}${pager(contextPages, contextPage, contextParams)}`
     : '<p class="empty">Nothing written here yet — ask your assistant to add context.</p>'}
     </section>`}
-
-    ${view.pending ? `<section style="margin-top:2rem">
-      <div class="section-title">Waiting on you</div>
-      ${view.pending.length ? rowHeader({ text: 'Proposal' }) : ''}
-      ${view.pending.length ? view.pending.map(q => queueRows({ q, view, item, origin })).join('') : '<p class="muted">Nothing is waiting for review.</p>'}
-    </section>` : ''}
   </main>
 </div>
 
