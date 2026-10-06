@@ -126,7 +126,7 @@ describe('the manager looking at a project', () => {
   });
 
   it('sees every open task and who has it, and a count of what is done', async () => {
-    const { body } = await visit('/project/acme/ledger', MANAGER);
+    const { body } = await visit('/project/acme/ledger?tab=tasks', MANAGER);
     expect(body).toContain('Draft the pricing page');
     expect(body).toContain('Migrate the database');
     expect(body).not.toContain('Something finished');
@@ -155,7 +155,7 @@ describe('a member looking at the same project', () => {
 
   it('sees only the part of the work they are on', async () => {
     await lend();
-    const { body } = await visit('/project/acme/ledger', MEMBER_GOOGLE);
+    const { body } = await visit('/project/acme/ledger?tab=tasks', MEMBER_GOOGLE);
     expect(body).toContain('Draft the pricing page');
     expect(body).not.toContain('Migrate the database');
     // Scope is the sidebar now: the parts they are on are there to open, and
@@ -729,16 +729,16 @@ describe('shared rows, task filters and governance (#127)', () => {
     expect(body).toContain('id="i-expired"');
   });
 
-  it('renders a task once in both reading views, with the shared anatomy', async () => {
-    for (const mode of ['columns', 'list']) {
-      const { body } = await visit(`/project/acme/ledger?ws=product&view=${mode}`, MANAGER);
-      expect(body.match(/id="t-pricing-page"/g)).toHaveLength(1);
-      const task = row(body, 't-pricing-page');
-      for (const text of ['class="num"', 'class="type-label">Task', 'class="row-owner">Priya', 'class="row-state"', 'class="dot none"', 'class="row-where">Product']) expect(task).toContain(text);
-      expect(row(body, 'i-w1')).toContain('class="type-label">Decision');
-      expect(row(body, 'i-p1')).toContain('class="row-state"');
-      expect(row(body, 'r-c-1')).toContain('Awaiting review');
-    }
+  it('renders records, tasks and proposals with the shared anatomy', async () => {
+    const tasks = await visit('/project/acme/ledger?ws=product&tab=tasks', MANAGER);
+    expect(tasks.body.match(/id="t-pricing-page"/g)).toHaveLength(1);
+    const task = row(tasks.body, 't-pricing-page');
+    for (const text of ['class="num"', 'class="type-label">Task', 'class="row-owner">Priya', 'class="row-state"', 'class="dot none"', 'class="row-where">Product']) expect(task).toContain(text);
+    const context = await visit('/project/acme/ledger?ws=product', MANAGER);
+    expect(row(context.body, 'i-w1')).toContain('class="type-label">Decision');
+    expect(row(context.body, 'i-p1')).toContain('class="row-state"');
+    // The queue sits below the tabs, so it is there on either.
+    for (const { body } of [tasks, context]) expect(row(body, 'r-c-1')).toContain('Awaiting review');
   });
 
   it('filters by workstream and owner, with a useful empty state', async () => {
@@ -760,20 +760,22 @@ describe('shared rows, task filters and governance (#127)', () => {
     expect(row(body, 't-project-task')).toContain('class="row-where">Ledger');
   });
 
-  it('preserves filters and history in the history link and the filter form', async () => {
-    const { body } = await visit('/project/acme/ledger?ws=product&history=1&taskWs=tech&taskOwner=Dev', MANAGER);
-    expect(body).toMatch(/href="[^"]*taskWs=tech[^"]*taskOwner=Dev[^"]*"[^>]*>Hide history/);
-    const form = /<form class="task-filters"[\s\S]*?<\/form>/.exec(body)[0];
-    for (const hidden of ['name="ws" value="product"', 'name="history" value="1"']) expect(form).toContain(hidden);
+  it('keeps the part of the work and the tab in the filter form, and history on Context', async () => {
+    const tasks = await visit('/project/acme/ledger?ws=product&taskWs=tech&taskOwner=Dev', MANAGER);
+    const form = /<form class="task-filters"[\s\S]*?<\/form>/.exec(tasks.body)[0];
+    for (const hidden of ['name="ws" value="product"', 'name="tab" value="tasks"']) expect(form).toContain(hidden);
     expect(form).not.toContain('name="view"');
     expect(form).toContain('value="Dev" selected');
+    records([{ id: 'h1', type: 'decision', text: 'old', status: 'replaced' }]);
+    const context = await visit('/project/acme/ledger?ws=product&history=1', MANAGER);
+    expect(context.body).toMatch(/href="[^"]*ws=product[^"]*#panel"[^>]*>Hide history/);
   });
 
   it('names nested locations in tasks and proposals, without raw ids as labels', async () => {
     repo.files.set('.teamctx/config.json', JSON.stringify({ ...CONFIG, workstreams: [
       { id: 'product', name: 'Pricing', parent: 'tech' }, { id: 'tech', name: 'Launch' },
     ] }));
-    const { body } = await visit('/project/acme/ledger', MANAGER);
+    const { body } = await visit('/project/acme/ledger?tab=tasks', MANAGER);
     expect(row(body, 't-pricing-page')).toContain('class="row-where">Launch › Pricing');
     expect(row(body, 'r-c-1')).toContain('class="row-where">Launch › Pricing');
     expect(body).not.toContain('(id: product)');
@@ -978,20 +980,24 @@ describe('the history link', () => {
 });
 
 describe('the task filters', () => {
-  it('sit beside the heading with a count, as compact pickers', async () => {
-    const { body } = await visit('/project/acme/ledger', MANAGER);
+  it('sit beside the heading, as compact pickers', async () => {
+    const { body } = await visit('/project/acme/ledger?tab=tasks', MANAGER);
     const head = /<div class="tasks-head">[\s\S]*?<\/form>\s*<\/div>/.exec(body)[0];
     expect(head).toContain('class="section-title">Tasks<');
-    expect(head).toMatch(/class="count">\d+ open</);
     expect(head).toMatch(/<label class="pick"><span>Where<\/span><select name="taskWs"/);
     expect(head).toMatch(/<label class="pick"><span>Owner<\/span><select name="taskOwner"/);
   });
 
-  it('apply on change, keeping a button for a browser without JavaScript', async () => {
-    const { body } = await visit('/project/acme/ledger', MANAGER);
-    expect(body).toContain("document.querySelectorAll('.task-filters select')");
-    expect(body).toContain('<button type="submit" class="apply">Apply</button>');
-    expect(body).toMatch(/\.js \.task-filters \.apply\{display:none\}/);
+  it('wait for their button rather than reloading on every change', async () => {
+    const { body } = await visit('/project/acme/ledger?tab=tasks', MANAGER);
+    expect(body).toContain('<button type="submit" class="apply">Filter</button>');
+    expect(body).not.toContain("document.querySelectorAll('.task-filters select')");
+  });
+
+  it('land back on the list after filtering, not the top of the page', async () => {
+    const { body } = await visit('/project/acme/ledger?tab=tasks', MANAGER);
+    expect(body).toMatch(/<form class="task-filters" method="GET" action="\/project\/acme\/ledger#panel">/);
+    expect(body).toContain('id="panel"');
   });
 
   it('are not full-width form fields', async () => {
@@ -1001,9 +1007,100 @@ describe('the task filters', () => {
   });
 
   it('offer a way back only when a filter is on', async () => {
-    const plain = await visit('/project/acme/ledger', MANAGER);
+    const plain = await visit('/project/acme/ledger?tab=tasks', MANAGER);
     expect(plain.body).not.toMatch(/class="clear"/);
     const filtered = await visit('/project/acme/ledger?taskOwner=Dev', MANAGER);
-    expect(filtered.body).toMatch(/<a class="clear" href="\/project\/acme\/ledger">Clear<\/a>/);
+    expect(filtered.body).toMatch(/<a class="clear" href="\/project\/acme\/ledger\?tab=tasks#panel">Clear<\/a>/);
+  });
+});
+
+/**
+ * Headings, tabs and pages on the project page.
+ *
+ * The row anatomy is fixed — key, type, text, owner, status, source — and
+ * without headings nobody could tell what each part was. Context and tasks
+ * share the page as two tabs instead of one long scroll, and each list pages
+ * on its own, including the project's inherited context inside a workstream.
+ */
+describe('reading the project page', () => {
+  const manyRecords = (n, prefix) => Array.from({ length: n }, (_, i) => ({
+    id: `${prefix}${i + 1}`, key: `D-${i + 1}`, type: 'decision', text: `${prefix} decision ${i + 1}`, status: 'active',
+  }));
+  const setProduct = (records) => repo.files.set('.teamctx/workstreams/product.json', JSON.stringify({
+    id: 'product', name: 'Product', tasks: [], records,
+  }));
+  const setProject = (records) => repo.files.set('.teamctx/project.json', JSON.stringify({
+    name: 'Ledger', tasks: [], records,
+  }));
+
+  it('heads each table with what its columns are', async () => {
+    const context = await visit('/project/acme/ledger', MANAGER);
+    expect(context.body).toMatch(/<div class="row-head"[^>]*><span>Key<\/span><span>Type<\/span><span>Statement<\/span><span>Owner<\/span><span>Status<\/span><span[^>]*>Source<\/span><\/div>/);
+    const tasks = await visit('/project/acme/ledger?tab=tasks', MANAGER);
+    expect(tasks.body).toMatch(/<span>Key<\/span><span>Type<\/span><span>Task<\/span>/);
+  });
+
+  it('shows Context or Tasks, never both, with the active tab marked', async () => {
+    const context = await visit('/project/acme/ledger', MANAGER);
+    expect(context.body).toMatch(/<a href="[^"]*#panel" aria-current="page">Context/);
+    expect(context.body).not.toContain('Draft the pricing page');
+    const tasks = await visit('/project/acme/ledger?tab=tasks', MANAGER);
+    expect(tasks.body).toMatch(/aria-current="page">Tasks/);
+    expect(tasks.body).toContain('Draft the pricing page');
+    expect(tasks.body).not.toContain('class="item tier-decision"');
+  });
+
+  it('opens the tab that holds what a link points at', async () => {
+    const task = await visit('/project/acme/ledger?task=pricing-page', MANAGER);
+    expect(task.body).toMatch(/aria-current="page">Tasks/);
+    expect(task.body).toMatch(/class="item tier-task marked" id="t-pricing-page"/);
+  });
+
+  it('pages a long list, twenty to a page, landing back on the panel', async () => {
+    setProject(manyRecords(45, 'p'));
+    const first = await visit('/project/acme/ledger', MANAGER);
+    expect(first.body).toContain('p decision 20');
+    expect(first.body).not.toContain('p decision 21<');
+    expect(first.body).toContain('Page 1 of 3');
+    expect(first.body).toMatch(/href="\/project\/acme\/ledger\?page=2#panel">Next/);
+    const second = await visit('/project/acme/ledger?page=2', MANAGER);
+    expect(second.body).toContain('p decision 21');
+    expect(second.body).toContain('Page 2 of 3');
+  });
+
+  it('pages the inherited context and this part’s own separately', async () => {
+    setProject(manyRecords(25, 'p'));
+    setProduct(manyRecords(25, 'w'));
+    const page = await visit('/project/acme/ledger?ws=product&ipage=2', MANAGER);
+    // The inherited table is on its second page; this part's is still on its first.
+    expect(page.body).toContain('p decision 21');
+    expect(page.body).not.toContain('p decision 1<');
+    expect(page.body).toContain('w decision 1<');
+    expect(page.body).not.toContain('w decision 21');
+    // Turning this part's page keeps the inherited table where it was.
+    expect(page.body).toMatch(/href="\/project\/acme\/ledger\?ws=product&amp;page=2&amp;ipage=2#panel">Next/);
+  });
+
+  it('opens the page holding the record a link points at', async () => {
+    setProject(manyRecords(45, 'p'));
+    const { body } = await visit('/project/acme/ledger?item=p33', MANAGER);
+    expect(body).toContain('Page 2 of 3');
+    expect(body).toMatch(/class="item tier-decision marked" id="i-p33"/);
+  });
+
+  it('keeps an exception on the page of the rule it bends', async () => {
+    const records = manyRecords(19, 'p');
+    records.push({ id: 'rule', key: 'R-1', type: 'rule', text: 'the rule', status: 'active' });
+    records.push({ id: 'ex', key: 'X-1', type: 'exception', text: 'the exception', status: 'active', expiresAt: '2999-01-01', links: { bends: 'rule' } });
+    records.push(...manyRecords(5, 'q'));
+    setProject(records);
+    const { body } = await visit('/project/acme/ledger', MANAGER);
+    expect(body).toContain('the rule');
+    expect(body).toContain('the exception');
+  });
+
+  it('offers no pager when everything fits on one page', async () => {
+    const { body } = await visit('/project/acme/ledger', MANAGER);
+    expect(body).not.toContain('class="pager"');
   });
 });
