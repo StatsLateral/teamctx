@@ -271,9 +271,9 @@ describe('the tree the page draws', () => {
   it('names who wrote a statement, and what kind of source it came from', async () => {
     const { body } = await visit('/project/acme/ledger?ws=product', MANAGER);
     expect(body).toMatch(/data-who="Priya"/);
-    // The dot says where it came through — teamctx records the surface, not
-    // whether a person or a model wrote the words.
-    expect(body).toMatch(/class="dot mcp"/);
+    // The source column says where it came through, in a word — teamctx
+    // records the surface, not whether a person or a model wrote the words.
+    expect(body).toMatch(/class="row-source src-mcp"[^>]*>Assistant</);
     expect(body).toMatch(/data-summary="how we price"/);
   });
 
@@ -540,11 +540,10 @@ describe('the space above the tree', () => {
 });
 
 describe('a statement with nothing recorded behind it', () => {
-  it('shows no dot rather than a colour that means nothing', async () => {
-    // The project tree's Why has no sourceContributionIds in this fixture.
+  it('says nothing was recorded rather than naming a source it does not have', async () => {
+    // The project tree's record has no sourceContributionIds in this fixture.
     const { body } = await visit('/project/acme/ledger', MANAGER);
-    expect(body).toContain('class="dot none"');
-    expect(body).toContain('.dot.none{background:none}');
+    expect(body).toMatch(/class="row-source src-none" title="No source recorded">—</);
   });
 });
 
@@ -733,7 +732,7 @@ describe('shared rows, task filters and governance (#127)', () => {
     const tasks = await visit('/project/acme/ledger?ws=product&tab=tasks', MANAGER);
     expect(tasks.body.match(/id="t-pricing-page"/g)).toHaveLength(1);
     const task = row(tasks.body, 't-pricing-page');
-    for (const text of ['class="num"', 'class="type-label">Task', 'class="row-owner">Priya', 'class="row-state"', 'class="dot none"', 'class="row-where">Product']) expect(task).toContain(text);
+    for (const text of ['class="num"', 'class="type-label">Task', 'class="row-owner">Priya', 'class="row-state"', 'class="row-notes"', 'class="row-source src-none"', 'class="row-where">Product']) expect(task).toContain(text);
     const context = await visit('/project/acme/ledger?ws=product', MANAGER);
     expect(row(context.body, 'i-w1')).toContain('class="type-label">Decision');
     expect(row(context.body, 'i-p1')).toContain('class="row-state"');
@@ -1035,7 +1034,7 @@ describe('reading the project page', () => {
 
   it('heads each table with what its columns are', async () => {
     const context = await visit('/project/acme/ledger', MANAGER);
-    expect(context.body).toMatch(/<div class="row-head"[^>]*><span>Key<\/span><span>Type<\/span><span>Statement<\/span><span>Owner<\/span><span>Status<\/span><span[^>]*>Source<\/span><\/div>/);
+    expect(context.body).toMatch(/<div class="row-head"[^>]*><span>Key<\/span><span>Type<\/span><span>Statement<\/span><span>Owner<\/span><span>Status<\/span><span[^>]*>Notes<\/span><span[^>]*>Source<\/span><\/div>/);
     const tasks = await visit('/project/acme/ledger?tab=tasks', MANAGER);
     expect(tasks.body).toMatch(/<span>Key<\/span><span>Type<\/span><span>Task<\/span>/);
   });
@@ -1102,5 +1101,65 @@ describe('reading the project page', () => {
   it('offers no pager when everything fits on one page', async () => {
     const { body } = await visit('/project/acme/ledger', MANAGER);
     expect(body).not.toContain('class="pager"');
+  });
+});
+
+/**
+ * The row's last three columns say what they are.
+ *
+ * Status held both the record's state and every governance note, so the notes
+ * had no heading of their own; and the source was a coloured dot, which in a
+ * project where everything arrives through an assistant was a column of
+ * identical green dots.
+ */
+describe('status, notes and source in their own columns', () => {
+  const setProject = (records) => repo.files.set('.teamctx/project.json', JSON.stringify({ name: 'Ledger', tasks: [], records }));
+
+  it('keeps the status apart from the notes', async () => {
+    setProject([{ id: 'a1', key: 'A-1', type: 'assumption', text: 'they will pay', status: 'active', owner: { name: 'O' }, reviewBy: '2020-01-01' }]);
+    const { body } = await visit('/project/acme/ledger', MANAGER);
+    const r = /<button[^>]*id="i-a1"[\s\S]*?<\/button>/.exec(body)[0];
+    expect(r).toMatch(/<span class="row-state"><span class="status-chip">active<\/span><\/span>/);
+    expect(r).toMatch(/<span class="row-notes"><span class="governance-chip warning-chip">Review overdue 2020-01-01<\/span><\/span>/);
+  });
+
+  it('leaves the notes empty when there is nothing to say', async () => {
+    setProject([{ id: 'd1', key: 'D-1', type: 'decision', text: 'ship it', status: 'active' }]);
+    const { body } = await visit('/project/acme/ledger', MANAGER);
+    expect(/<button[^>]*id="i-d1"[\s\S]*?<\/button>/.exec(body)[0]).toContain('<span class="row-notes"></span>');
+  });
+
+  it('labels each part on a narrow screen, where the header is hidden', async () => {
+    const { body } = await visit('/project/acme/ledger', MANAGER);
+    const narrow = body.slice(body.indexOf('@media(max-width:1200px)'));
+    for (const label of ["content:'Owner: '", "content:'Status: '", "content:'Notes: '"]) expect(narrow).toContain(label);
+  });
+});
+
+describe('the filter button', () => {
+  it('looks like a button', async () => {
+    const { body } = await visit('/project/acme/ledger?tab=tasks', MANAGER);
+    expect(body).toMatch(/\.task-filters \.apply\{[^}]*background:var\(--accent\)/);
+  });
+
+  it('is greyed out until the choice differs from what is shown', async () => {
+    const { body } = await visit('/project/acme/ledger?tab=tasks', MANAGER);
+    expect(body).toMatch(/\.task-filters \.apply:disabled\{/);
+    expect(body).toContain('apply.disabled = ');
+    // Rendered live, so it still works with JavaScript off.
+    expect(body).toContain('<button type="submit" class="apply">Filter</button>');
+  });
+});
+
+describe('what history says it added', () => {
+  it('says how many retired records it is showing, and that they are dimmed', async () => {
+    repo.files.set('.teamctx/project.json', JSON.stringify({ name: 'Ledger', tasks: [], records: [
+      { id: 'd1', type: 'decision', text: 'current', status: 'active' },
+      { id: 'd2', type: 'decision', text: 'old', status: 'replaced' },
+    ] }));
+    const off = await visit('/project/acme/ledger', MANAGER);
+    expect(off.body).not.toContain('class="history-note"');
+    const on = await visit('/project/acme/ledger?history=1', MANAGER);
+    expect(on.body).toMatch(/class="history-note">Showing 1 retired record — replaced, broken or closed — dimmed/);
   });
 });
