@@ -134,7 +134,7 @@ describe('the manager looking at a project', () => {
   });
 
   it('sees what is waiting on them', async () => {
-    const { body } = await visit('/project/acme/ledger', MANAGER);
+    const { body } = await visit('/project/acme/ledger?tab=review', MANAGER);
     expect(body).toContain('Waiting on you');
     expect(body).toContain('adds the pricing tiers');
   });
@@ -674,12 +674,12 @@ describe('shared rows, task filters and governance (#127)', () => {
       id: 'c-1', status: 'pending', author: 'Priya', summary: 'Partial proposal', workstream: 'product',
       operations: [null, { type: 'addRecord' }, { type: 'addTask', title: 'Valid task proposal' }],
     }));
-    const { status, body } = await visit('/project/acme/ledger', MANAGER);
+    const { status, body } = await visit('/project/acme/ledger?tab=review', MANAGER);
     expect(status).toBe(200);
     expect(body).toContain('Valid task proposal');
     expect(body).toContain('Partial proposal');
     repo.files.set('.teamctx/queue/c-1.json', JSON.stringify({ id: 'c-1', status: 'pending', author: 'Priya', summary: 'Bad operation list', operations: {} }));
-    expect((await visit('/project/acme/ledger', MANAGER)).status).toBe(200);
+    expect((await visit('/project/acme/ledger?tab=review', MANAGER)).status).toBe(200);
   });
 
   it('shows which rule a proposed exception bends, including a proposed rule reference', async () => {
@@ -692,7 +692,7 @@ describe('shared rows, task filters and governance (#127)', () => {
         { type: 'addRecord', record: { type: 'exception', text: 'Acme gets three weeks', links: { bends: 'pilot-rule' }, expiresAt: '2999-01-01' } },
       ],
     }));
-    const { body } = await visit('/project/acme/ledger', MANAGER);
+    const { body } = await visit('/project/acme/ledger?tab=review', MANAGER);
     expect(row(body, 'proposal-c-1-0')).toContain('↳ bends R-9');
     expect(row(body, 'proposal-c-1-0')).toContain('Annual contracts only');
     expect(row(body, 'proposal-c-1-2')).toContain('↳ bends the proposed rule');
@@ -711,7 +711,7 @@ describe('shared rows, task filters and governance (#127)', () => {
         text: 'Updated Acme monthly pilot', links: { restsOn: [] }, status: 'broken', id: 'spoofed', key: 'X-999',
       } }],
     }));
-    const { body } = await visit('/project/acme/ledger', MANAGER);
+    const { body } = await visit('/project/acme/ledger?tab=review', MANAGER);
     const proposal = row(body, 'proposal-c-1-0');
     expect(proposal).toContain('↳ bends R-9');
     expect(proposal).toContain('Awaiting review · active');
@@ -736,8 +736,8 @@ describe('shared rows, task filters and governance (#127)', () => {
     const context = await visit('/project/acme/ledger?ws=product', MANAGER);
     expect(row(context.body, 'i-w1')).toContain('class="type-label">Decision');
     expect(row(context.body, 'i-p1')).toContain('class="row-state"');
-    // The queue sits below the tabs, so it is there on either.
-    for (const { body } of [tasks, context]) expect(row(body, 'r-c-1')).toContain('Awaiting review');
+    const queue = await visit('/project/acme/ledger?tab=review', MANAGER);
+    expect(row(queue.body, 'r-c-1')).toContain('Awaiting review');
   });
 
   it('filters by workstream and owner, with a useful empty state', async () => {
@@ -776,7 +776,8 @@ describe('shared rows, task filters and governance (#127)', () => {
     ] }));
     const { body } = await visit('/project/acme/ledger?tab=tasks', MANAGER);
     expect(row(body, 't-pricing-page')).toContain('class="row-where">Launch › Pricing');
-    expect(row(body, 'r-c-1')).toContain('class="row-where">Launch › Pricing');
+    const queue = await visit('/project/acme/ledger?tab=review', MANAGER);
+    expect(row(queue.body, 'r-c-1')).toContain('class="row-where">Launch › Pricing');
     expect(body).not.toContain('(id: product)');
     expect(body).not.toContain('class="row-where">product');
     expect(body).not.toContain('class="row-where">tech');
@@ -856,7 +857,7 @@ describe('shared rows, task filters and governance (#127)', () => {
       ],
     }));
     const before = [...repo.files];
-    const { body } = await visit('/project/acme/ledger', MANAGER);
+    const { body } = await visit('/project/acme/ledger?tab=review', MANAGER);
     expect(row(body, 'proposal-c-1-0')).toContain('class="num">Pending');
     expect(row(body, 'proposal-c-1-1')).toContain('class="type-label">Task');
     expect(row(body, 'proposal-c-1-2')).toContain('class="num">D-7');
@@ -1161,5 +1162,56 @@ describe('what history says it added', () => {
     expect(off.body).not.toContain('class="history-note"');
     const on = await visit('/project/acme/ledger?history=1', MANAGER);
     expect(on.body).toMatch(/class="history-note">Showing 1 retired record — replaced, broken or closed — dimmed/);
+  });
+});
+
+/**
+ * The review queue is its own tab.
+ *
+ * It sat below the context with nothing between them, so the manager could not
+ * tell where the team's context ended and what was waiting on them began. It
+ * pages by proposal, so one proposal's changes are never split across pages.
+ */
+describe('waiting on you, as a tab', () => {
+  const queue = (n) => {
+    for (let i = 1; i <= n; i++) {
+      repo.files.set(`.teamctx/queue/q-${String(i).padStart(2, '0')}.json`, JSON.stringify({
+        id: `q-${String(i).padStart(2, '0')}`, status: 'pending', author: 'Priya', summary: `proposal ${i}`, workstream: null,
+        operations: [{ type: 'addTask', title: `task from proposal ${i}` }],
+      }));
+    }
+  };
+
+  it('is offered to the manager, with a count, and keeps the queue off the context', async () => {
+    const context = await visit('/project/acme/ledger', MANAGER);
+    expect(context.body).toMatch(/>Waiting on you<span class="n">1<\/span>/);
+    expect(context.body).not.toContain('id="r-c-1"');
+    const review = await visit('/project/acme/ledger?tab=review', MANAGER);
+    expect(review.body).toMatch(/aria-current="page">Waiting on you/);
+    expect(review.body).toContain('id="r-c-1"');
+  });
+
+  it('is not offered to a member, and asking for it shows them context', async () => {
+    await lend();
+    const { body } = await visit('/project/acme/ledger?tab=review', MEMBER_GOOGLE);
+    expect(body).not.toContain('Waiting on you');
+    expect(body).toMatch(/aria-current="page">Context/);
+  });
+
+  it('opens on its own for a link to a queued contribution', async () => {
+    const { body } = await visit('/project/acme/ledger?review=c-1', MANAGER);
+    expect(body).toMatch(/aria-current="page">Waiting on you/);
+  });
+
+  it('pages ten proposals at a time, never splitting one', async () => {
+    queue(14);
+    const first = await visit('/project/acme/ledger?tab=review', MANAGER);
+    expect(first.body).toContain('Page 1 of 2');
+    expect(first.body).toMatch(/href="\/project\/acme\/ledger\?tab=review&amp;page=2#panel">Next/);
+    const second = await visit('/project/acme/ledger?tab=review&page=2', MANAGER);
+    expect(second.body).toContain('Page 2 of 2');
+    // Both the proposal and its change are on the same page.
+    expect(second.body).toContain('proposal 14');
+    expect(second.body).toContain('task from proposal 14');
   });
 });
