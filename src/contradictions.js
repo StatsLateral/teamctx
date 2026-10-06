@@ -47,6 +47,22 @@ export function normalizeContradictions(raw, operations, records, editableRecord
   return result;
 }
 
+/**
+ * What a queued piece of evidence says, in the words #122 asks for.
+ *
+ * "(from <source>)" names the person when the contribution had one, because a
+ * manager weighing evidence wants to know who saw it as much as where it came
+ * in. Both come from the contribution, never from the model.
+ */
+export function evidenceLabel(op) {
+  const against = op?.against?.text ? `'${LABELS.assumption} ${op.against.text}'` : 'an assumption';
+  const quote = op?.evidence?.text || '';
+  const who = op?.evidence?.by;
+  const via = op?.evidence?.source;
+  const from = who && via ? ` (from ${who} via ${via})` : who || via ? ` (from ${who || via})` : '';
+  return `Evidence against ${against}: "${quote}"${from}`;
+}
+
 export const contradictionLabel = conflict => `Contradicts '${LABELS[conflict.record.type]} ${conflict.record.text}' — proposed: '${conflict.proposedText}'`;
 
 export const comparisonFingerprint = records => JSON.stringify(records.map(({ id, type, text, workstream }) => ({ id, type, text, workstream })));

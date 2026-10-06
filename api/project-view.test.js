@@ -1014,3 +1014,61 @@ describe('a record resting on a broken assumption, on the page', () => {
     expect(body).not.toContain('rests on a broken assumption');
   });
 });
+
+/**
+ * Evidence on the manager's queue (#122).
+ *
+ * The row is the assumption the evidence argues against, with the evidence said
+ * in words and the impact of breaking it beside it — so the manager decides with
+ * all three in front of them. Before this, an `addEvidence` operation rendered
+ * as nothing: the one change in the queue that most needs judgement, hidden.
+ */
+describe('evidence against an assumption, in the queue', () => {
+  const queueEvidence = (quote = 'all piloted without SSO', by = 'Priya') => {
+    repo.files.set('.teamctx/project.json', JSON.stringify({
+      name: 'Ledger',
+      records: [
+        { id: 'a1', key: 'A-1', type: 'assumption', text: 'Buyers need SSO before a pilot', status: 'active', owner: { key: 'k', name: 'O' }, reviewBy: '2026-12-01', links: {} },
+        { id: 'd1', key: 'D-1', type: 'decision', text: 'Build SSO first', status: 'active', links: { restsOn: ['a1'] } },
+      ],
+      tasks: [],
+    }));
+    repo.files.set('.teamctx/queue/c-ev.json', JSON.stringify({
+      id: 'c-ev', status: 'pending', author: by, summary: 'Evidence about SSO', workstream: null, source: 'mcp',
+      operations: [
+        { type: 'addEvidence', id: 'a1', evidence: { text: quote, by, source: 'mcp', at: '2026-10-06T09:00:00.000Z' },
+          against: { id: 'a1', key: 'A-1', type: 'assumption', text: 'Buyers need SSO before a pilot' } },
+        { type: 'setRecordStatus', id: 'a1', status: 'broken' },
+      ],
+    }));
+  };
+
+  it('says it in the words the issue asks for', async () => {
+    queueEvidence();
+    const { body } = await visit('/project/acme/ledger', MANAGER);
+    expect(body).toContain("Evidence against 'We're assuming: Buyers need SSO before a pilot'");
+    expect(body).toContain('all piloted without SSO');
+    expect(body).toContain('from Priya via mcp');
+  });
+
+  it('shows what breaking it would take with it, before the manager decides', async () => {
+    queueEvidence();
+    const { body } = await visit('/project/acme/ledger', MANAGER);
+    expect(body).toContain("1 thing rests on 'Buyers need SSO before a pilot': D-1 Build SSO first");
+  });
+
+  it('escapes the quote, which is somebody else’s words', async () => {
+    queueEvidence('<img src=x onerror="alert(1)">');
+    const { body } = await visit('/project/acme/ledger', MANAGER);
+    expect(body).not.toContain('<img src=x onerror');
+    expect(body).toContain('&lt;img');
+  });
+
+  it('is the manager’s alone — a member sees none of it', async () => {
+    queueEvidence();
+    await lend();
+    const { body } = await visit('/project/acme/ledger', MEMBER_GOOGLE);
+    expect(body).not.toContain('Evidence against');
+    expect(body).not.toContain('all piloted without SSO');
+  });
+});
