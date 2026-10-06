@@ -152,3 +152,45 @@ describe('what teamctx refuses to make worse', () => {
     expect(r.mode).toBe('applied');
   });
 });
+
+describe('what the manager is told', () => {
+  it('names the assumption, the quote, and who it came from', async () => {
+    const { evidenceLabel } = await import('../../src/contradictions.js');
+    const r = await contribute(member);
+    const op = readQueueItem(r.id, dir).operations.find(o => o.type === 'addEvidence');
+    expect(evidenceLabel(op)).toBe(
+      `Evidence against 'We're assuming: Buyers need SSO before a pilot': "all piloted without SSO" (from Priya via mcp)`,
+    );
+  });
+
+  it('snapshots the assumption as it read when the evidence was written', async () => {
+    // So the queue says what the manager is weighing it against even if the
+    // assumption is reworded while the evidence waits.
+    const r = await contribute(member);
+    const op = readQueueItem(r.id, dir).operations.find(o => o.type === 'addEvidence');
+    expect(op.against).toEqual({ id: 'a1', key: 'A-1', type: 'assumption', text: 'Buyers need SSO before a pilot' });
+  });
+
+  it('describes the evidence in the CLI preview rather than as an unknown operation', async () => {
+    const { describeOp } = await import('./contribute.js');
+    const r = await contribute(member);
+    const op = readQueueItem(r.id, dir).operations.find(o => o.type === 'addEvidence');
+    expect(describeOp(op)).toMatch(/^! Evidence against/);
+    expect(describeOp({ type: 'setRecordStatus', id: 'a1', status: 'broken', against: { key: 'A-1' } })).toBe('~ Mark A-1 broken');
+  });
+});
+
+describe('the evidence label on its own', () => {
+  let evidenceLabel;
+  beforeEach(async () => { ({ evidenceLabel } = await import('../../src/contradictions.js')); });
+
+  it('says "an assumption" rather than nothing when the target was not captured', () => {
+    expect(evidenceLabel({ evidence: { text: 'q', by: 'P', source: 'cli' } })).toBe('Evidence against an assumption: "q" (from P via cli)');
+  });
+
+  it('names whichever of who and where it has', () => {
+    expect(evidenceLabel({ evidence: { text: 'q', by: 'P' } })).toMatch(/\(from P\)$/);
+    expect(evidenceLabel({ evidence: { text: 'q', source: 'cli' } })).toMatch(/\(from cli\)$/);
+    expect(evidenceLabel({ evidence: { text: 'q' } })).toBe('Evidence against an assumption: "q"');
+  });
+});

@@ -45,9 +45,15 @@ export function serializeToMd(tree, projectName, lastUpdatedBy = '', contributio
  * proposal is applied or queued, so the queue item carries exactly what an
  * approval will write.
  */
-export function stampEvidence(operations, contribution) {
-  return (operations || []).map(op => (op?.type === 'addEvidence'
-    ? {
+export function stampEvidence(operations, contribution, tree = null) {
+  return (operations || []).map(op => {
+    if (op?.type !== 'addEvidence') return op;
+    // What the evidence is against, as it read when the evidence was written —
+    // the same snapshot a contradiction carries. The manager judges the note
+    // against those words, and the queue has to say them without another read.
+    // Absent when the id names nothing in this tree; `applyOps` then drops it.
+    const target = (tree?.records || []).find(r => r.id === op.id);
+    return {
       ...op,
       evidence: {
         text: typeof op.evidence?.text === 'string' ? op.evidence.text : '',
@@ -55,8 +61,9 @@ export function stampEvidence(operations, contribution) {
         by: contribution?.author || null,
         at: contribution?.ts || null,
       },
-    }
-    : op));
+      ...(target ? { against: { id: target.id, ...(target.key ? { key: target.key } : {}), type: target.type, text: target.text } } : {}),
+    };
+  });
 }
 
 export async function updateShared(tree, contribution, config, { intent, avoid, comparisonRecords, operationsToCheck } = {}) {
@@ -72,7 +79,7 @@ export async function updateShared(tree, contribution, config, { intent, avoid, 
     operationsToCheck,
   });
   const { summary, contradictions = [] } = proposal;
-  const operations = stampEvidence(operationsToCheck ?? proposal.operations, contribution);
+  const operations = stampEvidence(operationsToCheck ?? proposal.operations, contribution, tree);
   const { tree: updated, dropped, nextKey } = applyOps(tree, operations, contribution.id, {
     nextKey: config?.nextKey,
   });

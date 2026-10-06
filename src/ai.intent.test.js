@@ -160,3 +160,54 @@ describe('re-confirming, in the schema the AI is given', () => {
     expect(await prompt()).toMatch(/"broken" only for an assumption/i);
   });
 });
+
+/**
+ * The model is told evidence exists, and when it applies.
+ *
+ * An operation the model is never shown is unreachable however correct the
+ * server is — #120's re-confirmation was exactly that, found only by running it
+ * end to end. So the schema and the guidance are both pinned here.
+ */
+describe('evidence against an assumption, in what the model is given', () => {
+  const ws = {
+    name: 'Ledger', tasks: [],
+    records: [{ id: 'a1', type: 'assumption', text: 'Buyers need SSO before a pilot', status: 'active' }],
+  };
+  const prompt = async () => {
+    await proposeDiff({ workstream: ws, contribution: 'note', source: 'alice', config: { model: 'm' } });
+    return call().prompt;
+  };
+
+  it('offers addEvidence as an operation', async () => {
+    expect(await prompt()).toContain('"type": "addEvidence"');
+  });
+
+  it('shows the assumptions it may be evidence against', async () => {
+    const p = await prompt();
+    expect(p).toContain('"type": "assumption"');
+    expect(p).toContain('Buyers need SSO before a pilot');
+  });
+
+  it('asks for the evidence and the break together', async () => {
+    expect(await prompt()).toMatch(/BOTH an addEvidence[\s\S]*AND a setRecordStatus "broken"/);
+  });
+
+  it('warns that the note will rarely name the assumption', async () => {
+    // The case the issue is about: the evidence never says which belief it hits.
+    expect(await prompt()).toMatch(/will rarely name the\s+assumption/);
+  });
+
+  it('rules out unrelated assumptions and mere mentions', async () => {
+    const p = await prompt();
+    expect(p).toMatch(/is not\s+evidence about hiring/);
+    expect(p).toMatch(/without contradicting it is not/);
+  });
+
+  it('keeps who and when out of the model’s hands', async () => {
+    expect(await prompt()).toMatch(/do\s+not say who said it or when/);
+  });
+
+  it('never asks for evidence on a decision or rule', async () => {
+    expect(await prompt()).toMatch(/Never addEvidence on a decision, rule or exception/);
+  });
+});
