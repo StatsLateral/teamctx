@@ -648,7 +648,7 @@ function sayImpact(impact) {
   }).join('');
 }
 
-function reportBackContribute(r) {
+export function reportBackContribute(r) {
   // `where`, not the raw id. At project level the id is `null`, and the client
   // is told to read this string back word for word — so an unsplit project,
   // which is most of them, reported work landing on workstream "null".
@@ -656,9 +656,16 @@ function reportBackContribute(r) {
   // Asked for `apply` and did not get it. Said plainly and once, so the assistant
   // reports where the contribution went instead of treating the refusal as a
   // failure and sending the same text a second time. Nothing was lost by asking.
+  // Why `apply` was not honoured decides what to say. Telling the manager it is
+  // "the manager's alone" — the non-manager's reason — reads as telling them they
+  // are not the manager, which is what this said for evidence until a live run
+  // showed it.
   const refused = r.applyRefused
     ? r.contradictions?.length
       ? ' Direct apply was refused because contradictions require explicit manager review.'
+      : (r.operations || []).some(o => o?.type === 'addEvidence')
+        ? ' Direct apply was not used: evidence against an assumption always waits for the manager to'
+          + ' confirm it, even when the manager sent it. Nothing was lost; it is in the queue.'
       : ' Note for you, not a problem to report as one: `apply` was not honoured because it is the'
       + " manager's alone. The contribution was kept and took the ordinary path, so tell the user"
       + ' where it went and do not call contribute again for the same text.'

@@ -75,8 +75,9 @@ describe('applyOps', () => {
   });
 
   it('applies in order setGoal → adds → edits → evidence → status → removals', () => {
-    // Evidence before status, so a contribution that retires an assumption keeps
-    // the evidence it gave for doing so.
+    // Evidence before status reads as a person would say it; it does not change
+    // the result, since evidence is kept only beside a break and lands on a
+    // broken assumption as readily as an active one.
     expect(OP_TYPES).toEqual(['setGoal', 'addRecord', 'editRecord', 'addEvidence', 'setRecordStatus', 'addTask', 'editTask', 'removeTask']);
   });
 });
@@ -396,9 +397,10 @@ describe('when something broke, and when it was last looked at', () => {
  * Evidence that an assumption may no longer hold.
  *
  * The distiller supplies the quote; who, where from and when are stamped from
- * the contribution before this runs. What is tested here is where evidence may
- * land and what it does to the record — and that, in the same contribution as
- * the break it argues for, it lands first.
+ * the contribution before this runs. Evidence is kept only beside a proposed
+ * break of the same assumption — #122 defines it as evidence *against*, and a
+ * live run showed the model attaching supporting observations and bare mentions
+ * as evidence too.
  */
 describe('evidence against an assumption', () => {
   const assumption = (over = {}) => makeRecord({
@@ -409,57 +411,66 @@ describe('evidence against an assumption', () => {
     type: 'addEvidence', id: 'a1',
     evidence: { text: 'The last three prospects piloted without SSO', source: 'mcp', at: '2026-10-06T09:00:00.000Z', by: 'Priya', ...over },
   });
+  const breakIt = { type: 'setRecordStatus', id: 'a1', status: 'broken' };
 
-  it('is appended to the assumption, with everything stamped on it', () => {
-    const { tree, dropped } = applyOps(makeProject({ records: [assumption()] }), [evidence()], C);
+  it('is appended with the break it argues for, with everything stamped on it', () => {
+    const { tree, dropped } = applyOps(makeProject({ records: [assumption()] }), [evidence(), breakIt], C);
     expect(dropped).toEqual([]);
+    expect(tree.records[0].status).toBe('broken');
     expect(tree.records[0].evidence).toEqual([{
       text: 'The last three prospects piloted without SSO', source: 'mcp', at: '2026-10-06T09:00:00.000Z', by: 'Priya',
     }]);
     expect(tree.records[0].sourceContributionIds).toContain(C);
   });
 
-  it('leaves the assumption active — evidence argues, it does not decide', () => {
-    const { tree } = applyOps(makeProject({ records: [assumption()] }), [evidence()], C);
-    expect(tree.records[0].status).toBe('active');
-  });
-
-  it('lands alongside a break in the same contribution, in either order', () => {
-    // Evidence is allowed on a broken assumption, so the order of the two does
-    // not matter here — see the next test for where it does.
-    for (const ops of [
-      [evidence(), { type: 'setRecordStatus', id: 'a1', status: 'broken' }],
-      [{ type: 'setRecordStatus', id: 'a1', status: 'broken' }, evidence()],
-    ]) {
+  it('lands alongside the break in either order', () => {
+    for (const ops of [[evidence(), breakIt], [breakIt, evidence()]]) {
       const { tree, dropped } = applyOps(makeProject({ records: [assumption()] }), ops, C);
       expect(dropped).toEqual([]);
-      expect(tree.records[0].status).toBe('broken');
       expect(tree.records[0].evidence).toHaveLength(1);
     }
   });
 
-  it('is kept when the same contribution retires the assumption', () => {
-    // Where the order matters. Closing an assumption and saying why in one
-    // breath: if the close ran first, the evidence would arrive at history and
-    // be dropped, and the record would be retired with no reason on it.
+  it('is dropped with no break of that assumption beside it', () => {
+    // "We are interviewing senior engineers this week", attached as evidence on
+    // its own, in the live run. It argues against nothing.
+    const { tree, dropped } = applyOps(makeProject({ records: [assumption()] }), [evidence()], C);
+    expect(dropped[0].reason).toMatch(/only with a proposed break/);
+    expect(tree.records[0].evidence).toBeUndefined();
+    expect(tree.records[0].status).toBe('active');
+  });
+
+  it('is dropped beside a close rather than a break', () => {
+    // "Two candidates accepted offers" — supporting evidence — came back as
+    // evidence plus a proposal to close the assumption as validated. Closing
+    // may be the manager's call; it is not evidence against anything.
     const { tree, dropped } = applyOps(makeProject({ records: [assumption()] }), [
-      { type: 'setRecordStatus', id: 'a1', status: 'closed' }, evidence(),
+      evidence(), { type: 'setRecordStatus', id: 'a1', status: 'closed' },
     ], C);
-    expect(dropped).toEqual([]);
+    expect(dropped.map(d => d.reason)).toEqual([expect.stringMatching(/only with a proposed break/)]);
     expect(tree.records[0].status).toBe('closed');
-    expect(tree.records[0].evidence).toHaveLength(1);
+    expect(tree.records[0].evidence).toBeUndefined();
+  });
+
+  it('is dropped beside a break of a different assumption', () => {
+    const other = makeRecord({ id: 'a2', type: 'assumption', text: 'other', owner: { key: 'k', name: 'O' }, reviewBy: '2026-12-01' });
+    const { dropped } = applyOps(makeProject({ records: [assumption(), other] }), [
+      evidence(), { type: 'setRecordStatus', id: 'a2', status: 'broken' },
+    ], C);
+    expect(dropped[0].reason).toMatch(/only with a proposed break/);
   });
 
   it('adds to what is already there rather than replacing it', () => {
     const before = assumption({ evidence: [{ text: 'earlier', source: 'cli', at: null, by: 'Dev' }] });
-    const { tree } = applyOps(makeProject({ records: [before] }), [evidence()], C);
+    const { tree } = applyOps(makeProject({ records: [before] }), [evidence(), breakIt], C);
     expect(tree.records[0].evidence.map(e => e.text)).toEqual(['earlier', 'The last three prospects piloted without SSO']);
   });
 
   it('still lands on an assumption somebody else broke while it waited', () => {
-    // Corroboration. Losing it because the break got there first would throw
-    // away something the manager approved.
-    const { tree, dropped } = applyOps(makeProject({ records: [assumption({ status: 'broken' })] }), [evidence()], C);
+    // The queued item carries its own break, so on approval the pair is intact
+    // even though the assumption is already broken. Losing the evidence because
+    // the other break got there first would throw away what the manager approved.
+    const { tree, dropped } = applyOps(makeProject({ records: [assumption({ status: 'broken' })] }), [evidence(), breakIt], C);
     expect(dropped).toEqual([]);
     expect(tree.records[0].evidence).toHaveLength(1);
   });
@@ -486,13 +497,51 @@ describe('evidence against an assumption', () => {
 
   it('is refused with no quote, or a quote that is only whitespace', () => {
     for (const e of [{ text: '' }, { text: '   ' }, {}, null]) {
-      const { dropped } = applyOps(makeProject({ records: [assumption()] }), [{ type: 'addEvidence', id: 'a1', evidence: e }], C);
+      const { dropped } = applyOps(makeProject({ records: [assumption()] }), [{ type: 'addEvidence', id: 'a1', evidence: e }, breakIt], C);
       expect(dropped[0].reason).toMatch(/evidence text is empty/);
     }
   });
 
   it('records nothing it was not given rather than inventing it', () => {
-    const { tree } = applyOps(makeProject({ records: [assumption()] }), [{ type: 'addEvidence', id: 'a1', evidence: { text: 'x' } }], C);
+    const { tree } = applyOps(makeProject({ records: [assumption()] }), [{ type: 'addEvidence', id: 'a1', evidence: { text: 'x' } }, breakIt], C);
     expect(tree.records[0].evidence[0]).toEqual({ text: 'x', source: null, at: null, by: null });
+  });
+});
+
+/**
+ * An edit that changes nothing is not an edit.
+ *
+ * Applied, it would stamp the contribution onto the record's provenance and
+ * move its date — saying the record was changed by something that left it
+ * exactly as it was. A live run showed a model restating both decisions that
+ * rested on an assumption it was breaking, word for word.
+ */
+describe('an edit that changes nothing', () => {
+  const decision = () => makeRecord({ id: 'd1', type: 'decision', text: 'Build SSO first', detail: 'why', sourceContributionIds: ['c-0'] });
+
+  it('is dropped, and the record is left untouched', () => {
+    const before = decision();
+    const { tree, dropped } = applyOps(makeProject({ records: [before] }), [
+      { type: 'editRecord', id: 'd1', changes: { text: 'Build SSO first' } },
+    ], C);
+    expect(dropped[0].reason).toBe('the edit changes nothing');
+    expect(tree.records[0]).toEqual(before);
+  });
+
+  it('counts links merged back to what they were as no change', () => {
+    const before = makeRecord({ id: 'd1', type: 'decision', text: 'x', links: { restsOn: ['a1'] } });
+    const { dropped } = applyOps(makeProject({ records: [before] }), [
+      { type: 'editRecord', id: 'd1', changes: { links: { restsOn: ['a1'] } } },
+    ], C);
+    expect(dropped[0].reason).toBe('the edit changes nothing');
+  });
+
+  it('still applies an edit that changes anything at all', () => {
+    const { tree, dropped } = applyOps(makeProject({ records: [decision()] }), [
+      { type: 'editRecord', id: 'd1', changes: { text: 'Build SSO first', detail: 'a new reason' } },
+    ], C);
+    expect(dropped).toEqual([]);
+    expect(tree.records[0].detail).toBe('a new reason');
+    expect(tree.records[0].sourceContributionIds).toContain(C);
   });
 });

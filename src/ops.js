@@ -94,6 +94,17 @@ function editRecord(tree, op, c, dropped, onDay, where) {
   const changes = Object.fromEntries(Object.entries(op.changes).filter(([k]) => EDITABLE_RECORD_FIELDS.includes(k)));
   const next = { ...withSource(tree.records[i], c), ...changes, updatedAt: onDay };
   if (changes.links) next.links = { ...tree.records[i].links, ...changes.links };
+  // An edit that changes nothing is dropped rather than applied. Applied, it
+  // stamps this contribution onto the record's provenance and moves its date —
+  // saying the record was changed by something that left it exactly as it was.
+  // A model does this to "acknowledge" records near the ones it is changing; a
+  // live run of #122 showed it restating both decisions that rested on a
+  // broken assumption, word for word.
+  const current = tree.records[i];
+  if (EDITABLE_RECORD_FIELDS.every(k => JSON.stringify(next[k]) === JSON.stringify(current[k]))) {
+    dropped.push({ op, reason: 'the edit changes nothing' });
+    return tree;
+  }
   const v = validateRecord(next);
   if (!v.ok) { dropped.push({ op, reason: v.errors.join('; ') }); return tree; }
   const broken = integrityProblem(tree, next, where);
@@ -135,7 +146,7 @@ function statusStamps(record, status, at) {
  */
 const EVIDENCE_STATUSES = ['active', 'broken'];
 
-function addEvidence(tree, op, c, dropped, onDay) {
+function addEvidence(tree, op, c, dropped, onDay, breaking) {
   const existing = tree.records.find(r => r.id === op.id);
   if (!existing) { dropped.push({ op, reason: `no record "${op.id}"` }); return tree; }
   if (existing.type !== 'assumption') { dropped.push({ op, reason: 'evidence is recorded against an assumption' }); return tree; }
@@ -146,6 +157,17 @@ function addEvidence(tree, op, c, dropped, onDay) {
   const e = op.evidence;
   const text = isObj(e) && typeof e.text === 'string' ? e.text.trim() : '';
   if (!text) { dropped.push({ op, reason: 'evidence text is empty' }); return tree; }
+  // Evidence *against*, so it travels with the break it argues for or not at
+  // all. #122 defines it that way, and a live run showed why it has to be held
+  // here rather than only asked of the model: given a hiring assumption, the
+  // model attached "two candidates accepted offers" as evidence and proposed
+  // closing it, and attached "we are interviewing this week" as evidence on its
+  // own. Neither argues against anything. Checked last, so a more specific
+  // reason above wins.
+  if (!breaking.has(op.id)) {
+    dropped.push({ op, reason: 'evidence is kept only with a proposed break of the same assumption' });
+    return tree;
+  }
   const entry = {
     text,
     source: typeof e.source === 'string' && e.source ? e.source : null,
@@ -244,11 +266,12 @@ export function applyOps(tree, ops, contributionId, {
     if (typeof o.title !== 'string' || !o.title.trim()) { dropped.push({ op: o, reason: 'task title is empty' }); return t; }
     return { ...t, tasks: t.tasks.map(x => x.id === o.id ? { ...withSource(x, contributionId), title: o.title.trim() } : x) };
   });
-  // Evidence before status. A break makes no difference — evidence lands on a
-  // broken assumption too — but a contribution that retires an assumption and
-  // gives the reason in the same breath would otherwise lose the reason: by the
-  // time it arrived, the record would be history.
-  each(of('addEvidence'), (t, o) => addEvidence(t, o, contributionId, dropped, onDay));
+  // Evidence is kept only beside a proposed break of the same assumption, and it
+  // lands on a broken one as readily as an active one — so which of the two
+  // runs first does not change the result. Evidence first reads in the order a
+  // person would say it: here is what we saw, so this no longer holds.
+  const breaking = new Set(list.filter(o => o?.type === 'setRecordStatus' && o.status === 'broken').map(o => o.id));
+  each(of('addEvidence'), (t, o) => addEvidence(t, o, contributionId, dropped, onDay, breaking));
   each(of('setRecordStatus'), (t, o) => setStatus(t, o, contributionId, dropped, onDay, at));
   each(of('removeTask'), (t, o) => {
     if (!t.tasks.some(x => x.id === o.id)) { dropped.push({ op: o, reason: `no task "${o.id}"` }); return t; }
