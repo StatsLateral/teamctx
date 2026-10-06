@@ -68,7 +68,14 @@ const CSS = `
 .task-filters select{width:auto;max-width:220px;border:0;background:transparent;font-size:13px;
   padding:4px 6px;color:var(--ink);cursor:pointer;margin:0}
 .task-filters select:focus{outline:none}
-.task-filters .apply{font-size:12px;padding:4px 12px;border-radius:99px}
+.task-filters .apply{font-size:12px;font-weight:600;padding:5px 14px;border-radius:99px;
+  background:var(--accent);color:#fff;border:1px solid var(--accent)}
+.task-filters .apply:hover:not(:disabled){filter:brightness(1.08)}
+/* Nothing to apply: the choice is what is already shown. */
+.task-filters .apply:disabled{background:var(--grey-soft);color:var(--faint);border-color:var(--line);opacity:1}
+/* What history added, said where it was added. */
+.history-note{font-size:12px;color:var(--soft);background:var(--grey-soft);border-radius:var(--radius-sm);
+  padding:6px 10px;margin:0 0 10px}
 .task-filters .clear{font-size:12px;color:var(--soft)}
 /* Context and Tasks as tabs over one panel, rather than one long page with the
    tasks somewhere below the context. The active tab is the highlighted one. */
@@ -172,6 +179,19 @@ const SCRIPT = `
   // button does the same thing — the small screen is not a worse place to read.
   var pick = document.getElementById('lane-pick');
   if (pick) pick.addEventListener('change', function () { this.form.submit(); });
+  // The Filter button is live only when the choice differs from what is shown.
+  // Without JavaScript it simply stays live, so filtering still works.
+  var filters = document.querySelector('.task-filters');
+  if (filters) {
+    var apply = filters.querySelector('.apply');
+    var selects = filters.querySelectorAll('select');
+    var shown = Array.prototype.map.call(selects, function (s) { return s.value; }).join('|');
+    var sync = function () {
+      apply.disabled = Array.prototype.map.call(selects, function (s) { return s.value; }).join('|') === shown;
+    };
+    Array.prototype.forEach.call(selects, function (s) { s.addEventListener('change', sync); });
+    sync();
+  }
 }());`;
 
 /**
@@ -517,6 +537,7 @@ ${note ? `<p class="note">${esc(note)}</p>` : ''}
         <a href="${esc(panelHref({ history: history ? '' : '1', item: history ? '' : item }))}" class="${history ? 'on' : ''}">${history ? 'Hide history' : `Show history (${retired})`}</a>
       </span>` : ''}
     </div>
+    ${history && retired ? `<p class="history-note">Showing ${retired} retired record${retired === 1 ? '' : 's'} — replaced, broken or closed — dimmed, with their status. Current context is not dimmed.</p>` : ''}
     ${inherited}
     ${rows.length
     ? `${rowHeader()}${list({
