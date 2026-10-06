@@ -111,3 +111,210 @@ describe('arguments a caller sends cannot widen what they see', () => {
     expect(r.isError).toBe(true);
   });
 });
+
+/**
+ * The flag reaches every way an AI reads a record.
+ *
+ * #120's second acceptance criterion asks for a test per read path, and the
+ * reason is that these are four separate pieces of wiring. A flag that shows in
+ * `my_brief` and not in `get_context` is worse than none: the assistant gets a
+ * different answer depending on which question it asked.
+ *
+ * The case here is the one that makes the wiring hard. The broken assumption
+ * sits on the project tree; the decision resting on it sits in a workstream; and
+ * Ravi is scoped to `sales` and its children. The mark has to cross the scope
+ * line without the assumption's own words crossing it.
+ */
+describe('a record resting on a broken assumption, however it is read', () => {
+  const broken = rec('rec-a1', 'assumption', 'buyers need SSO before a pilot', {
+    status: 'broken', brokenAt: '2026-10-05T09:00:00.000Z',
+    owner: { key: 'git:o@x', name: 'O' }, reviewBy: '2026-12-01',
+  });
+  const resting = (extra = {}) => rec('rec-d1', 'decision', 'build SSO first', {
+    attachedTo: { kind: 'workstream', id: 'sales' },
+    links: { restsOn: ['rec-a1'], bends: null, replaces: null, answers: null },
+    ...extra,
+  });
+
+  const world = (over = {}) => session({
+    project: { name: 'Ledger', goal: { text: 'Ship it' }, records: [broken], tasks: [] },
+    workstreams: { sales: { id: 'sales', name: 'sales', records: [resting(over)], tasks: [] } },
+  });
+
+  const found = (records) => (records || []).find(x => x.id === 'rec-d1');
+
+  it('is marked in list_records', async () => {
+    const r = await as(world(), MANAGER, h => json(h.list_records({})));
+    expect(found(r.records).needsReview).toMatch(/rests on a broken assumption/);
+  });
+
+  it('is marked in get_record', async () => {
+    const r = await as(world(), MANAGER, h => json(h.get_record({ id: 'rec-d1' })));
+    expect(r.needsReview).toMatch(/rests on a broken assumption/);
+  });
+
+  it('is marked in get_context', async () => {
+    const r = await as(world(), MANAGER, h => json(h.get_context()));
+    const sales = r.workstreams.find(w => w.id === 'sales');
+    expect(found(sales.tree.records).needsReview).toMatch(/rests on a broken assumption/);
+  });
+
+  it('is marked in my_brief', async () => {
+    // Read as Ravi, who is on `sales`. A brief renders where the reader stands,
+    // and the manager standing at project level is not shown a workstream's
+    // decisions at all — so asking for the flag there would be asking for the
+    // wrong thing rather than testing the wiring.
+    const r = await as(world(), RAVI, h => json(h.my_brief()));
+    expect(JSON.stringify(r)).toMatch(/rests on a broken assumption/);
+  });
+
+  it('is marked for a scoped member who cannot see the assumption', async () => {
+    // The whole reason the flag is worked out over every record in the project.
+    // Ravi reaches `sales`; the assumption is on the project tree, which they do
+    // read — so this also holds when it is somewhere they do not. What matters
+    // is that the answer does not depend on where the assumption happens to sit.
+    const r = await as(world(), RAVI, h => json(h.list_records({})));
+    expect(found(r.records).needsReview).toMatch(/rests on a broken assumption/);
+  });
+
+  it('stops being marked once the manager re-confirms it', async () => {
+    const r = await as(world({ reviewedAt: '2026-10-05T10:00:00.000Z' }), MANAGER, h => json(h.list_records({})));
+    expect(found(r.records).needsReview).toBeUndefined();
+  });
+
+  it('says nothing when the assumption still holds', async () => {
+    const s = session({
+      project: { name: 'Ledger', goal: { text: 'Ship it' }, records: [{ ...broken, status: 'active' }], tasks: [] },
+      workstreams: { sales: { id: 'sales', name: 'sales', records: [resting()], tasks: [] } },
+    });
+    const r = await as(s, MANAGER, h => json(h.list_records({})));
+    expect(found(r.records).needsReview).toBeUndefined();
+  });
+
+  it('leaves the stored record alone — the mark dresses a response', async () => {
+    // Nothing is written to answer a read. If this ever stamped the tree, a
+    // record would carry a flag that outlived the reason for it.
+    const s = world();
+    await as(s, MANAGER, h => json(h.list_records({})));
+    const stored = JSON.parse(s.read('.teamctx/workstreams/sales.json').content);
+    expect(stored.records[0].needsReview).toBeUndefined();
+  });
+});
+
+/**
+ * The moment this was all built for.
+ *
+ * > "We're assuming: buyers need SSO before a pilot" may be broken. The
+ * > decisions "Build SSO first" and "Delay the Acme pilot" rest on it. Review?
+ *
+ * The manager hears it at the point of deciding, not afterwards, which is why
+ * the list rides on the contribute result rather than waiting for a second call.
+ * It answers the same for a queued contribution as for an applied one: the walk
+ * follows `restsOn` and does not care what state the assumption is in yet.
+ */
+describe('breaking an assumption says what it takes with it', () => {
+  const assumption = rec('rec-a1', 'assumption', 'buyers need SSO before a pilot', {
+    owner: { key: 'git:o@x', name: 'O' }, reviewBy: '2026-12-01',
+  });
+  const onIt = (id, text) => rec(id, 'decision', text, {
+    attachedTo: { kind: 'workstream', id: 'sales' },
+    links: { restsOn: ['rec-a1'], bends: null, replaces: null, answers: null },
+  });
+
+  const world = () => session({
+    project: { name: 'Ledger', goal: { text: 'Ship it' }, records: [assumption], tasks: [] },
+    workstreams: {
+      sales: {
+        id: 'sales',
+        name: 'sales',
+        records: [onIt('rec-d1', 'build SSO first'), onIt('rec-d2', 'delay the Acme pilot')],
+        tasks: [],
+      },
+    },
+  });
+
+  const breakIt = () => [{ type: 'setRecordStatus', id: 'rec-a1', status: 'broken' }];
+
+  it('names both decisions on the result of approving the break', async () => {
+    const s = world();
+    s.write('.teamctx/queue/c-9.json', JSON.stringify({
+      id: 'c-9', status: 'pending', author: 'Ada', summary: 'new evidence',
+      workstream: null, operations: breakIt(),
+    }));
+    const r = await as(s, MANAGER, h => json(h.review_approve({ id: 'c-9' })));
+    expect(r.impact[0].text).toBe('buyers need SSO before a pilot');
+    expect(r.impact[0].records.map(x => x.text).sort())
+      .toEqual(['build SSO first', 'delay the Acme pilot']);
+  });
+
+  it('says it in the words the assistant reads back', async () => {
+    const s = world();
+    s.write('.teamctx/queue/c-9.json', JSON.stringify({
+      id: 'c-9', status: 'pending', author: 'Ada', summary: 'new evidence',
+      workstream: null, operations: breakIt(),
+    }));
+    const r = await as(s, MANAGER, h => json(h.review_approve({ id: 'c-9' })));
+    expect(r.reportBack).toContain('2 things rest on');
+    expect(r.reportBack).toContain('build SSO first');
+    expect(r.reportBack).toContain('second look');
+  });
+
+  it('names the tasks that work is being done on', async () => {
+    const s = session({
+      project: { name: 'Ledger', goal: { text: 'Ship it' }, records: [assumption], tasks: [] },
+      workstreams: {
+        sales: {
+          id: 'sales',
+          name: 'sales',
+          records: [rec('rec-d1', 'decision', 'build SSO first', {
+            attachedTo: { kind: 'task', id: 'sso-work' },
+            links: { restsOn: ['rec-a1'], bends: null, replaces: null, answers: null },
+          })],
+          tasks: [{ id: 'sso-work', title: 'Build the SSO flow', owner: 'Ravi', status: 'open' }],
+        },
+      },
+    });
+    s.write('.teamctx/queue/c-9.json', JSON.stringify({
+      id: 'c-9', status: 'pending', author: 'Ada', summary: 'new evidence',
+      workstream: null, operations: breakIt(),
+    }));
+    const r = await as(s, MANAGER, h => json(h.review_approve({ id: 'c-9' })));
+    expect(r.impact[0].tasks.map(t => t.title)).toEqual(['Build the SSO flow']);
+    expect(r.reportBack).toContain('Build the SSO flow');
+  });
+
+  it('says plainly when nothing rests on it', async () => {
+    const s = session({
+      project: { name: 'Ledger', goal: { text: 'Ship it' }, records: [assumption], tasks: [] },
+      workstreams: { sales: { id: 'sales', name: 'sales', records: [], tasks: [] } },
+    });
+    s.write('.teamctx/queue/c-9.json', JSON.stringify({
+      id: 'c-9', status: 'pending', author: 'Ada', summary: 'new evidence',
+      workstream: null, operations: breakIt(),
+    }));
+    const r = await as(s, MANAGER, h => json(h.review_approve({ id: 'c-9' })));
+    expect(r.impact[0].records).toEqual([]);
+    expect(r.reportBack).toContain('Nothing on record rests on');
+  });
+
+  it('carries no impact at all on an ordinary contribution', async () => {
+    const s = world();
+    s.write('.teamctx/queue/c-9.json', JSON.stringify({
+      id: 'c-9', status: 'pending', author: 'Ada', summary: 'a note',
+      workstream: null, operations: [{ type: 'setGoal', text: 'Ship it well' }],
+    }));
+    const r = await as(s, MANAGER, h => json(h.review_approve({ id: 'c-9' })));
+    expect(r.impact).toBeUndefined();
+    expect(r.reportBack).not.toContain('rest on');
+  });
+
+  it('says nothing for a status change that is not a break', async () => {
+    const s = world();
+    s.write('.teamctx/queue/c-9.json', JSON.stringify({
+      id: 'c-9', status: 'pending', author: 'Ada', summary: 'retire it',
+      workstream: null, operations: [{ type: 'setRecordStatus', id: 'rec-a1', status: 'closed' }],
+    }));
+    const r = await as(s, MANAGER, h => json(h.review_approve({ id: 'c-9' })));
+    expect(r.impact).toBeUndefined();
+  });
+});
