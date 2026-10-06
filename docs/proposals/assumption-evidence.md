@@ -1,6 +1,6 @@
 # Proposal: evidence that an assumption no longer holds
 
-**Status:** In progress · **Issue:** [#122](https://github.com/StatsLateral/teamctx/issues/122)
+**Status:** Built · **Issue:** [#122](https://github.com/StatsLateral/teamctx/issues/122)
 **Base:** `feat/contradiction-review` (#126, #127, #121) with `feat/broken-assumption-impact` (#120) merged in.
 
 ## What and why
@@ -55,12 +55,38 @@ issue.
 
 ## Plan
 
-- [ ] `addEvidence` in `src/ops.js`, ahead of status changes; `evidence` on the schema
-- [ ] Governed in `src/review-policy.js`; forces a queue in `contributeCore`
-- [ ] `source` / `by` / `at` stamped from the contribution, never from the AI
-- [ ] The distiller is told when to propose it, and when not to
-- [ ] Queue wording and impact list on the page, CLI and MCP
-- [ ] CHANGELOG, and a sandbox run against both acceptance criteria
+- [x] `addEvidence` in `src/ops.js`, ahead of status changes; `evidence` on the schema
+- [x] Governed in `src/review-policy.js`; forces a queue in `contributeCore`
+- [x] `source` / `by` / `at` stamped from the contribution, never from the AI
+- [x] The distiller is told when to propose it, and when not to
+- [x] Queue wording and impact list on the page, CLI and MCP
+- [x] CHANGELOG, and a sandbox run against both acceptance criteria
+
+## What the live run changed
+
+The stubbed tests could not see any of these; running against the real model
+in the sandbox did.
+
+- **Evidence is kept only beside a break of the same assumption.** Given "we can
+  hire two senior engineers by December", the model attached "two candidates
+  accepted offers" as evidence and proposed closing the assumption, and attached
+  "we are interviewing this week" on its own. Neither argues against anything.
+  The issue defines evidence as *against*, proposed with a break, so `applyOps`
+  enforces that pairing rather than trusting the prompt.
+- **The model is not told that rule.** Telling it made it add "broken" to keep
+  its evidence, and it proposed breaking an assumption that had just come true.
+  The prompt says when evidence applies; the server says what survives.
+- **An edit that changes nothing is dropped.** The model restated both dependent
+  decisions word for word, which would have stamped the contribution onto their
+  provenance.
+- **A manager's overridden `apply` is explained truthfully.** It was told apply
+  is "the manager's alone", the non-manager's reason.
+
+Result, against the real model: the issue's sentence proposed evidence and a
+break on the SSO assumption only, and approving it listed both dependent
+decisions and flagged them in `my_brief`. A supporting note (three runs), a bare
+mention and an unrelated note proposed no evidence; the contradicting control
+proposed evidence plus a break both times.
 
 ## Acceptance (from the issue)
 
