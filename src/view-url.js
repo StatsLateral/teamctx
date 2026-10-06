@@ -107,7 +107,7 @@ export function isReturnable(path) {
     }
     // Which tab of the project page, and which page of its list.
     if (key === 'tab') {
-      if (value !== 'context' && value !== 'tasks') return false;
+      if (!['context', 'tasks', 'review'].includes(value)) return false;
       continue;
     }
     if (key === 'page' || key === 'ipage') {

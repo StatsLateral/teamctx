@@ -420,8 +420,15 @@ export const projectPage = ({ user, view, selected, item = null, note = null, or
   // A link carrying task filters is about tasks too, so an old filtered link
   // still lands on the list it filtered.
   const filtering = filters.workstream !== undefined || filters.owner !== undefined;
-  const onTasks = linkedTask ? true : (item && rows.some(r => r.node.id === item)) ? false
-    : tab === 'tasks' || (tab !== 'context' && filtering);
+  // The review queue is the manager's, so its tab exists only for them.
+  const reviewing = Array.isArray(view.pending);
+  const linkedReview = reviewing && item && view.pending.some(q => q.id === item);
+  const active = linkedTask ? 'tasks'
+    : (item && rows.some(r => r.node.id === item)) ? 'context'
+      : linkedReview ? 'review'
+        : tab === 'review' && reviewing ? 'review'
+          : tab === 'tasks' || (tab !== 'context' && filtering) ? 'tasks' : 'context';
+  const onTasks = active === 'tasks';
   // Every link and form in the panel lands back on the panel, not the top of
   // the page — a filter or a page turn reloads, and the reader was down here.
   const panelHref = (params) => {
@@ -450,6 +457,11 @@ export const projectPage = ({ user, view, selected, item = null, note = null, or
   const taskPage = onTasks ? pageFor(taskPages, page, item) : 1;
   // `key` is which page parameter this pager turns; everything else in `params`
   // is carried as it is, so turning one table's page leaves the other's alone.
+  // The queue pages by proposal rather than by row: one proposal can carry
+  // several changes, and splitting it across pages would hide part of what is
+  // being approved.
+  const reviewPages = reviewing ? paginate(view.pending.map(q => ({ node: q })), 10) : [[]];
+  const reviewPage = active === 'review' ? pageFor(reviewPages, page, item) : 1;
   const pager = (pages, at, params, key = 'page') => (pages.length < 2 ? '' : `<nav class="pager" aria-label="Pages">
       <a class="${at > 1 ? '' : 'off'}" href="${esc(panelHref({ ...params, [key]: at - 1 > 1 ? at - 1 : '' }))}">← Previous</a>
       <span>Page ${at} of ${pages.length}</span>
@@ -500,10 +512,16 @@ ${note ? `<p class="note">${esc(note)}</p>` : ''}
 
   <main>
     <nav class="tabs" id="panel" aria-label="What to show">
-      <a href="${esc(panelHref({ history: history ? '1' : '' }))}"${onTasks ? '' : ' aria-current="page"'}>Context<span class="n">${rows.length}</span></a>
+      <a href="${esc(panelHref({ history: history ? '1' : '' }))}"${active === 'context' ? ' aria-current="page"' : ''}>Context<span class="n">${rows.length}</span></a>
       <a href="${esc(panelHref(taskParams))}"${onTasks ? ' aria-current="page"' : ''}>Tasks<span class="n">${tasks.length} open</span></a>
+      ${reviewing ? `<a href="${esc(panelHref({ tab: 'review' }))}"${active === 'review' ? ' aria-current="page"' : ''}>Waiting on you<span class="n">${view.pending.length}</span></a>` : ''}
     </nav>
-    ${onTasks ? `<section>
+    ${active === 'review' ? `<section>
+      <div class="tree-head"><span class="section-title">Waiting on you</span></div>
+      ${view.pending.length ? `${rowHeader({ text: 'Proposal' })}
+      ${reviewPages[reviewPage - 1].map(({ node: q }) => queueRows({ q, view, item, origin })).join('')}
+      ${pager(reviewPages, reviewPage, { tab: 'review' })}` : '<p class="muted">Nothing is waiting for review.</p>'}
+    </section>` : onTasks ? `<section>
       <div class="tasks-head">
         <span class="section-title">Tasks${taskWs === '@all' ? '' : ` — ${esc(taskWs === '@project' ? (view.project || 'Overall project') : workstreamLocation(view.workstreams, taskWs))}`}</span>
         <form class="task-filters" method="GET" action="${esc(`${base}#panel`)}">
@@ -554,12 +572,6 @@ ${note ? `<p class="note">${esc(note)}</p>` : ''}
     })}${pager(contextPages, contextPage, contextParams)}`
     : '<p class="empty">Nothing written here yet — ask your assistant to add context.</p>'}
     </section>`}
-
-    ${view.pending ? `<section style="margin-top:2rem">
-      <div class="section-title">Waiting on you</div>
-      ${view.pending.length ? rowHeader({ text: 'Proposal' }) : ''}
-      ${view.pending.length ? view.pending.map(q => queueRows({ q, view, item, origin })).join('') : '<p class="muted">Nothing is waiting for review.</p>'}
-    </section>` : ''}
   </main>
 </div>
 
