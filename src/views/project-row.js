@@ -70,7 +70,10 @@ export function projectRow({ node, type = node.type, contributions = {}, where =
   const source = sourceKind(node, contributions);
   const text = type === 'task' ? node.title : node.text;
   const status = statusLabel || (pending ? `Awaiting review${node.status ? ` · ${node.status}` : ''}` : node.status || (type === 'goal' ? 'Current' : 'Active'));
-  return `<button type="button" class="item tier-${esc(type)}${marked ? ' marked' : ''}" id="${esc(id)}"${attributes}>
+  // Retired records only appear while reading history; dimmed so they read as
+  // history. A proposal previews a status, so it is never dimmed.
+  const retired = !pending && node.status && node.status !== 'active' && type !== 'task';
+  return `<button type="button" class="item tier-${esc(type)}${marked ? ' marked' : ''}${retired ? ' retired' : ''}" id="${esc(id)}"${attributes}>
   <span class="num">${esc(node.key || (pending ? 'Pending' : fallbackKey))}</span>
   <span class="type-label">${esc(TYPES[type])}</span>
   <span class="text">${esc(text || '(no text)')}${relation ? `<span class="row-link">${esc(relation)}</span>` : ''}${where ? `<span class="row-where">${esc(where)}</span>` : ''}</span>
