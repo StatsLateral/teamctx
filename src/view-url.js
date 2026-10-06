@@ -105,6 +105,15 @@ export function isReturnable(path) {
       if (value !== '1') return false;
       continue;
     }
+    // Which tab of the project page, and which page of its list.
+    if (key === 'tab') {
+      if (value !== 'context' && value !== 'tasks') return false;
+      continue;
+    }
+    if (key === 'page' || key === 'ipage') {
+      if (!/^[1-9]\d{0,3}$/.test(value)) return false;
+      continue;
+    }
     if (key === 'taskWs') {
       if (!['@project', '@all'].includes(value) && !isViewId(value)) return false;
       continue;
