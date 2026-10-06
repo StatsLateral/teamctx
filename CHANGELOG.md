@@ -40,6 +40,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   inherited project context and the workstream's own page separately. Task
   filters are compact pickers applied with a Filter button, and filtering or
   turning a page lands back on the table instead of the top of the page.
+  The manager's review queue is a third tab, "Waiting on you", paged by
+  proposal. Status, governance notes and source have their own columns, and
+  the source says how a record arrived in a word rather than a coloured dot.
 - Stable project-wide task and record keys: `T-14`, `D-3`, `R-2`, `A-2`, `X-1`.
   Existing records and tasks are backfilled in creation order on the first
   context write. Keys survive edits and are never reused after deletion;
