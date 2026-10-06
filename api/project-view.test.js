@@ -134,7 +134,7 @@ describe('the manager looking at a project', () => {
   });
 
   it('sees what is waiting on them', async () => {
-    const { body } = await visit('/project/acme/ledger', MANAGER);
+    const { body } = await visit('/project/acme/ledger?tab=review', MANAGER);
     expect(body).toContain('Waiting on you');
     expect(body).toContain('adds the pricing tiers');
   });
@@ -271,9 +271,9 @@ describe('the tree the page draws', () => {
   it('names who wrote a statement, and what kind of source it came from', async () => {
     const { body } = await visit('/project/acme/ledger?ws=product', MANAGER);
     expect(body).toMatch(/data-who="Priya"/);
-    // The dot says where it came through — teamctx records the surface, not
-    // whether a person or a model wrote the words.
-    expect(body).toMatch(/class="dot mcp"/);
+    // The source column says where it came through, in a word — teamctx
+    // records the surface, not whether a person or a model wrote the words.
+    expect(body).toMatch(/class="row-source src-mcp"[^>]*>Assistant</);
     expect(body).toMatch(/data-summary="how we price"/);
   });
 
@@ -540,11 +540,10 @@ describe('the space above the tree', () => {
 });
 
 describe('a statement with nothing recorded behind it', () => {
-  it('shows no dot rather than a colour that means nothing', async () => {
-    // The project tree's Why has no sourceContributionIds in this fixture.
+  it('says nothing was recorded rather than naming a source it does not have', async () => {
+    // The project tree's record has no sourceContributionIds in this fixture.
     const { body } = await visit('/project/acme/ledger', MANAGER);
-    expect(body).toContain('class="dot none"');
-    expect(body).toContain('.dot.none{background:none}');
+    expect(body).toMatch(/class="row-source src-none" title="No source recorded">—</);
   });
 });
 
@@ -666,7 +665,7 @@ describe('shared rows, task filters and governance (#127)', () => {
       operations: [{ type: 'addRecord', record: { type: 'decision', text: 'An AI-readiness assessment' } }],
       contradictions: [{ operationIndex: 0, proposedText: 'An AI-readiness assessment', record: { id: 'old', type: 'decision', text: hostile, workstream: 'product' } }],
     }));
-    const manager = await visit('/project/acme/ledger', MANAGER);
+    const manager = await visit('/project/acme/ledger?tab=review', MANAGER);
     expect(row(manager.body, 'r-c-1')).toContain('Contradicts');
     expect(row(manager.body, 'proposal-c-1-0')).toContain('warning-chip');
     expect(row(manager.body, 'proposal-c-1-0')).toContain('We decided: &lt;img');
@@ -694,12 +693,12 @@ describe('shared rows, task filters and governance (#127)', () => {
       id: 'c-1', status: 'pending', author: 'Priya', summary: 'Partial proposal', workstream: 'product',
       operations: [null, { type: 'addRecord' }, { type: 'addTask', title: 'Valid task proposal' }],
     }));
-    const { status, body } = await visit('/project/acme/ledger', MANAGER);
+    const { status, body } = await visit('/project/acme/ledger?tab=review', MANAGER);
     expect(status).toBe(200);
     expect(body).toContain('Valid task proposal');
     expect(body).toContain('Partial proposal');
     repo.files.set('.teamctx/queue/c-1.json', JSON.stringify({ id: 'c-1', status: 'pending', author: 'Priya', summary: 'Bad operation list', operations: {} }));
-    expect((await visit('/project/acme/ledger', MANAGER)).status).toBe(200);
+    expect((await visit('/project/acme/ledger?tab=review', MANAGER)).status).toBe(200);
   });
 
   it('shows which rule a proposed exception bends, including a proposed rule reference', async () => {
@@ -712,7 +711,7 @@ describe('shared rows, task filters and governance (#127)', () => {
         { type: 'addRecord', record: { type: 'exception', text: 'Acme gets three weeks', links: { bends: 'pilot-rule' }, expiresAt: '2999-01-01' } },
       ],
     }));
-    const { body } = await visit('/project/acme/ledger', MANAGER);
+    const { body } = await visit('/project/acme/ledger?tab=review', MANAGER);
     expect(row(body, 'proposal-c-1-0')).toContain('↳ bends R-9');
     expect(row(body, 'proposal-c-1-0')).toContain('Annual contracts only');
     expect(row(body, 'proposal-c-1-2')).toContain('↳ bends the proposed rule');
@@ -731,7 +730,7 @@ describe('shared rows, task filters and governance (#127)', () => {
         text: 'Updated Acme monthly pilot', links: { restsOn: [] }, status: 'broken', id: 'spoofed', key: 'X-999',
       } }],
     }));
-    const { body } = await visit('/project/acme/ledger', MANAGER);
+    const { body } = await visit('/project/acme/ledger?tab=review', MANAGER);
     const proposal = row(body, 'proposal-c-1-0');
     expect(proposal).toContain('↳ bends R-9');
     expect(proposal).toContain('Awaiting review · active');
@@ -752,12 +751,12 @@ describe('shared rows, task filters and governance (#127)', () => {
     const tasks = await visit('/project/acme/ledger?ws=product&tab=tasks', MANAGER);
     expect(tasks.body.match(/id="t-pricing-page"/g)).toHaveLength(1);
     const task = row(tasks.body, 't-pricing-page');
-    for (const text of ['class="num"', 'class="type-label">Task', 'class="row-owner">Priya', 'class="row-state"', 'class="dot none"', 'class="row-where">Product']) expect(task).toContain(text);
+    for (const text of ['class="num"', 'class="type-label">Task', 'class="row-owner">Priya', 'class="row-state"', 'class="row-notes"', 'class="row-source src-none"', 'class="row-where">Product']) expect(task).toContain(text);
     const context = await visit('/project/acme/ledger?ws=product', MANAGER);
     expect(row(context.body, 'i-w1')).toContain('class="type-label">Decision');
     expect(row(context.body, 'i-p1')).toContain('class="row-state"');
-    // The queue sits below the tabs, so it is there on either.
-    for (const { body } of [tasks, context]) expect(row(body, 'r-c-1')).toContain('Awaiting review');
+    const queue = await visit('/project/acme/ledger?tab=review', MANAGER);
+    expect(row(queue.body, 'r-c-1')).toContain('Awaiting review');
   });
 
   it('filters by workstream and owner, with a useful empty state', async () => {
@@ -796,7 +795,8 @@ describe('shared rows, task filters and governance (#127)', () => {
     ] }));
     const { body } = await visit('/project/acme/ledger?tab=tasks', MANAGER);
     expect(row(body, 't-pricing-page')).toContain('class="row-where">Launch › Pricing');
-    expect(row(body, 'r-c-1')).toContain('class="row-where">Launch › Pricing');
+    const queue = await visit('/project/acme/ledger?tab=review', MANAGER);
+    expect(row(queue.body, 'r-c-1')).toContain('class="row-where">Launch › Pricing');
     expect(body).not.toContain('(id: product)');
     expect(body).not.toContain('class="row-where">product');
     expect(body).not.toContain('class="row-where">tech');
@@ -876,7 +876,7 @@ describe('shared rows, task filters and governance (#127)', () => {
       ],
     }));
     const before = [...repo.files];
-    const { body } = await visit('/project/acme/ledger', MANAGER);
+    const { body } = await visit('/project/acme/ledger?tab=review', MANAGER);
     expect(row(body, 'proposal-c-1-0')).toContain('class="num">Pending');
     expect(row(body, 'proposal-c-1-1')).toContain('class="type-label">Task');
     expect(row(body, 'proposal-c-1-2')).toContain('class="num">D-7');
@@ -1059,7 +1059,7 @@ describe('evidence against an assumption, in the queue', () => {
 
   it('says it in the words the issue asks for', async () => {
     queueEvidence();
-    const { body } = await visit('/project/acme/ledger', MANAGER);
+    const { body } = await visit('/project/acme/ledger?tab=review', MANAGER);
     expect(body).toContain("Evidence against 'We're assuming: Buyers need SSO before a pilot'");
     expect(body).toContain('all piloted without SSO');
     expect(body).toContain('from Priya via mcp');
@@ -1067,13 +1067,13 @@ describe('evidence against an assumption, in the queue', () => {
 
   it('shows what breaking it would take with it, before the manager decides', async () => {
     queueEvidence();
-    const { body } = await visit('/project/acme/ledger', MANAGER);
+    const { body } = await visit('/project/acme/ledger?tab=review', MANAGER);
     expect(body).toContain("1 thing rests on 'Buyers need SSO before a pilot': D-1 Build SSO first");
   });
 
   it('escapes the quote, which is somebody else’s words', async () => {
     queueEvidence('<img src=x onerror="alert(1)">');
-    const { body } = await visit('/project/acme/ledger', MANAGER);
+    const { body } = await visit('/project/acme/ledger?tab=review', MANAGER);
     expect(body).not.toContain('<img src=x onerror');
     expect(body).toContain('&lt;img');
   });
@@ -1194,7 +1194,7 @@ describe('reading the project page', () => {
 
   it('heads each table with what its columns are', async () => {
     const context = await visit('/project/acme/ledger', MANAGER);
-    expect(context.body).toMatch(/<div class="row-head"[^>]*><span>Key<\/span><span>Type<\/span><span>Statement<\/span><span>Owner<\/span><span>Status<\/span><span[^>]*>Source<\/span><\/div>/);
+    expect(context.body).toMatch(/<div class="row-head"[^>]*><span>Key<\/span><span>Type<\/span><span>Statement<\/span><span>Owner<\/span><span>Status<\/span><span[^>]*>Notes<\/span><span[^>]*>Source<\/span><\/div>/);
     const tasks = await visit('/project/acme/ledger?tab=tasks', MANAGER);
     expect(tasks.body).toMatch(/<span>Key<\/span><span>Type<\/span><span>Task<\/span>/);
   });
@@ -1261,5 +1261,116 @@ describe('reading the project page', () => {
   it('offers no pager when everything fits on one page', async () => {
     const { body } = await visit('/project/acme/ledger', MANAGER);
     expect(body).not.toContain('class="pager"');
+  });
+});
+
+/**
+ * The row's last three columns say what they are.
+ *
+ * Status held both the record's state and every governance note, so the notes
+ * had no heading of their own; and the source was a coloured dot, which in a
+ * project where everything arrives through an assistant was a column of
+ * identical green dots.
+ */
+describe('status, notes and source in their own columns', () => {
+  const setProject = (records) => repo.files.set('.teamctx/project.json', JSON.stringify({ name: 'Ledger', tasks: [], records }));
+
+  it('keeps the status apart from the notes', async () => {
+    setProject([{ id: 'a1', key: 'A-1', type: 'assumption', text: 'they will pay', status: 'active', owner: { name: 'O' }, reviewBy: '2020-01-01' }]);
+    const { body } = await visit('/project/acme/ledger', MANAGER);
+    const r = /<button[^>]*id="i-a1"[\s\S]*?<\/button>/.exec(body)[0];
+    expect(r).toMatch(/<span class="row-state"><span class="status-chip">active<\/span><\/span>/);
+    expect(r).toMatch(/<span class="row-notes"><span class="governance-chip warning-chip">Review overdue 2020-01-01<\/span><\/span>/);
+  });
+
+  it('leaves the notes empty when there is nothing to say', async () => {
+    setProject([{ id: 'd1', key: 'D-1', type: 'decision', text: 'ship it', status: 'active' }]);
+    const { body } = await visit('/project/acme/ledger', MANAGER);
+    expect(/<button[^>]*id="i-d1"[\s\S]*?<\/button>/.exec(body)[0]).toContain('<span class="row-notes"></span>');
+  });
+
+  it('labels each part on a narrow screen, where the header is hidden', async () => {
+    const { body } = await visit('/project/acme/ledger', MANAGER);
+    const narrow = body.slice(body.indexOf('@media(max-width:1200px)'));
+    for (const label of ["content:'Owner: '", "content:'Status: '", "content:'Notes: '"]) expect(narrow).toContain(label);
+  });
+});
+
+describe('the filter button', () => {
+  it('looks like a button', async () => {
+    const { body } = await visit('/project/acme/ledger?tab=tasks', MANAGER);
+    expect(body).toMatch(/\.task-filters \.apply\{[^}]*background:var\(--accent\)/);
+  });
+
+  it('is greyed out until the choice differs from what is shown', async () => {
+    const { body } = await visit('/project/acme/ledger?tab=tasks', MANAGER);
+    expect(body).toMatch(/\.task-filters \.apply:disabled\{/);
+    expect(body).toContain('apply.disabled = ');
+    // Rendered live, so it still works with JavaScript off.
+    expect(body).toContain('<button type="submit" class="apply">Filter</button>');
+  });
+});
+
+describe('what history says it added', () => {
+  it('says how many retired records it is showing, and that they are dimmed', async () => {
+    repo.files.set('.teamctx/project.json', JSON.stringify({ name: 'Ledger', tasks: [], records: [
+      { id: 'd1', type: 'decision', text: 'current', status: 'active' },
+      { id: 'd2', type: 'decision', text: 'old', status: 'replaced' },
+    ] }));
+    const off = await visit('/project/acme/ledger', MANAGER);
+    expect(off.body).not.toContain('class="history-note"');
+    const on = await visit('/project/acme/ledger?history=1', MANAGER);
+    expect(on.body).toMatch(/class="history-note">Showing 1 retired record — replaced, broken or closed — dimmed/);
+  });
+});
+
+/**
+ * The review queue is its own tab.
+ *
+ * It sat below the context with nothing between them, so the manager could not
+ * tell where the team's context ended and what was waiting on them began. It
+ * pages by proposal, so one proposal's changes are never split across pages.
+ */
+describe('waiting on you, as a tab', () => {
+  const queue = (n) => {
+    for (let i = 1; i <= n; i++) {
+      repo.files.set(`.teamctx/queue/q-${String(i).padStart(2, '0')}.json`, JSON.stringify({
+        id: `q-${String(i).padStart(2, '0')}`, status: 'pending', author: 'Priya', summary: `proposal ${i}`, workstream: null,
+        operations: [{ type: 'addTask', title: `task from proposal ${i}` }],
+      }));
+    }
+  };
+
+  it('is offered to the manager, with a count, and keeps the queue off the context', async () => {
+    const context = await visit('/project/acme/ledger', MANAGER);
+    expect(context.body).toMatch(/>Waiting on you<span class="n">1<\/span>/);
+    expect(context.body).not.toContain('id="r-c-1"');
+    const review = await visit('/project/acme/ledger?tab=review', MANAGER);
+    expect(review.body).toMatch(/aria-current="page">Waiting on you/);
+    expect(review.body).toContain('id="r-c-1"');
+  });
+
+  it('is not offered to a member, and asking for it shows them context', async () => {
+    await lend();
+    const { body } = await visit('/project/acme/ledger?tab=review', MEMBER_GOOGLE);
+    expect(body).not.toContain('Waiting on you');
+    expect(body).toMatch(/aria-current="page">Context/);
+  });
+
+  it('opens on its own for a link to a queued contribution', async () => {
+    const { body } = await visit('/project/acme/ledger?review=c-1', MANAGER);
+    expect(body).toMatch(/aria-current="page">Waiting on you/);
+  });
+
+  it('pages ten proposals at a time, never splitting one', async () => {
+    queue(14);
+    const first = await visit('/project/acme/ledger?tab=review', MANAGER);
+    expect(first.body).toContain('Page 1 of 2');
+    expect(first.body).toMatch(/href="\/project\/acme\/ledger\?tab=review&amp;page=2#panel">Next/);
+    const second = await visit('/project/acme/ledger?tab=review&page=2', MANAGER);
+    expect(second.body).toContain('Page 2 of 2');
+    // Both the proposal and its change are on the same page.
+    expect(second.body).toContain('proposal 14');
+    expect(second.body).toContain('task from proposal 14');
   });
 });
