@@ -1316,7 +1316,6 @@ app.get('/project/:owner/:repo', async (req, res) => {
       user,
       view,
       selected,
-      viewMode: req.query.view === 'list' ? 'list' : 'columns',
       item,
       filters: { workstream: req.query.taskWs, owner: req.query.taskOwner },
       history: req.query.history === '1',
