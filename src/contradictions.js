@@ -75,7 +75,14 @@ export function resolveContradictions(item, { replaces = [], config, teamctxDir 
         const existing = tree.records.find(r => r.id === op.id);
         if (!existing || existing.type !== old.type || existing.id !== old.id) throw new ContradictionResolutionError('To replace a different record, submit an explicit replacement contribution. This edit cannot retire another decision or rule.');
         const changes = Object.fromEntries(Object.entries(op.changes || {}).filter(([key]) => EDITABLE_RECORD_FIELDS.includes(key)));
-        const record = { ...existing, ...changes, links: { ...existing.links, ...changes.links, replaces: old.id } };
+        // The new record's own fields only. Spreading the old record carried its
+        // id, key, status and history into the proposal, so the approval result
+        // named the new record as the one it replaced (D-12) while the stored
+        // record was D-16. `applyOps` mints the identity; nothing here should
+        // look like it has one already.
+        const { id: _id, key: _key, status: _status, sourceContributionIds: _src, createdBy: _by,
+          approvedBy: _ok, createdAt: _at, updatedAt: _up, reviewedAt: _rv, brokenAt: _br, ...fields } = existing;
+        const record = { ...fields, ...changes, links: { ...existing.links, ...changes.links, replaces: old.id } };
         operations[conflict.operationIndex] = { type: 'addRecord', record };
       } else throw new ContradictionResolutionError('The flagged operation has changed; resubmit this contribution for review.');
     }
