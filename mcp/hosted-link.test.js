@@ -119,6 +119,8 @@ describe('a project that never recorded where it is deployed', () => {
   it('still returns a link for a contribution, pointing at what it wrote', async () => {
     const r = await hosted('contribute', { text: 'a sponsor at 25,000', workstream: 'finance', apply: true });
     const added = tree().records.find(w => w.text === 'tiers decided');
+    expect(r.keys).toEqual([{ id: added.id, key: 'D-1' }]);
+    expect(r.reportBack).toContain('D-1');
     expect(r.viewUrl).toBe(`${HOST}/project/${OWNER}/${REPO}?ws=finance&item=${added.id}`);
     expect(r.viewUrlError).toBe(null);
   });
@@ -139,6 +141,7 @@ describe('a project that never recorded where it is deployed', () => {
       const moved = await call('task_assign', { id: added.task.id, owner: 'Smita' });
       expect(moved.viewUrl).toBe(`${HOST}/project/${OWNER}/${REPO}?task=${added.task.id}`);
       const done = await call('task_done', { id: added.task.id });
+      expect(done.reportBack).toContain(`Task ${added.task.key} marked done`);
       expect(done.viewUrl).toBe(`${HOST}/project/${OWNER}/${REPO}?task=${added.task.id}`);
     });
   });

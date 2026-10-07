@@ -277,7 +277,7 @@ function promptFor({ node, tier, where, wsId, isProject, owner, repo, link, pare
   const line = (...lines) => lines.filter(Boolean).join('\n');
 
   return [
-    `Tell me more about "${node.text}".`,
+    `Tell me more about ${node.key ? `${node.key}: ` : ''}"${node.text}".`,
     [lineage,
       'Answer in plain language — I want the context that matters, not a tour of how the project is organised.',
     ].filter(Boolean).join(' '),
@@ -319,12 +319,12 @@ function itemButton({ row, contributions, where, project, marked, isProject, own
   const stale = node.needsReview
     ? `<span class="stale" title="${esc(node.needsReview)}">needs review</span>` : '';
   return `<button class="item tier-${esc(tier)}${marked ? ' marked' : ''}${node.needsReview ? ' stale' : ''}" id="i-${esc(node.id)}"
-  data-text="${esc(node.text)}" data-kind="${esc(`${tier === 'task' ? 'Task' : (LABELS[tier] || '').replace(/:$/, '')} ${n}`)}"
+  data-text="${esc(node.text)}" data-kind="${esc(`${tier === 'task' ? 'Task' : (LABELS[tier] || '').replace(/:$/, '')} ${node.key || n}`)}"
   data-summary="${esc(node.detail || node.summary || '')}" data-who="${esc(who.join(', '))}"
   data-review="${esc(node.needsReview || '')}"
   data-prompt="${escAttr(prompt)}">
   <span class="dot ${kindOf(node, contributions)}"></span>
-  <span class="num">${n}</span>
+  <span class="num">${esc(node.key || n)}</span>
   <span class="text">${esc(node.text)}${stale}</span>
 </button>`;
 }
@@ -368,7 +368,7 @@ export const projectPage = ({ user, view, selected, viewMode = 'columns', item =
   const inheritedRows = isProject ? [] : [
     ...(view.projectTree?.goal?.text ? [{ text: `Goal: ${view.projectTree.goal.text}`, node: view.projectTree.goal }] : []),
     ...(view.projectTree?.records || []).filter(r => isActive(r) && r.type !== 'exception')
-      .map(r => ({ text: `${LABELS[r.type]} ${r.text}`, node: r })),
+      .map(r => ({ text: `${r.key ? `${r.key} ` : ''}${LABELS[r.type]} ${r.text}`, node: r })),
   ];
   const inherited = inheritedRows.length
     ? `<div class="inherited">
@@ -440,7 +440,7 @@ ${note ? `<p class="note">${esc(note)}</p>` : ''}
       ${view.tasks.open.length ? `<table>
         <tr><th>Task</th><th>Who has it</th><th>Where</th></tr>
         ${view.tasks.open.map(t => `<tr id="t-${esc(t.id)}"${t.id === item ? ' class="marked"' : ''}>
-          <td>${esc(t.title)}</td>
+          <td>${t.key ? `<span class="num">${esc(t.key)}</span> ` : ''}${esc(t.title)}</td>
           <td class="muted">${t.owner ? esc(t.owner) : 'nobody yet'}</td>
           <td class="muted">${esc(t.where)}</td>
         </tr>`).join('')}

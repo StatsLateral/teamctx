@@ -45,11 +45,16 @@ export async function updateShared(tree, contribution, config, { intent, avoid }
     intent,
     avoid,
   });
-  const { tree: updated, dropped } = applyOps(tree, operations, contribution.id);
+  const { tree: updated, dropped, nextKey } = applyOps(tree, operations, contribution.id, {
+    nextKey: config?.nextKey,
+  });
   // What was dropped never reaches the queue or the tree: a reviewer approving
   // a proposal should see exactly what will be written.
   const kept = operations.filter(o => !dropped.some(d => d.op === o));
-  return { workstream: updated, summary, operations: kept, dropped };
+  // Handed back rather than written here. The caller knows whether this tree is
+  // about to be written or put in a queue, and the counters have to go the same
+  // way the tree does — see `mintKey`.
+  return { workstream: updated, summary, operations: kept, dropped, nextKey };
 }
 
 export async function generateRoleFile(workstream, role, projectName, config, contributions = [], { project = null, chain = null } = {}) {
@@ -62,6 +67,7 @@ export async function generateRoleFile(workstream, role, projectName, config, co
     ``,
     `Full shared context:`,
     tree,
+    `Keep the stored record and task keys beside every line you retain.`,
     ``,
     `Role: ${role.name}`,
     `Responsibilities: ${role.responsibilities}`,
@@ -112,6 +118,7 @@ export async function compileTaskPrompt({
     `Project: ${projectName}   Date: ${now}`,
     ``,
     `Task title: ${task.title}`,
+    task.key ? `Task key: ${task.key}. Keep this key in the heading and keep record keys beside their context lines.` : '',
     `Task id: ${task.id}   Owner: ${task.owner || '(unassigned)'}   Belongs to: ${targetLabel(task.workstream, projectName)}`,
     roleLine,
     ``,
@@ -123,7 +130,7 @@ export async function compileTaskPrompt({
     ``,
     `Generate a markdown file with EXACTLY these sections:`,
     ``,
-    `# Task: ${task.title}`,
+    `# Task: ${task.key ? `${task.key} — ` : ''}${task.title}`,
     ``,
     `**Owner:** ${task.owner || '(unassigned)'} · **Belongs to:** ${targetLabel(task.workstream, projectName)} · **Status:** ${task.status}`,
     `**Created:** ${task.createdAt || '-'} · **Compiled:** ${now}`,
@@ -169,7 +176,7 @@ export async function answerQuestion({ sharedMd, roleMd, question, config, openT
     ? serializeToMd(workstream, workstream.name || config?.project || 'project', '', contribs, { includeSourceTags: true, project })
     : sharedMd;
   const tasksMd = (openTasks && openTasks.length)
-    ? `## Open Tasks\n\n${openTasks.map(t => `- ${t.id} — ${t.title} (owner: ${t.owner || '?'})`).join('\n')}`
+    ? `## Open Tasks\n\n${openTasks.map(t => `- ${t.key || t.id} — ${t.title} (owner: ${t.owner || '?'})`).join('\n')}`
     : '';
 
   const context = [

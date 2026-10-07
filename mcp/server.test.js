@@ -10,6 +10,7 @@ vi.mock('../src/storage.js', () => ({
   getTeamctxDir: vi.fn((root) => `${root}/.teamctx`),
   readConfig: vi.fn(),
   writeConfig: vi.fn(),
+  withRecordKeys: vi.fn((dir, write) => write(readConfig(dir))),
   readWorkstream: vi.fn(),
   listWorkstreamIds: vi.fn(() => []),
   readRoleFile: vi.fn(),

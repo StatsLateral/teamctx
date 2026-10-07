@@ -144,6 +144,10 @@ export async function readProjectView({ owner, repo, user }) {
       .filter(t => inScope(allowed, resolveTarget(t.workstream)))
       .map(t => ({
         id: t.id,
+        // The handle a person has in front of them. The payload is built field by
+        // field on purpose, so anything not named here never reaches the page —
+        // which is also how this was missing, and a link by key reached nothing.
+        key: t.key || null,
         title: t.title,
         owner: t.owner || null,
         status: t.status === 'done' ? 'done' : 'open',

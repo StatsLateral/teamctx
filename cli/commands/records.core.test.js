@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { mkdtempSync, mkdirSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { writeConfig, writeProject, writeWorkstream } from '../../src/storage.js';
+import { writeConfig, writeProject, writeWorkstream, withRecordKeys, readWorkstream } from '../../src/storage.js';
 import { listRecords, getRecord, RecordNotFoundError } from './records.core.js';
 import { scopeFor } from '../../src/member-scope.js';
 import { makeRecord, makeConfig } from '../../src/test-fixtures/model.js';
@@ -35,6 +35,13 @@ beforeEach(() => {
 });
 
 describe('listRecords', () => {
+  it('resolves a key only among records the caller may read', () => {
+    withRecordKeys(dir, () => {});
+    const visible = readWorkstream('sales', dir).records[0];
+    const hidden = readWorkstream('expansion', dir).records[0];
+    expect(getRecord({ teamctxDir: dir, scope: memberScope(), id: visible.key }).id).toBe(visible.id);
+    expect(() => getRecord({ teamctxDir: dir, scope: memberScope(), id: hidden.key })).toThrow(RecordNotFoundError);
+  });
   it('gives a scoped member their workstream, the parts below it and the project — nothing else', () => {
     const ws = new Set(listRecords({ teamctxDir: dir, scope: memberScope(), onDay: '2026-10-02' }).map(r => r.workstream));
     expect([...ws].sort()).toEqual([null, 'outreach', 'sales'].sort());

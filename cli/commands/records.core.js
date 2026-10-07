@@ -49,7 +49,7 @@ export function listRecords({
 export function getRecord({ teamctxDir, scope = null, id } = {}) {
   const config = readConfig(teamctxDir);
   for (const { id: ws, tree } of visibleTrees(teamctxDir, config, scope)) {
-    const r = (tree.records || []).find(x => x.id === id);
+    const r = (tree.records || []).find(x => x.id === id || (x.key && x.key === id));
     if (r) return { ...r, workstream: ws, number: ws ? numberWorkstreams(config).get(ws) || null : null };
   }
   throw new RecordNotFoundError(id);

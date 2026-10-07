@@ -1,4 +1,5 @@
-import { readFileSync, writeFileSync, mkdirSync, existsSync, appendFileSync, readdirSync, unlinkSync } from 'fs';
+import { readFileSync, writeFileSync, mkdirSync, existsSync, appendFileSync, readdirSync, unlinkSync, openSync, closeSync } from 'fs';
+import { backfillKeys, mintKey } from './record-key.js';
 import { join, dirname } from 'path';
 import { getCurrentSession } from './session-context.js';
 import { isProjectLevel, resolveTarget } from './project-level.js';
@@ -88,6 +89,39 @@ export function readConfig(dir) {
 export function writeConfig(config, dir) {
   if (sessionWrite(ctxPath('config.json'), JSON.stringify(config, null, 2))) return;
   writeFileSync(resolve(dir, 'config.json'), JSON.stringify(config, null, 2));
+}
+
+/** A synchronous context write: backfill and mint against the latest counters.
+ * The local exclusive file prevents two CLI processes allocating the same key.
+ * Hosted writes are buffered together; the adapter rejects stale key commits.
+ */
+export function withRecordKeys(dir, write) {
+  const lock = getCurrentSession() ? null : resolve(dir, '.local', 'record-keys.lock');
+  let fd;
+  if (lock) {
+    mkdirSync(dirname(lock), { recursive: true });
+    try { fd = openSync(lock, 'wx'); }
+    catch (error) {
+      if (error.code !== 'EEXIST') throw error;
+      throw new Error('Another context write holds record-keys.lock. Retry after it finishes. If its process stopped, remove .teamctx/.local/record-keys.lock before retrying.');
+    }
+  }
+  try {
+    const config = readConfig(dir);
+    const targets = [null, ...listWorkstreamIds(dir)];
+    const before = targets.map(target => readTree(target, dir));
+    const filled = backfillKeys(before, config.nextKey);
+    const current = { ...config, nextKey: filled.nextKey };
+    // Reserve before writing trees: a failed local write may leave a gap, but
+    // must never leave a key whose counter still offers it to the next writer.
+    if (JSON.stringify(config.nextKey) !== JSON.stringify(filled.nextKey)) writeConfig(current, dir);
+    filled.trees.forEach((tree, i) => {
+      if (JSON.stringify(tree) !== JSON.stringify(before[i])) writeTree(targets[i], tree, dir);
+    });
+    return write(current);
+  } finally {
+    if (fd !== undefined) { closeSync(fd); unlinkSync(lock); }
+  }
 }
 
 // ---- Contributions log ----
@@ -505,6 +539,8 @@ export function resolveTaskId(prefix, dir) {
     throw new Error(`no task matches "${prefix}"`);
   }
   const all = listTasks({}, dir);
+  const keyed = all.find(t => t.key === prefix);
+  if (keyed) return keyed.id;
   const matches = all.filter(t => t.id === prefix || t.id.startsWith(prefix));
   if (matches.length === 0) throw new Error(`no task matches "${prefix}"`);
   const exact = matches.find(t => t.id === prefix);
@@ -524,23 +560,34 @@ export function writeTask(task, dir) {
   sanitizeTaskId(task?.id);
   const wsId = isProjectLevel(task.workstream) ? null : task.workstream;
   if (wsId !== null) sanitizeWorkstreamId(wsId);
-  const ws = readTree(wsId, dir);
-  const tasks = Array.isArray(ws.tasks) ? ws.tasks : [];
-  const idx = tasks.findIndex(t => t.id === task.id);
-  if (idx >= 0) tasks[idx] = task;
-  else tasks.push(task);
-  ws.tasks = tasks;
-  writeTree(wsId, ws, dir);
+  return withRecordKeys(dir, config => {
+    const ws = readTree(wsId, dir);
+    const tasks = Array.isArray(ws.tasks) ? ws.tasks : [];
+    const idx = tasks.findIndex(t => t.id === task.id);
+    if (idx >= 0) task.key = tasks[idx].key;
+    else {
+      const minted = mintKey(config.nextKey, 'task');
+      task.key = minted.key;
+      writeConfig({ ...config, nextKey: minted.counters }, dir);
+    }
+    if (idx >= 0) tasks[idx] = task;
+    else tasks.push(task);
+    ws.tasks = tasks;
+    writeTree(wsId, ws, dir);
+    return task;
+  });
 }
 
 export function deleteTask(idOrPrefix, dir) {
   const id = resolveTaskId(idOrPrefix, dir);
-  const { workstream: wsId } = readTask(id, dir);
-  const ws = readTree(wsId, dir);
-  ws.tasks = (ws.tasks || []).filter(t => t.id !== id);
-  writeTree(wsId, ws, dir);
-  deleteTaskFile(id, dir);
-  return { id, workstream: wsId };
+  return withRecordKeys(dir, () => {
+    const { workstream: wsId } = readTask(id, dir);
+    const ws = readTree(wsId, dir);
+    ws.tasks = (ws.tasks || []).filter(t => t.id !== id);
+    writeTree(wsId, ws, dir);
+    deleteTaskFile(id, dir);
+    return { id, workstream: wsId };
+  });
 }
 
 

@@ -174,6 +174,88 @@ describe('the goal carries its own reason', () => {
 });
 
 /**
+ * Keys minted as records land, and only as records land.
+ *
+ * The counters live in `config.json` while the records go into a tree, so they
+ * travel in and out rather than being written here. That is what makes the
+ * queued path work without a special case: a contribution on its way to review
+ * has its tree thrown away, the counters go with it, and a contribution that is
+ * rejected never spends a number. Otherwise `T-4` would belong to something
+ * nobody approved.
+ */
+describe('the key a record is minted with', () => {
+  const add = (type, text, over = {}) => ({
+    type: 'addRecord',
+    record: {
+      type, text, ...(type === 'assumption' ? { owner: { name: 'O' }, reviewBy: '2026-12-01' } : {}), ...over,
+    },
+  });
+
+  it('numbers each kind on its own, in the order they land', () => {
+    const { tree, nextKey } = applyOps(makeProject(), [
+      add('decision', 'first'), add('rule', 'a rule'), add('decision', 'second'),
+    ], C);
+    expect(tree.records.map(r => r.key)).toEqual(['D-1', 'R-1', 'D-2']);
+    expect(nextKey).toMatchObject({ D: 3, R: 2, T: 1 });
+  });
+
+  it('numbers a task from its own counter', () => {
+    const { tree, nextKey } = applyOps(makeProject(), [
+      { type: 'addTask', title: 'one' }, { type: 'addTask', title: 'two' },
+    ], C);
+    expect(tree.tasks.map(t => t.key)).toEqual(['T-1', 'T-2']);
+    expect(nextKey.T).toBe(3);
+  });
+
+  it('carries on from the counters it was given, not from what is in the tree', () => {
+    // The tree may have had records deleted out of it. The counters are the
+    // record of what has been handed out.
+    const { tree } = applyOps(makeProject(), [add('decision', 'next one')], C, { nextKey: { D: 7 } });
+    expect(tree.records[0].key).toBe('D-7');
+  });
+
+  it('spends nothing on a proposal that gets dropped', () => {
+    // The malformed one must not take `D-1` with it, or the first good decision
+    // in the project is `D-2` and nobody can say why.
+    const { tree, dropped, nextKey } = applyOps(makeProject(), [
+      add('decision', ''), add('decision', 'a real one'),
+    ], C);
+    expect(dropped).toHaveLength(1);
+    expect(tree.records.map(r => r.key)).toEqual(['D-1']);
+    expect(nextKey.D).toBe(2);
+  });
+
+  it('spends nothing on an exception whose rule is not there', () => {
+    // Dropped after the key was minted, which is the case that needed the
+    // counter committed at the end rather than at the top.
+    const { dropped, nextKey } = applyOps(makeProject(), [
+      add('exception', 'just this once', { expiresAt: '2026-12-31', links: { bends: 'rec-nope' } }),
+    ], C);
+    expect(dropped).toHaveLength(1);
+    expect(nextKey.X).toBe(1);
+  });
+
+  it('hands back untouched counters when a contribution does nothing', () => {
+    const { nextKey } = applyOps(makeProject(), [], C, { nextKey: { D: 4 } });
+    expect(nextKey.D).toBe(4);
+  });
+
+  it('does not change the counters object it was given', () => {
+    // The caller holds this and decides whether it is written. Mutating it would
+    // spend a key on a contribution that then went to the queue instead.
+    const counters = { D: 1, T: 1, R: 1, A: 1, X: 1 };
+    applyOps(makeProject(), [add('decision', 'x')], C, { nextKey: counters });
+    expect(counters.D).toBe(1);
+  });
+
+  it('keeps the internal id as well, since that is still what links point at', () => {
+    const { tree } = applyOps(makeProject(), [add('decision', 'x')], C);
+    expect(tree.records[0].id).toMatch(/^rec-/);
+    expect(tree.records[0].key).toBe('D-1');
+  });
+});
+
+/**
  * The two moments that need the time of day.
  *
  * `updatedAt` is a date, which cannot order two changes made in one sitting —
