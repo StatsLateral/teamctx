@@ -35,8 +35,8 @@ export function serializeToMd(tree, projectName, lastUpdatedBy = '', contributio
  * default to the plain contribution behaviour, so existing callers are
  * unaffected.
  */
-export async function updateShared(tree, contribution, config, { intent, avoid } = {}) {
-  const { summary, operations } = await proposeDiff({
+export async function updateShared(tree, contribution, config, { intent, avoid, comparisonRecords, operationsToCheck } = {}) {
+  const proposal = await proposeDiff({
     workstream: tree,
     contribution: contribution.text,
     source: contribution.author,
@@ -44,17 +44,26 @@ export async function updateShared(tree, contribution, config, { intent, avoid }
     config,
     intent,
     avoid,
+    comparisonRecords,
+    operationsToCheck,
   });
+  const { summary, contradictions = [] } = proposal;
+  const operations = operationsToCheck ?? proposal.operations;
   const { tree: updated, dropped, nextKey } = applyOps(tree, operations, contribution.id, {
     nextKey: config?.nextKey,
   });
   // What was dropped never reaches the queue or the tree: a reviewer approving
   // a proposal should see exactly what will be written.
-  const kept = operations.filter(o => !dropped.some(d => d.op === o));
+  // By position, not by identity: `applyOps` copies an operation whose record
+  // attaches to a task added alongside it, so comparing the objects let a
+  // dropped operation through as a kept one.
+  const kept = operations.filter((o, i) => !dropped.some(d => d.index === i));
   // Handed back rather than written here. The caller knows whether this tree is
   // about to be written or put in a queue, and the counters have to go the same
   // way the tree does — see `mintKey`.
-  return { workstream: updated, summary, operations: kept, dropped, nextKey };
+  const conflicts = contradictions.filter(c => kept.includes(operations[c.operationIndex]))
+    .map(c => ({ ...c, operationIndex: kept.indexOf(operations[c.operationIndex]) }));
+  return { workstream: updated, summary, operations: kept, dropped, nextKey, contradictions: conflicts };
 }
 
 export async function generateRoleFile(workstream, role, projectName, config, contributions = [], { project = null, chain = null } = {}) {

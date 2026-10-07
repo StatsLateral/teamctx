@@ -2,6 +2,7 @@ import { jsonrepair } from 'jsonrepair';
 import { today as todayIso } from './model.js';
 import { getProvider } from './providers/index.js';
 import { getRequestAiProvider, keyWasRejected, fallBackFromOwnKey } from './ai-context.js';
+import { normalizeContradictions } from './contradictions.js';
 
 export const MODELS_BY_PROVIDER = {
   anthropic: [
@@ -117,7 +118,7 @@ function modelForPrompt(tree) {
  * two documents covering the same decision both propose it.
  */
 export async function proposeDiff({
-  workstream, contribution, source, model, config, intent = 'contribution', avoid = [], today: onDay = todayIso(),
+  workstream, contribution, source, model, config, intent = 'contribution', avoid = [], today: onDay = todayIso(), comparisonRecords, operationsToCheck,
 }) {
   const isDocument = intent === 'document';
 
@@ -128,6 +129,9 @@ export async function proposeDiff({
       "team's shared context. Output STRICT JSON only — no markdown fences, no commentary.";
 
   const label = isDocument ? 'Document' : 'Contribution';
+  const comparisons = comparisonRecords ?? (workstream.records || [])
+    .filter(r => r.status === 'active' && ['decision', 'rule'].includes(r.type))
+    .map(r => ({ id: r.id, type: r.type, text: r.text, workstream: workstream.id || null }));
 
   const prompt = [
     `Part of the work: "${workstream.name || 'the project itself'}"`,
@@ -135,6 +139,10 @@ export async function proposeDiff({
     '',
     'Current context (ids you may reference):',
     JSON.stringify(modelForPrompt(workstream), null, 2),
+    '',
+    'Active decisions and rules to compare, including inherited context (read-only comparison):',
+    JSON.stringify(comparisons, null, 2),
+    ...(operationsToCheck ? ['', 'Previously proposed operations to check (keep these unchanged, including their order):', JSON.stringify(operationsToCheck, null, 2)] : []),
     '',
     ...(avoid.length ? [
       'Already proposed earlier in this same import — do NOT restate these:',
@@ -144,10 +152,11 @@ export async function proposeDiff({
     `${label} (source: ${source}):`,
     `"""${contribution}"""`,
     '',
-    'Propose changes. Output STRICT JSON:',
+    operationsToCheck ? 'Check the supplied operations for contradictions only. Do not change or regenerate them. Output STRICT JSON:' : 'Propose changes. Output STRICT JSON:',
     'Keys such as D-3 and T-14 are human handles. When a contribution names a key, resolve it to the matching id above. Use internal ids in operations and links; never assign or edit a key.',
     `{
   "summary": "1-2 sentences",
+  "contradictions": [],
   "operations": [
     { "type": "setGoal", "text": "one line", "why": "why it matters, one line" },
     { "type": "addRecord", "ref": "optional local name", "record": {
@@ -174,10 +183,13 @@ export async function proposeDiff({
     'replace a record with a copy of itself to achieve that — "it still stands" is a re-confirmation, not a new',
     'decision. Use "broken" only for an assumption that turned out to be wrong; a decision that no longer holds is',
     '"replaced".',
-    'If the contribution contradicts an active record, add a question',
-    'naming both instead of a second contradictory record. Include attachedTo only when a record is about one',
+    'Include attachedTo only when a record is about one',
     'specific task; otherwise leave it out and it belongs to this part of the work. Dates are YYYY-MM-DD relative',
     'to today. JSON only.',
+    'Check each addRecord or text-changing editRecord against the comparison decisions and rules. A contradiction means the proposed text and the existing statement cannot both hold for the same subject and scope. Different topics, compatible elaborations, metadata-only edits, and explicit allowed exceptions bending their rule are not contradictions.',
+    'For each contradiction return the zero-based operationIndex, exact recordId and workstream from the comparison list. Return contradictions: [] when there are none. Keep the proposed operation so a manager can decide; do not invent a question record, silently suppress a conflict, or decide which statement wins. Flag intentional replacements too: they still need manager review.',
+    'Each contradiction has this shape: {"operationIndex": 0, "recordId": "<comparison record id>", "workstream": null}. Use the actual workstream value from that comparison record, which is null only for project context.',
+    'Inherited records are comparison only. Do not put an inherited id in links.replaces: replacement belongs in the tree that owns the old record. Never compare against unrelated workstreams.',
     ...(isDocument ? [
       '',
       'This is a document, not a deliberate update. Extract only durable team',
@@ -193,8 +205,15 @@ export async function proposeDiff({
 
   const raw = await callClaude({ prompt, model, system, config });
   const parsed = extractJson(raw);
+  const operations = operationsToCheck ?? (Array.isArray(parsed.operations) ? parsed.operations : []);
+  if (comparisons.length && operations.some(op => op?.type === 'addRecord'
+    || (op?.type === 'editRecord' && typeof op.changes?.text === 'string')) && !Array.isArray(parsed.contradictions)) {
+    throw new Error('The model omitted the contradiction check; no changes applied. Try the contribution again.');
+  }
+  const contradictions = normalizeContradictions(parsed.contradictions, operations, comparisons, workstream.records || []);
   return {
     summary: String(parsed.summary ?? '(no summary)'),
-    operations: Array.isArray(parsed.operations) ? parsed.operations : [],
+    operations,
+    ...(contradictions.length ? { contradictions } : {}),
   };
 }

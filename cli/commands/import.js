@@ -62,7 +62,7 @@ export async function importCommand(paths, opts = {}) {
     const ops = r.mode === 'no-op'
       ? 'no changes proposed'
       : plural(r.operations.length, 'op');
-    console.log(`  ✓ ${r.id} — ${ops}`);
+    console.log(`  ✓ ${r.id} — ${ops}${r.contradictions?.length ? ` (${r.contradictions.length} contradiction${r.contradictions.length === 1 ? '' : 's'} — review required)` : ''}`);
     if (r.summary && r.mode !== 'no-op') console.log(`      ${r.summary}`);
   });
 

@@ -20,6 +20,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `workstream_split` and `teamctx workstream suggest` / `suggest_workstream_splits`.
 
 ### Added
+- Contributions check proposed records against active decisions and rules in
+  the same workstream and its ancestors. Contradictions always queue with both
+  statements named, even with direct apply. Managers resolve them through an
+  explicit replacement (`review approve --replaces` / MCP `review_approve`) or
+  rejection; inherited rules must be resolved where they are owned. Review
+  warnings appear in CLI, MCP and the manager page. Valid governed exceptions
+  are not treated as contradicting the rule they explicitly bend.
 - The project page uses one row layout for records, inherited context, tasks
   and review proposals. Tasks appear in one list with workstream and owner
   filters and named location breadcrumbs. Overdue assumptions and expired
