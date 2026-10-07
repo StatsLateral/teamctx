@@ -136,13 +136,13 @@ describe('who arrives, and what they see', () => {
     await kvSet(keys.session('s'), MANAGER);
     const body = await (await go(LINK, { session: 's' })).text();
     expect(body).toContain('price it in three tiers');
-    expect(body).toMatch(/class="item tier-task marked"/);
+    expect(body).toMatch(/class="item trow marked"/);
   });
 
   it('reaches the same item by the number a person has in front of them', async () => {
     await kvSet(keys.session('s'), MANAGER);
     const body = await (await go('/project/acme/ledger?ws=product&task=1.1', { session: 's' })).text();
-    expect(body).toMatch(/class="item tier-task marked"/);
+    expect(body).toMatch(/class="item trow marked"/);
   });
 
   it('shows a member the same item, without them ever having opened the web', async () => {
@@ -152,7 +152,7 @@ describe('who arrives, and what they see', () => {
     await kvSet(keys.session('s'), MEMBER);
     const body = await (await go(LINK, { session: 's' })).text();
     expect(body).toContain('price it in three tiers');
-    expect(body).toMatch(/class="item tier-task marked"/);
+    expect(body).toMatch(/class="item trow marked"/);
   });
 
   it('refuses somebody the project has never heard of', async () => {

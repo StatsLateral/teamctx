@@ -1320,9 +1320,7 @@ app.get('/project/:owner/:repo', async (req, res) => {
       view,
       selected,
       item,
-      filters: { workstream: req.query.taskWs, owner: req.query.taskOwner },
-      tab: req.query.tab === 'review' ? 'review' : null,
-      page: /^[1-9]\d{0,3}$/.test(String(req.query.page || '')) ? Number(req.query.page) : 1,
+      history: req.query.history === '1',
       // So a copied prompt can carry the address of the page it was copied
       // from, which is the one thing that tells a reader where it came from.
       origin: baseUrlFor(req),

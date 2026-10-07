@@ -66,6 +66,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   call that cannot read the project now returns a tool error that says why and
   what to do. The authorization server's `issuer` now matches the identifier the
   protected-resource document points at (it had a trailing slash the other lacked).
+- **The project page is one page, laid out like the demo.** No tabs, no
+  Where / Owner / Filter dropdowns, no pager. The tree on the left starts with
+  "Overall Project" and lists each part of the work with its open-task count and a
+  dot where something needs a look; choosing a part shows it and what is inside
+  it. The main column opens with a "Waiting on you · N" card for the manager (a
+  number, what it is, who sent it, how many things to check, and two icons: one to
+  read it and one to go to the decision), then one section per part with open
+  tasks, each a plain list of number, title, owner (agents marked) and source
+  count, and a "Show history (N done)" link at the bottom. A waiting item's drawer
+  says what it would change, what to check it against, and how to decide it in the
+  assistant or on the command line. Settings also counts the team and agents.
 - **The project page no longer lists decisions, rules, assumptions or
   exceptions.** It shows the work (tasks, by workstream) and, for the manager,
   what is waiting. Context is read through the assistant. Impact flags,
