@@ -81,12 +81,12 @@ function governance(node, type, onDay, pending) {
 /**
  * The headings for the row anatomy below, in the same grid.
  *
- * The row is fixed — key, type, text, owner, status, source — and without
+ * The row is fixed — number, type, text, owner, status, source — and without
  * headings nobody could tell what each part was. `text` names the third column
  * for the list it sits on: a statement in the context, a task in the tasks.
  */
 export function rowHeader({ text = 'Statement' } = {}) {
-  return `<div class="row-head" aria-hidden="true"><span>Key</span><span>Type</span><span>${esc(text)}</span>`
+  return `<div class="row-head" aria-hidden="true"><span>No.</span><span>Type</span><span>${esc(text)}</span>`
     + '<span>Owner</span><span>Status</span>'
     + '<span title="Review dates, end dates, and anything that needs a second look">Notes</span>'
     + '<span title="How it was added: by an assistant, the command line, the web, or an import">Source</span></div>';
@@ -100,6 +100,10 @@ export function projectRow({ node, type = node.type, contributions = {}, where =
 }) {
   if (!Object.hasOwn(TYPES, type)) return '';
   const owner = typeof node.owner === 'string' ? node.owner : node.owner?.name;
+  // Only a task, or a waiting item as a whole, has a number a person can say. A
+  // record has none, and a `key` that turns up on one — in a queued proposal,
+  // which is somebody else's file — is not shown as if it were one.
+  const number = type === 'task' || type === 'review' ? node.key : null;
   const source = sourceKind(node, contributions);
   const text = type === 'task' ? node.title : node.text;
   const status = statusLabel || (pending ? `Awaiting review${node.status ? ` · ${node.status}` : ''}` : node.status || (type === 'goal' ? 'Current' : 'Active'));
@@ -107,7 +111,7 @@ export function projectRow({ node, type = node.type, contributions = {}, where =
   // history. A proposal previews a status, so it is never dimmed.
   const retired = !pending && node.status && node.status !== 'active' && type !== 'task';
   return `<button type="button" class="item tier-${esc(type)}${marked ? ' marked' : ''}${retired ? ' retired' : ''}" id="${esc(id)}"${attributes}>
-  <span class="num">${esc(node.key || (pending ? 'Pending' : fallbackKey))}</span>
+  <span class="num">${esc(number || (pending ? '—' : fallbackKey))}</span>
   <span class="type-label">${esc(TYPES[type])}</span>
   <span class="text">${esc(text || '(no text)')}${relation ? `<span class="row-link">${esc(relation)}</span>` : ''}${where ? `<span class="row-where">${esc(where)}</span>` : ''}</span>
   <span class="row-owner">${esc(owner || '—')}</span>

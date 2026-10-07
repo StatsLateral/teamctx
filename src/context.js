@@ -1,6 +1,7 @@
 import { proposeDiff, callClaude } from './ai.js';
 import { targetLabel } from './project-level.js';
 import { applyOps } from './ops.js';
+import { workstreamNumber } from './numbering.js';
 import { renderBrief } from './brief.js';
 import {
   collectContributorCounts, collectSourceRefs,
@@ -61,7 +62,7 @@ export function stampEvidence(operations, contribution, tree = null) {
         by: contribution?.author || null,
         at: contribution?.ts || null,
       },
-      ...(target ? { against: { id: target.id, ...(target.key ? { key: target.key } : {}), type: target.type, text: target.text } } : {}),
+      ...(target ? { against: { id: target.id, type: target.type, text: target.text } } : {}),
     };
   });
 }
@@ -82,6 +83,7 @@ export async function updateShared(tree, contribution, config, { intent, avoid, 
   const operations = stampEvidence(operationsToCheck ?? proposal.operations, contribution, tree);
   const { tree: updated, dropped, nextKey } = applyOps(tree, operations, contribution.id, {
     nextKey: config?.nextKey,
+    workstreamNumber: workstreamNumber(config, tree?.id),
   });
   // What was dropped never reaches the queue or the tree: a reviewer approving
   // a proposal should see exactly what will be written.
@@ -107,7 +109,7 @@ export async function generateRoleFile(workstream, role, projectName, config, co
     ``,
     `Full shared context:`,
     tree,
-    `Keep the stored record and task keys beside every line you retain.`,
+    `Keep each task's number beside it.`,
     ``,
     `Role: ${role.name}`,
     `Responsibilities: ${role.responsibilities}`,
@@ -158,7 +160,7 @@ export async function compileTaskPrompt({
     `Project: ${projectName}   Date: ${now}`,
     ``,
     `Task title: ${task.title}`,
-    task.key ? `Task key: ${task.key}. Keep this key in the heading and keep record keys beside their context lines.` : '',
+    task.key ? `Task number: ${task.key}. Keep this number in the heading.` : '',
     `Task id: ${task.id}   Owner: ${task.owner || '(unassigned)'}   Belongs to: ${targetLabel(task.workstream, projectName)}`,
     roleLine,
     ``,

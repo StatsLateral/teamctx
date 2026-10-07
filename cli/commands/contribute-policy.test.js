@@ -12,7 +12,7 @@ const MEMBER = { key: 'github:2002', name: 'Ravi', login: 'ravi', source: 'githu
 const MANAGER = { key: 'github:1001', name: 'Ada', login: 'ada', source: 'github' };
 let caller = MEMBER;
 let operations = [];
-let nextKeyAfter = { T: 1, D: 1, R: 1, A: 1, X: 1 };
+let nextKeyAfter = { workstream: 1, tasks: {} };
 
 vi.mock('../../src/storage.js', () => ({
   writeWorkstreamMd: vi.fn(),
@@ -22,7 +22,7 @@ vi.mock('../../src/storage.js', () => ({
   writeTreeMd: vi.fn(),
   readProject: vi.fn(() => ({ name: '', goal: { text: 'An existing goal' }, records: [], tasks: [] })),
   writeConfig: vi.fn(),
-  withRecordKeys: vi.fn((dir, write) => write(readConfig(dir))),
+  withCounters: vi.fn((dir, write) => write(readConfig(dir))),
   readConfig: vi.fn(),
   readWorkstream: vi.fn(() => ({ id: 'ops', name: 'p', records: [], tasks: [] })),
   writeTree: vi.fn(),
@@ -58,17 +58,17 @@ vi.mock('../../src/prefs.js', () => ({
 const { contributeCore } = await import('./contribute.core.js');
 const { NEW_PROJECT_POLICY } = await import('../../src/review-policy.js');
 const {
-  readConfig, writeConfig, writeQueueItem, writeTree,
+  readConfig, writeConfig, writeQueueItem, writeTree, readTree,
   writeWorkstreamMd, readWorkstream, listWorkstreamIds,
 } = await import('../../src/storage.js');
 
-const project = (over = {}) => ({ project: 'p', me: 'Ada', managerKey: 'github:1001', workstreams: [{ id: 'ops', name: 'Ops' }], ...over });
+const project = (over = {}) => ({ project: 'p', me: 'Ada', managerKey: 'github:1001', workstreams: [{ id: 'ops', number: 1, name: 'Ops' }], ...over });
 const ADDS = [{ type: 'addRecord', record: { type: 'assumption', text: 'go to vietnam' } }, { type: 'addTask', title: 'pick dates' }];
 const WITH_DELETE = [{ type: 'addRecord', record: { type: 'assumption', text: 'x' } }, { type: 'removeTask', id: 'abc' }];
 
 const contribute = () => contributeCore({ text: 'something', source: 'mcp' });
 
-beforeEach(() => { vi.clearAllMocks(); caller = MEMBER; operations = ADDS; nextKeyAfter = { T: 1, D: 1, R: 1, A: 1, X: 1 }; });
+beforeEach(() => { vi.clearAllMocks(); caller = MEMBER; operations = ADDS; nextKeyAfter = { workstream: 1, tasks: {} }; });
 
 describe('a project that has never heard of the policy', () => {
   it('queues a member\'s contribution exactly as it always did', async () => {
@@ -287,32 +287,56 @@ describe('founding a project under the new default', () => {
  * `D-1, D-2, D-3, D-5` with nothing to explain the gap.
  */
 describe('what a queued contribution costs', () => {
-  beforeEach(() => readConfig.mockReturnValue(project({ reviewPolicy: 'all', nextKey: { D: 4, T: 1, R: 1, A: 1, X: 1 } })));
+  const counters = { workstream: 2, tasks: { ops: 5 } };
+  beforeEach(() => readConfig.mockReturnValue(project({ reviewPolicy: 'all', nextKey: counters })));
+  afterEach(() => readTree.mockImplementation(() => ({ id: 'ops', name: 'M', records: [], tasks: [] })));
 
-  it('writes no counters while it is only queued', async () => {
+  it('gives a queued item the next number in its workstream, and keeps the counters with it', async () => {
+    // The number belongs to the item from the moment it is submitted, so a
+    // manager can say "approve 1.5" while it waits. A rejection leaves a gap.
     operations = ADDS;
     const r = await contribute();
     expect(r.mode).toBe('queued');
-    expect(writeQueueItem).toHaveBeenCalled();
+    expect(r.number).toBe('1.5');
+    expect(writeQueueItem.mock.calls[0][0]).toMatchObject({ workstream: 'ops', number: '1.5' });
+    expect(writeConfig.mock.calls.at(-1)[0].nextKey).toEqual({ workstream: 2, tasks: { ops: 6 } });
+    expect(writeTree).not.toHaveBeenCalled();
+  });
+
+  it('uses the task\'s own number for an item about one existing task, and spends nothing', async () => {
+    readTree.mockReturnValue({ id: 'ops', name: 'Ops', records: [], tasks: [{ id: 'task-abc', key: '1.2', title: 'x' }] });
+    operations = [{ type: 'editTask', id: 'task-abc', title: 'x, reworded' }];
+    const r = await contribute();
+    expect(r.mode).toBe('queued');
+    expect(r.number).toBe('1.2');
     expect(writeConfig).not.toHaveBeenCalled();
   });
 
-  it('writes them when the contribution actually lands', async () => {
-    caller = MANAGER;
-    readConfig.mockReturnValue(project({ reviewPolicy: 'none', nextKey: { D: 4, T: 1, R: 1, A: 1, X: 1 } }));
-    nextKeyAfter = { D: 99, T: 99, R: 99, A: 99, X: 99 };
-    operations = [{ type: 'addRecord', record: { type: 'decision', text: 'First' } }, { type: 'addRecord', record: { type: 'decision', text: 'Second' } }];
-    const r = await contributeCore({ text: 'something', source: 'mcp', apply: true });
-    expect(r.mode).toBe('applied');
-    expect(writeConfig.mock.calls.at(-1)[0].nextKey).toEqual({ D: 6, T: 1, R: 1, A: 1, X: 1 });
+  it('gives an item for the project itself no number: there is no workstream to number it in', async () => {
+    operations = [{ type: 'setGoal', text: 'A goal' }];
+    const r = await contributeCore({ text: 'something', source: 'mcp', workstreamId: '' });
+    expect(r.mode).toBe('queued');
+    expect(r.number).toBeUndefined();
+    expect(writeQueueItem.mock.calls[0][0]).not.toHaveProperty('number');
+    expect(writeConfig).not.toHaveBeenCalled();
   });
 
-  it('allocates from storage even when the preview returns no counters', async () => {
-    readConfig.mockReturnValue(project({ reviewPolicy: 'none', nextKey: { D: 4, T: 1, R: 1, A: 1, X: 1 } }));
-    nextKeyAfter = undefined;
-    operations = ADDS;
-    expect((await contribute()).mode).toBe('applied');
-    expect(writeConfig.mock.calls.at(-1)[0].nextKey).toMatchObject({ D: 4, T: 2 });
+  it('writes the counters when the contribution actually lands', async () => {
+    caller = MANAGER;
+    readConfig.mockReturnValue(project({ reviewPolicy: 'none', nextKey: counters }));
+    operations = [{ type: 'addTask', title: 'First' }, { type: 'addTask', title: 'Second' }];
+    const r = await contributeCore({ text: 'something', source: 'mcp', apply: true });
+    expect(r.mode).toBe('applied');
+    expect(r.tasks.map(t => t.key)).toEqual(['1.5', '1.6']);
+    expect(writeConfig.mock.calls.at(-1)[0].nextKey).toEqual({ workstream: 2, tasks: { ops: 7 } });
+  });
+
+  it('spends no number on records, which have none', async () => {
+    caller = MANAGER;
+    readConfig.mockReturnValue(project({ reviewPolicy: 'none', nextKey: counters }));
+    operations = [{ type: 'addRecord', record: { type: 'decision', text: 'First' } }];
+    expect((await contributeCore({ text: 'something', source: 'mcp', apply: true })).mode).toBe('applied');
+    expect(writeConfig.mock.calls.at(-1)[0].nextKey).toEqual(counters);
   });
 
   it('leaves the stored counters where they were for a discarded proposal', async () => {

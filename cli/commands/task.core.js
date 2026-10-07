@@ -3,7 +3,7 @@ import { flaggedInProject } from '../../src/project-records.js';
 import { isActive } from '../../src/model.js';
 import { createHash } from 'crypto';
 import {
-  readProject, readConfig, readTree, listTasks, readTask, writeTask, deleteTask, withRecordKeys,
+  readProject, readConfig, readTree, listTasks, readTask, writeTask, deleteTask,
   readWorkstream, readContributions,
   writeTaskFile, readTaskFile, taskFilePath, taskFileExists,
 } from '../../src/storage.js';
@@ -12,6 +12,7 @@ import { commitContext, pushContext } from '../../src/git.js';
 import { resolveActor } from '../../src/actor.js';
 import { resolveDisplayName, resolveActiveWorkstream } from '../../src/prefs.js';
 import { resolveTarget, isProjectLevel } from '../../src/project-level.js';
+import { TaskWithoutWorkstreamError } from '../../src/numbering.js';
 
 /**
  * Task operations, with no terminal in them.
@@ -33,6 +34,8 @@ export class TaskNotFoundError extends Error {
     this.code = 'TASK_NOT_FOUND';
   }
 }
+
+export { TaskWithoutWorkstreamError };
 
 export class UnknownTaskWorkstreamError extends Error {
   constructor(id, known) {
@@ -123,23 +126,21 @@ function findTask(idOrPrefix, teamctxDir) {
 }
 
 async function resolveTargetWorkstream(config, requested, { teamctxDir, projectDir, actor }) {
-  // `null` is the project itself — a task belonging to the whole thing rather
-  // than to one strand of it, which is where every task sits on a project that
-  // has not split anything out yet.
-  // `undefined` is "nobody said"; `null` is somebody saying "the project". The
-  // MCP handler resolves `main` to `null` before calling, so collapsing the two
-  // turned an explicit request for project level into "wherever you happen to
-  // be standing". `storage.listTasks` keeps them apart for the same reason.
+  // Every task lives in a workstream: the project's own work is a workstream
+  // too, so a project that has not split anything out yet adds one first.
+  // `undefined` is "nobody said", which means wherever the caller is working; if
+  // that is the project, and there is only one part of the work, it is that part.
+  // `null` is somebody saying "the project", which is not a place for a task.
+  const known = (config.workstreams || []).map(w => w.id);
+  let target = requested;
   if (requested === undefined) {
     const resolved = actor || await resolveActor({ config, cwd: projectDir });
-    return resolveActiveWorkstream({ actor: resolved, config, teamctxDir });
+    target = await resolveActiveWorkstream({ actor: resolved, config, teamctxDir });
+    if (isProjectLevel(target) && known.length === 1) target = known[0];
   }
-  if (isProjectLevel(requested)) return null;
-  const known = (config.workstreams || []).map(w => w.id);
-  if (known.length > 0 && !known.includes(requested)) {
-    throw new UnknownTaskWorkstreamError(requested, known);
-  }
-  return requested;
+  if (isProjectLevel(target)) throw new TaskWithoutWorkstreamError(known);
+  if (!known.includes(target)) throw new UnknownTaskWorkstreamError(target, known);
+  return target;
 }
 
 // ---- reads --------------------------------------------------------------
@@ -159,7 +160,10 @@ export function listTasksFiltered({
 } = {}) {
   if (mine && owner) throw new MineAndOwnerError();
   const target = resolveTarget(workstream ?? activeWorkstream);
-  const scope = all ? {} : { workstream: target };
+  // Tasks live in workstreams, never on the project, so "at the project" means
+  // every workstream the caller can reach, not an empty list.
+  const everywhere = all || isProjectLevel(target);
+  const scope = everywhere ? {} : { workstream: target };
   let tasks = listTasks(scope, teamctxDir);
   if (status) tasks = tasks.filter(t => t.status === status);
   if (owner) tasks = tasks.filter(t => t.owner === owner);
@@ -175,7 +179,7 @@ export function listTasksFiltered({
   tasks.sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''));
   return {
     tasks,
-    scope: all ? 'all workstreams' : (isProjectLevel(target) ? 'the project' : `workstream ${target}`),
+    scope: everywhere ? 'all workstreams' : `workstream ${target}`,
   };
 }
 
@@ -214,7 +218,7 @@ export async function addTask({
   };
   writeTask(task, teamctxDir);
 
-  const wsLabel = isProjectLevel(targetWorkstream) ? '' : ` [workstream: ${targetWorkstream}]`;
+  const wsLabel = ` [workstream: ${targetWorkstream}]`;
   const git = await commitAndPush(config, `task: add ${id} by ${me}${wsLabel}`, projectDir);
   return { task, ...git };
 }
@@ -273,11 +277,8 @@ export async function compileTask({
 } = {}) {
   const config = readConfig(teamctxDir);
   const { task } = findTask(id, teamctxDir);
-  // A legacy task needs its permanent handle before the model sees it.
-  if (!task.key) withRecordKeys(teamctxDir, () => {
-    task.key = readTask(task.id, teamctxDir).task.key;
-  });
-  const wsId = resolveTarget(task.workstream);
+  // A task is always in a workstream, so the project is always the half above it.
+  const wsId = task.workstream;
   const workstream = readTree(wsId, teamctxDir);
   const currentHash = contextHash(workstream);
 
@@ -300,14 +301,11 @@ export async function compileTask({
   }
 
   const contributions = readContributions(teamctxDir);
-  // A task on the project is compiled from the project tree, so passing that
-  // same tree again as the inherited half printed every Why twice — once under
-  // a "read-only here" heading that makes no sense on the thing it came from.
   // Every part above the task's own, so its prompt carries their rules too.
   const markdown = await compileTaskPrompt({
     task, workstream, role, contributions, config,
-    project: isProjectLevel(wsId) ? null : readProject(teamctxDir),
-    chain: isProjectLevel(wsId) ? null : chainFor({ config, id: wsId, teamctxDir }),
+    project: readProject(teamctxDir),
+    chain: chainFor({ config, id: wsId, teamctxDir }),
     flagged: flaggedInProject(teamctxDir),
   });
   writeTaskFile(task.id, markdown, teamctxDir);

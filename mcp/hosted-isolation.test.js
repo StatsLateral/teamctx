@@ -34,20 +34,21 @@ const CONFIG = {
   autoPush: false,
   roles: [],
   workstreams: [
-    { id: 'engineering-hiring', name: 'Engineering Hiring' },
+    { id: 'engineering-hiring', number: 1, name: 'Engineering Hiring' },
   ],
   activeWorkstream: null,
 };
 
 /** Stands in for a prefetched GithubSession — same surface storage.js uses. */
-function fakeSession() {
+function fakeSession({ workstreams = null } = {}) {
+  const config = workstreams ? { ...CONFIG, workstreams } : CONFIG;
   const files = new Map([
-    ['.teamctx/config.json', { content: JSON.stringify(CONFIG), sha: 'a' }],
+    ['.teamctx/config.json', { content: JSON.stringify(config), sha: 'a' }],
     ['.teamctx/contributions.jsonl', { content: '', sha: 'b' }],
     // Non-empty: nobody can be brought onto a project with nothing in it, so a
     // fixture with an empty tree would be testing that gate in every test here.
     ['.teamctx/project.json', { content: JSON.stringify({ name: 'Ledger', goal: null, records: [{ id: 'p1', type: 'decision', text: 'ship the ledger', status: 'active' }], tasks: [] }), sha: 'p' }],
-    ['.teamctx/workstreams/engineering-hiring.json', { content: JSON.stringify({ id: 'engineering-hiring', name: 'Engineering Hiring', records: [], tasks: [] }), sha: 'd' }],
+    ...config.workstreams.map(w => [`.teamctx/workstreams/${w.id}.json`, { content: JSON.stringify({ id: w.id, name: w.name, records: [], tasks: [] }), sha: 'd' }]),
   ]);
   const commits = [];
   const commitOpts = [];
@@ -415,13 +416,13 @@ describe('tasks on the hosted server', () => {
     const added = await asUser(session, ALICE, h => json(h.task_add({ title: 'Ship the ledger' })));
 
     // Simulate a previous compile: the prompt file plus the hash that says it
-    // is still current. A task with no workstream lives in the project tree.
+    // is still current. The task is in the project's only workstream.
     session.write('.teamctx/context/tasks/t-ship-the-ledger.md', '# already compiled');
-    const ws = JSON.parse(session.read('.teamctx/project.json').content);
+    const ws = JSON.parse(session.read('.teamctx/workstreams/engineering-hiring.json').content);
     ws.tasks = ws.tasks.map(t => t.id === added.task.id
       ? { ...t, compiledAt: '2026-01-01T00:00:00.000Z', compiledFromHash: hashOf(ws) }
       : t);
-    session.write('.teamctx/project.json', JSON.stringify(ws));
+    session.write('.teamctx/workstreams/engineering-hiring.json', JSON.stringify(ws));
 
     const r = await asUser(session, ALICE, h => json(h.task_compile({ id: 't-ship-the-ledger' })));
     expect(r.alreadyCompiled).toBe(true);
@@ -436,9 +437,13 @@ describe('tasks on the hosted server', () => {
   // from the config instead of the caller, Bob would open his task list and
   // find Alice's.
   it('scopes an unfiltered list to the caller, not to whoever switched last', async () => {
-    const session = fakeSession();
+    const session = fakeSession({ workstreams: [
+      { id: 'engineering-hiring', number: 1, name: 'Engineering Hiring' },
+      { id: 'finance', number: 2, name: 'Finance' },
+    ] });
 
     await asUser(session, ALICE, h => h.workstream_use({ id: 'engineering-hiring' }));
+    await asUser(session, BOB, h => h.workstream_use({ id: 'finance' }));
     await asUser(session, ALICE, h => json(h.task_add({ title: 'Draft the hiring rubric' })));
     await asUser(session, BOB, h => json(h.task_add({ title: 'Reconcile the ledger' })));
 
@@ -446,12 +451,37 @@ describe('tasks on the hosted server', () => {
     const forBob = await asUser(session, BOB, h => json(h.list_tasks()));
 
     expect(forAlice.scope).toBe('workstream engineering-hiring');
-    expect(forAlice.tasks.map(t => t.id)).toEqual(['t-draft-the-hiring-rubric']);
+    expect(forAlice.tasks.map(t => [t.id, t.key])).toEqual([['t-draft-the-hiring-rubric', '1.1']]);
+    expect(forBob.scope).toBe('workstream finance');
+    expect(forBob.tasks.map(t => [t.id, t.key])).toEqual([['t-reconcile-the-ledger', '2.1']]);
+  });
 
-    // Bob never switched, so he is still at project level and sees only what
-    // lives there.
-    expect(forBob.scope).toBe('the project');
-    expect(forBob.tasks.map(t => t.id)).toEqual(['t-reconcile-the-ledger']);
+  it('shows a caller who is not in any workstream the tasks of all of them: tasks never live on the project', async () => {
+    const session = fakeSession({ workstreams: [
+      { id: 'engineering-hiring', number: 1, name: 'Engineering Hiring' },
+      { id: 'finance', number: 2, name: 'Finance' },
+    ] });
+    await asUser(session, ALICE, h => h.workstream_use({ id: 'engineering-hiring' }));
+    await asUser(session, ALICE, h => json(h.task_add({ title: 'Draft the hiring rubric' })));
+
+    const bob = await asUser(session, BOB, h => json(h.list_tasks()));
+    expect(bob.scope).toBe('all workstreams');
+    expect(bob.tasks.map(t => t.id)).toEqual(['t-draft-the-hiring-rubric']);
+  });
+
+  it('asks which workstream when a task is added by someone who is in none and there are several', async () => {
+    const session = fakeSession({ workstreams: [
+      { id: 'engineering-hiring', number: 1, name: 'Engineering Hiring' },
+      { id: 'finance', number: 2, name: 'Finance' },
+    ] });
+    await expect(asUser(session, BOB, h => h.task_add({ title: 'Reconcile the ledger' })))
+      .rejects.toThrow(/Say which one: engineering-hiring, finance/);
+  });
+
+  it('puts a task in the only workstream when there is one and nobody said which', async () => {
+    const session = fakeSession();
+    const r = await asUser(session, BOB, h => json(h.task_add({ title: 'Reconcile the ledger' })));
+    expect(r.task).toMatchObject({ workstream: 'engineering-hiring', key: '1.1' });
   });
 
   it('gives each caller their own task by default, and both of them --all', async () => {
@@ -618,7 +648,7 @@ describe('a member scoped to one workstream', () => {
       ...CONFIG,
       // Two real workstreams: `main` is project level now, so it would always
       // be in scope and could not stand in for one that is not.
-      workstreams: [{ id: 'product', name: 'Product' }, { id: 'engineering', name: 'Engineering' }],
+      workstreams: [{ id: 'product', number: 1, name: 'Product' }, { id: 'engineering', number: 2, name: 'Engineering' }],
       members: [{ key: RAVI.key, name: 'Ravi', email: RAVI.email, login: null, workstreams }],
     }));
     s.write('.teamctx/workstreams/engineering.json', JSON.stringify({ id: 'engineering', name: 'Engineering', records: [] }));
@@ -941,7 +971,7 @@ describe('the project itself is always reachable', () => {
     const s = fakeSession();
     s.write('.teamctx/config.json', JSON.stringify({
       ...CONFIG,
-      workstreams: [{ id: 'product', name: 'Product' }, { id: 'engineering', name: 'Engineering' }],
+      workstreams: [{ id: 'product', number: 1, name: 'Product' }, { id: 'engineering', number: 2, name: 'Engineering' }],
       members: [{ key: RAVI.key, name: 'Ravi', email: RAVI.email, login: null, workstreams: ['engineering'] }],
     }));
     s.write('.teamctx/project.json', JSON.stringify({ name: 'Ledger', records: [{ id: 'p1', type: 'decision', text: 'ship it', status: 'active' }] }));
@@ -980,7 +1010,7 @@ describe('what a hosted read must not miss', () => {
     const s = fakeSession();
     s.write('.teamctx/config.json', JSON.stringify({
       ...CONFIG,
-      workstreams: [{ id: 'product', name: 'Product' }, { id: 'engineering', name: 'Engineering' }],
+      workstreams: [{ id: 'product', number: 1, name: 'Product' }, { id: 'engineering', number: 2, name: 'Engineering' }],
       members,
     }));
     // Replaces the fixture's project tree rather than adding to it, so the
@@ -1130,7 +1160,7 @@ describe('the brief a member opens first', () => {
     const s = fakeSession();
     s.write('.teamctx/config.json', JSON.stringify({
       ...CONFIG,
-      workstreams: [{ id: 'product', name: 'Product' }, { id: 'engineering', name: 'Engineering' }],
+      workstreams: [{ id: 'product', number: 1, name: 'Product' }, { id: 'engineering', number: 2, name: 'Engineering' }],
       roles: [{ slug: 'recruiter', name: 'Recruiter', workstream: 'engineering' }],
       members: [{ key: RAVI.key, name: 'Ravi', email: RAVI.email, login: null, workstreams: ['engineering'] }],
     }));

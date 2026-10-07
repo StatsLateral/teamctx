@@ -1,4 +1,4 @@
-import { readProject, readConfig, writeConfig, withRecordKeys, readTree, writeTree, writeTreeMd, appendContribution, writeRoleFile, writeQueueItem, readContributions, listWorkstreamIds } from '../../src/storage.js';
+import { readProject, readConfig, writeConfig, withCounters, readTree, writeTree, writeTreeMd, appendContribution, writeRoleFile, writeQueueItem, readContributions, listWorkstreamIds } from '../../src/storage.js';
 import { resolveTarget, isProjectLevel } from '../../src/project-level.js';
 import { digestProject } from '../../src/tree-digest.js';
 import { touchedBy, applyOps } from '../../src/ops.js';
@@ -8,7 +8,8 @@ import { updateShared, generateRoleFile, serializeToMd } from '../../src/context
 import { commitContext, pushContext } from '../../src/git.js';
 import { UnknownWorkstreamError } from './role.core.js';
 import { assertManager } from './review.core.js';
-import { canApprove } from '../../src/review.js';
+import { canApprove, numberQueueItem } from '../../src/review.js';
+import { workstreamNumber } from '../../src/numbering.js';
 import { needsReview } from '../../src/review-policy.js';
 import { resolveActor } from '../../src/actor.js';
 import { resolveActiveWorkstream, resolveDisplayName } from '../../src/prefs.js';
@@ -191,13 +192,25 @@ export async function contributeCore({
   // adds is not acting as the manager by skipping a queue the project does not
   // want.
   if (willQueue) {
-    writeQueueItem({
-      id: contribution.id, status: 'pending', createdAt: contribution.ts,
-      author: contribution.author, source, workstream: targetId,
-      text: contribution.text, tagged: contribution.tagged, summary, operations,
-      ...(contradictions.length ? { contradictions } : {}),
-      ...(droppedReasons.length ? { dropped: droppedReasons } : {}),
-    }, teamctxDir);
+    // Numbered now, under the lock, so two submissions made at once do not take
+    // the same number and a number is spoken for from the moment it is queued.
+    let queuedNumber = null;
+    withCounters(teamctxDir, current => {
+      const queued = numberQueueItem({
+        operations, tree: readTree(targetId, teamctxDir), nextKey: current.nextKey,
+        workstream: targetId, number: workstreamNumber(current, targetId),
+      });
+      queuedNumber = queued.number;
+      if (JSON.stringify(queued.nextKey) !== JSON.stringify(current.nextKey)) writeConfig({ ...current, nextKey: queued.nextKey }, teamctxDir);
+      writeQueueItem({
+        id: contribution.id, status: 'pending', createdAt: contribution.ts,
+        ...(queued.number ? { number: queued.number } : {}),
+        author: contribution.author, source, workstream: targetId,
+        text: contribution.text, tagged: contribution.tagged, summary, operations,
+        ...(contradictions.length ? { contradictions } : {}),
+        ...(droppedReasons.length ? { dropped: droppedReasons } : {}),
+      }, teamctxDir);
+    });
     const { pushed, pushError } = await commitAndOptionallyPush(
       config,
       `queue: ${actor} submission pending approval (${contribution.id})${sourceTrailer(source)}`,
@@ -206,6 +219,7 @@ export async function contributeCore({
     return {
       id: contribution.id, workstream: targetId, author: actor, source,
       mode: 'queued', summary, operations, pushed, pushError,
+      ...(queuedNumber ? { number: queuedNumber } : {}),
       ...(contradictions.length ? { contradictions, ...(apply ? { applyRefused: true } : {}) } : {}),
       // Asked to apply, and evidence kept it in the queue: said the same way as
       // for a contradiction, so the assistant reports "sent for review".
@@ -214,11 +228,13 @@ export async function contributeCore({
     };
   }
 
-  const updated = withRecordKeys(teamctxDir, current => {
+  const updated = withCounters(teamctxDir, current => {
     if (comparisonFingerprint(comparisons) !== comparisonFingerprint(comparisonRecords({ config: current, target: targetId, teamctxDir }))) {
       throw new Error('Context changed after the contradiction check. The contribution was logged; try it again before applying.');
     }
-    const applied = applyOps(readTree(targetId, teamctxDir), operations, contribution.id, { nextKey: current.nextKey });
+    const applied = applyOps(readTree(targetId, teamctxDir), operations, contribution.id, {
+      nextKey: current.nextKey, workstreamNumber: workstreamNumber(current, targetId),
+    });
     droppedReasons.push(...applied.dropped.map(d => ({ reason: d.reason })));
     writeConfig({ ...current, nextKey: applied.nextKey }, teamctxDir);
     writeTree(targetId, applied.tree, teamctxDir);
@@ -257,7 +273,9 @@ export async function contributeCore({
     id: contribution.id, workstream: targetId, author: actor, source,
     mode: 'applied', summary, operations, rolesRegenerated, pushed, pushError,
     dropped: droppedReasons,
-    keys: [...updated.records, ...updated.tasks]
+    // Only a task has a number a person can say. A record is found by its
+    // wording and by asking, never by a number.
+    tasks: updated.tasks
       .filter(x => (x.sourceContributionIds || []).includes(contribution.id))
       .map(x => ({ id: x.id, key: x.key })),
     // Reachable: a project on `none` requires review of nothing, so a member who

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { GithubSession } from './github.js';
 import { runWithSession } from '../session-context.js';
-import { withRecordKeys, readProject, readConfig, writeTask } from '../storage.js';
+import { withCounters, readWorkstream, readConfig, writeTask } from '../storage.js';
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -10,28 +10,29 @@ function session() {
   s.prefetched = true;
   s.baseCommitSha = 'original';
   s.baseTreeSha = 'original-tree';
-  s.files.set('.teamctx/config.json', { content: JSON.stringify({ nextKey: { T: 4 } }), sha: 'config' });
-  s.files.set('.teamctx/project.json', { content: JSON.stringify({ records: [], tasks: [{ id: 'old', title: 'Old', createdAt: '2026-10-01' }] }), sha: 'project' });
+  s.files.set('.teamctx/config.json', { content: JSON.stringify({ workstreams: [{ id: 'ops', number: 2, name: 'Ops' }], nextKey: { workstream: 3, tasks: { ops: 4 } } }), sha: 'config' });
+  s.files.set('.teamctx/project.json', { content: JSON.stringify({ records: [], tasks: [] }), sha: 'project' });
+  s.files.set('.teamctx/workstreams/ops.json', { content: JSON.stringify({ id: 'ops', name: 'Ops', records: [], tasks: [] }), sha: 'ops' });
   return s;
 }
 
-describe('key allocation in hosted storage', () => {
-  it('buffers backfill and allocation in the same request without changing the baseline', () => {
+describe('number allocation in hosted storage', () => {
+  it('buffers allocation in the same request without changing the baseline', () => {
     const s = session();
     runWithSession(s, () => {
-      writeTask({ id: 'new', title: 'New' });
-      expect(readProject().tasks.map(t => t.key)).toEqual(['T-4', 'T-5']);
-      expect(readConfig().nextKey.T).toBe(6);
+      writeTask({ id: 'new', title: 'New', workstream: 'ops' });
+      expect(readWorkstream('ops').tasks.map(t => t.key)).toEqual(['2.4']);
+      expect(readConfig().nextKey.tasks.ops).toBe(5);
       const staged = [...s.changes];
-      withRecordKeys(undefined, () => {});
+      withCounters(undefined, () => {});
       expect([...s.changes]).toEqual(staged);
     });
-    expect(JSON.parse(s.files.get('.teamctx/project.json').content).tasks[0].key).toBeUndefined();
+    expect(JSON.parse(s.files.get('.teamctx/workstreams/ops.json').content).tasks).toEqual([]);
   });
 
-  it.each([409, 422])('refuses to replay allocated keys after a %s ref conflict', async status => {
+  it.each([409, 422])('refuses to replay allocated numbers after a %s ref conflict', async status => {
     const s = session();
-    runWithSession(s, () => writeTask({ id: 'new', title: 'New' }));
+    runWithSession(s, () => writeTask({ id: 'new', title: 'New', workstream: 'ops' }));
     const fetch = vi.fn(async (url, opts) => opts.method === 'PATCH'
       ? { ok: false, status, text: async () => 'not a fast forward' }
       : { ok: true, status: 201, json: async () => ({ sha: 'created' }) });
@@ -44,14 +45,13 @@ describe('key allocation in hosted storage', () => {
 });
 
 /**
- * The refusal is about keys that moved, not about config.json being touched.
+ * The refusal is about numbers that moved, not about config.json being touched.
  *
  * Every hosted write that changes a setting stages config.json — `member_add`,
- * `config_set`, `role_add`, `set_review_policy` — and after the first backfill a
- * project always has counters. A guard that asked whether counters *exist*
- * therefore refused the one safe refresh-and-retry on all of those, and told the
- * caller the project "changed while assigning record keys" when their request
- * assigned none.
+ * `config_set`, `role_add`, `set_review_policy` — and a project that has numbered
+ * anything has counters. A guard that asked whether counters *exist* therefore
+ * refused the one safe refresh-and-retry on all of those, and told the caller the
+ * project "changed while assigning numbers" when their request assigned none.
  */
 describe('a ref conflict on a write that allocated nothing', () => {
   const conflictingFetch = () => vi.fn(async (url, opts) => {
@@ -80,10 +80,10 @@ describe('a ref conflict on a write that allocated nothing', () => {
   });
 
   it('still refuses when the counters did move', async () => {
-    // The case the guard is for: these keys were handed out against a project
+    // The case the guard is for: these numbers were handed out against a project
     // that is no longer the one being written to.
     const s = session();
-    runWithSession(s, () => writeTask({ id: 'new', title: 'New' }));
+    runWithSession(s, () => writeTask({ id: 'new', title: 'New', workstream: 'ops' }));
     vi.stubGlobal('fetch', vi.fn(async (url, opts) => (opts.method === 'PATCH'
       ? { ok: false, status: 409, text: async () => 'not a fast forward' }
       : { ok: true, status: 201, json: async () => ({ sha: 'created' }) })));

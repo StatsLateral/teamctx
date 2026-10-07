@@ -24,7 +24,7 @@ export async function workstreamListCommand() {
   console.log(`\nWorkstreams for "${config.project}":\n`);
   workstreams.forEach(w => {
     const marker = w.isActive ? '*' : ' ';
-    const indent = '  '.repeat(Math.max(0, String(w.number || '').split('.').length - 1));
+    const indent = '  '.repeat(w.depth || 0);
     console.log(`  ${marker} ${indent}${w.number || '-'} ${w.name}  (id: ${w.id})`);
     console.log(`      ${indent}${w.recordCount} records · ${w.taskCount} tasks · roles: ${w.roles.length ? w.roles.join(', ') : '(none)'}`);
   });

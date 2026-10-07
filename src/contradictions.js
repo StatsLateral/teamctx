@@ -9,7 +9,7 @@ export function comparisonRecords({ config, target, teamctxDir }) {
     : [readProject(teamctxDir), ...chainFor({ config, id: target, teamctxDir })];
   return trees.flatMap(tree => (tree?.records || [])
     .filter(r => isActive(r) && ['decision', 'rule'].includes(r.type))
-    .map(r => ({ id: r.id, ...(r.key ? { key: r.key } : {}), type: r.type, text: r.text, workstream: tree.id || null })));
+    .map(r => ({ id: r.id, type: r.type, text: r.text, workstream: tree.id || null })));
 }
 
 export class ContradictionResolutionError extends Error {
@@ -75,7 +75,7 @@ export function resolveContradictions(item, { replaces = [], config, teamctxDir 
   const operations = (item.operations || []).map(op => ({ ...op }));
   const active = comparisonRecords({ config, target, teamctxDir });
   for (const handle of requested) {
-    const matching = conflicts.filter(c => c.record.id === handle || c.record.key === handle);
+    const matching = conflicts.filter(c => c.record.id === handle);
     if (!matching.length) throw new ContradictionResolutionError(`"${handle}" is not a flagged record on this contribution.`);
     for (const conflict of matching) {
       if (conflict.record.workstream !== target) throw new ContradictionResolutionError('This conflict is inherited. Replace or retire the record in its own part of the work, then review this contribution again.');
@@ -92,11 +92,11 @@ export function resolveContradictions(item, { replaces = [], config, teamctxDir 
         if (!existing || existing.type !== old.type || existing.id !== old.id) throw new ContradictionResolutionError('To replace a different record, submit an explicit replacement contribution. This edit cannot retire another decision or rule.');
         const changes = Object.fromEntries(Object.entries(op.changes || {}).filter(([key]) => EDITABLE_RECORD_FIELDS.includes(key)));
         // The new record's own fields only. Spreading the old record carried its
-        // id, key, status and history into the proposal, so the approval result
-        // named the new record as the one it replaced (D-12) while the stored
-        // record was D-16. `applyOps` mints the identity; nothing here should
+        // id, status and history into the proposal, so the approval result
+        // named the new record as the one it replaced while the stored
+        // record was another. `applyOps` mints the identity; nothing here should
         // look like it has one already.
-        const { id: _id, key: _key, status: _status, sourceContributionIds: _src, createdBy: _by,
+        const { id: _id, status: _status, sourceContributionIds: _src, createdBy: _by,
           approvedBy: _ok, createdAt: _at, updatedAt: _up, reviewedAt: _rv, brokenAt: _br, ...fields } = existing;
         const record = { ...fields, ...changes, links: { ...existing.links, ...changes.links, replaces: old.id } };
         operations[conflict.operationIndex] = { type: 'addRecord', record };
@@ -110,7 +110,7 @@ export function resolveContradictions(item, { replaces = [], config, teamctxDir 
     const op = operations[conflict.operationIndex];
     const resolves = old.workstream === target && op?.type === 'addRecord'
       && op.record?.type === old.type && op.record?.links?.replaces === old.id;
-    if (!resolves) throw new ContradictionResolutionError(`${contradictionLabel(conflict)}. Specify --replaces ${old.key || old.id}, resolve an inherited record in its own part of the work, or reject this contribution.`);
+    if (!resolves) throw new ContradictionResolutionError(`${contradictionLabel(conflict)}. Specify --replaces ${old.id}, resolve an inherited record in its own part of the work, or reject this contribution.`);
   }
   return { ...item, operations };
 }

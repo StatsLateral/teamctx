@@ -62,7 +62,7 @@ const CONFIG = {
   project: 'Ledger',
   managerKey: 'git:maya@example.com',
   deployUrl: 'https://team.example.app',
-  workstreams: [{ id: 'product', name: 'Product' }, { id: 'tech', name: 'Tech' }],
+  workstreams: [{ id: 'product', number: 1, name: 'Product' }, { id: 'tech', number: 2, name: 'Tech' }],
   roles: [],
   members: [{ key: 'git:priya@example.com', name: 'Priya', email: 'priya@example.com', workstreams: ['product'] }],
 };
@@ -74,8 +74,8 @@ beforeEach(() => {
     ['.teamctx/contributions.jsonl', ''],
     ['.teamctx/project.json', JSON.stringify({ name: 'Ledger', records: [{ id: 'p1', type: 'decision', text: 'ship the ledger', status: 'active' }], tasks: [] })],
     ['.teamctx/workstreams/product.json', JSON.stringify({
-      id: 'product', name: 'Product', tasks: [],
-      records: [{ id: 'w1', type: 'decision', text: 'price it in three tiers', status: 'active' }],
+      id: 'product', name: 'Product', records: [],
+      tasks: [{ id: 'w1', key: '1.1', title: 'price it in three tiers', owner: 'Priya', status: 'open', workstream: 'product' }],
     })],
     ['.teamctx/workstreams/tech.json', JSON.stringify({ id: 'tech', name: 'Tech', records: [], tasks: [] })],
   ]);
@@ -135,7 +135,13 @@ describe('who arrives, and what they see', () => {
     await kvSet(keys.session('s'), MANAGER);
     const body = await (await go(LINK, { session: 's' })).text();
     expect(body).toContain('price it in three tiers');
-    expect(body).toMatch(/class="item tier-decision marked"/);
+    expect(body).toMatch(/class="item tier-task marked"/);
+  });
+
+  it('reaches the same item by the number a person has in front of them', async () => {
+    await kvSet(keys.session('s'), MANAGER);
+    const body = await (await go('/project/acme/ledger?ws=product&task=1.1', { session: 's' })).text();
+    expect(body).toMatch(/class="item tier-task marked"/);
   });
 
   it('shows a member the same item, without them ever having opened the web', async () => {
@@ -145,7 +151,7 @@ describe('who arrives, and what they see', () => {
     await kvSet(keys.session('s'), MEMBER);
     const body = await (await go(LINK, { session: 's' })).text();
     expect(body).toContain('price it in three tiers');
-    expect(body).toMatch(/class="item tier-decision marked"/);
+    expect(body).toMatch(/class="item tier-task marked"/);
   });
 
   it('refuses somebody the project has never heard of', async () => {
@@ -161,7 +167,7 @@ describe('who arrives, and what they see', () => {
     await kvSet(keys.session('s'), MEMBER);
     const body = await (await go('/project/acme/ledger?ws=tech&item=x1', { session: 's' })).text();
     expect(body).toMatch(/not here, or not yours to see/);
-    expect(body).toContain('ship the ledger');   // fell back to the project
+    expect(body).toMatch(/<h1>Ledger/);   // fell back to the project
   });
 });
 

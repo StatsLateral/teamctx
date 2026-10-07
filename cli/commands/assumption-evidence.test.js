@@ -16,7 +16,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runWithActor } from '../../src/actor.js';
 import {
-  writeConfig, readConfig, writeProject, readProject, readQueueItem, listQueue,
+  writeConfig, readConfig, writeProject, writeWorkstream, readProject, readQueueItem, listQueue,
 } from '../../src/storage.js';
 import { makeConfig, makeProject, makeRecord } from '../../src/test-fixtures/model.js';
 import { contributeCore } from './contribute.core.js';
@@ -54,9 +54,9 @@ beforeEach(() => {
   writeProject(makeProject({
     goal: { text: 'Win enterprise pilots' },
     records: [
-      makeRecord({ id: 'a1', key: 'A-1', type: 'assumption', text: 'Buyers need SSO before a pilot', owner: { key: 'k', name: 'O' }, reviewBy: '2026-12-01' }),
-      makeRecord({ id: 'd1', key: 'D-1', type: 'decision', text: 'Build SSO first', links: { restsOn: ['a1'] } }),
-      makeRecord({ id: 'd2', key: 'D-2', type: 'decision', text: 'Delay the Acme pilot', links: { restsOn: ['a1'] } }),
+      makeRecord({ id: 'a1', type: 'assumption', text: 'Buyers need SSO before a pilot', owner: { key: 'k', name: 'O' }, reviewBy: '2026-12-01' }),
+      makeRecord({ id: 'd1', type: 'decision', text: 'Build SSO first', links: { restsOn: ['a1'] } }),
+      makeRecord({ id: 'd2', type: 'decision', text: 'Delay the Acme pilot', links: { restsOn: ['a1'] } }),
     ],
   }), dir);
   modelSaysEvidence();
@@ -147,9 +147,11 @@ describe('what teamctx refuses to make worse', () => {
       summary: 's', contradictions: [],
       operations: [{ type: 'addTask', title: 'Draft the pilot agreement' }],
     }));
-    writeConfig({ ...readConfig(dir), reviewPolicy: 'none' }, dir);
-    const r = await contribute(member);
+    writeConfig({ ...readConfig(dir), reviewPolicy: 'none', workstreams: [{ id: 'ops', number: 1, name: 'Ops' }] }, dir);
+    writeWorkstream('ops', { id: 'ops', name: 'Ops', records: [], tasks: [] }, dir);
+    const r = await contribute(member, { workstreamId: 'ops' });
     expect(r.mode).toBe('applied');
+    expect(r.tasks.map(t => t.key)).toEqual(['1.1']);
   });
 });
 
@@ -168,7 +170,7 @@ describe('what the manager is told', () => {
     // assumption is reworded while the evidence waits.
     const r = await contribute(member);
     const op = readQueueItem(r.id, dir).operations.find(o => o.type === 'addEvidence');
-    expect(op.against).toEqual({ id: 'a1', key: 'A-1', type: 'assumption', text: 'Buyers need SSO before a pilot' });
+    expect(op.against).toEqual({ id: 'a1', type: 'assumption', text: 'Buyers need SSO before a pilot' });
   });
 
   it('describes the evidence in the CLI preview rather than as an unknown operation', async () => {
@@ -176,7 +178,7 @@ describe('what the manager is told', () => {
     const r = await contribute(member);
     const op = readQueueItem(r.id, dir).operations.find(o => o.type === 'addEvidence');
     expect(describeOp(op)).toMatch(/^! Evidence against/);
-    expect(describeOp({ type: 'setRecordStatus', id: 'a1', status: 'broken', against: { key: 'A-1' } })).toBe('~ Mark A-1 broken');
+    expect(describeOp({ type: 'setRecordStatus', id: 'a1', status: 'broken', against: { text: 'Buyers need SSO' } })).toBe('~ Mark "Buyers need SSO" broken');
   });
 });
 

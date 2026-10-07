@@ -50,7 +50,7 @@ const CONFIG = (over = {}) => ({
   managerKey: 'git:maya@example.com',
   autoPush: false,
   reviewPolicy: 'all',
-  workstreams: [{ id: 'finance', name: 'Finance' }],
+  workstreams: [{ id: 'finance', number: 1, name: 'Finance' }],
   roles: [],
   members: [],
   ...over,
@@ -119,8 +119,8 @@ describe('a project that never recorded where it is deployed', () => {
   it('still returns a link for a contribution, pointing at what it wrote', async () => {
     const r = await hosted('contribute', { text: 'a sponsor at 25,000', workstream: 'finance', apply: true });
     const added = tree().records.find(w => w.text === 'tiers decided');
-    expect(r.keys).toEqual([{ id: added.id, key: 'D-1' }]);
-    expect(r.reportBack).toContain('D-1');
+    expect(r.tasks).toEqual([]);
+    expect(r.reportBack).not.toMatch(/\b[TDRAX]-\d/);
     expect(r.viewUrl).toBe(`${HOST}/project/${OWNER}/${REPO}?ws=finance&item=${added.id}`);
     expect(r.viewUrlError).toBe(null);
   });

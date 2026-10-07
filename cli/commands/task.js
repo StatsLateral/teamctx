@@ -1,9 +1,8 @@
-import { isProjectLevel } from '../../src/project-level.js';
 import { readConfig } from '../../src/storage.js';
 import { currentIdentity } from '../identity.js';
 import {
   listTasksFiltered, getTask, addTask, setTaskStatus, assignTask, removeTask,
-  compileTask, TaskNotFoundError, UnknownTaskWorkstreamError, UnknownRoleError,
+  compileTask, TaskNotFoundError, UnknownTaskWorkstreamError, TaskWithoutWorkstreamError, UnknownRoleError,
   slugify, uniqueTaskId,
 } from './task.core.js';
 
@@ -24,6 +23,7 @@ function fail(message, hint) {
 function reportAndExit(err) {
   if (err instanceof TaskNotFoundError) fail(err.message, 'Run `teamctx task list --all` to see tasks');
   if (err instanceof UnknownTaskWorkstreamError) fail(err.message, 'Run `teamctx workstream list`');
+  if (err instanceof TaskWithoutWorkstreamError) fail(err.message, 'Run `teamctx workstream list`');
   if (err instanceof UnknownRoleError) fail(err.message, 'Run `teamctx role list`');
   throw err;
 }
@@ -47,10 +47,7 @@ export async function taskAddCommand(title, opts = {}) {
   } catch (err) { reportAndExit(err); }
 
   const { task } = result;
-  // Bare, not `=== 'main'`: project level is `null` now, and the old test let
-  // it through to print "[workstream: null]" on every task of an unsplit
-  // project — which is every task, on most projects.
-  const wsLabel = isProjectLevel(task.workstream) ? '' : ` [workstream: ${task.workstream}]`;
+  const wsLabel = ` [workstream: ${task.workstream}]`;
   reportGit(result, `✓ Task ${task.key || task.id} added${wsLabel}`);
   console.log(`  Owner: ${task.owner}`);
   console.log(`  Compile a prompt for it with: teamctx task compile ${task.key || task.id}`);

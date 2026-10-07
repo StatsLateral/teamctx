@@ -23,8 +23,8 @@ describe('CLI contradiction review', () => {
 
   it('forwards repeatable --replaces selections while retaining the ordinary approval call', async () => {
     approveReview.mockResolvedValue({ rolesRegenerated: [], pushed: false, pushError: null });
-    await reviewApproveCommand('q-1', { replaces: ['D-1', 'R-2'] });
-    expect(approveReview).toHaveBeenLastCalledWith({ id: 'q-1', replaces: ['D-1', 'R-2'] });
+    await reviewApproveCommand('q-1', { replaces: ['rec-1', 'rec-2'] });
+    expect(approveReview).toHaveBeenLastCalledWith({ id: 'q-1', replaces: ['rec-1', 'rec-2'] });
     await reviewApproveCommand('q-2');
     expect(approveReview).toHaveBeenLastCalledWith({ id: 'q-2' });
   });

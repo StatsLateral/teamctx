@@ -107,105 +107,83 @@ Use your usual Git name/email; configure them locally in the sandbox if needed.
    active decision remains flagged. A reconfirmation producing `addRecord`
    instead of `setRecordStatus:active` is a failure.
 
-## #126: stable task and record keys
+## #138: numbers for workstreams and tasks, not for records
 
-1. Switch source branches and use another fresh sandbox:
+Replaces the stable letter keys (#126). Workstreams are numbered `1, 2, 3` across
+the project, tasks are `workstream.task` (`3.2`), and records have no number.
+
+1. Use a fresh sandbox:
 
    ```powershell
    Set-Location $source
-   git switch feat/stable-record-keys
    npm.cmd test
-   New-Item -ItemType Directory -Path 'D:\work\teamctx-smoke-126'
-   Set-Location 'D:\work\teamctx-smoke-126'
+   New-Item -ItemType Directory -Path 'D:\work\teamctx-smoke-138'
+   Set-Location 'D:\work\teamctx-smoke-138'
    git init
    node $cli init
    ```
 
-2. Verify task numbering and deletion:
+2. A task needs a workstream, and workstreams are numbered flat:
 
    ```powershell
    node $cli task add 'Prepare pilot'
-   node $cli task add 'Contact Acme'
-   node $cli task rm T-1
-   node $cli task add 'Prepare reporting'
+   node $cli workstream add 'Launch'
+   node $cli workstream add 'Pricing' --under launch
+   node $cli workstream add 'Support'
+   node $cli workstream list
+   ```
+
+   The first `task add` must refuse: a task belongs to a workstream, and the
+   message says to add one. `workstream list` shows `1 Launch`, `2 Pricing`
+   indented under it, and `3 Support`: nesting is the indent, not the number.
+
+3. Verify task numbers and deletion:
+
+   ```powershell
+   node $cli task add 'Prepare pilot' --workstream launch
+   node $cli task add 'Contact Acme' --workstream launch
+   node $cli task add 'Quote the tiers' --workstream pricing
+   node $cli task rm 1.1
+   node $cli task add 'Prepare reporting' --workstream launch
    node $cli task list --all
    ```
 
-   Expect `T-1`, `T-2`, then `T-3`. Deleting `T-1` must not renumber `T-2` or
-   reuse `T-1`.
+   Expect `1.1` and `1.2`, then `2.1` for Pricing, then `1.3`. Deleting `1.1`
+   must not renumber `1.2` or reuse `1.1`. No `T-` key appears anywhere.
 
-3. Verify record keys and delayed allocation for manager review:
+4. Verify waiting items are numbered at once and keep their number:
 
    ```powershell
-   node $cli contribute 'Our goal is the Acme pilot. We decided to start the Acme pilot before SSO is ready.' --apply --auto-approve
    node $cli config review-policy all
-   $beforeQueue = (Get-Content -Raw .teamctx\config.json | ConvertFrom-Json).nextKey | ConvertTo-Json -Compress
-   node $cli contribute 'We decided the pilot will last exactly two weeks.' --auto-approve
+   node $cli contribute 'Add a task to prepare the Acme pilot deck' --workstream launch --auto-approve
    node $cli review list
-   $afterQueue = (Get-Content -Raw .teamctx\config.json | ConvertFrom-Json).nextKey | ConvertTo-Json -Compress
-   $beforeQueue -eq $afterQueue
    ```
 
-   Expect the first decision to be `D-1`. The queued proposal has no assigned
-   key, and the counter comparison is `True`. Approve the ID printed by review:
+   Expect the item to be submitted as the next number in Launch (`1.4`). The
+   number is printed with it. Approve it by number:
 
    ```powershell
-   node $cli review approve '<QUEUE-ID>'
+   node $cli review approve 1.4
+   node $cli task show 1.4
+   ```
+
+   The task it became keeps `1.4`. Repeat with another queued item and
+   `review reject <number>`: its number is never reused. A queued edit to an
+   existing task shows that task's number and spends none.
+
+5. Verify records have no number and do not appear on the page:
+
+   ```powershell
+   node $cli contribute 'We decided to start the Acme pilot before SSO is ready.' --apply --auto-approve
    node $cli brief
+   Get-Content -Raw .teamctx\project.json
    ```
 
-   Expect the newly approved decision to receive `D-2`. Repeat with another
-   queued decision and `review reject '<QUEUE-ID>'`: rejection must leave
-   counters unchanged. The next approved decision should get `D-3`.
-
-4. Verify keys resolve and appear in user output:
-
-   ```powershell
-   node $cli task show T-2
-   node $cli task compile T-2
-   node $cli task done T-2
-   ```
-
-   Expect each to identify `T-2`. Open the compiled prompt: it should include
-   the task key and relevant record keys. In the sandbox-connected MCP client,
-   check `get_record` using `D-1`, and `task_done` using `T-3`; results should
-   identify the same records/tasks as their internal IDs. If running this branch
-   in a test web deployment, check `?task=T-2` and `?item=D-1`: they should mark
-   the same rows as links using their internal IDs.
-
-5. Exercise legacy backfill **only in this disposable sandbox**:
-
-   ```powershell
-   $projectPath = '.teamctx\project.json'
-   $legacy = Get-Content -Raw $projectPath | ConvertFrom-Json
-   foreach ($node in @($legacy.records) + @($legacy.tasks)) {
-     $node.PSObject.Properties.Remove('key')
-   }
-   $legacyJson = $legacy | ConvertTo-Json -Depth 30
-   [IO.File]::WriteAllText((Join-Path $PWD $projectPath), $legacyJson, [Text.UTF8Encoding]::new($false))
-   ```
-
-   Use the internal ID for this first write: the task currently has no key to
-   resolve. The write should backfill all existing tasks and records:
-
-   ```powershell
-   $legacyTaskId = ($legacy.tasks | Where-Object title -eq 'Contact Acme').id
-   node $cli task assign $legacyTaskId --owner 'QA'
-   $first = Get-Content -Raw $projectPath | ConvertFrom-Json
-   $first.records | Select-Object id,key,createdAt
-   $first.tasks | Select-Object id,key,createdAt
-   $keysBefore = (@($first.records) + @($first.tasks) | Select-Object id,key | ConvertTo-Json -Compress)
-   node $cli task assign $legacyTaskId --owner 'QA again'
-   $second = Get-Content -Raw $projectPath | ConvertFrom-Json
-   $keysAfter = (@($second.records) + @($second.tasks) | Select-Object id,key | ConvertTo-Json -Compress)
-   $keysBefore -eq $keysAfter
-   ```
-
-   Expect every existing task/record to gain a key in creation order. Existing
-   counters are respected, so these newly assigned keys can start above one.
-   The second comparison must be `True`: a later write never remints them.
-   Cross-workstream allocation and concurrent writes are covered by the storage
-   and command integration tests in `npm test`.
+   Expect the decision to have an internal `id` and no `key`, and the brief to
+   print `We decided: ...` with no letter or number. In a test web deployment,
+   the project page lists tasks and what is waiting, with no Context tab, no
+   inherited table and no record rows; `?task=1.2` and `?review=1.4` mark the
+   same rows as links using their internal ids.
 
 Return the source checkout to the active next-issue branch when finished:
 

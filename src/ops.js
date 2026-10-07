@@ -1,6 +1,6 @@
 import { randomBytes } from 'crypto';
 import { validateRecord, today } from './model.js';
-import { mintKey, emptyCounters } from './record-key.js';
+import { mintTaskKey, normalizeCounters, isTaskKey } from './numbering.js';
 
 export const OP_TYPES = ['setGoal', 'addRecord', 'editRecord', 'addEvidence', 'setRecordStatus', 'addTask', 'editTask', 'removeTask'];
 const STATUS_TARGETS = ['replaced', 'broken', 'closed', 'active'];
@@ -45,7 +45,7 @@ function integrityProblem(tree, record, where) {
   return null;
 }
 
-function addRecord(tree, op, c, refs, dropped, onDay, where, keys) {
+function addRecord(tree, op, c, refs, dropped, onDay, where) {
   const p = op.record;
   const bad = shapeProblem(p);
   if (bad) { dropped.push({ op, reason: bad }); return tree; }
@@ -53,11 +53,9 @@ function addRecord(tree, op, c, refs, dropped, onDay, where, keys) {
   // A link may name another record proposed in this same contribution by its `ref`.
   for (const k of ['bends', 'replaces', 'answers']) if (links[k] && refs.has(links[k])) links[k] = refs.get(links[k]);
   links.restsOn = (links.restsOn || []).map(id => refs.get(id) || id);
-  // Minted here rather than at validation, so a proposal that is dropped below
-  // for a bad shape or a broken link takes no key with it.
-  const minted = mintKey(keys.next, p.type);
+  // A record has an internal id and no number: see src/numbering.js.
   const record = {
-    id: mint('rec'), key: minted.key, type: p.type, text: String(p.text ?? '').trim(), detail: String(p.detail ?? ''),
+    id: mint('rec'), type: p.type, text: String(p.text ?? '').trim(), detail: String(p.detail ?? ''),
     status: 'active', owner: p.owner ?? null, attachedTo: p.attachedTo || where.defaultAttach,
     ...(p.reviewBy ? { reviewBy: p.reviewBy } : {}), ...(p.expiresAt ? { expiresAt: p.expiresAt } : {}),
     links, sourceContributionIds: [c], createdBy: c, approvedBy: null, createdAt: onDay, updatedAt: onDay,
@@ -74,10 +72,6 @@ function addRecord(tree, op, c, refs, dropped, onDay, where, keys) {
     }
   }
   if (op.ref) refs.set(op.ref, record.id);
-  // Past every check, so the key is spent. Every `return tree` above leaves the
-  // counters where they were: a proposal that was dropped never held a key, and
-  // the next good one gets the number this would have had.
-  keys.next = minted.counters;
   let records = [...tree.records, record];
   if (record.links.replaces) {
     records = records.map(r => r.id === record.links.replaces ? { ...withSource(r, c), status: 'replaced', updatedAt: onDay } : r);
@@ -196,15 +190,17 @@ function setStatus(tree, op, c, dropped, onDay, at) {
 }
 
 export function applyOps(tree, ops, contributionId, {
-  onDay = today(), at = new Date().toISOString(), target, nextKey,
+  onDay = today(), at = new Date().toISOString(), target, nextKey, workstreamNumber = null, reservedKey = null,
 } = {}) {
   const dropped = [];
   // Carried in a box so the branches below can spend from it in order, and
-  // handed back for the caller to store — see `mintKey`. A caller that writes
-  // the tree writes these with it; one that throws the tree away — a
+  // handed back for the caller to store — see `mintTaskKey`. A caller that
+  // writes the tree writes these with it; one that throws the tree away — a
   // contribution on its way to the queue — throws these away too and burns no
-  // keys, so a rejected contribution costs nothing.
-  const keys = { next: { ...emptyCounters(), ...(nextKey || {}) } };
+  // numbers. `reserved` is the number a queued item was given when it was
+  // submitted: the first task it adds keeps it, so the number a manager was told
+  // to approve is the number the task has.
+  const keys = { next: normalizeCounters(nextKey), reserved: null };
   const refs = new Map();
   // Where each operation sat in what the caller sent.
   //
@@ -221,6 +217,15 @@ export function applyOps(tree, ops, contributionId, {
   // file carries its id; the project's does not.
   const wsId = target !== undefined ? target : (tree?.id || null);
   const where = { id: wsId, defaultAttach: wsId ? { kind: 'workstream', id: wsId } : { kind: 'project' } };
+  // A queued item's number is read back from a file somebody else could have
+  // edited, so it is used only if it is what minting would have produced: a
+  // number in this workstream, already handed out (below the counter), and not
+  // on a task that is here. Anything else is ignored and a fresh number minted.
+  if (isTaskKey(reservedKey) && wsId && workstreamNumber) {
+    const [prefix, n] = reservedKey.split('.').map(Number);
+    const taken = (tree?.tasks || []).some(t => t.key === reservedKey);
+    if (prefix === workstreamNumber && n < (keys.next.tasks[wsId] || 1) && !taken) keys.reserved = reservedKey;
+  }
   let next = { ...tree, records: [...(tree.records || [])], tasks: [...(tree.tasks || [])] };
   const list = Array.isArray(ops) ? ops : [];
   list.forEach((o, i) => indexOf.set(o, i));
@@ -239,14 +244,23 @@ export function applyOps(tree, ops, contributionId, {
   // Tasks before records, so a record can be attached to a task added alongside
   // it; rules before exceptions, so an exception can bend a rule added with it.
   each(of('addTask'), (t, o) => {
+    // Every task lives in a workstream. The project's own work is a workstream
+    // too, so a project that has not split anything out yet adds one first.
+    if (!wsId) { dropped.push({ op: o, reason: 'a task belongs to a workstream, not to the project: add a workstream first' }); return t; }
     const title = typeof o.title === 'string' ? o.title.trim() : '';
     if (!title) { dropped.push({ op: o, reason: 'task title is empty' }); return t; }
+    let key = keys.reserved;
+    if (key) keys.reserved = null;
+    else {
+      if (!workstreamNumber) { dropped.push({ op: o, reason: `workstream "${wsId}" has no number to number a task from` }); return t; }
+      const minted = mintTaskKey(keys.next, { number: workstreamNumber, workstream: wsId });
+      keys.next = minted.counters;
+      key = minted.key;
+    }
     const id = mint('task');
-    const minted = mintKey(keys.next, 'task');
-    keys.next = minted.counters;
     if (o.ref) refs.set(o.ref, id);
     return { ...t, tasks: [...t.tasks, {
-      id, key: minted.key, title, owner: typeof o.owner === 'string' ? o.owner : null, status: 'open', createdAt: onDay,
+      id, key, title, owner: typeof o.owner === 'string' ? o.owner : null, status: 'open', createdAt: onDay,
       doneAt: null, compiledAt: null, sourceContributionIds: [contributionId], createdBy: contributionId,
     }] };
   });
@@ -258,8 +272,8 @@ export function applyOps(tree, ops, contributionId, {
     indexOf.set(resolved, indexOf.get(o));
     return resolved;
   };
-  each(adds.filter(o => o?.record?.type !== 'exception').map(resolveTaskRef), (t, o) => addRecord(t, o, contributionId, refs, dropped, onDay, where, keys));
-  each(adds.filter(o => o?.record?.type === 'exception').map(resolveTaskRef), (t, o) => addRecord(t, o, contributionId, refs, dropped, onDay, where, keys));
+  each(adds.filter(o => o?.record?.type !== 'exception').map(resolveTaskRef), (t, o) => addRecord(t, o, contributionId, refs, dropped, onDay, where));
+  each(adds.filter(o => o?.record?.type === 'exception').map(resolveTaskRef), (t, o) => addRecord(t, o, contributionId, refs, dropped, onDay, where));
   each(of('editRecord'), (t, o) => editRecord(t, o, contributionId, dropped, onDay, where));
   each(of('editTask'), (t, o) => {
     if (!t.tasks.some(x => x.id === o.id)) { dropped.push({ op: o, reason: `no task "${o.id}"` }); return t; }

@@ -172,11 +172,13 @@ export async function readProjectView({ owner, repo, user }) {
       .map(a => ({
         id: a.id,
         text: a.text,
-        records: restingOn(everything, a.id).records.map(r => ({ id: r.id, key: r.key || null, type: r.type, text: r.text })),
+        records: restingOn(everything, a.id).records.map(r => ({ id: r.id, type: r.type, text: r.text })),
       }));
     const pending = isManager
       ? (await listPendingReviews({})).map(q => ({
         id: q.id,
+        // The number it is known by while it waits, if its workstream gave it one.
+        number: q.number || null,
         author: q.author,
         summary: q.summary,
         createdAt: q.createdAt || null,

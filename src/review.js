@@ -1,4 +1,5 @@
 import { applyOps } from './ops.js';
+import { mintTaskKey } from './numbering.js';
 
 /**
  * Apply what a queued contribution proposed, now that somebody has approved it.
@@ -9,9 +10,39 @@ import { applyOps } from './ops.js';
  * review takes the numbers that are free when it lands, not the ones that were
  * free when it was written, and one that is rejected takes none at all.
  */
-export function applyQueueItem(tree, item, { nextKey } = {}) {
-  const { tree: next, nextKey: spent, dropped } = applyOps(tree, item.operations || [], item.id, { nextKey });
+export function applyQueueItem(tree, item, { nextKey, workstreamNumber = null } = {}) {
+  // The number the item was given when it was submitted is the number its first
+  // task keeps, so "approve 1.6" and "task 1.6" are the same thing.
+  const { tree: next, nextKey: spent, dropped } = applyOps(tree, item.operations || [], item.id, {
+    nextKey, workstreamNumber, reservedKey: item.number || null,
+  });
   return { tree: next, nextKey: spent, dropped };
+}
+
+/**
+ * The number a waiting item is known by, from the moment it is submitted.
+ *
+ * An item about one existing task is that task's number. Any other item in a
+ * workstream takes the next number in that workstream's running list, so it can
+ * be spoken of while it waits ("approve 1.6"). If it is approved as a task, the
+ * task keeps it; as a record or evidence, the number stays as the submission's
+ * reference and the record stays unnumbered. A rejected item leaves a gap: the
+ * point of a number is that it is never reused.
+ *
+ * An item for the project itself has no workstream to number it in, so no number.
+ * Returns the counters to store; the caller writes them with the queue item.
+ */
+export function numberQueueItem({ operations, tree, nextKey, workstream, number }) {
+  if (!workstream) return { number: null, nextKey };
+  const ops = Array.isArray(operations) ? operations : [];
+  const taskIds = new Set(ops.map(o => o?.id));
+  if (ops.length && ops.every(o => o?.type === 'editTask' || o?.type === 'removeTask') && taskIds.size === 1) {
+    const task = (tree?.tasks || []).find(t => t.id === ops[0].id);
+    if (task?.key) return { number: task.key, nextKey };
+  }
+  if (!number) return { number: null, nextKey };
+  const minted = mintTaskKey(nextKey, { number, workstream });
+  return { number: minted.key, nextKey: minted.counters };
 }
 
 export function buildRejected(item, rejectedBy, reason) {

@@ -1,5 +1,10 @@
 # Proposal: a key you can say out loud
 
+> **Superseded (2026-10-07).** The letter keys (`T-`, `D-`, `R-`, `A-`, `X-`) were replaced by
+> workstream numbers `1, 2, 3`, task numbers `3.2` and unnumbered records. See
+> `docs/superpowers/specs/2026-10-07-context-model-and-numbering-design.md` (#138).
+> Kept for the reasoning on why a number is stored, minted once and never reused.
+
 **Status:** Implemented on `feat/stable-record-keys` · **Serves:** Managers in control ·
 **Issue:** [#126](https://github.com/StatsLateral/teamctx/issues/126)
 · **Spec:** `docs/superpowers/specs/2026-10-04-agent-first-project-view-design.md` (PR #125)

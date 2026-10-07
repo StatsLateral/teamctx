@@ -1,8 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import { applyOps, touchedBy, OP_TYPES } from './ops.js';
-import { makeProject, makeRecord } from './test-fixtures/model.js';
+import { makeProject, makeRecord, makeWorkstream } from './test-fixtures/model.js';
 
 const C = 'c-1';
+// Tasks live in a workstream, and take their number from its number.
+const food = (over = {}) => makeWorkstream('food', over);
+const FOOD = { workstreamNumber: 3 };
 
 describe('applyOps', () => {
   it('sets the goal and records provenance', () => {
@@ -66,10 +69,10 @@ describe('applyOps', () => {
   });
 
   it('adds, edits and removes tasks', () => {
-    let { tree } = applyOps(makeProject(), [{ type: 'addTask', title: 'Bake cake' }], C);
+    let { tree } = applyOps(food(), [{ type: 'addTask', title: 'Bake cake' }], C, FOOD);
     const id = tree.tasks[0].id;
     ({ tree } = applyOps(tree, [{ type: 'editTask', id, title: 'Bake the cake' }], 'c-2'));
-    expect(tree.tasks[0]).toMatchObject({ title: 'Bake the cake', status: 'open', owner: null });
+    expect(tree.tasks[0]).toMatchObject({ title: 'Bake the cake', status: 'open', owner: null, key: '3.1' });
     ({ tree } = applyOps(tree, [{ type: 'removeTask', id }], 'c-3'));
     expect(tree.tasks).toEqual([]);
   });
@@ -84,12 +87,11 @@ describe('applyOps', () => {
 
 describe('touchedBy', () => {
   it('lists the goal, then records, then tasks this contribution wrote', () => {
-    const { tree } = applyOps(makeProject(), [
+    const { tree } = applyOps(food(), [
       { type: 'addTask', title: 'T' },
-      { type: 'setGoal', text: 'G' },
-      { type: 'addRecord', record: { type: 'decision', text: 'W', attachedTo: { kind: 'project' } } },
-    ], C);
-    const ids = touchedBy(tree, C);
+      { type: 'addRecord', record: { type: 'decision', text: 'W', attachedTo: { kind: 'workstream', id: 'food' } } },
+    ], C, FOOD);
+    const ids = touchedBy({ ...tree, goal: { sourceContributionIds: [C] } }, C);
     expect(ids[0]).toBe('goal');
     expect(ids[1]).toMatch(/^rec-/);
     expect(ids[2]).toBe(tree.tasks[0].id);
@@ -121,12 +123,12 @@ describe('what a new record may replace', () => {
 
 describe('malformed proposals never crash a contribution', () => {
   it('drops a record whose links are the wrong shape, and keeps the rest', () => {
-    const { tree, dropped } = applyOps(makeProject(), [
-      { type: 'addRecord', record: { type: 'decision', text: 'x', links: { restsOn: 'rec-abc' }, attachedTo: { kind: 'project' } } },
-      { type: 'addRecord', record: { type: 'decision', text: 'y', links: 'abc', attachedTo: { kind: 'project' } } },
-      { type: 'addRecord', record: { type: 'decision', text: { not: 'text' }, attachedTo: { kind: 'project' } } },
+    const { tree, dropped } = applyOps(food(), [
+      { type: 'addRecord', record: { type: 'decision', text: 'x', links: { restsOn: 'rec-abc' }, attachedTo: { kind: 'workstream', id: 'food' } } },
+      { type: 'addRecord', record: { type: 'decision', text: 'y', links: 'abc', attachedTo: { kind: 'workstream', id: 'food' } } },
+      { type: 'addRecord', record: { type: 'decision', text: { not: 'text' }, attachedTo: { kind: 'workstream', id: 'food' } } },
       { type: 'addTask', title: 'kept' },
-    ], 'c-1');
+    ], 'c-1', FOOD);
     expect(dropped).toHaveLength(3);
     expect(tree.tasks.map(t => t.title)).toEqual(['kept']);
   });
@@ -177,16 +179,15 @@ describe('the goal carries its own reason', () => {
 });
 
 /**
- * Keys minted as records land, and only as records land.
+ * Numbers are minted as tasks land, and only as tasks land.
  *
- * The counters live in `config.json` while the records go into a tree, so they
+ * The counters live in `config.json` while the tasks go into a tree, so they
  * travel in and out rather than being written here. That is what makes the
  * queued path work without a special case: a contribution on its way to review
  * has its tree thrown away, the counters go with it, and a contribution that is
- * rejected never spends a number. Otherwise `T-4` would belong to something
- * nobody approved.
+ * rejected never spends a number. Records have no number at all.
  */
-describe('the key a record is minted with', () => {
+describe('the number a task is minted with', () => {
   const add = (type, text, over = {}) => ({
     type: 'addRecord',
     record: {
@@ -194,67 +195,105 @@ describe('the key a record is minted with', () => {
     },
   });
 
-  it('numbers each kind on its own, in the order they land', () => {
-    const { tree, nextKey } = applyOps(makeProject(), [
-      add('decision', 'first'), add('rule', 'a rule'), add('decision', 'second'),
-    ], C);
-    expect(tree.records.map(r => r.key)).toEqual(['D-1', 'R-1', 'D-2']);
-    expect(nextKey).toMatchObject({ D: 3, R: 2, T: 1 });
-  });
-
-  it('numbers a task from its own counter', () => {
-    const { tree, nextKey } = applyOps(makeProject(), [
+  it('is the workstream number, a dot, and the next task in that workstream', () => {
+    const { tree, nextKey } = applyOps(food(), [
       { type: 'addTask', title: 'one' }, { type: 'addTask', title: 'two' },
-    ], C);
-    expect(tree.tasks.map(t => t.key)).toEqual(['T-1', 'T-2']);
-    expect(nextKey.T).toBe(3);
+    ], C, FOOD);
+    expect(tree.tasks.map(t => t.key)).toEqual(['3.1', '3.2']);
+    expect(nextKey.tasks).toEqual({ food: 3 });
   });
 
   it('carries on from the counters it was given, not from what is in the tree', () => {
-    // The tree may have had records deleted out of it. The counters are the
+    // The tree may have had tasks deleted out of it. The counters are the
     // record of what has been handed out.
-    const { tree } = applyOps(makeProject(), [add('decision', 'next one')], C, { nextKey: { D: 7 } });
-    expect(tree.records[0].key).toBe('D-7');
+    const { tree } = applyOps(food(), [{ type: 'addTask', title: 'next one' }], C, { ...FOOD, nextKey: { workstream: 9, tasks: { food: 7 } } });
+    expect(tree.tasks[0].key).toBe('3.7');
   });
 
-  it('spends nothing on a proposal that gets dropped', () => {
-    // The malformed one must not take `D-1` with it, or the first good decision
-    // in the project is `D-2` and nobody can say why.
-    const { tree, dropped, nextKey } = applyOps(makeProject(), [
-      add('decision', ''), add('decision', 'a real one'),
-    ], C);
-    expect(dropped).toHaveLength(1);
-    expect(tree.records.map(r => r.key)).toEqual(['D-1']);
-    expect(nextKey.D).toBe(2);
+  it('counts each workstream on its own', () => {
+    const a = applyOps(food(), [{ type: 'addTask', title: 'a' }], C, FOOD);
+    const b = applyOps(makeWorkstream('drink'), [{ type: 'addTask', title: 'b' }], C, { workstreamNumber: 4, nextKey: a.nextKey });
+    expect(b.tree.tasks[0].key).toBe('4.1');
+    expect(b.nextKey.tasks).toEqual({ food: 2, drink: 2 });
   });
 
-  it('spends nothing on an exception whose rule is not there', () => {
-    // Dropped after the key was minted, which is the case that needed the
-    // counter committed at the end rather than at the top.
-    const { dropped, nextKey } = applyOps(makeProject(), [
-      add('exception', 'just this once', { expiresAt: '2026-12-31', links: { bends: 'rec-nope' } }),
-    ], C);
-    expect(dropped).toHaveLength(1);
-    expect(nextKey.X).toBe(1);
+  it('is not given to a task in the project itself: every task belongs to a workstream', () => {
+    const { tree, dropped, nextKey } = applyOps(makeProject(), [{ type: 'addTask', title: 'loose' }], C, FOOD);
+    expect(tree.tasks).toEqual([]);
+    expect(dropped[0].reason).toMatch(/workstream/);
+    expect(nextKey.tasks).toEqual({});
   });
 
-  it('hands back untouched counters when a contribution does nothing', () => {
-    const { nextKey } = applyOps(makeProject(), [], C, { nextKey: { D: 4 } });
-    expect(nextKey.D).toBe(4);
+  it('is not invented for a workstream that has no number', () => {
+    const { tree, dropped } = applyOps(food(), [{ type: 'addTask', title: 'x' }], C);
+    expect(tree.tasks).toEqual([]);
+    expect(dropped[0].reason).toMatch(/no number/);
+  });
+
+  it('is the one a queued item was given, for the first task it adds', () => {
+    // "Approve 1.6" then becomes "task 1.6". Only the first: a second task in the
+    // same item takes the next number in the workstream.
+    const { tree, nextKey } = applyOps(food(), [
+      { type: 'addTask', title: 'first' }, { type: 'addTask', title: 'second' },
+    ], C, { ...FOOD, reservedKey: '3.6', nextKey: { workstream: 4, tasks: { food: 7 } } });
+    expect(tree.tasks.map(t => t.key)).toEqual(['3.6', '3.7']);
+    expect(nextKey.tasks.food).toBe(8);
+  });
+
+  it.each([
+    ['one in another workstream', '9.1'],
+    ['one that was never handed out', '3.50'],
+    ['one that is not a number at all', '<script>'],
+    ['one already on a task that is here', '3.2'],
+  ])('is not taken from a queued item that carries %s', (_, forged) => {
+    // The number is read back from a file somebody else could have edited, so a
+    // forged one must not become a task's number: a fresh one is minted instead.
+    const ws = food({ tasks: [{ id: 'task-x', key: '3.2', title: 'Already here', status: 'open' }] });
+    const { tree, nextKey } = applyOps(ws, [{ type: 'addTask', title: 'new' }], C, {
+      ...FOOD, reservedKey: forged, nextKey: { workstream: 4, tasks: { food: 5 } },
+    });
+    expect(tree.tasks.find(t => t.title === 'new').key).toBe('3.5');
+    expect(nextKey.tasks.food).toBe(6);
+  });
+
+  it('is not spent by a task that is dropped', () => {
+    const { nextKey } = applyOps(food(), [{ type: 'addTask', title: '   ' }, { type: 'addTask', title: 'real' }], C, FOOD);
+    expect(nextKey.tasks.food).toBe(2);
+  });
+
+  it('is left alone by a contribution that does nothing', () => {
+    const { nextKey } = applyOps(food(), [], C, { ...FOOD, nextKey: { workstream: 4, tasks: { food: 4 } } });
+    expect(nextKey).toEqual({ workstream: 4, tasks: { food: 4 } });
   });
 
   it('does not change the counters object it was given', () => {
     // The caller holds this and decides whether it is written. Mutating it would
-    // spend a key on a contribution that then went to the queue instead.
-    const counters = { D: 1, T: 1, R: 1, A: 1, X: 1 };
-    applyOps(makeProject(), [add('decision', 'x')], C, { nextKey: counters });
-    expect(counters.D).toBe(1);
+    // spend a number on a contribution that then went to the queue instead.
+    const counters = { workstream: 2, tasks: { food: 1 } };
+    applyOps(food(), [{ type: 'addTask', title: 'x' }], C, { ...FOOD, nextKey: counters });
+    expect(counters).toEqual({ workstream: 2, tasks: { food: 1 } });
+  });
+});
+
+describe('a record', () => {
+  it('has an internal id and no number', () => {
+    const { tree } = applyOps(makeProject(), [
+      { type: 'addRecord', record: { type: 'decision', text: 'x' } },
+      { type: 'addRecord', record: { type: 'rule', text: 'y' } },
+    ], C);
+    expect(tree.records).toHaveLength(2);
+    for (const r of tree.records) {
+      expect(r.id).toMatch(/^rec-/);
+      expect(r).not.toHaveProperty('key');
+    }
   });
 
-  it('keeps the internal id as well, since that is still what links point at', () => {
-    const { tree } = applyOps(makeProject(), [add('decision', 'x')], C);
-    expect(tree.records[0].id).toMatch(/^rec-/);
-    expect(tree.records[0].key).toBe('D-1');
+  it('spends no counter, whatever it is', () => {
+    const { nextKey } = applyOps(food(), [
+      { type: 'addRecord', record: { type: 'decision', text: 'x' } },
+      { type: 'addRecord', record: { type: 'rule', text: 'y' } },
+    ], C, FOOD);
+    expect(nextKey).toEqual({ workstream: 1, tasks: {} });
   });
 });
 
@@ -282,7 +321,7 @@ describe('finding a dropped operation again', () => {
     // The case that broke it: the record attaches to a task added alongside it,
     // so `resolveTaskRef` replaces the operation with a copy — and this one
     // fails validation afterwards, with an exception bending nothing.
-    const { dropped } = applyOps(makeProject(), [
+    const { dropped } = applyOps(food(), [
       { type: 'addTask', ref: 'T', title: 'Build it' },
       {
         type: 'addRecord',
@@ -291,7 +330,7 @@ describe('finding a dropped operation again', () => {
           attachedTo: { kind: 'task', id: 'T' }, links: { bends: 'rec-nope' },
         },
       },
-    ], C);
+    ], C, FOOD);
     expect(dropped).toHaveLength(1);
     expect(dropped[0].index).toBe(1);
   });

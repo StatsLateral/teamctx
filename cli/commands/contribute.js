@@ -21,7 +21,7 @@ export function describeOp(op) {
   // Without this it printed "? addEvidence", which tells the person nothing about
   // the one operation in the contribution that most needs their judgement.
   if (op.type === 'addEvidence') return `! ${evidenceLabel(op)}`;
-  if (op.type === 'setRecordStatus') return `~ Mark ${op.against?.key || op.id} ${op.status}`;
+  if (op.type === 'setRecordStatus') return `~ Mark ${op.against?.text ? `"${op.against.text}"` : op.id} ${op.status}`;
   if (op.type === 'removeTask') return `- Remove task ${op.id}`;
   return `? ${op.type}`;
 }
@@ -70,7 +70,7 @@ export async function contributeCommand(text, opts = {}) {
 
   const where = isProjectLevel(r.workstream) ? '' : ` [workstream: ${r.workstream}]`;
   if (r.mode === 'queued') {
-    console.log(`\n✓ Submitted for approval (id: ${r.id})${where} — committed.${pushNote(r)}`);
+    console.log(`\n✓ Submitted for approval (id: ${r.id}${r.number ? `, item ${r.number}` : ''})${where} — committed.${pushNote(r)}`);
     console.log(`  Manager: after \`git pull\`, run \`teamctx review approve ${r.id}\` or \`teamctx review reject ${r.id}\`.`);
     return;
   }
@@ -79,7 +79,7 @@ export async function contributeCommand(text, opts = {}) {
     console.log(`\n→ Regenerated ${r.rolesRegenerated.length} role file${r.rolesRegenerated.length !== 1 ? 's' : ''}: ${r.rolesRegenerated.join(', ')}`);
   }
   console.log(`\n✓ Applied${where} — committed.${pushNote(r)}`);
-  if (r.keys?.length) console.log(`  Updated: ${r.keys.map(x => x.key).join(', ')}`);
+  if (r.tasks?.length) console.log(`  Tasks: ${r.tasks.map(x => x.key).join(', ')}`);
   if (r.founding) printFounding(r.digest);
 }
 
