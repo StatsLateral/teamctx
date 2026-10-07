@@ -169,7 +169,13 @@ export async function contributeCore({
   // shared context, and the terminal was asking "submit for manager approval?"
   // before it knew that — so somebody answering yes was told their work had
   // gone to a queue it never entered.
-  const willQueue = contradictions.length > 0 || (!mayApply && (reviewRequired || needsReview(config, operations)));
+  // Evidence queues the way a contradiction does, whoever sent it and whatever
+  // they asked for. What needs checking is the distiller's inference that this
+  // note argues against that assumption — and a manager's own `apply` is a
+  // request to skip a queue, not a review of that inference.
+  const carriesEvidence = operations.some(o => o?.type === 'addEvidence');
+  const willQueue = contradictions.length > 0 || carriesEvidence
+    || (!mayApply && (reviewRequired || needsReview(config, operations)));
   if (onProposed && (await onProposed({ summary, operations, willQueue, contradictions })) === false) {
     return {
       id: contribution.id, workstream: targetId, author: actor, source,
@@ -201,7 +207,9 @@ export async function contributeCore({
       id: contribution.id, workstream: targetId, author: actor, source,
       mode: 'queued', summary, operations, pushed, pushError,
       ...(contradictions.length ? { contradictions, ...(apply ? { applyRefused: true } : {}) } : {}),
-      ...(applyRefused ? { applyRefused: true } : {}),
+      // Asked to apply, and evidence kept it in the queue: said the same way as
+      // for a contradiction, so the assistant reports "sent for review".
+      ...(applyRefused || (carriesEvidence && apply) ? { applyRefused: true } : {}),
       dropped: droppedReasons,
     };
   }

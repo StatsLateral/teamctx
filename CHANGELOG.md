@@ -20,6 +20,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `workstream_split` and `teamctx workstream suggest` / `suggest_workstream_splits`.
 
 ### Added
+- **A note that contradicts an assumption is put to the manager as evidence.**
+  #120 says what rested on an assumption once it breaks; somebody still had to
+  notice it broke, and that notice arrives as a meeting note or a document that
+  never names the assumption. A contribution that argues against an active
+  assumption now proposes the quote as `evidence` on it together with a break,
+  and the manager sees *"Evidence against 'We're assuming: …': "<quote>" (from
+  <who> via <where>)"* beside what would be affected. It always waits for the
+  manager, even when the manager sent it with `apply`; who said it, where and
+  when come from the contribution, never from the model. Evidence is kept only
+  beside a break of the same assumption, so a supporting observation or a mere
+  mention is not recorded as evidence. An edit that changes nothing is now
+  dropped rather than stamped onto a record's history. Evidence is caught
+  against assumptions in the part of the work the note is contributed to.
+  Closes #122.
+- **When an assumption breaks, teamctx says what was standing on it.** A decision
+  or rule can name the assumptions it rests on, and that link had been stored
+  since the governed-records model landed while nothing read it — so the one
+  question it exists to answer had never been asked. Marking an assumption broken
+  now lists everything resting on it, followed all the way down, plus the tasks
+  that work is being done on, and says it on the contribute and review results
+  while the manager is still deciding: *"2 things rest on this: … they need a
+  second look."* From then on every way an AI reads that decision — `my_brief`,
+  `get_context`, `list_records`, `get_record`, a compiled task prompt, the
+  project page — marks it *"needs review — rests on a broken assumption"*, until
+  the manager re-confirms it (it stays active, the flag clears) or replaces it.
+  Nothing's status changes without the manager. The flag is worked out over every
+  record in the project, because a decision in one part of the work can rest on an
+  assumption recorded in another — but only the flag crosses that line, never the
+  assumption's own words or the tree it lives in. Part of #120.
 - Contributions check proposed records against active decisions and rules in
   the same workstream and its ancestors. Contradictions always queue with both
   statements named, even with direct apply. Managers resolve them through an
@@ -50,21 +79,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   prompts, project pages and contribution/task results, and work in page links,
   task commands and record lookup. Overlapping writes allocate against current
   counters; conflicting hosted allocations ask for a retry.
-- **When an assumption breaks, teamctx says what was standing on it.** A decision
-  or rule can name the assumptions it rests on, and that link had been stored
-  since the governed-records model landed while nothing read it — so the one
-  question it exists to answer had never been asked. Marking an assumption broken
-  now lists everything resting on it, followed all the way down, plus the tasks
-  that work is being done on, and says it on the contribute and review results
-  while the manager is still deciding: *"2 things rest on this: … they need a
-  second look."* From then on every way an AI reads that decision — `my_brief`,
-  `get_context`, `list_records`, `get_record`, a compiled task prompt, the
-  project page — marks it *"needs review — rests on a broken assumption"*, until
-  the manager re-confirms it (it stays active, the flag clears) or replaces it.
-  Nothing's status changes without the manager. The flag is worked out over every
-  record in the project, because a decision in one part of the work can rest on an
-  assumption recorded in another — but only the flag crosses that line, never the
-  assumption's own words or the tree it lives in. Part of #120.
 - `list_records` and `get_record` (scoped like everything else), and
   `teamctx workstream add <name> [--under <id>]` / `workstream_add`.
 - `propose_structure` returns a draft in the new model: goal and why it matters,

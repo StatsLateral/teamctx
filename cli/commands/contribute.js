@@ -2,7 +2,7 @@ import { LABELS } from '../../src/model.js';
 import { ask } from '../prompt.js';
 import { contributeCore } from './contribute.core.js';
 import { isProjectLevel } from '../../src/project-level.js';
-import { contradictionLabel } from '../../src/contradictions.js';
+import { contradictionLabel, evidenceLabel } from '../../src/contradictions.js';
 
 /**
  * `teamctx contribute`, over the same code the MCP server calls.
@@ -18,7 +18,10 @@ export function describeOp(op) {
   if (op.type === 'addTask') return `+ Task: ${op.title}`;
   if (op.type === 'editRecord') return `~ Edit ${op.id}: ${op.changes?.text ?? '(details)'}`;
   if (op.type === 'editTask') return `~ Retitle ${op.id}: ${op.title}`;
-  if (op.type === 'setRecordStatus') return `~ Mark ${op.id} ${op.status}`;
+  // Without this it printed "? addEvidence", which tells the person nothing about
+  // the one operation in the contribution that most needs their judgement.
+  if (op.type === 'addEvidence') return `! ${evidenceLabel(op)}`;
+  if (op.type === 'setRecordStatus') return `~ Mark ${op.against?.key || op.id} ${op.status}`;
   if (op.type === 'removeTask') return `- Remove task ${op.id}`;
   return `? ${op.type}`;
 }

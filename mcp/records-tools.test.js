@@ -318,3 +318,17 @@ describe('breaking an assumption says what it takes with it', () => {
     expect(r.impact).toBeUndefined();
   });
 });
+
+describe('why apply was not used, said truthfully', () => {
+  it('does not tell a manager that apply is "the manager’s alone"', async () => {
+    // That is the reason given to a non-manager. Said to the manager about their
+    // own evidence, it reads as telling them they are not the manager.
+    const { reportBackContribute } = await import('./server.js');
+    const said = reportBackContribute({
+      id: 'c-1', mode: 'queued', workstream: null, applyRefused: true,
+      operations: [{ type: 'addEvidence', id: 'a1', evidence: { text: 'q' } }, { type: 'setRecordStatus', id: 'a1', status: 'broken' }],
+    });
+    expect(said).not.toMatch(/manager's alone/);
+    expect(said).toMatch(/evidence against an assumption always waits for the manager/);
+  });
+});

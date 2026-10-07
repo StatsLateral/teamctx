@@ -3,7 +3,7 @@ import { LABELS, RECORD_TYPES } from '../model.js';
 import { projectRow, ROW_CSS, rowHeader } from './project-row.js';
 import { workstreamLocation } from './workstream-location.js';
 import { EDITABLE_RECORD_FIELDS } from '../ops.js';
-import { contradictionLabel } from '../contradictions.js';
+import { contradictionLabel, evidenceLabel } from '../contradictions.js';
 
 /** Read-only project context, work and proposals, using one row layout. */
 
@@ -320,10 +320,23 @@ const list = ({ rows, contributions, where, project, item, isProject, owner, rep
 </div>`;
 
 
+/**
+ * What breaking an assumption in this proposal would take with it (#120).
+ *
+ * On the proposal itself, so the manager reads it beside the evidence and
+ * before deciding — not on the result of approving, when it is too late to be
+ * the reason for a no.
+ */
+function impactLabel({ text, records }) {
+  if (!records?.length) return `Nothing on record rests on '${text}'`;
+  const n = records.length;
+  return `${n} thing${n === 1 ? '' : 's'} rest${n === 1 ? 's' : ''} on '${text}': ${records.map(r => `${r.key ? `${r.key} ` : ''}${r.text}`).join('; ')}`;
+}
+
 function queueRows({ q, view, item, origin }) {
   const tree = q.workstream ? view.trees[q.workstream] : view.projectTree;
   const operations = Array.isArray(q.operations) ? q.operations : [];
-  const render = (node, tier, index) => {
+  const render = (node, tier, index, extra = []) => {
     const bends = node.links?.bends;
     const existingRule = tier === 'exception' && bends
       ? (tree?.records || []).find(r => r.type === 'rule' && r.id === bends) : null;
@@ -335,7 +348,7 @@ function queueRows({ q, view, item, origin }) {
       where: q.where, isProject: !q.workstream, wsId: q.workstream,
       owner: view.owner, repo: view.repo, origin, pending: true,
       id: `proposal-${q.id}-${index}`, linkId: q.id,
-      warnings: (q.contradictions || []).filter(c => c.operationIndex === index).map(contradictionLabel),
+      warnings: [...(q.contradictions || []).filter(c => c.operationIndex === index).map(contradictionLabel), ...extra],
     });
   };
   const proposals = operations.map((op, i) => {
@@ -357,6 +370,15 @@ function queueRows({ q, view, item, origin }) {
       if (changes.links) next.links = { ...record.links, ...changes.links };
       return render(next, record.type, i);
     }
+    if (op.type === 'addEvidence') {
+      // Shown as the assumption it argues against, from the snapshot taken when
+      // the evidence was written — the words the manager is being asked to weigh
+      // it against. Without this branch the row rendered as nothing at all: the
+      // one operation in the queue that most needs a person's judgement, hidden.
+      const against = record || (op.against ? { ...op.against, status: 'active' } : null);
+      if (!against) return '';
+      return render(against, 'assumption', i, [evidenceLabel(op)]);
+    }
     if (record && op.type === 'setRecordStatus') {
       return render({ ...record, status: op.status }, record.type, i);
     }
@@ -370,7 +392,11 @@ function queueRows({ q, view, item, origin }) {
     row: { node: { id: q.id, text: q.summary || '(no summary)', owner: q.author, author: q.author, source: q.source }, tier: 'review', n: '—' },
     contributions: view.contributions, where: q.where, isProject: !q.workstream, wsId: q.workstream,
     owner: view.owner, repo: view.repo, origin, pending: true, id: `r-${q.id}`, marked: q.id === item,
-    warnings: (q.contradictions || []).map(contradictionLabel),
+    warnings: [
+      ...(q.contradictions || []).map(contradictionLabel),
+      ...operations.filter(o => o?.type === 'addEvidence').map(evidenceLabel),
+      ...(q.impact || []).map(impactLabel),
+    ],
   })}${proposals}</div>`;
 }
 
