@@ -1,6 +1,230 @@
 {
   "id": "lead-warming-4-stalled-accounts",
   "name": "Lead Warming — 4 stalled accounts",
-  "records": [],
-  "tasks": []
+  "records": [
+    {
+      "id": "rec-20376e5e",
+      "key": "R-1",
+      "type": "rule",
+      "text": "Every stalled account receives a three-prong warm-up: persona-targeted value drops, stakeholder expansion to a second contact, and trigger-event monitoring.",
+      "detail": "Deadlocks often persist because a single champion loses momentum; a second contact and timely external triggers reset urgency without pitching.",
+      "status": "active",
+      "owner": null,
+      "attachedTo": {
+        "kind": "workstream",
+        "id": "lead-warming-4-stalled-accounts"
+      },
+      "links": {
+        "restsOn": [],
+        "bends": null,
+        "replaces": null,
+        "answers": null
+      },
+      "sourceContributionIds": [
+        "mcp-1791384588421-hsr2g"
+      ],
+      "createdBy": "mcp-1791384588421-hsr2g",
+      "approvedBy": null,
+      "createdAt": "2026-10-07",
+      "updatedAt": "2026-10-07"
+    },
+    {
+      "id": "rec-3301ef96",
+      "key": "R-2",
+      "type": "rule",
+      "text": "No content piece is written until Pycube's differentiation vs. competitors and best-customer value evidence have been confirmed.",
+      "detail": "Content angle must reflect true differentiation, not assumed positioning; publishing misaligned POVs wastes effort and may undermine credibility with target personas.",
+      "status": "active",
+      "owner": null,
+      "attachedTo": {
+        "kind": "workstream",
+        "id": "lead-warming-4-stalled-accounts"
+      },
+      "links": {
+        "restsOn": [],
+        "bends": null,
+        "replaces": null,
+        "answers": null
+      },
+      "sourceContributionIds": [
+        "mcp-1791384588421-hsr2g"
+      ],
+      "createdBy": "mcp-1791384588421-hsr2g",
+      "approvedBy": null,
+      "createdAt": "2026-10-07",
+      "updatedAt": "2026-10-07"
+    },
+    {
+      "id": "rec-106c7917",
+      "key": "A-1",
+      "type": "assumption",
+      "text": "The specific reason each of the 4 accounts is stalled (procurement delay, budget cycle, internal alignment, competitive pressure, or technical questions) has not yet been confirmed.",
+      "detail": "Knowing the exact blocker per account is required before selecting the right warm-up tactic; this must be discovered in the next touchpoint or CRM review.",
+      "status": "active",
+      "owner": {
+        "name": "Shaun"
+      },
+      "attachedTo": {
+        "kind": "workstream",
+        "id": "lead-warming-4-stalled-accounts"
+      },
+      "reviewBy": "2026-10-14",
+      "links": {
+        "restsOn": [],
+        "bends": null,
+        "replaces": null,
+        "answers": null
+      },
+      "sourceContributionIds": [
+        "mcp-1791384588421-hsr2g"
+      ],
+      "createdBy": "mcp-1791384588421-hsr2g",
+      "approvedBy": null,
+      "createdAt": "2026-10-07",
+      "updatedAt": "2026-10-07"
+    },
+    {
+      "id": "rec-8f035001",
+      "key": "A-2",
+      "type": "assumption",
+      "text": "Pycube's actual differentiation versus competitors and what best customers uniquely value has not yet been documented or confirmed internally.",
+      "detail": "Content strategy depends on this; the three candidate angles (staffing crisis, integration trap, compliance/speed tension) are hypotheses until validated against real customer evidence and competitive analysis.",
+      "status": "active",
+      "owner": {
+        "name": "Shaun"
+      },
+      "attachedTo": {
+        "kind": "workstream",
+        "id": "lead-warming-4-stalled-accounts"
+      },
+      "reviewBy": "2026-10-14",
+      "links": {
+        "restsOn": [],
+        "bends": null,
+        "replaces": null,
+        "answers": null
+      },
+      "sourceContributionIds": [
+        "mcp-1791384588421-hsr2g"
+      ],
+      "createdBy": "mcp-1791384588421-hsr2g",
+      "approvedBy": null,
+      "createdAt": "2026-10-07",
+      "updatedAt": "2026-10-07"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "task-40f8518d",
+      "key": "T-1",
+      "title": "Identify the specific blocker for each of the 4 stalled accounts (procurement, budget, alignment, competitive, technical)",
+      "owner": null,
+      "status": "open",
+      "createdAt": "2026-10-07",
+      "doneAt": null,
+      "compiledAt": null,
+      "sourceContributionIds": [
+        "mcp-1791384588421-hsr2g"
+      ],
+      "createdBy": "mcp-1791384588421-hsr2g"
+    },
+    {
+      "id": "task-407de421",
+      "key": "T-2",
+      "title": "Find and map a second stakeholder contact inside each of the 4 stalled accounts to break the deadlock",
+      "owner": null,
+      "status": "open",
+      "createdAt": "2026-10-07",
+      "doneAt": null,
+      "compiledAt": null,
+      "sourceContributionIds": [
+        "mcp-1791384588421-hsr2g"
+      ],
+      "createdBy": "mcp-1791384588421-hsr2g"
+    },
+    {
+      "id": "task-3bef487e",
+      "key": "T-3",
+      "title": "Set up trigger-event monitoring (news, leadership changes, regulatory updates) for each of the 4 stalled accounts",
+      "owner": null,
+      "status": "open",
+      "createdAt": "2026-10-07",
+      "doneAt": null,
+      "compiledAt": null,
+      "sourceContributionIds": [
+        "mcp-1791384588421-hsr2g"
+      ],
+      "createdBy": "mcp-1791384588421-hsr2g"
+    },
+    {
+      "id": "task-ea63184a",
+      "key": "T-4",
+      "title": "Draft persona-targeted value drops (insights and POVs, not pitches) for CIO, VP Lab Medicine, and VP Biomed for each stalled account",
+      "owner": null,
+      "status": "open",
+      "createdAt": "2026-10-07",
+      "doneAt": null,
+      "compiledAt": null,
+      "sourceContributionIds": [
+        "mcp-1791384588421-hsr2g"
+      ],
+      "createdBy": "mcp-1791384588421-hsr2g"
+    },
+    {
+      "id": "task-c9aa6c9a",
+      "key": "T-5",
+      "title": "Interview best customers and review competitive intel to confirm Pycube's core differentiators per persona before any content is written",
+      "owner": null,
+      "status": "open",
+      "createdAt": "2026-10-07",
+      "doneAt": null,
+      "compiledAt": null,
+      "sourceContributionIds": [
+        "mcp-1791384588421-hsr2g"
+      ],
+      "createdBy": "mcp-1791384588421-hsr2g"
+    },
+    {
+      "id": "task-8b6ab58d",
+      "key": "T-6",
+      "title": "Audit existing Pycube case studies and published POVs to identify reusable assets for the content strategy",
+      "owner": null,
+      "status": "open",
+      "createdAt": "2026-10-07",
+      "doneAt": null,
+      "compiledAt": null,
+      "sourceContributionIds": [
+        "mcp-1791384588421-hsr2g"
+      ],
+      "createdBy": "mcp-1791384588421-hsr2g"
+    },
+    {
+      "id": "task-22c6691f",
+      "key": "T-7",
+      "title": "Confirm the current sales cycle stage (discovery, POC, post-contract review) for each of the 4 stalled accounts",
+      "owner": null,
+      "status": "open",
+      "createdAt": "2026-10-07",
+      "doneAt": null,
+      "compiledAt": null,
+      "sourceContributionIds": [
+        "mcp-1791384588421-hsr2g"
+      ],
+      "createdBy": "mcp-1791384588421-hsr2g"
+    },
+    {
+      "id": "task-0ea50da5",
+      "key": "T-8",
+      "title": "Select the primary content angle (staffing crisis, integration trap, or compliance/speed tension) based on confirmed differentiation findings",
+      "owner": null,
+      "status": "open",
+      "createdAt": "2026-10-07",
+      "doneAt": null,
+      "compiledAt": null,
+      "sourceContributionIds": [
+        "mcp-1791384588421-hsr2g"
+      ],
+      "createdBy": "mcp-1791384588421-hsr2g"
+    }
+  ]
 }
