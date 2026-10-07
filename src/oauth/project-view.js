@@ -8,6 +8,8 @@ import { scopeFor, inScope } from '../member-scope.js';
 import { resolveTarget } from '../project-level.js';
 import { workstreamLocation } from '../views/workstream-location.js';
 import { managerKeys, matchesActor } from '../review.js';
+import { flaggedInProject } from '../project-records.js';
+import { markNeedsReview } from '../impact.js';
 import { kvGet, keys } from './kv.js';
 import { githubIdsFor } from './ai-keys.js';
 
@@ -126,9 +128,17 @@ export async function readProjectView({ owner, repo, user }) {
     // payload at all, rather than sent and hidden by the page. A reader who opens
     // the network tab is still a reader, and scope that only holds in the markup
     // is not scope.
-    const projectTree = readProject();
+    //
+    // What rests on a broken assumption is worked out over every record in the
+    // project, including parts of the work this reader is not on — a decision
+    // here can rest on an assumption there. Only the mark crosses that line: it
+    // is written onto the records being sent, so no set of ids from elsewhere
+    // travels with the payload, and the broken assumption's own words never do.
+    const flagged = flaggedInProject(undefined);
+    const marked = (tree) => ({ ...tree, records: markNeedsReview(tree?.records, flagged) });
+    const projectTree = marked(readProject());
     const trees = Object.fromEntries(
-      workstreams.map(w => [w.id, readWorkstream(w.id) || { id: w.id, name: w.name, records: [], tasks: [] }]),
+      workstreams.map(w => [w.id, marked(readWorkstream(w.id) || { id: w.id, name: w.name, records: [], tasks: [] })]),
     );
 
     const tasks = listTasks({}, undefined)

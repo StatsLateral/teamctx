@@ -39,6 +39,10 @@ const CSS = `
 .toggle a{font-family:var(--font-mono);font-size:11px;text-decoration:none;color:var(--soft);
   border:1px solid var(--line);border-radius:6px;padding:4px 9px;background:var(--card)}
 .toggle a.on{color:var(--ink);border-color:var(--accent)}
+/* The drawer's line about a record resting on an assumption that broke. The
+   row says it with a chip from ROW_CSS; this is the same amber, as a sentence. */
+.stale-note{background:var(--amber-soft);color:var(--amber);font-size:12px;padding:6px 8px;
+  border-radius:6px;margin:0 0 10px}
 /* One reading of the context. There used to be a columns/list toggle; once
    tasks moved to their own list (#127) the two rendered the same rows, so the
    toggle offered a choice that changed nothing. Long context scrolls inside
@@ -138,6 +142,11 @@ const SCRIPT = `
   var backdrop = document.getElementById('backdrop');
   function open(el) {
     document.getElementById('d-text').textContent = el.dataset.text;
+    // Shown only when there is something to show, so the drawer does not carry
+    // an empty line about a record that is standing on solid ground.
+    var review = document.getElementById('d-review');
+    review.textContent = el.dataset.review || '';
+    review.style.display = el.dataset.review ? 'block' : 'none';
     document.getElementById('d-kind').textContent = el.dataset.kind;
     document.getElementById('d-summary').textContent = el.dataset.summary || 'No summary recorded.';
     document.getElementById('d-who').textContent = el.dataset.who || 'Nobody recorded.';
@@ -300,6 +309,7 @@ function itemButton({ row, contributions, where, marked, isProject, owner, repo,
     relation: parent ? `↳ bends ${parent.key || (pending ? 'the proposed rule' : 'the rule above')}` : '',
     attributes: ` data-text="${esc(tier === 'task' ? node.title : node.text)}" data-kind="${esc(`${tier === 'task' ? 'Task' : (LABELS[tier] || tier).replace(/:$/, '')} ${node.key || (pending ? 'Pending' : n)}`)}"
   data-summary="${esc(node.detail || node.summary || '')}" data-who="${esc(who.join(', '))}"
+  data-review="${esc(node.needsReview || '')}"
   data-prompt="${escAttr(prompt)}"` });
 }
 
@@ -586,6 +596,7 @@ ${note ? `<p class="note">${esc(note)}</p>` : ''}
   </div>
   <div class="drawer-body">
     <p class="statement" id="d-text"></p>
+    <p class="stale-note" id="d-review" style="display:none"></p>
     <div class="section-title">Summary</div>
     <p id="d-summary"></p>
     <div class="section-title">Who wrote it</div>
