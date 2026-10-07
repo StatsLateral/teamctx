@@ -23,6 +23,7 @@ vi.mock('../src/adapters/github.js', async (orig) => ({
     ];
   },
   listUserOrgs: async () => [],
+  repoExistence: async () => ({ state: 'exists', fullName: null }),
   GithubSession: class {
     constructor({ owner, repo: name, ghToken }) {
       Object.assign(this, { owner, repo: name, ghToken });
