@@ -118,9 +118,13 @@ export async function readProjectView({ owner, repo, user }) {
 
     const members = listMembers({}).filter(m => m.kind !== 'agent');
     const agents = listMembers({}).filter(m => m.kind === 'agent');
-    const workstreams = (await listAllWorkstreams({}))
+    const everyPart = await listAllWorkstreams({});
+    const workstreams = everyPart
       .filter(w => inScope(allowed, w.id))
       .map(w => ({ ...w, members: membersOn(members, w.id).map(m => m.name) }));
+    // Only how many parts the reader cannot see, never which. A prompt says "1
+    // part you cannot see" so what is missing is never mistaken for what is absent.
+    const hiddenParts = everyPart.length - workstreams.length;
 
     // The trees themselves, which is what the page exists to show.
     //
@@ -205,6 +209,7 @@ export async function readProjectView({ owner, repo, user }) {
       // has no use for.
       contributions: contributionsBehind([projectTree, ...Object.values(trees)]),
       workstreams,
+      hiddenParts,
       members: members.map(m => ({
         name: m.name,
         email: m.email || null,

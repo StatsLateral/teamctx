@@ -40,6 +40,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   pinned and sized to the screen, so Settings stays in view however long the
   list of workstreams is; under 900px it is an ordinary section after them. The
   repository line under the title is gone.
+- **Context is read in a drawer, and taken to an assistant with one click.** A
+  panel icon beside the goal, the project and each workstream opens a drawer with
+  the goal and why in full, then that level's decisions, rules and assumptions in
+  plain words (an exception always under the rule it bends, flagged items marked),
+  scoped to what the reader may see. Every drawer, including a task's, now has one
+  row of icons: open in Claude or ChatGPT, copy then open Copilot, or copy the
+  full prompt, with a switch between "assistant is connected to teamctx" (a short
+  prompt that has the assistant fetch the context itself) and "paste the context
+  in" (the approved context, the path down to that part in order, and an index of
+  what was not loaded, with a count of parts the reader cannot see). A task's
+  drawer says the assistant reads the approved context and links to it.
 - **The project page no longer lists decisions, rules, assumptions or
   exceptions.** It shows the work (tasks, by workstream) and, for the manager,
   what is waiting. Context is read through the assistant. Impact flags,

@@ -97,6 +97,17 @@ function project() {
   repo.prefetchError = null;
 }
 
+/**
+ * The page as somebody reads it: not the drawer's on-demand text, the data the
+ * assistant buttons use, scripts, styles or icons. "Not on the page" means not
+ * here; the drawer shows context only when it is asked to.
+ */
+const onPage = (html) => html
+  .replace(/<aside class="drawer"[\s\S]*?<\/aside>/, '')
+  .replace(/<script[\s\S]*?<\/script>/g, '')
+  .replace(/<style[\s\S]*?<\/style>/g, '')
+  .replace(/<svg[\s\S]*?<\/svg>/g, '');
+
 async function visit(path, user) {
   if (user) await kvSet(keys.session('s'), user);
   const res = await fetch(`${base}${path}`, {
@@ -128,7 +139,7 @@ describe('the manager looking at a project', () => {
     const { body } = await visit('/project/acme/ledger?tab=tasks', MANAGER);
     expect(body).toContain('Draft the pricing page');
     expect(body).toContain('Migrate the database');
-    expect(body).not.toContain('Something finished');
+    expect(onPage(body)).not.toContain('Something finished');
     expect(body).toMatch(/1\s*\n?task already done/);
   });
 
@@ -290,7 +301,7 @@ describe('the goal and why it matters, opening the page', () => {
     setGoal({ text: 'Reach ten enterprise pilots', why: 'Because' });
     for (const path of ['/project/acme/ledger', '/project/acme/ledger?tab=review']) {
       const { body } = await visit(path, MANAGER);
-      expect(body.match(/Reach ten enterprise pilots/g), path).toHaveLength(1);
+      expect(onPage(body).match(/Reach ten enterprise pilots/g), path).toHaveLength(1);
     }
   });
 
@@ -329,16 +340,17 @@ describe('the work the page draws', () => {
     expect(start.body).toContain('Migrate the database');
     const product = await visit('/project/acme/ledger?ws=product', MANAGER);
     expect(product.body).toContain('Draft the pricing page');
-    expect(product.body).not.toContain('Migrate the database');
+    expect(onPage(product.body)).not.toContain('Migrate the database');
   });
 
   it('shows no decision, rule, assumption or exception: those are read through the assistant', async () => {
     for (const path of ['/project/acme/ledger', '/project/acme/ledger?ws=product', '/project/acme/ledger?tab=review']) {
       const { body } = await visit(path, MANAGER);
-      expect(body, path).not.toContain('ship it');
-      expect(body, path).not.toContain('price it');
-      expect(body, path).not.toContain('keep the servers up');
-      expect(body, path).not.toMatch(/Project context — inherited|Governed by|class="list"/);
+      const page = onPage(body);
+      expect(page, path).not.toContain('ship it');
+      expect(page, path).not.toContain('price it');
+      expect(page, path).not.toContain('keep the servers up');
+      expect(page, path).not.toMatch(/Project context — inherited|Governed by|class="list"/);
     }
   });
 
@@ -492,14 +504,14 @@ describe('arriving from a link', () => {
     // Not "marked" anywhere: that word is in the stylesheet. Nothing *carries*
     // the class.
     expect(body).not.toMatch(/class="item[^"]*marked/);
-    expect(body).not.toContain('9.9');
+    expect(onPage(body)).not.toMatch(/9\.9/);
   });
 
   it('does not reach a record, which has no number and is not on the page', async () => {
     const { status, body } = await visit('/project/acme/ledger?ws=product&item=w1', MANAGER);
     expect(status).toBe(200);
     expect(body).not.toMatch(/class="item[^"]*marked/);
-    expect(body).not.toContain('price it');
+    expect(onPage(body)).not.toContain('price it');
   });
 
   it('falls back quietly when the part of the work is not theirs to see', async () => {
@@ -1024,6 +1036,203 @@ describe('shared rows, task filters and governance (#127)', () => {
  * the page anyway — which is the one thing this route says it never does.
  */
 /**
+ * Context lives in the assistant, and the drawer is the plain-English view of it.
+ *
+ * The project's and a workstream's decisions, rules and assumptions are not
+ * listed on the page. A drawer shows them when asked, in wording only, and
+ * carries the same assistant actions as a task. What it shows, and what the
+ * assistant is handed, is scoped to the reader.
+ */
+/**
+ * The page's own JavaScript has to be JavaScript.
+ *
+ * It is built from template strings, where an escape is processed twice, so a
+ * "\n" meant for the browser can arrive as a real newline inside a string and
+ * stop every script on the page. Nothing server-side notices, so this parses
+ * each inline script the page sends.
+ */
+describe('the scripts on the page', () => {
+  const inlineScripts = (html) => [...html.matchAll(/<script(?![^>]*application\/json)[^>]*>([\s\S]*?)<\/script>/g)].map(m => m[1]).filter(Boolean);
+
+  it.each([
+    ['/project/acme/ledger'],
+    ['/project/acme/ledger?ws=product'],
+    ['/project/acme/ledger?tab=review'],
+  ])('parse, on %s', async (path) => {
+    const { body } = await visit(path, MANAGER);
+    const scripts = inlineScripts(body);
+    expect(scripts.length).toBeGreaterThan(0);
+    for (const code of scripts) expect(() => new Function(code)).not.toThrow();
+  });
+
+  it('keep the newlines they join prompts with as escapes, not as line breaks inside a string', async () => {
+    const { body } = await visit('/project/acme/ledger', MANAGER);
+    expect(body).toContain("scoped.full + '\\n---\\n'");
+  });
+});
+
+describe('the project and workstream drawers', () => {
+  const FULL_PROJECT = { name: 'Ledger', goal: { text: 'Reach ten pilots', why: 'Pilots turn into revenue and referrals' }, tasks: [],
+    records: [
+      { id: 'p1', type: 'decision', text: 'Fixed price for pilots', status: 'active', detail: 'Easier to approve' },
+      { id: 'p2', type: 'rule', text: 'No discounts over 15%', status: 'active' },
+      { id: 'p3', type: 'exception', text: 'Acme may get 20%', status: 'active', expiresAt: '2999-01-01', links: { bends: 'p2' } },
+      { id: 'p4', type: 'assumption', text: 'Buyers need SSO', status: 'active', owner: { name: 'O' }, reviewBy: '2999-01-01' },
+    ] };
+  beforeEach(() => repo.files.set('.teamctx/project.json', JSON.stringify(FULL_PROJECT)));
+  const panel = (body, id) => new RegExp(`<section class="dpanel" id="${id}"[\\s\\S]*?</section>`).exec(body)?.[0];
+  const promptMap = (body) => JSON.parse(/<script type="application\/json" id="prompts">([\s\S]*?)<\/script>/.exec(body)[1]);
+
+  it('opens from an icon beside the goal, one beside the project, and one beside each workstream', async () => {
+    const { body } = await visit('/project/acme/ledger', MANAGER);
+    expect(body).toMatch(/<button type="button" class="ctx-open" data-panel="dp-project" aria-label="Read the full goal and why it matters"/);
+    expect(body).toMatch(/data-panel="dp-project" aria-label="Project summary and context"/);
+    expect(body).toMatch(/data-panel="dp-ws-product" aria-label="Context for Product"/);
+    expect(body).toMatch(/data-panel="dp-ws-tech" aria-label="Context for Tech"/);
+  });
+
+  it('opens from the tasks heading too once a workstream is picked', async () => {
+    const { body } = await visit('/project/acme/ledger?ws=product', MANAGER);
+    const head = /<div class="tasks-head">[\s\S]*?<\/form>/.exec(body)[0];
+    expect(head).toMatch(/data-panel="dp-ws-product" aria-label="Context for Product"/);
+  });
+
+  it('puts the goal and why in full, then the project context in plain English', async () => {
+    const { body } = await visit('/project/acme/ledger', MANAGER);
+    const project = panel(body, 'dp-project');
+    expect(project).toContain('data-title="Project · Summary and context"');
+    expect(project).toContain('Reach ten pilots');
+    expect(project).toContain('Pilots turn into revenue and referrals');
+    for (const heading of ['We decided', 'Rules', "We're assuming"]) expect(project).toContain(`<h3>${heading}</h3>`);
+    expect(project).toContain('Fixed price for pilots');
+    expect(project).toContain('Why: Easier to approve');
+    expect(project).toContain('Buyers need SSO');
+    expect(project.indexOf('Reach ten pilots')).toBeLessThan(project.indexOf('We decided'));
+  });
+
+  it('always shows an exception together with the rule it bends', async () => {
+    const { body } = await visit('/project/acme/ledger', MANAGER);
+    const project = panel(body, 'dp-project');
+    expect(project.indexOf('No discounts over 15%')).toBeLessThan(project.indexOf('Allowed: Acme may get 20%'));
+    expect(project).toContain('instead of the rule: No discounts over 15%');
+  });
+
+  it('says only the words: no number, id or letter key', async () => {
+    const { body } = await visit('/project/acme/ledger', MANAGER);
+    const project = panel(body, 'dp-project');
+    expect(project).not.toMatch(/\bp[1-4]\b|\b[TDRAXQ]-\d+\b|rec-/);
+  });
+
+  it('gives a workstream its own context and says the project context also applies', async () => {
+    repo.files.set('.teamctx/workstreams/product.json', JSON.stringify({
+      id: 'product', name: 'Product', tasks: [],
+      records: [{ id: 'w1', type: 'decision', text: 'Price by seat', status: 'active' }],
+    }));
+    const { body } = await visit('/project/acme/ledger', MANAGER);
+    const ws = panel(body, 'dp-ws-product');
+    expect(ws).toContain('data-title="Workstream 1"');
+    expect(ws).toContain('<p class="statement">Product</p>');
+    expect(ws).toContain('Context for this part of the work');
+    expect(ws).toContain('Price by seat');
+    expect(ws).toContain('The project context also applies.');
+    expect(ws).not.toContain('Fixed price for pilots');
+    expect(panel(body, 'dp-ws-tech')).not.toContain('Price by seat');
+  });
+
+  it('says so when a part of the work has nothing yet', async () => {
+    repo.files.set('.teamctx/workstreams/tech.json', JSON.stringify({ id: 'tech', name: 'Tech', records: [], tasks: [] }));
+    const { body } = await visit('/project/acme/ledger', MANAGER);
+    expect(panel(body, 'dp-ws-tech')).toContain('Nothing has been decided for this part of the work yet.');
+  });
+
+  it('is scoped: a member is sent only their part, and the index counts what they cannot see', async () => {
+    await lend();
+    const { body } = await visit('/project/acme/ledger', MEMBER_GOOGLE);
+    expect(panel(body, 'dp-ws-product')).toBeTruthy();
+    expect(panel(body, 'dp-ws-tech')).toBeUndefined();
+    const prompts = promptMap(body);
+    expect(Object.keys(prompts.ws)).toEqual(['product']);
+    expect(prompts.project.full).toContain('- 1 part you cannot see');
+    const everything = JSON.stringify(prompts) + panel(body, 'dp-project');
+    expect(everything).not.toContain('keep the servers up');
+    expect(everything).not.toContain('Migrate the database');
+    expect(everything).not.toContain('Tech');
+  });
+
+  it('puts a task in the sentence that leads to its workstream\'s context', async () => {
+    const { body } = await visit('/project/acme/ledger?ws=product', MANAGER);
+    expect(body).toContain('Your assistant reads the approved context for this task.');
+    expect(body).toContain('id="d-ctx-open"');
+    expect(body).toMatch(/id="t-pricing-page"[^>]*data-ws="product"/);
+  });
+
+  it('carries the prompt data as inert JSON that stored text cannot break out of', async () => {
+    repo.files.set('.teamctx/project.json', JSON.stringify({ ...FULL_PROJECT, goal: { text: '</script><script>alert(1)</script>', why: 'x' } }));
+    const { body } = await visit('/project/acme/ledger', MANAGER);
+    expect(body).not.toContain('</script><script>alert(1)');
+    expect(promptMap(body).project.full).toContain('</script><script>alert(1)</script>');
+  });
+});
+
+describe('the assistant block in the drawer', () => {
+  const block = (body) => /<section class="assist"[\s\S]*?<\/section>/.exec(body)[0];
+
+  it('is three assistant icons and a copy icon, each a button with its own name', async () => {
+    const { body } = await visit('/project/acme/ledger', MANAGER);
+    const assist = block(body);
+    const buttons = [...assist.matchAll(/<button type="button" class="chatico" data-go="(\w+)" aria-label="([^"]+)" title="([^"]+)">/g)];
+    expect(buttons.map(m => [m[1], m[2]])).toEqual([
+      ['claude', 'Open in Claude'],
+      ['chatgpt', 'Open in ChatGPT'],
+      ['copilot', 'Copy the prompt, then open Copilot'],
+      ['copy', 'Copy full prompt'],
+    ]);
+    expect(buttons[3][3]).toBe('Copy the full prompt (works in any chatbot)');
+  });
+
+  it('has no text buttons for these actions, and no old copy button', async () => {
+    const { body } = await visit('/project/acme/ledger', MANAGER);
+    expect(block(body)).not.toMatch(/>\s*(Open in Claude|Open in ChatGPT|Copy full prompt|Copy, then open Copilot)\s*</);
+    expect(body).not.toContain('Copy a prompt for your assistant');
+    expect(body).not.toContain('id="copy"');
+  });
+
+  it('keeps the connected / paste switch, the Copilot note and the prompt preview', async () => {
+    const { body } = await visit('/project/acme/ledger', MANAGER);
+    const assist = block(body);
+    expect(assist).toContain('Assistant is connected to teamctx');
+    expect(assist).toContain('Paste the context in');
+    expect(assist).toMatch(/name="amode" value="connected" checked/);
+    expect(assist).toContain('Copilot cannot be prefilled by link, so its icon copies the prompt first.');
+    expect(assist).toContain('See the prompt first');
+    expect(assist).toContain('id="d-prompt"');
+  });
+
+  it('uses the assistants\' own marks inline, with no request to a third party', async () => {
+    const { body } = await visit('/project/acme/ledger', MANAGER);
+    const assist = block(body);
+    expect(assist.match(/<svg/g).length).toBe(4);
+    expect(assist).toContain('fill="#D97757"');
+    expect(assist).toContain('fill="currentColor"');
+    expect(assist).not.toMatch(/<img|https?:\/\/[^"' ]*\.(svg|png)/);
+  });
+
+  it('runs the same decision the tests check', async () => {
+    const { body } = await visit('/project/acme/ledger', MANAGER);
+    expect(body).toContain('var assistantPlan = (kind, mode, prompts) => {');
+    expect(body).toContain("window.open(plan.open, '_blank', 'noopener')");
+    expect(body).toContain("navigator.clipboard && navigator.clipboard.writeText");
+    expect(body).toContain("document.execCommand('copy')");
+  });
+
+  it('is in every drawer: one block shared by tasks, queue items and both context levels', async () => {
+    const { body } = await visit('/project/acme/ledger?tab=review', MANAGER);
+    expect(body.match(/class="assist"/g)).toHaveLength(1);
+    expect(body).toMatch(/id="d-task"[\s\S]*id="dp-project"[\s\S]*class="assist"/);
+  });
+});
+
+/**
  * No letter key anywhere a person can read.
  *
  * The page, its drawers and the prompts behind them are crawled for both roles,
@@ -1064,7 +1273,7 @@ describe('an item that names nothing', () => {
     const byId = await visit('/project/acme/ledger?ws=product&item=task-gone', MANAGER);
     const byNumber = await visit('/project/acme/ledger?ws=product&item=9.9', MANAGER);
     expect(byId.body).not.toContain('task-gone');
-    expect(byNumber.body).not.toContain('9.9');
+    expect(onPage(byNumber.body)).not.toMatch(/9\.9/);
   });
 
   it('is dropped even when it would pass the id rules', async () => {
@@ -1146,9 +1355,9 @@ describe('a record resting on a broken assumption, on the page', () => {
   it('is not listed on the page, and neither is the assumption it rests on', async () => {
     breakIt(); restOnIt();
     const { body } = await visit('/project/acme/ledger?ws=product', MANAGER);
-    expect(body).not.toContain('price it');
-    expect(body).not.toContain('the vendor keeps their uptime promise');
-    expect(body).not.toContain('rests on a broken assumption');
+    expect(onPage(body)).not.toContain('price it');
+    expect(onPage(body)).not.toContain('the vendor keeps their uptime promise');
+    expect(onPage(body)).not.toContain('rests on a broken assumption');
   });
 
   it('says nothing on an ordinary project where nothing has broken', async () => {
@@ -1291,11 +1500,11 @@ describe('reading the project page', () => {
     const tasks = await visit('/project/acme/ledger', MANAGER);
     expect(tasks.body).toMatch(/<a href="[^"]*#panel" aria-current="page">Tasks/);
     expect(tasks.body).toContain('Draft the pricing page');
-    expect(tasks.body).not.toContain('adds the pricing tiers');
+    expect(onPage(tasks.body)).not.toContain('adds the pricing tiers');
     const review = await visit('/project/acme/ledger?tab=review', MANAGER);
     expect(review.body).toMatch(/aria-current="page">Waiting on you/);
     expect(review.body).toContain('adds the pricing tiers');
-    expect(review.body).not.toContain('Draft the pricing page');
+    expect(onPage(review.body)).not.toContain('Draft the pricing page');
   });
 
   it('opens the tab that holds what a link points at', async () => {
