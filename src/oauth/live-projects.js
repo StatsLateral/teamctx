@@ -15,7 +15,10 @@ import { kvGet, kvSet, keys } from './kv.js';
  * the project's. A project is hidden only if every token that could ask got a
  * definite "not found"; if any of them could see it, or none could be asked, or
  * GitHub was slow or refused, it stays. A verdict is remembered for ten minutes so
- * the list does not cost a GitHub call per project per visit.
+ * the list does not cost a GitHub call per project per visit. The memory is
+ * per person, never shared: the answer depends on whose token asked (a private
+ * repository says 404 to somebody it will not show it to), so one person's verdict,
+ * or the current name it carries, is never used for another.
  */
 
 const REMEMBER_SECONDS = 600;
@@ -25,10 +28,10 @@ const UNKNOWN = { state: 'unknown' };
 const withTimeout = (promise, ms) => Promise.race([promise, new Promise(resolve => setTimeout(() => resolve(UNKNOWN), ms))]);
 
 /** `{ state, fullName? }` for one project: what GitHub says it is, or unknown. */
-async function verdictFor(slug, { userToken, lentToken, check }) {
+async function verdictFor(slug, { viewer, userToken, lentToken, check }) {
   const [owner, repo] = slug.split('/');
   if (!owner || !repo) return UNKNOWN;
-  const remembered = await kvGet(keys.repoState(owner, repo));
+  const remembered = viewer ? await kvGet(keys.repoState(viewer, owner, repo)) : null;
   if (remembered?.state === 'exists' || remembered?.state === 'gone') return remembered;
   const tokens = [...new Set([userToken, await lentToken(owner, repo)].filter(Boolean))];
   if (!tokens.length) return UNKNOWN;
@@ -37,12 +40,12 @@ async function verdictFor(slug, { userToken, lentToken, check }) {
   const verdict = seen
     ? { state: 'exists', fullName: seen.fullName || null }
     : answers.every(a => a?.state === 'gone') ? { state: 'gone' } : UNKNOWN;
-  if (verdict.state !== 'unknown') await kvSet(keys.repoState(owner, repo), verdict, { ttlSeconds: REMEMBER_SECONDS });
+  if (viewer && verdict.state !== 'unknown') await kvSet(keys.repoState(viewer, owner, repo), verdict, { ttlSeconds: REMEMBER_SECONDS });
   return verdict;
 }
 
-export async function liveProjects(slugs, { userToken = null, lentToken = async () => null, check } = {}) {
-  const verdicts = await Promise.all(slugs.map(slug => verdictFor(slug, { userToken, lentToken, check }).catch(() => UNKNOWN)));
+export async function liveProjects(slugs, { viewer = null, userToken = null, lentToken = async () => null, check } = {}) {
+  const verdicts = await Promise.all(slugs.map(slug => verdictFor(slug, { viewer, userToken, lentToken, check }).catch(() => UNKNOWN)));
   const shown = [];
   slugs.forEach((slug, i) => {
     const v = verdicts[i];

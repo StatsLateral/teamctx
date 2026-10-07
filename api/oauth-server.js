@@ -1179,6 +1179,7 @@ async function renderProjects(req, res, user, { typed = '', error = null, search
   // What teamctx has been told about, less whatever GitHub says no longer exists.
   const projects = user.email
     ? await liveProjects(await projectsKnownFor(user.email), {
+      viewer: user.email,
       userToken: user.token,
       lentToken: async (owner, repo) => (await kvGet(keys.projectGhCred(owner, repo)))?.token || null,
       check: repoExistence,

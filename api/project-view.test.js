@@ -41,7 +41,7 @@ vi.mock('../src/adapters/github.js', async (orig) => ({
 
 const { kvSet, kvGet, keys, __resetMemory } = await import('../src/oauth/kv.js');
 // The remembered verdict on a repository, so a test can let it lapse.
-const __resetKnown = () => kvSet(keys.repoState('acme', 'old-demo'), null);
+const __resetKnown = () => kvSet(keys.repoState('maya@example.com', 'acme', 'old-demo'), null);
 
 let server, base;
 beforeAll(async () => {
