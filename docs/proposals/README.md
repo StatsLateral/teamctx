@@ -44,6 +44,8 @@ These are **contributor-facing write-ups** for the larger items on the
 | [Nobody is brought onto an empty project](member-context-gate.md) | Managers in control | Small (one check, two call sites) |
 
 
+| [The manager's review-and-impact screen](manager-review-screen.md) | Managers in control | Medium (one page, three sections, acting on the queue) |
+
 ## Shipped proposals 🎉
 
 Kept for reference — these were built (see [CHANGELOG](../../CHANGELOG.md)):
