@@ -101,6 +101,27 @@ export function isReturnable(path) {
       if (value !== 'list' && value !== 'columns') return false;
       continue;
     }
+    if (key === 'history') {
+      if (value !== '1') return false;
+      continue;
+    }
+    // Which tab of the project page, and which page of its list.
+    if (key === 'tab') {
+      if (!['context', 'tasks', 'review'].includes(value)) return false;
+      continue;
+    }
+    if (key === 'page' || key === 'ipage') {
+      if (!/^[1-9]\d{0,3}$/.test(value)) return false;
+      continue;
+    }
+    if (key === 'taskWs') {
+      if (!['@project', '@all'].includes(value) && !isViewId(value)) return false;
+      continue;
+    }
+    if (key === 'taskOwner') {
+      if (!value || value.length > 128 || /[\u0000-\u001f\u007f<>]/.test(value)) return false;
+      continue;
+    }
     if (!VIEW_PARAMS.includes(key) || !isViewId(value)) return false;
   }
   return true;

@@ -4,7 +4,7 @@ import { mintKey, emptyCounters } from './record-key.js';
 
 export const OP_TYPES = ['setGoal', 'addRecord', 'editRecord', 'setRecordStatus', 'addTask', 'editTask', 'removeTask'];
 const STATUS_TARGETS = ['replaced', 'broken', 'closed', 'active'];
-const EDITABLE = ['text', 'detail', 'owner', 'reviewBy', 'expiresAt', 'links', 'attachedTo'];
+export const EDITABLE_RECORD_FIELDS = ['text', 'detail', 'owner', 'reviewBy', 'expiresAt', 'links', 'attachedTo'];
 
 const mint = (prefix) => `${prefix}-${randomBytes(4).toString('hex')}`;
 const withSource = (item, c) => ({
@@ -91,7 +91,7 @@ function editRecord(tree, op, c, dropped, onDay, where) {
   if (!isObj(op.changes)) { dropped.push({ op, reason: 'changes must be an object' }); return tree; }
   const bad = shapeProblem({ text: tree.records[i].text, ...op.changes, links: op.changes.links });
   if (bad) { dropped.push({ op, reason: bad }); return tree; }
-  const changes = Object.fromEntries(Object.entries(op.changes).filter(([k]) => EDITABLE.includes(k)));
+  const changes = Object.fromEntries(Object.entries(op.changes).filter(([k]) => EDITABLE_RECORD_FIELDS.includes(k)));
   const next = { ...withSource(tree.records[i], c), ...changes, updatedAt: onDay };
   if (changes.links) next.links = { ...tree.records[i].links, ...changes.links };
   const v = validateRecord(next);
