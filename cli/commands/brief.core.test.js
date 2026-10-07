@@ -15,6 +15,12 @@ vi.mock('../../src/storage.js', () => ({
   readRoleFile: vi.fn(() => '# role file'),
   listTasks: vi.fn(() => []),
   listWorkstreamIds: vi.fn(() => ['delivery', 'docs']),
+  // The brief now also asks what rests on a broken assumption, which needs every
+  // record in the project rather than the reader's own chain — so the whole-tree
+  // read is part of this path. `null` is the project's own tree.
+  readTree: vi.fn((id) => (id
+    ? { id, name: id, records: [{ id: `r-${id}`, type: 'decision', text: `${id} decision`, status: 'active', attachedTo: { kind: 'workstream', id }, links: {} }], tasks: [] }
+    : { name: 'Ledger', goal: { text: 'ship the ledger' }, records: [], tasks: [] })),
 }));
 vi.mock('../../src/actor.js', () => ({
   resolveActor: vi.fn(async () => ({ key: 'git:priya@example.com', name: 'Priya' })),
@@ -22,7 +28,7 @@ vi.mock('../../src/actor.js', () => ({
 vi.mock('../../src/prefs.js', () => ({ resolveDisplayName: vi.fn(async () => 'Priya') }));
 
 const { buildBrief } = await import('./brief.core.js');
-const { readConfig, readProject, readWorkstream, readRoleFile, listTasks } = await import('../../src/storage.js');
+const { readConfig, readProject, readWorkstream, readRoleFile, listTasks, readTree } = await import('../../src/storage.js');
 const { resolveActor } = await import('../../src/actor.js');
 
 const PRIYA = { key: 'git:priya@example.com', name: 'Priya', email: 'priya@example.com' };
@@ -260,5 +266,78 @@ describe('the order tasks come back in', () => {
     ]);
     const r = await buildBrief({ teamctxDir: '/x' });
     expect(r.tasks.open[0].tasks.map(t => t.id)).toEqual(['a', 'b']);
+  });
+});
+
+/**
+ * What rests on an assumption that broke, in the first thing anyone reads.
+ *
+ * A member's assistant is told to open this before doing anything. If a decision
+ * resting on a broken assumption reads here as settled, the assistant acts on it
+ * — which is the whole failure #120 exists to stop, on the cheapest and most
+ * frequent call in the product.
+ */
+describe('a decision resting on something that broke', () => {
+  const broken = {
+    id: 'a1', type: 'assumption', text: 'buyers need SSO before a pilot',
+    status: 'broken', brokenAt: '2026-10-05T09:00:00.000Z',
+    owner: { key: 'git:o@x', name: 'O' }, reviewBy: '2026-12-01',
+    attachedTo: { kind: 'project' }, links: {},
+  };
+  const resting = (over = {}) => ({
+    id: 'd1', type: 'decision', text: 'build SSO first', status: 'active',
+    attachedTo: { kind: 'workstream', id: 'delivery' },
+    links: { restsOn: ['a1'] }, ...over,
+  });
+
+  const withRecords = (projectRecords, wsRecords) => {
+    readProject.mockReturnValue({ name: 'Ledger', goal: { text: 'ship the ledger' }, records: projectRecords, tasks: [] });
+    readWorkstream.mockImplementation((id) => ({ id, name: id, records: id === 'delivery' ? wsRecords : [], tasks: [] }));
+    readTree.mockImplementation((id) => (id
+      ? { id, name: id, records: id === 'delivery' ? wsRecords : [], tasks: [] }
+      : { name: 'Ledger', goal: { text: 'ship the ledger' }, records: projectRecords, tasks: [] }));
+  };
+
+  it('is marked needing review in the brief', async () => {
+    withRecords([broken], [resting()]);
+    const r = await buildBrief({ activeWorkstream: 'delivery', teamctxDir: '/x' });
+    expect(r.context[0].markdown).toContain('We decided: build SSO first');
+    expect(r.context[0].markdown).toContain('rests on a broken assumption');
+  });
+
+  it('is marked even though the assumption sits in a part of the work, not here', async () => {
+    // The reason the flag is worked out from every record in the project rather
+    // than from what this brief renders. The assumption is on the project tree;
+    // a walk over the reader's chain alone would call this decision sound.
+    withRecords([broken], [resting()]);
+    const r = await buildBrief({ scope: ['delivery'], teamctxDir: '/x' });
+    expect(r.context[0].markdown).toContain('rests on a broken assumption');
+  });
+
+  it('does not name the assumption, which the reader may not be allowed to see', async () => {
+    withRecords([broken], [resting()]);
+    const r = await buildBrief({ scope: ['delivery'], teamctxDir: '/x' });
+    expect(r.context[0].markdown).not.toContain('buyers need SSO');
+  });
+
+  it('is not marked once the manager has re-confirmed it', async () => {
+    withRecords([broken], [resting({ reviewedAt: '2026-10-05T10:00:00.000Z' })]);
+    const r = await buildBrief({ activeWorkstream: 'delivery', teamctxDir: '/x' });
+    expect(r.context[0].markdown).toContain('We decided: build SSO first');
+    expect(r.context[0].markdown).not.toContain('rests on a broken assumption');
+  });
+
+  it('is gone from the brief entirely once it is replaced', async () => {
+    // The other way out, which needed nothing built: a replaced record is not
+    // active, so it leaves every brief on its own.
+    withRecords([broken], [resting({ status: 'replaced' })]);
+    const r = await buildBrief({ activeWorkstream: 'delivery', teamctxDir: '/x' });
+    expect(r.context[0].markdown).not.toContain('build SSO first');
+  });
+
+  it('says nothing about a decision resting on an assumption that still holds', async () => {
+    withRecords([{ ...broken, status: 'active' }], [resting()]);
+    const r = await buildBrief({ activeWorkstream: 'delivery', teamctxDir: '/x' });
+    expect(r.context[0].markdown).not.toContain('rests on a broken assumption');
   });
 });

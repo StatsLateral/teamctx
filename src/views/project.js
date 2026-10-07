@@ -68,6 +68,12 @@ tr.marked td:first-child{box-shadow:inset 3px 0 0 var(--accent)}
 .item.tier-why .text{font-weight:600;font-family:var(--font-display)}
 .item.tier-what .text{font-weight:500}
 .item.tier-how .text{color:var(--soft)}
+/* Resting on an assumption that broke. Amber rather than red: it is a second
+   look that is owed, not a thing that is wrong. */
+.item.stale{border-color:var(--amber)}
+.stale .stale,.stale-note{background:var(--amber-soft);color:var(--amber);font-family:var(--font-mono);
+  font-size:10px;text-transform:uppercase;letter-spacing:.06em;padding:1px 6px;border-radius:99px;
+  margin-left:8px;white-space:nowrap;display:inline-block;vertical-align:2px}
 .num{font-family:var(--font-mono);font-size:11px;color:var(--faint);min-width:30px;margin-top:3px}
 .dot{flex-shrink:0;width:10px;height:10px;border-radius:99px;margin-top:6px;background:var(--faint)}
 /* Nothing recorded, so nothing claimed. The space is kept so the text of every
@@ -136,6 +142,11 @@ const SCRIPT = `
   var backdrop = document.getElementById('backdrop');
   function open(el) {
     document.getElementById('d-text').textContent = el.dataset.text;
+    // Shown only when there is something to show, so the drawer does not carry
+    // an empty line about a record that is standing on solid ground.
+    var review = document.getElementById('d-review');
+    review.textContent = el.dataset.review || '';
+    review.style.display = el.dataset.review ? 'block' : 'none';
     document.getElementById('d-kind').textContent = el.dataset.kind;
     document.getElementById('d-summary').textContent = el.dataset.summary || 'No summary recorded.';
     document.getElementById('d-who').textContent = el.dataset.who || 'Nobody recorded.';
@@ -300,13 +311,21 @@ function itemButton({ row, contributions, where, project, marked, isProject, own
     })}` : null,
   });
   const who = whoTouched(node, contributions);
-  return `<button class="item tier-${esc(tier)}${marked ? ' marked' : ''}" id="i-${esc(node.id)}"
+  // A record resting on an assumption that broke. Said on the row rather than
+  // only in the drawer: somebody scanning the page to decide what to act on
+  // should not have to open each one to find out which no longer stands. The
+  // flag never names the assumption — it may be in a part of the work this
+  // reader is not on, which is why only the mark crossed that line.
+  const stale = node.needsReview
+    ? `<span class="stale" title="${esc(node.needsReview)}">needs review</span>` : '';
+  return `<button class="item tier-${esc(tier)}${marked ? ' marked' : ''}${node.needsReview ? ' stale' : ''}" id="i-${esc(node.id)}"
   data-text="${esc(node.text)}" data-kind="${esc(`${tier === 'task' ? 'Task' : (LABELS[tier] || '').replace(/:$/, '')} ${node.key || n}`)}"
   data-summary="${esc(node.detail || node.summary || '')}" data-who="${esc(who.join(', '))}"
+  data-review="${esc(node.needsReview || '')}"
   data-prompt="${escAttr(prompt)}">
   <span class="dot ${kindOf(node, contributions)}"></span>
   <span class="num">${esc(node.key || n)}</span>
-  <span class="text">${esc(node.text)}</span>
+  <span class="text">${esc(node.text)}${stale}</span>
 </button>`;
 }
 
@@ -452,6 +471,7 @@ ${note ? `<p class="note">${esc(note)}</p>` : ''}
   </div>
   <div class="drawer-body">
     <p class="statement" id="d-text"></p>
+    <p class="stale-note" id="d-review" style="display:none"></p>
     <div class="section-title">Summary</div>
     <p id="d-summary"></p>
     <div class="section-title">Who wrote it</div>
