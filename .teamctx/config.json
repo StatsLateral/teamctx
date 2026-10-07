@@ -26,6 +26,13 @@
       "parent": null,
       "order": 1,
       "createdAt": "2026-10-07T14:49:13.678Z"
+    },
+    {
+      "id": "content-strategy-healthcare-pov",
+      "name": "Content Strategy — Healthcare POV",
+      "parent": null,
+      "order": 2,
+      "createdAt": "2026-10-07T14:49:19.135Z"
     }
   ],
   "activeWorkstream": null,
