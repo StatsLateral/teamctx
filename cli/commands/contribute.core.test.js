@@ -8,7 +8,7 @@ vi.mock('../../src/storage.js', () => ({
   writeTreeMd: vi.fn(),
   readProject: vi.fn(() => ({ name: '', goal: { text: 'An existing goal' }, records: [], tasks: [] })),
   writeConfig: vi.fn(),
-  withRecordKeys: vi.fn((dir, write) => write(readConfig(dir))),
+  withCounters: vi.fn((dir, write) => write(readConfig(dir))),
   readConfig: vi.fn(),
   readWorkstream: vi.fn(() => ({ id: 'main', name: 'M', records: [], tasks: [] })),
   writeTree: vi.fn(),

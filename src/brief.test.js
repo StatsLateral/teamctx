@@ -7,15 +7,19 @@ const rule = makeRecord({ id: 'rec-rule', type: 'rule', text: 'No nuts anywhere'
 const exc = makeRecord({ type: 'exception', text: 'Chocolate frosting on the adults cake', expiresAt: '2026-10-31', links: { bends: 'rec-rule' } });
 
 describe('renderBrief', () => {
-  it('shows stored keys in the shared context without changing their labels', () => {
+  it('numbers tasks, never records, and leaves the labels as they are', () => {
     const md = renderBrief({ projectName: 'P', onDay: ON, project: makeProject({
       records: [{ ...rule, key: 'R-7' }, { ...exc, key: 'X-2' }],
-      tasks: [makeTask({ key: 'T-14', title: 'Bake' })],
-    }), chain: [makeWorkstream('food', { tasks: [makeTask({ key: 'T-22', title: 'Shop' })] })] });
-    expect(md).toContain('R-7 Rule: No nuts');
-    expect(md).toContain('X-2 Allowed: Chocolate');
-    expect(md).toContain('T-14 Task: Bake');
-    expect(md).toContain('T-22 Shop');
+    }), chain: [makeWorkstream('food', { number: '3', tasks: [makeTask({ key: '3.2', title: 'Shop' })] })] });
+    expect(md).toContain('- Rule: No nuts');
+    expect(md).toContain('  - Allowed: Chocolate');
+    expect(md).toContain('- 3.2 Shop');
+    expect(md).toContain('## 3 food');
+    expect(md).not.toMatch(/\b[RX]-\d/);
+  });
+  it('lists no task of the project itself: a task lives in a workstream', () => {
+    const md = renderBrief({ projectName: 'P', onDay: ON, project: makeProject({ tasks: [makeTask({ key: '9.9', title: 'Loose' })] }), chain: [] });
+    expect(md).not.toContain('Loose');
   });
   it('prints the goal and plain labels, never type names', () => {
     const md = renderBrief({ projectName: 'Party', project: makeProject({ goal: { text: 'A relaxed party', why: 'Family first' }, records: [makeRecord({ type: 'decision', text: 'Banana cake', detail: 'low sugar' })] }), chain: [], onDay: ON });
@@ -54,12 +58,12 @@ describe('renderBrief', () => {
 
   it('walks the chain from the project down, labelling inherited parts', () => {
     const parent = makeWorkstream('food', { name: 'Food', number: '1', records: [makeRecord({ type: 'decision', text: 'Banana cake' })] });
-    const child = makeWorkstream('cake', { name: 'Cake', number: '1.1', tasks: [makeTask({ title: 'Bake it', owner: 'Mum' })] });
+    const child = makeWorkstream('cake', { name: 'Cake', number: '2', tasks: [makeTask({ key: '2.1', title: 'Bake it', owner: 'Mum' })] });
     const md = renderBrief({ projectName: 'P', project: makeProject({ goal: { text: 'G' } }), chain: [parent, child], onDay: ON });
     expect(md.indexOf('G')).toBeLessThan(md.indexOf('1 Food'));
-    expect(md.indexOf('1 Food')).toBeLessThan(md.indexOf('1.1 Cake'));
+    expect(md.indexOf('1 Food')).toBeLessThan(md.indexOf('2 Cake'));
     expect(md).toContain('We decided: Banana cake');
-    expect(md).toContain('1.1.1 Bake it — Mum');
+    expect(md).toContain('2.1 Bake it — Mum');
   });
 
   it('prints a record attached to a task once, under its task', () => {

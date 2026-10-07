@@ -45,9 +45,11 @@ could call, or ask them to choose between tools by name.
 the team aligned on.
 
   1. \`init\` — only if \`get_status\` shows no project yet.
-  2. \`workstream_add\` — if the work splits into parts. One is fine; most
-     projects never need a second. \`propose_structure\` drafts a split from
-     what they have told you, for them to accept part by part.
+  2. \`workstream_add\` — every task lives in a part of the work, never on the
+     project itself, so a project needs at least one before it can have tasks.
+     One is fine; most projects never need a second. \`propose_structure\`
+     drafts a split from what they have told you, for them to accept part by
+     part.
   3. \`contribute\` — put what they have told you into the shared context. This
      is how context gets there; there is no separate import step. If
      \`get_status\` shows \`hasContext: false\`, this is the project's founding
@@ -57,7 +59,9 @@ the team aligned on.
      gave you, the call is the same: summarize what you were told, do not ask
      them to restate it in teamctx's terms.
   4. \`task_add\` (with \`compile: true\`) — turn intent into work someone can
-     pick up. The compiled prompt is the thing a person actually acts on.
+     pick up, in one part of the work (the only one, if there is only one).
+     The compiled prompt is the thing a person actually acts on. A task has a
+     number such as 3.2; say that number when you talk about it.
   5. \`member_add\` — bring someone in. \`get_connect_url\` gives you the link
      to send them. This is refused while there is nothing for that person to
      read: the project needs context, and so does any part of the work you put

@@ -144,19 +144,19 @@ export function descendantsOf(config, id) {
   return out;
 }
 
+/**
+ * Each workstream's number, as stored when it was added (see src/numbering.js).
+ * Flat across the project and never derived from position, so a number said in
+ * a meeting still means the same part next week. Nesting is for the reader's
+ * eyes only: `depthOf` says how far to indent.
+ */
 export function numberWorkstreams(config) {
   const out = new Map();
-  const walk = (nodes, prefix) => nodes.forEach((n, i) => {
-    const num = prefix ? `${prefix}.${i + 1}` : `${i + 1}`;
-    out.set(n.id, num);
-    walk(n.children, num);
-  });
-  walk(workstreamTree(config), '');
+  for (const w of entries(config)) if (Number.isSafeInteger(w.number) && w.number > 0) out.set(w.id, String(w.number));
   return out;
 }
 
-export function numberTasks(tasks, prefix) {
-  const out = new Map();
-  (tasks || []).forEach((t, i) => out.set(t.id, prefix ? `${prefix}.${i + 1}` : `${i + 1}`));
-  return out;
+/** How many parts sit above this one, for indenting a list. */
+export function depthOf(config, id) {
+  return ancestorsOf(config, id).length;
 }

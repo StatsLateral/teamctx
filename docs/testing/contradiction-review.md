@@ -37,18 +37,19 @@ The proposed decision has no allocated key, and `--apply` does not bypass this.
 
 If the AI already proposes `links.replaces`, ordinary manager approval is the
 explicit resolution. Otherwise plain approval refuses and leaves the item
-queued. Select the old decision's key/ID explicitly:
+queued. Select the old decision's internal id explicitly (records have no
+number; the flagged id is printed with the conflict):
 
 ```powershell
-node $cli review approve '<QUEUE-ID>' --replaces D-1
+node $cli review approve '<QUEUE-ID>' --replaces '<OLD-RECORD-ID>'
 node $cli brief
 Get-Content -Raw .teamctx\project.json
 ```
 
-Expect `D-1` to remain in history as replaced, with the new decision active and
+Expect the old decision to remain in history as replaced, with the new decision active and
 carrying `links.replaces` to its internal ID. For a second conflicting proposal,
 use `review reject '<QUEUE-ID>' --reason 'Keep the current offer'`: no new record
-or key should be created.
+should be created.
 
 Check an unrelated change:
 
@@ -76,7 +77,7 @@ refuse: replace or retire the parent rule in Launch before approving the child.
 
 - MCP: `list_pending_reviews` returns `contradictions`; contribution results
   report why direct apply was refused. Resolve through
-  `review_approve({id: '<QUEUE-ID>', replaces: ['D-1']})`.
+  `review_approve({id: '<QUEUE-ID>', replaces: ['<OLD-RECORD-ID>']})`.
 - Web: the manager's queue shows the warning and both statements on shared rows.
   Pending contributions remain absent from member pages. A web test requires a
   test deployment running this branch; production cannot exercise unpushed code.

@@ -8,9 +8,9 @@
  *
  * Two rules the format is built on, both learned the hard way:
  *
- * The parameters are stable ids, never the `1.2` numbering the page displays —
- * that numbering shifts the moment anybody adds a Why above it, and a link that
- * rots quietly is worse than no link.
+ * The parameters are stable ids. A task number (`3.2`) is stable too and the page
+ * accepts it on a link, but a link the tools write carries the id, which can
+ * never be renumbered.
  *
  * And they are a query string, not a `#fragment`. A fragment never reaches the
  * server, so it would be dropped the moment a signed-out click went through

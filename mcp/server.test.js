@@ -10,7 +10,7 @@ vi.mock('../src/storage.js', () => ({
   getTeamctxDir: vi.fn((root) => `${root}/.teamctx`),
   readConfig: vi.fn(),
   writeConfig: vi.fn(),
-  withRecordKeys: vi.fn((dir, write) => write(readConfig(dir))),
+  withCounters: vi.fn((dir, write) => write(readConfig(dir))),
   readWorkstream: vi.fn(),
   listWorkstreamIds: vi.fn(() => []),
   readRoleFile: vi.fn(),
@@ -84,7 +84,7 @@ const ROOT = '/proj';
 const TDIR = '/proj/.teamctx';
 
 describe('contradiction reporting and manager replacement', () => {
-  const conflict = { operationIndex: 0, proposedText: 'The entry offer is an assessment', record: { id: 'old', key: 'D-1', type: 'decision', text: 'The entry offer is a pricing audit', workstream: null } };
+  const conflict = { operationIndex: 0, proposedText: 'The entry offer is an assessment', record: { id: 'old', type: 'decision', text: 'The entry offer is a pricing audit', workstream: null } };
   const ops = [{ type: 'addRecord', record: { type: 'decision', text: conflict.proposedText } }];
   const tree = { name: 'Demo', records: [makeRecord({ id: 'old', key: 'D-1', text: conflict.record.text })], tasks: [] };
   function seed() {
@@ -115,7 +115,7 @@ describe('contradiction reporting and manager replacement', () => {
     const listed = JSON.parse((await handlers.list_pending_reviews()).content[0].text);
     expect(listed.pending[0].contradictions).toEqual([conflict]);
     await expect(handlers.review_approve({ id: queued.id })).rejects.toThrow(/Contradicts/);
-    const result = JSON.parse((await handlers.review_approve({ id: queued.id, replaces: ['D-1'] })).content[0].text);
+    const result = JSON.parse((await handlers.review_approve({ id: queued.id, replaces: ['old'] })).content[0].text);
     expect(result.operations[0].record.links.replaces).toBe('old');
     expect(writeTree.mock.calls[0][1].records[0].status).toBe('replaced');
     expect(TOOLS.find(t => t.name === 'review_approve').inputSchema.properties.replaces.items.type).toBe('string');
@@ -254,7 +254,7 @@ describe('get_context', () => {
 
 describe('list_workstreams', () => {
   it('returns each workstream with id, name, number, isActive, counts and roles', async () => {
-    readConfig.mockReturnValue({ ...baseConfig, workstreams: [{ id: 'main', name: 'Main' }, { id: 'tech', name: 'Tech' }], activeWorkstream: 'main', roles: [{ slug: 'eng', workstream: 'tech' }] });
+    readConfig.mockReturnValue({ ...baseConfig, workstreams: [{ id: 'main', number: 1, name: 'Main' }, { id: 'tech', number: 2, name: 'Tech' }], activeWorkstream: 'main', roles: [{ slug: 'eng', workstream: 'tech' }] });
     listWorkstreamIds.mockReturnValue(['main', 'tech']);
     readWorkstream.mockImplementation((id) => ({ id, name: id, records: [] }));
     const handlers = makeHandlers(ROOT);

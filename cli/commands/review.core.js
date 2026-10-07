@@ -1,5 +1,5 @@
 import {
-  readProject, readConfig, writeConfig, withRecordKeys, readTree, writeTree, writeTreeMd, writeRoleFile,
+  readProject, readConfig, writeConfig, withCounters, readTree, writeTree, writeTreeMd, writeRoleFile,
   readQueueItem, deleteQueueItem, writeRejected, readContributions, listQueue,
 } from '../../src/storage.js';
 import { applyQueueItem, buildRejected, canApprove, isLegacyManagerRef } from '../../src/review.js';
@@ -11,6 +11,7 @@ import { resolveDisplayName } from '../../src/prefs.js';
 import { sourceTrailer } from './contribute.core.js';
 import { resolveTarget, isProjectLevel } from '../../src/project-level.js';
 import { recompileInheritors, chainFor } from '../../src/recompile.js';
+import { workstreamNumber, isTaskKey } from '../../src/numbering.js';
 import { resolveContradictions, ContradictionResolutionError } from '../../src/contradictions.js';
 
 function workstreamDisplayName(id, workstream, config) {
@@ -73,6 +74,18 @@ export function assertManager(config, { actor, displayName } = {}) {
   }
 }
 
+/**
+ * The queue id an item is known by, given either its id or its number.
+ *
+ * A waiting item has a number from the moment it is queued ("approve 1.6"), so a
+ * manager can use what they read on the page. A number naming nothing is
+ * returned untouched and fails the way an unknown id does.
+ */
+export function resolveQueueId(idOrNumber, teamctxDir) {
+  if (!isTaskKey(idOrNumber)) return idOrNumber;
+  return listQueue(teamctxDir).find(q => q.number === idOrNumber)?.id ?? idOrNumber;
+}
+
 export async function listPendingReviews({ teamctxDir } = {}) {
   return listQueue(teamctxDir);
 }
@@ -108,7 +121,7 @@ export async function approveReview({ id, replaces, teamctxDir, projectDir, acto
   const who = actor || displayName;
 
   let item;
-  try { item = readQueueItem(id, teamctxDir); }
+  try { item = readQueueItem(resolveQueueId(id, teamctxDir), teamctxDir); }
   catch { throw new QueueItemNotFoundError(id); }
 
   // `null` is the project itself. Defaulting to `main` here would have sent an
@@ -118,14 +131,14 @@ export async function approveReview({ id, replaces, teamctxDir, projectDir, acto
   // backfill existing records, let alone apply or delete the queued proposal.
   const resolvedItem = resolveContradictions(item, { replaces, config, teamctxDir });
   if (item.contradictions?.length) {
-    const preview = applyQueueItem(readTree(targetId, teamctxDir), resolvedItem, { nextKey: config.nextKey });
+    const preview = applyQueueItem(readTree(targetId, teamctxDir), resolvedItem, { nextKey: config.nextKey, workstreamNumber: workstreamNumber(config, targetId) });
     assertConflictApplied(resolvedItem, preview.dropped);
   }
   // Who approved a record travels with it, not only with the commit.
   const approvedBy = { key: caller?.key || null, name: who, at: new Date().toISOString() };
-  const updated = withRecordKeys(teamctxDir, current => {
+  const updated = withCounters(teamctxDir, current => {
     item = resolveContradictions(item, { replaces, config: current, teamctxDir });
-    const { tree: applied, nextKey, dropped } = applyQueueItem(readTree(targetId, teamctxDir), item, { nextKey: current.nextKey });
+    const { tree: applied, nextKey, dropped } = applyQueueItem(readTree(targetId, teamctxDir), item, { nextKey: current.nextKey, workstreamNumber: workstreamNumber(current, targetId) });
     assertConflictApplied(item, dropped);
     const tree = {
       ...applied,
@@ -200,7 +213,7 @@ export async function rejectReview({ id, reason, teamctxDir, projectDir, actor }
   const rejectedBy = actor || displayName;
 
   let item;
-  try { item = readQueueItem(id, teamctxDir); }
+  try { item = readQueueItem(resolveQueueId(id, teamctxDir), teamctxDir); }
   catch { throw new QueueItemNotFoundError(id); }
 
   writeRejected(buildRejected(item, rejectedBy, reason), teamctxDir);

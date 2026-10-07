@@ -25,7 +25,7 @@ vi.mock('../../src/storage.js', () => ({
   readTreeMd: vi.fn(() => ''),
   writeTreeMd: vi.fn(),
   writeConfig: vi.fn(),
-  withRecordKeys: vi.fn((dir, write) => write({ nextKey: {} })),
+  withCounters: vi.fn((dir, write) => write({ nextKey: {} })),
   readConfig: vi.fn(() => ({ project: 'Ledger', me: 'Maya', autoPush: false, roles: [], reviewPolicy: 'none' })),
   appendContribution: vi.fn(),
   writeRoleFile: vi.fn(),
@@ -75,7 +75,10 @@ describe('the first contribution to a project', () => {
     expect(r.founding).toBe(true);
     expect(r.digest.goal).toBe('Ship the ledger by March');
     expect(r.digest.settled).toEqual(['Stay audit-ready', 'Reconcile daily']);
-    expect(r.digest.counts).toMatchObject({ decision: 2, tasks: 1 });
+    // The proposal included a task, but a task belongs to a workstream and this
+    // contribution is to the project itself, so it is dropped and said so.
+    expect(r.digest.counts).toMatchObject({ decision: 2, tasks: 0 });
+    expect(r.dropped.map(d => d.reason).join(' ')).toMatch(/belongs to a workstream/);
   });
 
   it('is still the ordinary applied result underneath', async () => {

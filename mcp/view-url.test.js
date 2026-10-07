@@ -57,7 +57,7 @@ const CONFIG = (over = {}) => ({
   deployUrl: 'https://team.example.app',
   autoPush: false,
   reviewPolicy: 'all',
-  workstreams: [{ id: 'product', name: 'Product' }],
+  workstreams: [{ id: 'product', number: 1, name: 'Product' }],
   roles: [],
   members: [{ key: 'git:priya@example.com', name: 'Priya', email: 'priya@example.com', workstreams: ['product'] }],
   ...over,
