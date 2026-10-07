@@ -188,7 +188,7 @@ export async function readProjectView({ owner, repo, user }) {
         createdAt: q.createdAt || null,
         source: q.source || null,
         operations: q.operations || [],
-        contradictions: q.contradictions || [],
+        contradictions: Array.isArray(q.contradictions) ? q.contradictions : [],
         impact: impactOf(q.operations),
         workstream: resolveTarget(q.workstream),
         where: workstreamLocation(workstreams, resolveTarget(q.workstream), config.project),
