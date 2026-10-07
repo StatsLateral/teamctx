@@ -319,3 +319,52 @@ describe('compileTaskPrompt', () => {
     expect(block.split('\n').slice(0, 6).join('\n')).not.toContain('Not a decision');
   });
 });
+
+/**
+ * A compiled task prompt carries the flag too.
+ *
+ * This path is the most expensive place for it to be missing. A prompt is
+ * compiled once and read for weeks, by the one person actually doing the work —
+ * so a decision in it resting on an assumption that has since broken is acted
+ * on rather than questioned. It was also the one wiring the first mutation sweep
+ * found untested, which is why this exists.
+ */
+describe('compileTaskPrompt and a broken assumption', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  const compile = async (flagged) => {
+    callClaude.mockResolvedValue('# Task\n');
+    const workstream = {
+      id: 'growth',
+      name: 'Growth',
+      tasks: [],
+      records: [rec({ id: 'w1', type: 'decision', text: 'build SSO first', attachedTo: { kind: 'workstream', id: 'growth' } })],
+    };
+    await compileTaskPrompt({
+      task: { id: 't1', title: 'Ship SSO', owner: 'priya', status: 'open', workstream: 'growth' },
+      workstream, role: null, contributions: [],
+      config: { model: 'm', project: 'Acme' },
+      flagged,
+    });
+    return callClaude.mock.calls.at(-1)[0].prompt;
+  };
+
+  it('tells the prompt that a decision in it needs a second look', async () => {
+    expect(await compile(new Set(['w1']))).toContain('rests on a broken assumption');
+  });
+
+  it('says it in both halves of the prompt, since both list the decision', async () => {
+    // The full context for the part of the work, and the decisions-and-rules
+    // list under it. A flag on one and not the other reads as a contradiction.
+    const prompt = await compile(new Set(['w1']));
+    expect(prompt.match(/rests on a broken assumption/g).length).toBeGreaterThan(1);
+  });
+
+  it('says nothing when nothing in it is flagged', async () => {
+    expect(await compile(new Set())).not.toContain('rests on a broken assumption');
+  });
+
+  it('says nothing when the caller passes no flags at all', async () => {
+    expect(await compile(undefined)).not.toContain('rests on a broken assumption');
+  });
+});

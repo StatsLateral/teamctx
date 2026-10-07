@@ -53,7 +53,7 @@ import {
 } from './task.js';
 import {
   readConfig, listTasks, readTask, writeTask, deleteTask,
-  writeTaskFile, taskFileExists, readWorkstream, readTree,
+  writeTaskFile, taskFileExists, readWorkstream, readTree, listWorkstreamIds,
 } from '../../src/storage.js';
 import { compileTaskPrompt } from '../../src/context.js';
 import { readProject } from '../../src/storage.js';
@@ -269,6 +269,37 @@ describe('taskCompileCommand', () => {
   };
   const wsA = { id: 'main', name: 'M', records: [{ id: 'w1', type: 'decision', text: 'a', status: 'active' }], tasks: [] };
   const wsB = { id: 'main', name: 'M', records: [{ id: 'w1', type: 'decision', text: 'b', status: 'active' }], tasks: [] };
+
+  it('hands the prompt what rests on a broken assumption', async () => {
+    // The call site, not the renderer. `compileTaskPrompt` renders the flag and
+    // is tested for it in src/context.test.js — but a prompt is only ever
+    // compiled through here, so a call site that stopped passing the flags would
+    // leave that renderer correct and every real prompt silently unflagged.
+    readTask.mockReturnValue({ task: { ...openTask, workstream: 'delivery' }, workstream: 'delivery' });
+    readTree.mockImplementation((id) => (id === null
+      ? {
+        name: 'Ledger',
+        records: [{
+          id: 'a1', type: 'assumption', text: 'the vendor holds', status: 'broken',
+          brokenAt: '2026-10-05T09:00:00.000Z', owner: { key: 'k', name: 'O' },
+          reviewBy: '2026-12-01', attachedTo: { kind: 'project' }, links: {},
+        }],
+        tasks: [],
+      }
+      : {
+        id: 'delivery',
+        name: 'Delivery',
+        records: [{
+          id: 'w1', type: 'decision', text: 'build it', status: 'active',
+          attachedTo: { kind: 'workstream', id: 'delivery' }, links: { restsOn: ['a1'] },
+        }],
+        tasks: [],
+      }));
+    listWorkstreamIds.mockReturnValue(['delivery']);
+
+    await taskCompileCommand('t-plan', {});
+    expect([...compileTaskPrompt.mock.calls[0][0].flagged]).toEqual(['w1']);
+  });
 
   it('gives a project-level task no inherited half, since it is the project', async () => {
     // Passing the project as both the tree and the thing above it printed every

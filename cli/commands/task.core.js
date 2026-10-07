@@ -1,4 +1,5 @@
 import { chainFor } from '../../src/recompile.js';
+import { flaggedInProject } from '../../src/project-records.js';
 import { isActive } from '../../src/model.js';
 import { createHash } from 'crypto';
 import {
@@ -307,6 +308,7 @@ export async function compileTask({
     task, workstream, role, contributions, config,
     project: isProjectLevel(wsId) ? null : readProject(teamctxDir),
     chain: isProjectLevel(wsId) ? null : chainFor({ config, id: wsId, teamctxDir }),
+    flagged: flaggedInProject(teamctxDir),
   });
   writeTaskFile(task.id, markdown, teamctxDir);
 
