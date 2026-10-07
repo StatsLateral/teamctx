@@ -129,6 +129,43 @@ export async function listPushableRepos(token, { limit = 100 } = {}) {
   }
 }
 
+/**
+ * Does this repository still exist, as far as this token can tell, and what is it
+ * called now?
+ *
+ *   { state: 'exists', fullName }  GitHub returned it. A rename or a transfer is
+ *                                  followed to its new home, so `fullName` is
+ *                                  its current `owner/repo`, which may not be
+ *                                  the name asked for.
+ *   { state: 'gone' }              GitHub said 404: deleted, or never visible to
+ *                                  this token (a private repository answers 404 to
+ *                                  somebody it will not show it to).
+ *   { state: 'unknown' }           anything else: a rate limit, a revoked token, an
+ *                                  outage, no network.
+ *
+ * Only a definite 404 is 'gone'. A failure to ask is never taken as an answer, so
+ * a project is never hidden because GitHub was slow.
+ */
+export async function repoExistence(token, owner, repo, { fetchImpl = fetch } = {}) {
+  try {
+    const res = await fetchImpl(`${API}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: 'application/vnd.github+json',
+        'X-GitHub-Api-Version': '2022-11-28',
+      },
+    });
+    if (res.status === 200) {
+      const body = await res.json().catch(() => null);
+      return { state: 'exists', fullName: typeof body?.full_name === 'string' ? body.full_name : null };
+    }
+    if (res.status === 404) return { state: 'gone' };
+    return { state: 'unknown' };
+  } catch {
+    return { state: 'unknown' };
+  }
+}
+
 export async function createRepo(token, { name, org, description = '' }) {
   const url = org ? `${API}/orgs/${org}/repos` : `${API}/user/repos`;
   const res = await fetch(url, {

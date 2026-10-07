@@ -51,6 +51,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   in" (the approved context, the path down to that part in order, and an index of
   what was not loaded, with a count of parts the reader cannot see). A task's
   drawer says the assistant reads the approved context and links to it.
+- **The projects list hides a repository that was deleted on GitHub, and shows a
+  renamed or moved one under its current name.** Each project on the list is
+  asked after with the person's own GitHub token (and the project's lent one,
+  where there is one). Only a definite "not found" hides it, so a rate limit, a
+  revoked token or a slow answer never does; a project that cannot be asked about
+  stays. Nothing is removed from what teamctx remembers, so an entry returns with
+  its repository. Answers are remembered for ten minutes.
 - **The project page no longer lists decisions, rules, assumptions or
   exceptions.** It shows the work (tasks, by workstream) and, for the manager,
   what is waiting. Context is read through the assistant. Impact flags,

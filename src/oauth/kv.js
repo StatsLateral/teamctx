@@ -211,6 +211,8 @@ export const keys = {
    * own. Keyed by the repository it serves and looked up by the owner/repo in
    * the request URL, so it can only ever act on the project it was stored for.
    */
+  /** Whether a repository still exists, as last asked of GitHub. Short-lived. */
+  repoState: (owner, repo) => `teamctx:repo-state:${slug(owner, repo)}`,
   projectGhCred: (owner, repo) => `teamctx:ghcred:project:${slug(owner, repo)}`,
   /** Which projects one user lends GitHub access to, for the settings page. */
   lentProjects: githubUserId => `teamctx:ghcred:lent-by:${githubUserId}`,

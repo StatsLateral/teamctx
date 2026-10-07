@@ -3,6 +3,7 @@ import { randomBytes } from 'crypto';
 import { mcpAuthRouter } from '@modelcontextprotocol/sdk/server/auth/router.js';
 import { providerFromEnv, oauthConfigStatus, GITHUB_SCOPES, OAuthCallbackError } from '../src/oauth/provider.js';
 import { kvGet, kvSet, kvTake, kvDelete, keys, TTL, isPersistent } from '../src/oauth/kv.js';
+import { liveProjects } from '../src/oauth/live-projects.js';
 import { googleAuthorizeUrl, googleUserFromCode } from '../src/oauth/google.js';
 import { projectKeyDecision } from '../src/oauth/project-key-decision.js';
 import { managersOf } from '../src/managers.js';
@@ -14,7 +15,7 @@ import {
 } from '../src/oauth/ai-keys.js';
 import { primaryEmail } from '../src/oauth/github-identity.js';
 import { lendDecision } from '../src/oauth/lend-decision.js';
-import { GithubSession, listUserOrgs, createRepo, slugifyProjectName, suggestAvailableName, listPushableRepos } from '../src/adapters/github.js';
+import { GithubSession, listUserOrgs, createRepo, slugifyProjectName, suggestAvailableName, listPushableRepos, repoExistence } from '../src/adapters/github.js';
 import { runWithSession } from '../src/session-context.js';
 import { initProject } from '../cli/commands/init.core.js';
 import { readProjectView, ProjectViewError } from '../src/oauth/project-view.js';
@@ -1175,7 +1176,14 @@ app.get('/projects', async (req, res) => {
  */
 async function renderProjects(req, res, user, { typed = '', error = null, search = false } = {}) {
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
-  const projects = user.email ? await projectsKnownFor(user.email) : [];
+  // What teamctx has been told about, less whatever GitHub says no longer exists.
+  const projects = user.email
+    ? await liveProjects(await projectsKnownFor(user.email), {
+      userToken: user.token,
+      lentToken: async (owner, repo) => (await kvGet(keys.projectGhCred(owner, repo)))?.token || null,
+      check: repoExistence,
+    })
+    : [];
   // Repositories this person can reach, as suggestions. A Google sign-in has no
   // repository list at all, which is exactly why the box takes a pasted link.
   let repos = [];
