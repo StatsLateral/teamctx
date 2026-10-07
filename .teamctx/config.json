@@ -33,6 +33,13 @@
       "parent": null,
       "order": 2,
       "createdAt": "2026-10-07T14:49:19.135Z"
+    },
+    {
+      "id": "sales-execution",
+      "name": "Sales Execution",
+      "parent": null,
+      "order": 3,
+      "createdAt": "2026-10-07T14:49:24.634Z"
     }
   ],
   "activeWorkstream": null,
