@@ -16,6 +16,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and puts each exception under its rule. Decisions, rules and exceptions always
   need the manager, even under `additive`. There is no migration: run
   `teamctx init` again; an old-format project says so instead of reading as empty.
+- **Workstreams and tasks are numbered; records are not.** Workstreams are
+  `1, 2, 3` across the project and tasks are `workstream.task` (`3.2`), each
+  minted once and never reused or renumbered. Nesting is shown by indenting, not
+  in the number. Decisions, rules, assumptions and exceptions have an internal id
+  and no number, so the `T-`, `D-`, `R-`, `A-`, `X-` keys are gone from the page,
+  briefs, prompts and command output. A task always belongs to a workstream: a
+  project with none adds one first, and `task add` and the `task_add` tool say so
+  instead of putting a task on the project. A waiting item is numbered from the
+  moment it is submitted (the task's own number if it is about one task,
+  otherwise the next number in its workstream), the task it becomes keeps that
+  number, and `review approve 1.6` works by number. There is no migration: a
+  project in the old format is started again with `teamctx init`.
+- **The project page no longer lists decisions, rules, assumptions or
+  exceptions.** It shows the work (tasks, by workstream) and, for the manager,
+  what is waiting. Context is read through the assistant. Impact flags,
+  contradiction warnings and evidence still show on the waiting queue.
 - Removed `teamctx reflect` / `reflect`, `teamctx workstream split` /
   `workstream_split` and `teamctx workstream suggest` / `suggest_workstream_splits`.
 
@@ -72,13 +88,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The manager's review queue is a third tab, "Waiting on you", paged by
   proposal. Status, governance notes and source have their own columns, and
   the source says how a record arrived in a word rather than a coloured dot.
-- Stable project-wide task and record keys: `T-14`, `D-3`, `R-2`, `A-2`, `X-1`.
-  Existing records and tasks are backfilled in creation order on the first
-  context write. Keys survive edits and are never reused after deletion;
-  queued proposals receive keys only when approved. Keys appear in briefs,
-  prompts, project pages and contribution/task results, and work in page links,
-  task commands and record lookup. Overlapping writes allocate against current
-  counters; conflicting hosted allocations ask for a retry.
 - `list_records` and `get_record` (scoped like everything else), and
   `teamctx workstream add <name> [--under <id>]` / `workstream_add`.
 - `propose_structure` returns a draft in the new model: goal and why it matters,

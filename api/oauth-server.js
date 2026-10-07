@@ -20,7 +20,7 @@ import { initProject } from '../cli/commands/init.core.js';
 import { readProjectView, ProjectViewError } from '../src/oauth/project-view.js';
 import { TOOLS, callTool } from '../mcp/server.js';
 import { baseUrlFrom } from '../src/base-url.js';
-import { resolveKey } from '../src/record-key.js';
+import { resolveKey } from '../src/numbering.js';
 import { isReturnable, parseViewParams } from '../src/view-url.js';
 import { parseProjectRef } from '../src/project-ref.js';
 // Page templates. They used to sit at the bottom of this file, which left it
@@ -1286,42 +1286,34 @@ app.get('/project/:owner/:repo', async (req, res) => {
     const asked = parseViewParams(req.query);
     const known = view.workstreams.some(w => w.id === asked.ws);
     let selected = known ? asked.ws : null;
-    // A key resolves to the same thing its id does. Links carry the internal id,
-    // which never changes — but the key is what a person has in front of them, on
-    // the page or in a prompt, so `?task=T-14` has to reach the row that
+    // A task number resolves to the same thing its id does. Links carry the internal id,
+    // which never changes — but the number is what a person has in front of them, on
+    // the page or in a prompt, so `?task=3.2` has to reach the row that
     // `?task=task-1a2b…` reaches. Resolved against what this reader was actually
     // sent, so a key in a part of the work they are not on resolves to nothing,
     // the same as an unknown id.
-    const reachable = {
-      records: [
-        ...(view.projectTree?.goal?.text ? [{ ...view.projectTree.goal, id: 'goal', key: null }] : []),
-        ...(view.projectTree?.records || []), ...Object.values(view.trees || {}).flatMap(t => t.records || []),
-      ],
-      tasks: [...(view.tasks?.open || []), ...(view.tasks?.done || [])],
-    };
-    const wanted = resolveKey(asked.item || asked.task || asked.review || null, reachable);
+    const reachable = { tasks: [...(view.tasks?.open || []), ...(view.tasks?.done || [])] };
+    const named = asked.item || asked.task || asked.review || null;
+    // A waiting item has a number too (`1.6`), so a link or a sentence that says
+    // "1.6" reaches it. A task of that number wins: an item about an existing task
+    // carries that task's number, and the task is the thing it is about.
+    const resolved = resolveKey(named, reachable);
+    const wanted = named && resolved === named ? ((view.pending || []).find(q => q.number === named)?.id ?? named) : resolved;
     // Dropped unless it names something this reader was actually sent. `ws`
     // already falls back that way; `item` did not, and rode along in the view
     // toggle's own links — so a value that pointed at nothing was still written
     // back into the page, which is the one thing this route says it never does.
-    const reaches = [...reachable.records, ...reachable.tasks].some(x => x?.id === wanted)
+    const reaches = reachable.tasks.some(x => x?.id === wanted)
       || (view.pending || []).some(q => q.id === wanted);
     const item = reaches ? wanted : null;
-    // An item-only link still opens the tree that owns the record.
-    if (item && !view.projectTree?.records?.some(r => r.id === item)) {
-      const owningTree = Object.entries(view.trees || {}).find(([, tree]) => tree.records?.some(r => r.id === item));
-      if (owningTree) selected = owningTree[0];
-    }
     res.send(projectPage({
       user,
       view,
       selected,
       item,
       filters: { workstream: req.query.taskWs, owner: req.query.taskOwner },
-      history: req.query.history === '1',
-      tab: ['context', 'tasks', 'review'].includes(req.query.tab) ? req.query.tab : null,
+      tab: req.query.tab === 'review' ? 'review' : null,
       page: /^[1-9]\d{0,3}$/.test(String(req.query.page || '')) ? Number(req.query.page) : 1,
-      inheritedPage: /^[1-9]\d{0,3}$/.test(String(req.query.ipage || '')) ? Number(req.query.ipage) : 1,
       // So a copied prompt can carry the address of the page it was copied
       // from, which is the one thing that tells a reader where it came from.
       origin: baseUrlFor(req),

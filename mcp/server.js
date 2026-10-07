@@ -233,10 +233,10 @@ export const TOOLS = [
   },
   {
     name: 'get_task',
-    description: 'Return one task by id or unique id prefix: title, owner, status, workstream, created/done/compiled timestamps, and the prompt file path if one has been compiled. Read-only. Use task_compile to get the prompt text itself.',
+    description: 'Return one task by its number (such as 3.2), its id, or a unique id prefix: title, owner, status, workstream, created/done/compiled timestamps, and the prompt file path if one has been compiled. Read-only. Use task_compile to get the prompt text itself.',
     inputSchema: {
       type: 'object',
-      properties: { id: { type: 'string', description: 'Task id, or a unique prefix of one' } },
+      properties: { id: { type: 'string', description: 'Task number such as 3.2, task id, or a unique prefix of one' } },
       required: ['id'],
       additionalProperties: false,
     },
@@ -278,7 +278,7 @@ export const TOOLS = [
       properties: {
         title: { type: 'string' },
         owner: { type: 'string', description: 'Defaults to the calling user' },
-        workstream: { type: 'string', description: 'Defaults to the active workstream' },
+        workstream: { type: 'string', description: 'The workstream id. A task always belongs to one, never to the project itself. Defaults to the active workstream, or to the only one if the project has just one. A project with none needs workstream_add first.' },
         compile: { type: 'boolean', description: 'Also compile the prompt (AI call)' },
         role: { type: 'string', description: 'With compile:true, frame the prompt for this role slug' },
       },
@@ -393,8 +393,8 @@ export const TOOLS = [
     inputSchema: {
       type: 'object',
       properties: {
-        id: { type: 'string', description: 'Queue item id (from list_pending_reviews)' },
-        replaces: { type: 'array', items: { type: 'string' }, description: 'IDs or stable keys of flagged local decisions/rules to replace. Required to resolve a contradiction unless links.replaces already names it. Inherited records must be resolved in their own part of the work.' },
+        id: { type: 'string', description: 'Queue item id, or the number it waits under such as 1.6 (from list_pending_reviews)' },
+        replaces: { type: 'array', items: { type: 'string' }, description: 'IDs of flagged local decisions/rules to replace (records have no number). Required to resolve a contradiction unless links.replaces already names it. Inherited records must be resolved in their own part of the work.' },
       },
       required: ['id'], additionalProperties: false,
     },
@@ -671,9 +671,9 @@ export function reportBackContribute(r) {
       + ' where it went and do not call contribute again for the same text.'
     : '';
   if (r.mode === 'no-op') return `Tell the user: contribution logged for ${where} but the AI proposed no changes to the tree.${refused}`;
-  if (r.mode === 'queued') return `Tell the user: contribution ${r.id} queued for manager approval on ${where} (${r.operations.length} op${r.operations.length === 1 ? '' : 's'}). Manager must run \`teamctx review approve ${r.id}\` or call the review_approve tool.${(r.contradictions || []).map(c => ` ${contradictionLabel(c)}. Resolve with a replacement or reject; do not retry direct apply.`).join('')}${(r.operations || []).filter(o => o?.type === 'addEvidence').map(o => ` ${evidenceLabel(o)}. The manager decides whether it holds; nothing changes until they do.`).join('')}${refused}`;
-  const keys = (r.keys || []).map(x => x.key).filter(Boolean);
-  const applied = `Tell the user: contribution ${r.id} applied to ${where} (${r.operations.length} op${r.operations.length === 1 ? '' : 's'})${r.rolesRegenerated?.length ? `, regenerated roles: ${r.rolesRegenerated.join(', ')}` : ''}${r.pushed ? ', committed and pushed' : ', committed'}.${keys.length ? ` Updated: ${keys.join(', ')}.` : ''}${refused}`;
+  if (r.mode === 'queued') return `Tell the user: contribution ${r.id}${r.number ? ` (item ${r.number})` : ''} queued for manager approval on ${where} (${r.operations.length} op${r.operations.length === 1 ? '' : 's'}). Manager must run \`teamctx review approve ${r.id}\` or call the review_approve tool.${(r.contradictions || []).map(c => ` ${contradictionLabel(c)}. Resolve with a replacement or reject; do not retry direct apply.`).join('')}${(r.operations || []).filter(o => o?.type === 'addEvidence').map(o => ` ${evidenceLabel(o)}. The manager decides whether it holds; nothing changes until they do.`).join('')}${refused}`;
+  const keys = (r.tasks || []).map(x => x.key).filter(Boolean);
+  const applied = `Tell the user: contribution ${r.id} applied to ${where} (${r.operations.length} op${r.operations.length === 1 ? '' : 's'})${r.rolesRegenerated?.length ? `, regenerated roles: ${r.rolesRegenerated.join(', ')}` : ''}${r.pushed ? ', committed and pushed' : ', committed'}.${keys.length ? ` Tasks: ${keys.join(', ')}.` : ''}${refused}`;
   if (!r.founding) return applied;
   // The project's context started here, out of a conversation the person is
   // about to leave. Read it back while they can still correct it — this is the
@@ -1227,13 +1227,19 @@ export function makeHandlers(projectRoot) {
 
     async task_add(args = {}) {
       const teamctxDir = dir();
+      const config = readConfig(teamctxDir);
+      // Through the scope check rather than straight through: writing a task
+      // into a workstream the caller cannot read is the same boundary in the
+      // other direction.
+      let workstream = await targetWorkstream(teamctxDir, config, args.workstream);
+      // The project itself is not a place for a task. A project with a single
+      // workstream has an obvious home for it; any other project is asked which.
+      const parts = config.workstreams || [];
+      if (workstream === null && parts.length === 1) workstream = assertInScope(await scope(teamctxDir, config), parts[0].id);
       const added = await addTask({
         title: args.title,
         owner: args.owner,
-        // Through the scope check rather than straight through: writing a task
-        // into a workstream the caller cannot read is the same boundary in the
-        // other direction.
-        workstream: await targetWorkstream(teamctxDir, readConfig(teamctxDir), args.workstream),
+        workstream,
         teamctxDir,
         projectDir: gitCwd,
       });

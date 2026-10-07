@@ -246,17 +246,23 @@ describe('snapshots', () => {
 });
 
 describe('tasks', () => {
+  // A task lives in a workstream, and takes its number from that workstream's.
   const mkTask = (id, extras = {}) => ({
     id,
     title: 'Plan the Q3 pivot',
     owner: 'priya',
     status: 'open',
-    workstream: null,
+    workstream: 'main',
     createdAt: '2026-07-24',
     doneAt: null,
     compiledAt: null,
     ...extras,
   });
+  const withWorkstreams = () => {
+    writeConfig({ workstreams: [{ id: 'main', number: 1, name: 'M' }, { id: 'growth', number: 2, name: 'G' }], nextKey: { workstream: 3, tasks: {} } }, dir);
+    writeWorkstream('main', { id: 'main', name: 'M', records: [], tasks: [] }, dir);
+    writeWorkstream('growth', { id: 'growth', name: 'G', records: [], tasks: [] }, dir);
+  };
 
   it('listTasks returns [] when no workstreams exist', () => {
     expect(listTasks({}, dir)).toEqual([]);
@@ -267,33 +273,66 @@ describe('tasks', () => {
     expect(listTasks({}, dir)).toEqual([]);
   });
 
-  it('writeTask upserts into the project tree and readTask round-trips', () => {
-    // A task with no workstream belongs to the project itself.
+  it('writeTask puts the task in its workstream, numbers it, and readTask round-trips', () => {
+    withWorkstreams();
     const t = mkTask('t-plan');
     writeTask(t, dir);
-    expect(readProject(dir).tasks).toEqual([t]);
-    expect(readTask('t-plan', dir)).toEqual({ task: { ...t, workstream: null }, workstream: null });
+    expect(readWorkstream('main', dir).tasks).toEqual([{ ...t, key: '1.1' }]);
+    expect(readTask('t-plan', dir)).toEqual({ task: { ...t, key: '1.1', workstream: 'main' }, workstream: 'main' });
   });
 
-  it('writeTask updates an existing task in place (no duplicate)', () => {
+  it('refuses a task that belongs to no workstream, and numbers nothing', () => {
+    withWorkstreams();
+    expect(() => writeTask(mkTask('t-loose', { workstream: null }), dir)).toThrow(/belongs to a workstream/);
+    expect(readProject(dir).tasks).toEqual([]);
+    expect(readConfig(dir).nextKey).toEqual({ workstream: 3, tasks: {} });
+  });
+
+  it('refuses a task in a workstream that has no number, rather than inventing one', () => {
+    writeConfig({ workstreams: [{ id: 'main', name: 'M' }] }, dir);
+    writeWorkstream('main', { id: 'main', name: 'M', records: [], tasks: [] }, dir);
+    expect(() => writeTask(mkTask('t-plan'), dir)).toThrow(/no number/);
+  });
+
+  it('numbers each workstream\'s tasks on their own, and never reuses a number after a delete', () => {
+    withWorkstreams();
+    writeTask(mkTask('t-a'), dir);
+    writeTask(mkTask('t-b'), dir);
+    writeTask(mkTask('t-c', { workstream: 'growth' }), dir);
+    deleteTask('t-b', dir);
+    writeTask(mkTask('t-d'), dir);
+    expect(listTasks({}, dir).map(t => [t.id, t.key]).sort()).toEqual([['t-a', '1.1'], ['t-c', '2.1'], ['t-d', '1.3']]);
+    expect(readConfig(dir).nextKey.tasks).toEqual({ main: 4, growth: 2 });
+  });
+
+  it('writeTask updates an existing task in place, keeping its number', () => {
+    withWorkstreams();
     writeTask(mkTask('t-plan'), dir);
     writeTask(mkTask('t-plan', { status: 'done', doneAt: '2026-07-25' }), dir);
-    const project = readProject(dir);
-    expect(project.tasks).toHaveLength(1);
-    expect(project.tasks[0].status).toBe('done');
+    const { tasks } = readWorkstream('main', dir);
+    expect(tasks).toHaveLength(1);
+    expect(tasks[0]).toMatchObject({ status: 'done', key: '1.1' });
+    expect(readConfig(dir).nextKey.tasks).toEqual({ main: 2 });
+  });
+
+  it('resolves a task by its number as well as its id', () => {
+    withWorkstreams();
+    writeTask(mkTask('t-plan'), dir);
+    writeTask(mkTask('t-g', { workstream: 'growth' }), dir);
+    expect(resolveTaskId('2.1', dir)).toBe('t-g');
+    expect(readTask('1.1', dir).task.id).toBe('t-plan');
+    expect(() => resolveTaskId('9.9', dir)).toThrow(/no task matches/);
   });
 
   it('writeTask lands on the workstream named in the task', () => {
-    writeWorkstream('main', { id: 'main', name: 'M', records: [], tasks: [] }, dir);
-    writeWorkstream('growth', { id: 'growth', name: 'G', records: [], tasks: [] }, dir);
+    withWorkstreams();
     writeTask(mkTask('t-plan', { workstream: 'growth' }), dir);
     expect(readWorkstream('main', dir).tasks || []).toEqual([]);
     expect(readWorkstream('growth', dir).tasks).toHaveLength(1);
   });
 
   it('listTasks flattens across all workstreams by default', () => {
-    writeWorkstream('main', { id: 'main', name: 'M', records: [], tasks: [] }, dir);
-    writeWorkstream('growth', { id: 'growth', name: 'G', records: [], tasks: [] }, dir);
+    withWorkstreams();
     writeTask(mkTask('t-main-1'), dir);
     writeTask(mkTask('t-g-1', { workstream: 'growth' }), dir);
     expect(listTasks({}, dir).map(t => t.id).sort()).toEqual(['t-g-1', 't-main-1']);
@@ -301,7 +340,7 @@ describe('tasks', () => {
   });
 
   it('resolveTaskId supports git-style prefix matching', () => {
-    writeWorkstream('main', { id: 'main', name: 'M', records: [], tasks: [] }, dir);
+    withWorkstreams();
     writeTask(mkTask('t-plan-q3-ads'), dir);
     writeTask(mkTask('t-migrate-auth'), dir);
     expect(resolveTaskId('t-plan', dir)).toBe('t-plan-q3-ads');
@@ -309,7 +348,7 @@ describe('tasks', () => {
   });
 
   it('resolveTaskId throws on no match or ambiguity', () => {
-    writeWorkstream('main', { id: 'main', name: 'M', records: [], tasks: [] }, dir);
+    withWorkstreams();
     writeTask(mkTask('t-plan-a'), dir);
     writeTask(mkTask('t-plan-b'), dir);
     expect(() => resolveTaskId('nope', dir)).toThrow(/no task matches/);
@@ -317,18 +356,19 @@ describe('tasks', () => {
   });
 
   it('resolveTaskId prefers exact match over prefix', () => {
-    writeWorkstream('main', { id: 'main', name: 'M', records: [], tasks: [] }, dir);
+    withWorkstreams();
     writeTask(mkTask('t-plan'), dir);
     writeTask(mkTask('t-plan-2'), dir);
     expect(resolveTaskId('t-plan', dir)).toBe('t-plan');
   });
 
   it('deleteTask removes the task and its compiled file', () => {
+    withWorkstreams();
     writeTask(mkTask('t-plan'), dir);
     writeTaskFile('t-plan', '# compiled\n', dir);
     expect(taskFileExists('t-plan', dir)).toBe(true);
     deleteTask('t-plan', dir);
-    expect(readProject(dir).tasks).toEqual([]);
+    expect(readWorkstream('main', dir).tasks).toEqual([]);
     expect(taskFileExists('t-plan', dir)).toBe(false);
   });
 

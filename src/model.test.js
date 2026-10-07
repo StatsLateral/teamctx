@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   RECORD_TYPES, LABELS, validateRecord, isActive, isExpired,
   assertCurrentFormat, LegacyFormatError, workstreamTree, ancestorsOf,
-  descendantsOf, numberWorkstreams, numberTasks, emptyProject,
+  descendantsOf, numberWorkstreams, depthOf, emptyProject,
 } from './model.js';
 import { makeRecord, makeConfig } from './test-fixtures/model.js';
 
@@ -63,30 +63,32 @@ describe('format', () => {
 
 describe('structure', () => {
   const config = makeConfig({ workstreams: [
-    { id: 'sales', name: 'Sales', parent: null, order: 1 },
-    { id: 'outreach', name: 'Outreach', parent: 'sales', order: 1 },
-    { id: 'offer', name: 'Offer', parent: 'sales', order: 2 },
-    { id: 'expansion', name: 'Expansion', parent: null, order: 2 },
+    { id: 'sales', number: 1, name: 'Sales', parent: null, order: 1 },
+    { id: 'outreach', number: 2, name: 'Outreach', parent: 'sales', order: 1 },
+    { id: 'offer', number: 3, name: 'Offer', parent: 'sales', order: 2 },
+    { id: 'expansion', number: 4, name: 'Expansion', parent: null, order: 2 },
   ] });
   it('builds roots in order with children', () => {
     const t = workstreamTree(config);
     expect(t.map(w => w.id)).toEqual(['sales', 'expansion']);
     expect(t[0].children.map(w => w.id)).toEqual(['outreach', 'offer']);
   });
-  it('numbers nested workstreams', () => {
+  it('numbers workstreams flat, as stored: nesting is the indent, never the number', () => {
     const n = numberWorkstreams(config);
     expect(n.get('sales')).toBe('1');
-    expect(n.get('offer')).toBe('1.2');
-    expect(n.get('expansion')).toBe('2');
+    expect(n.get('offer')).toBe('3');
+    expect(n.get('expansion')).toBe('4');
+    expect(depthOf(config, 'sales')).toBe(0);
+    expect(depthOf(config, 'offer')).toBe(1);
+  });
+  it('does not make up a number for a workstream that was never given one', () => {
+    const n = numberWorkstreams(makeConfig({ workstreams: [{ id: 'old', name: 'Old', order: 1 }] }));
+    expect(n.has('old')).toBe(false);
   });
   it('walks ancestors and descendants', () => {
     expect(ancestorsOf(config, 'offer')).toEqual(['sales']);
     expect(descendantsOf(config, 'sales').sort()).toEqual(['offer', 'outreach']);
     expect(descendantsOf(config, 'expansion')).toEqual([]);
-  });
-  it('numbers tasks after their workstream', () => {
-    const n = numberTasks([{ id: 'a' }, { id: 'b' }], '1.2');
-    expect(n.get('b')).toBe('1.2.2');
   });
   it('treats an unknown or self parent as a root instead of looping', () => {
     const bad = makeConfig({ workstreams: [

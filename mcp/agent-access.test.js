@@ -36,7 +36,7 @@ const baseConfig = (over = {}) => ({
   autoPush: false,
   roles: [],
   reviewPolicy: 'additive',
-  workstreams: [{ id: 'pricing', name: 'Pricing' }, { id: 'hiring', name: 'Hiring' }],
+  workstreams: [{ id: 'pricing', number: 1, name: 'Pricing' }, { id: 'hiring', number: 2, name: 'Hiring' }],
   activeWorkstream: null,
   workstreamsMigrated: true,
   projectLayerMigrated: true,
@@ -51,12 +51,17 @@ function fakeSession(config = baseConfig()) {
     ['.teamctx/project.json', { content: JSON.stringify({
       name: 'Ledger',
       records: [{ id: 'p1', type: 'decision', text: 'ship the ledger', status: 'active' }],
+      tasks: [],
+    }) }],
+    ['.teamctx/workstreams/pricing.json', { content: JSON.stringify({
+      id: 'pricing',
+      name: 'Pricing',
+      records: [{ id: 'w1', type: 'decision', text: 'price it', status: 'active' }],
       tasks: [
-        { id: 'nightly-numbers', title: 'Nightly numbers', owner: 'Nightly report', status: 'open', createdAt: '2026-09-01' },
-        { id: 'sams-review', title: 'Sam reviews pricing', owner: 'Sam', ownerKey: 'git:sam@example.com', status: 'open', createdAt: '2026-09-01' },
+        { id: 'nightly-numbers', key: '1.1', title: 'Nightly numbers', owner: 'Nightly report', status: 'open', createdAt: '2026-09-01' },
+        { id: 'sams-review', key: '1.2', title: 'Sam reviews pricing', owner: 'Sam', ownerKey: 'git:sam@example.com', status: 'open', createdAt: '2026-09-01' },
       ],
     }) }],
-    ['.teamctx/workstreams/pricing.json', { content: JSON.stringify({ id: 'pricing', name: 'Pricing', records: [{ id: 'w1', type: 'decision', text: 'price it', status: 'active' }] }) }],
     ['.teamctx/workstreams/hiring.json', { content: JSON.stringify({ id: 'hiring', name: 'Hiring', records: [{ id: 'h1', type: 'decision', text: 'hire', status: 'active' }] }) }],
   ]);
   const commits = [];

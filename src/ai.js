@@ -99,8 +99,8 @@ function modelForPrompt(tree) {
   return {
     goal: tree.goal?.text ?? null,
     records: (tree.records || []).filter(r => r.status === 'active')
-      .map(r => ({ id: r.id, ...(r.key ? { key: r.key } : {}), type: r.type, text: r.text, ...(r.links?.bends ? { bends: r.links.bends } : {}) })),
-    tasks: (tree.tasks || []).map(t => ({ id: t.id, ...(t.key ? { key: t.key } : {}), title: t.title, status: t.status })),
+      .map(r => ({ id: r.id, type: r.type, text: r.text, ...(r.links?.bends ? { bends: r.links.bends } : {}) })),
+    tasks: (tree.tasks || []).map(t => ({ id: t.id, ...(t.key ? { number: t.key } : {}), title: t.title, status: t.status })),
   };
 }
 
@@ -153,7 +153,7 @@ export async function proposeDiff({
     `"""${contribution}"""`,
     '',
     operationsToCheck ? 'Check the supplied operations for contradictions only. Do not change or regenerate them. Output STRICT JSON:' : 'Propose changes. Output STRICT JSON:',
-    'Keys such as D-3 and T-14 are human handles. When a contribution names a key, resolve it to the matching id above. Use internal ids in operations and links; never assign or edit a key.',
+    'A task number such as 3.2 is the handle a person uses. When a contribution names one, resolve it to the matching task id above. Records have no number: refer to them by their wording. Use internal ids in operations and links; never assign or edit a number. A task belongs to a workstream: when the contribution is to the project itself, do not propose addTask.',
     `{
   "summary": "1-2 sentences",
   "contradictions": [],

@@ -364,19 +364,19 @@ export class GithubSession {
 
     if (patchRes.status === 422 || patchRes.status === 409) {
       // A counter allocation cannot be replayed over a newer project: another
-      // request may have issued the same keys in a different workstream.
+      // request may have issued the same numbers.
       const configPath = '.teamctx/config.json';
       if (this.changes.has(configPath)) {
         const before = JSON.parse(this.files.get(configPath)?.content || '{}');
         const after = JSON.parse(this.changes.get(configPath) || '{}');
         // Whether the counters *moved*, not whether the project has any. Every
         // write that touches config.json stages it — `member_add`, `config_set`,
-        // `role_add`, `set_review_policy` — and after the first backfill a
-        // project always has counters. Testing for their presence therefore
-        // refused the one safe refresh-and-retry on any of those, and said
-        // "while assigning record keys" about a request that assigned none.
+        // `role_add`, `set_review_policy` — and a project that has numbered
+        // anything has counters. Testing for their presence therefore refused
+        // the one safe refresh-and-retry on any of those, and said "while
+        // assigning numbers" about a request that assigned none.
         if (JSON.stringify(before.nextKey) !== JSON.stringify(after.nextKey)) {
-          throw new Error('The project changed while assigning record keys. Nothing from this request was committed. Retry the operation to use the latest project.');
+          throw new Error('The project changed while assigning numbers. Nothing from this request was committed. Retry the operation to use the latest project.');
         }
       }
       // Someone else pushed. Refresh base, rebuild, retry once.

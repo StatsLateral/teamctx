@@ -7,7 +7,7 @@ vi.mock('../../src/storage.js', () => ({
   writeTreeMd: vi.fn(),
   readProject: vi.fn(() => ({ name: '', goal: null, records: [], tasks: [] })),
   writeConfig: vi.fn(),
-  withRecordKeys: vi.fn((dir, write) => write(readConfig(dir))),
+  withCounters: vi.fn((dir, write) => write(readConfig(dir))),
   readConfig: vi.fn(),
   listTasks: vi.fn(() => []),
   readTask: vi.fn(),
@@ -61,7 +61,7 @@ import { commitContext } from '../../src/git.js';
 
 beforeEach(() => {
   vi.clearAllMocks();
-  readConfig.mockReturnValue({ project: 'p', me: 'alice', autoPush: false });
+  readConfig.mockReturnValue({ project: 'p', me: 'alice', autoPush: false, workstreams: [{ id: 'main', number: 1, name: 'M' }] });
   listTasks.mockReturnValue([]);
 });
 
@@ -147,6 +147,47 @@ describe('taskAddCommand', () => {
     });
     await taskAddCommand('X', { workstream: 'growth' });
     expect(commitContext.mock.calls[0][0]).toMatch(/\[workstream: growth\]/);
+  });
+});
+
+describe('a task belongs to a workstream', () => {
+  const failing = async (run) => {
+    const exit = vi.spyOn(process, 'exit').mockImplementation(() => { throw new Error('exit'); });
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await expect(run()).rejects.toThrow('exit');
+    const message = errSpy.mock.calls.map(c => c.join(' ')).join('\n');
+    exit.mockRestore();
+    errSpy.mockRestore();
+    return message;
+  };
+
+  it('is refused in a project with no workstream, and says to add one', async () => {
+    readConfig.mockReturnValue({ project: 'p', me: 'alice', autoPush: false, workstreams: [] });
+    (await import('../../src/prefs.js')).resolveActiveWorkstream.mockResolvedValueOnce(null);
+    const message = await failing(() => taskAddCommand('X', {}));
+    expect(message).toMatch(/belongs to a workstream/);
+    expect(message).toMatch(/add one first/);
+    expect(writeTask).not.toHaveBeenCalled();
+  });
+
+  it('goes to the only workstream when nobody says which', async () => {
+    readConfig.mockReturnValue({ project: 'p', me: 'alice', autoPush: false, workstreams: [{ id: 'launch', number: 1, name: 'Launch' }], activeWorkstream: null });
+    const prefs = await import('../../src/prefs.js');
+    prefs.resolveActiveWorkstream.mockResolvedValueOnce(null);
+    await taskAddCommand('X', {});
+    expect(writeTask.mock.calls[0][0].workstream).toBe('launch');
+  });
+
+  it('asks which one when there are several and the caller is not in one', async () => {
+    readConfig.mockReturnValue({
+      project: 'p', me: 'alice', autoPush: false,
+      workstreams: [{ id: 'launch', number: 1, name: 'L' }, { id: 'support', number: 2, name: 'S' }],
+    });
+    const prefs = await import('../../src/prefs.js');
+    prefs.resolveActiveWorkstream.mockResolvedValueOnce(null);
+    const message = await failing(() => taskAddCommand('X', {}));
+    expect(message).toMatch(/Say which one: launch, support/);
+    expect(writeTask).not.toHaveBeenCalled();
   });
 });
 
@@ -301,18 +342,7 @@ describe('taskCompileCommand', () => {
     expect([...compileTaskPrompt.mock.calls[0][0].flagged]).toEqual(['w1']);
   });
 
-  it('gives a project-level task no inherited half, since it is the project', async () => {
-    // Passing the project as both the tree and the thing above it printed every
-    // Why twice. This is the default case: the migration folds every task on a
-    // project that never split to project level.
-    readTask.mockReturnValue({ task: { ...openTask, workstream: null }, workstream: null });
-    readTree.mockReturnValue({ name: 'Ledger', records: [{ id: 'w1', type: 'decision', text: 'a', status: 'active' }], tasks: [] });
-    await taskCompileCommand('t-plan', {});
-    expect(compileTaskPrompt.mock.calls[0][0].project).toBe(null);
-  });
-
   it('gives a task inside a workstream the project tree above it', async () => {
-    // A real workstream id: `main` resolves to project level now.
     readTask.mockReturnValue({ task: { ...openTask, workstream: 'delivery' }, workstream: 'delivery' });
     readTree.mockReturnValue(wsA);
     readProject.mockReturnValue({ name: 'Ledger', records: [{ id: 'p1', type: 'decision', text: 'p', status: 'active' }], tasks: [] });

@@ -31,20 +31,20 @@ beforeEach(() => {
   writeConfig(makeConfig({ autoPush: false, workstreams: [
     { id: 'launch', name: 'Launch' }, { id: 'pricing', name: 'Pricing', parent: 'launch' }, { id: 'other', name: 'Other' },
   ] }), dir);
-  writeProject(makeProject({ records: [makeRecord({ id: 'old', key: 'D-1', text: oldText })] }), dir);
+  writeProject(makeProject({ records: [makeRecord({ id: 'old', text: oldText })] }), dir);
   for (const id of ['launch', 'pricing', 'other']) writeWorkstream(id, makeWorkstream(id), dir);
   response();
 });
 afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
 describe('contradiction review through the real provider and storage paths', () => {
-  it.each(['all', 'additive', 'none'])('queues even manager direct apply under %s without reserving keys', async reviewPolicy => {
+  it.each(['all', 'additive', 'none'])('queues even manager direct apply under %s without spending any number', async reviewPolicy => {
     writeConfig({ ...readConfig(dir), reviewPolicy }, dir);
     const before = readFileSync(join(dir, 'project.json'), 'utf8');
     const result = await contribute();
     expect(result.mode).toBe('queued');
     expect(result.applyRefused).toBe(true);
-    expect(result.contradictions[0]).toEqual({ operationIndex: 0, proposedText: newText, record: { id: 'old', key: 'D-1', type: 'decision', text: oldText, workstream: null } });
+    expect(result.contradictions[0]).toEqual({ operationIndex: 0, proposedText: newText, record: { id: 'old', type: 'decision', text: oldText, workstream: null } });
     expect(readQueueItem(result.id, dir).contradictions).toEqual(result.contradictions);
     expect(readConfig(dir).nextKey).toBeUndefined();
     expect(readFileSync(join(dir, 'project.json'), 'utf8')).toBe(before);
@@ -58,12 +58,12 @@ describe('contradiction review through the real provider and storage paths', () 
     expect(listQueue(dir)).toHaveLength(1);
   });
 
-  it('approves a manager-selected replacement by key and records the approver', async () => {
+  it('approves a manager-selected replacement by id and records the approver', async () => {
     const queued = await contribute();
-    const result = await approve(queued.id, ['D-1']);
+    const result = await approve(queued.id, ['old']);
     const records = readProject(dir).records;
     expect(records[0].status).toBe('replaced');
-    expect(records[1]).toMatchObject({ key: 'D-2', text: newText, status: 'active', links: { replaces: 'old' }, approvedBy: { key: manager.key } });
+    expect(records[1]).toMatchObject({ text: newText, status: 'active', links: { replaces: 'old' }, approvedBy: { key: manager.key } });
     expect(result.operations[0].record.links.replaces).toBe('old');
     expect(result.contradictions).toHaveLength(1);
     expect(listQueue(dir)).toHaveLength(0);
@@ -85,25 +85,24 @@ describe('contradiction review through the real provider and storage paths', () 
     await approve(queued.id, ['old']);
     const records = readProject(dir).records;
     expect(records[0]).toMatchObject({ id: 'old', text: oldText, status: 'replaced' });
-    expect(records[1]).toMatchObject({ text: newText, key: 'D-2', status: 'active' });
+    expect(records[1]).toMatchObject({ text: newText, status: 'active' });
     expect(records[1].id).not.toBe('old');
   });
 
   it('reports the replacement as a new record, not as the one it replaced', async () => {
     // The stored data was always right; the approval result was not. It
-    // carried the old record's id and key in the proposal, so it named the new
-    // decision D-1 while the tree held it as D-2.
+    // carried the old record's id in the proposal, so it named the new
+    // decision as the old one while the tree held it under another id.
     response([{ type: 'editRecord', id: 'old', changes: { text: newText } }]);
     const queued = await contribute();
     const r = await approve(queued.id, ['old']);
     const proposed = r.operations.find(o => o.type === 'addRecord').record;
     expect(proposed.id).toBeUndefined();
-    expect(proposed.key).toBeUndefined();
     expect(proposed.status).toBeUndefined();
     expect(proposed).toMatchObject({ text: newText, links: expect.objectContaining({ replaces: 'old' }) });
   });
 
-  it('rejects a flagged contribution without allocating keys', async () => {
+  it('rejects a flagged contribution without spending any number', async () => {
     const queued = await contribute();
     const rejected = await run(() => rejectReview({ id: queued.id, reason: 'Keep pricing audits', teamctxDir: dir }));
     expect(rejected.reason).toBe('Keep pricing audits');
@@ -131,7 +130,7 @@ describe('contradiction review through the real provider and storage paths', () 
 
   it('prevents a child from replacing an inherited choice and permits approval once it is retired above', async () => {
     const queued = await contribute({ workstreamId: 'pricing' });
-    await expect(approve(queued.id, ['D-1'])).rejects.toThrow(/inherited/);
+    await expect(approve(queued.id, ['old'])).rejects.toThrow(/inherited/);
     expect(readConfig(dir).nextKey).toBeUndefined();
     response([{ type: 'setRecordStatus', id: 'old', status: 'replaced' }], []);
     await contribute();
@@ -160,13 +159,13 @@ describe('contradiction review through the real provider and storage paths', () 
   });
 
   it('does not treat a valid governed exception as contradicting the rule it bends even if the provider flags it', async () => {
-    writeProject(makeProject({ records: [makeRecord({ id: 'old', key: 'R-1', type: 'rule', text: 'Discounts must not exceed 15%' })] }), dir);
+    writeProject(makeProject({ records: [makeRecord({ id: 'old', type: 'rule', text: 'Discounts must not exceed 15%' })] }), dir);
     response([{ type: 'addRecord', record: { type: 'exception', text: 'Acme may receive a 20% discount', links: { bends: 'old' }, expiresAt: '2999-01-01' } }]);
     const result = await contribute();
     expect(result.mode).toBe('applied');
     expect(result.contradictions).toBeUndefined();
     expect(readProject(dir).records[0].status).toBe('active');
-    expect(readProject(dir).records[1]).toMatchObject({ type: 'exception', key: 'X-1', links: { bends: 'old' } });
+    expect(readProject(dir).records[1]).toMatchObject({ type: 'exception', links: { bends: 'old' } });
   });
 
   it('rechecks saved operations if comparison context changes during the provider call', async () => {
@@ -180,7 +179,7 @@ describe('contradiction review through the real provider and storage paths', () 
     }).mockResolvedValue(JSON.stringify({ summary: 'Fresh check', operations: [add('Provider must not change these operations')], contradictions: [{ operationIndex: 0, recordId: 'new-choice', workstream: null }] }));
     const pending = contribute();
     await started;
-    writeProject(makeProject({ records: [makeRecord({ id: 'new-choice', key: 'D-2', text: 'The entry offer must remain a pricing audit' })] }), dir);
+    writeProject(makeProject({ records: [makeRecord({ id: 'new-choice', text: 'The entry offer must remain a pricing audit' })] }), dir);
     release();
     const result = await pending;
     expect(result.mode).toBe('queued');
@@ -193,14 +192,14 @@ describe('contradiction review through the real provider and storage paths', () 
 
   it('keeps the allowed-exception guard when editing an existing exception', async () => {
     writeProject(makeProject({ records: [
-      makeRecord({ id: 'old', key: 'R-1', type: 'rule', text: 'Discounts must not exceed 15%' }),
-      makeRecord({ id: 'allowance', key: 'X-1', type: 'exception', text: 'Acme may receive 20%', links: { bends: 'old' }, expiresAt: '2999-01-01' }),
+      makeRecord({ id: 'old', type: 'rule', text: 'Discounts must not exceed 15%' }),
+      makeRecord({ id: 'allowance', type: 'exception', text: 'Acme may receive 20%', links: { bends: 'old' }, expiresAt: '2999-01-01' }),
     ] }), dir);
     response([{ type: 'editRecord', id: 'allowance', changes: { text: 'Acme may receive 25%' } }]);
     const result = await contribute();
     expect(result.mode).toBe('applied');
     expect(result.contradictions).toBeUndefined();
-    expect(readProject(dir).records[1]).toMatchObject({ key: 'X-1', text: 'Acme may receive 25%', links: { bends: 'old' } });
+    expect(readProject(dir).records[1]).toMatchObject({ text: 'Acme may receive 25%', links: { bends: 'old' } });
   });
 
   it('requires a fresh submission if a flagged record changes before approval', async () => {
@@ -232,7 +231,7 @@ describe('contradiction review through the real provider and storage paths', () 
   });
 
   it('requires all conflicting records to be resolved in a multi-operation proposal', async () => {
-    writeProject(makeProject({ records: [makeRecord({ id: 'old', key: 'D-1', text: oldText }), makeRecord({ id: 'old2', key: 'D-2', text: 'Ship in October' })] }), dir);
+    writeProject(makeProject({ records: [makeRecord({ id: 'old', text: oldText }), makeRecord({ id: 'old2', text: 'Ship in October' })] }), dir);
     response([add(newText), add('Ship in November')], [{ operationIndex: 0, recordId: 'old' }, { operationIndex: 1, recordId: 'old2' }]);
     const queued = await contribute();
     await expect(approve(queued.id, ['old'])).rejects.toThrow(/Ship in October/);
@@ -258,8 +257,8 @@ describe('contradiction review through the real provider and storage paths', () 
     // as it should, but the conflict beside it was resolved correctly. Blocking
     // on any dropped operation left the item approvable never, only rejectable.
     writeProject(makeProject({ records: [
-      makeRecord({ id: 'old', key: 'D-1', text: oldText }),
-      makeRecord({ id: 'doomed', key: 'D-2', text: 'Still here when this was written' }),
+      makeRecord({ id: 'old', text: oldText }),
+      makeRecord({ id: 'doomed', text: 'Still here when this was written' }),
     ] }), dir);
     response([add(newText), { type: 'editRecord', id: 'doomed', changes: { text: 'reworded' } }],
       [{ operationIndex: 0, recordId: 'old' }]);
@@ -268,7 +267,7 @@ describe('contradiction review through the real provider and storage paths', () 
     // Days pass, and the edited record is retired by somebody else. The edit in
     // the queue item now names nothing and will drop on approval — which is
     // correct, and has nothing to do with the conflict beside it.
-    writeProject(makeProject({ records: [makeRecord({ id: 'old', key: 'D-1', text: oldText })] }), dir);
+    writeProject(makeProject({ records: [makeRecord({ id: 'old', text: oldText })] }), dir);
 
     await approve(queued.id, ['old']);
 

@@ -1,5 +1,5 @@
 import {
-  readConfig, writeConfig, readWorkstream, writeWorkstream, writeWorkstreamMd, withRecordKeys,
+  readConfig, writeConfig, readWorkstream, writeWorkstream, writeWorkstreamMd, withCounters,
   readTree, writeTree, writeTreeMd, readProject,
   listWorkstreamIds, writeRoleFile, readContributions,
 } from '../../src/storage.js';
@@ -13,7 +13,8 @@ import { resolveActiveWorkstream, writePrefs } from '../../src/prefs.js';
 import { resolveTarget, isProjectLevel, targetLabel } from '../../src/project-level.js';
 import { recompileInheritors } from '../../src/recompile.js';
 import { describeMembership, membershipModel, MEMBERSHIP_MODELS } from '../../src/membership-model.js';
-import { emptyWorkstream, numberWorkstreams, RECORD_TYPES } from '../../src/model.js';
+import { emptyWorkstream, numberWorkstreams, workstreamTree, depthOf, RECORD_TYPES } from '../../src/model.js';
+import { mintWorkstreamNumber } from '../../src/numbering.js';
 import { assertManager, currentIdentity } from './review.core.js';
 
 /** The caller's active workstream — their own preference, then the project default. */
@@ -40,7 +41,7 @@ export async function addWorkstream({ name, parent = null, teamctxDir, projectDi
   const config = readConfig(teamctxDir);
   const { actor, displayName } = await currentIdentity(config, teamctxDir, projectDir);
   assertManager(config, { actor, displayName });
-  const { entry, next } = withRecordKeys(teamctxDir, current => {
+  const { entry, next } = withCounters(teamctxDir, current => {
     const list = current.workstreams || [];
     if (parent && !list.some(w => w.id === parent)) throw new WorkstreamParentError(parent);
     const base = slugify(clean) || 'workstream';
@@ -48,8 +49,11 @@ export async function addWorkstream({ name, parent = null, teamctxDir, projectDi
     for (let i = 2; list.some(w => w.id === id) || listWorkstreamIds(teamctxDir).includes(id); i++) id = `${base}-${i}`;
     const siblings = list.filter(w => (w.parent || null) === (parent || null));
     const order = Math.max(0, ...siblings.map(w => w.order || 0)) + 1;
-    const entry = { id, name: clean, parent: parent || null, order, createdAt: new Date().toISOString() };
-    const next = { ...current, workstreams: [...list, entry] };
+    // The number is minted here and stored: it is never worked out from position,
+    // so adding a part above this one cannot change what anyone calls it.
+    const minted = mintWorkstreamNumber(current.nextKey);
+    const entry = { id, number: minted.number, name: clean, parent: parent || null, order, createdAt: new Date().toISOString() };
+    const next = { ...current, workstreams: [...list, entry], nextKey: minted.counters };
     writeConfig(next, teamctxDir);
     writeWorkstream(id, emptyWorkstream(id, clean), teamctxDir);
     return { entry, next };
@@ -74,6 +78,12 @@ export async function listAllWorkstreams({ teamctxDir, projectDir } = {}) {
   const active = await activeId(config, teamctxDir, projectDir);
   const declared = config.workstreams || [];
   const numbers = numberWorkstreams(config);
+  // Each part directly under its parent, in the order they were arranged: the
+  // number is flat, so the nesting is shown by this order and the indent.
+  const walked = [];
+  const walk = (nodes) => nodes.forEach(n => { walked.push(n.id); walk(n.children); });
+  walk(workstreamTree(config));
+  const place = (id) => (walked.includes(id) ? walked.indexOf(id) : walked.length);
   const ids = Array.from(new Set([...declared.map(w => w.id), ...listWorkstreamIds(teamctxDir)]));
   return ids.map(id => {
     const meta = declared.find(w => w.id === id);
@@ -84,12 +94,13 @@ export async function listAllWorkstreams({ teamctxDir, projectDir } = {}) {
       name: meta?.name || ws.name || id,
       parent: meta?.parent || null,
       number: numbers.get(id) || null,
+      depth: depthOf(config, id),
       isActive: id === active,
       recordCount: (ws.records || []).filter(r => r.status === 'active').length,
       taskCount: (ws.tasks || []).length,
       roles,
     };
-  }).sort((x, y) => String(x.number ?? '~').localeCompare(String(y.number ?? '~'), undefined, { numeric: true }));
+  }).sort((x, y) => place(x.id) - place(y.id));
 }
 
 /**
