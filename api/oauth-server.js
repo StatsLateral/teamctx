@@ -1339,6 +1339,17 @@ app.get('/project/:owner/:repo', async (req, res) => {
 // ---- The SDK's OAuth server: metadata, /authorize, /token, /register --
 
 if (provider) {
+  // RFC 8414: the `issuer` in the metadata is the identifier a client found the
+  // server by, and a strict client rejects metadata whose issuer is not exactly
+  // that. The protected-resource document names this server without a trailing
+  // slash, and the SDK reports `new URL(base).href`, which always has one. Only
+  // the string changes; every endpoint it points at is the same, so clients that
+  // never checked are unaffected.
+  app.use('/.well-known/oauth-authorization-server', (_req, res, next) => {
+    const send = res.json.bind(res);
+    res.json = (body) => send(typeof body?.issuer === 'string' ? { ...body, issuer: body.issuer.replace(/\/+$/, '') } : body);
+    next();
+  });
   app.use(mcpAuthRouter({
     provider,
     issuerUrl: new URL(process.env.TEAMCTX_BASE_URL
