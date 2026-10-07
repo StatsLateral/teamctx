@@ -19,6 +19,21 @@
       "workstreams": []
     }
   ],
-  "workstreams": [],
-  "activeWorkstream": null
+  "workstreams": [
+    {
+      "id": "lead-warming-4-stalled-accounts",
+      "name": "Lead Warming — 4 stalled accounts",
+      "parent": null,
+      "order": 1,
+      "createdAt": "2026-10-07T14:49:13.678Z"
+    }
+  ],
+  "activeWorkstream": null,
+  "nextKey": {
+    "T": 1,
+    "D": 1,
+    "R": 1,
+    "A": 1,
+    "X": 1
+  }
 }
