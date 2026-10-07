@@ -1,17 +1,21 @@
 import { GithubSession } from '../adapters/github.js';
 import { runWithSession } from '../session-context.js';
-import { readConfig, readProject, readWorkstream, listTasks, readContributions } from '../storage.js';
+import { readConfig, readProject, readWorkstream, listTasks, readContributions, listWorkstreamIds } from '../storage.js';
 import { listAllWorkstreams } from '../../cli/commands/workstream.core.js';
 import { listMembers, memberByEmail } from '../../cli/commands/member.core.js';
-import { listPendingReviews } from '../../cli/commands/review.core.js';
+import { listPendingReviews, approveReview, rejectReview } from '../../cli/commands/review.core.js';
 import { scopeFor, inScope } from '../member-scope.js';
 import { resolveTarget } from '../project-level.js';
 import { workstreamLocation } from '../views/workstream-location.js';
 import { managerKeys, matchesActor } from '../review.js';
 import { flaggedInProject, projectRecords } from '../project-records.js';
-import { markNeedsReview, restingOn } from '../impact.js';
+import { markNeedsReview, restingOn, needsReviewFlags } from '../impact.js';
+import { runWithActor } from '../actor.js';
+import { today } from '../model.js';
 import { kvGet, keys } from './kv.js';
-import { githubIdsFor } from './ai-keys.js';
+import { githubIdsFor, readPersonalKey, readProjectKeys, pickProjectKey } from './ai-keys.js';
+import { managersOf } from '../managers.js';
+import { runWithAiKey } from '../ai-context.js';
 
 /**
  * Where a project stands, for somebody who would rather look than ask.
@@ -81,7 +85,16 @@ function membersOn(members, id) {
   return members.filter(m => !m.workstreams?.length || m.workstreams.includes(id));
 }
 
-export async function readProjectView({ owner, repo, user }) {
+/**
+ * Open a project as the person signed in: their credential (or the one the
+ * project lends a Google sign-in), a session over the repository, and every
+ * identity they have proved.
+ *
+ * Shared by reading the page and by acting on its review queue, so an approval
+ * is made by exactly the person, through exactly the credential, that the page
+ * was read with — never a wider one.
+ */
+async function openProject({ owner, repo, user }) {
   const { ghToken, actor, checkRoster } = await accessFor({ owner, repo, user });
   const session = new GithubSession({ owner, repo, ghToken });
   try {
@@ -96,6 +109,85 @@ export async function readProjectView({ owner, repo, user }) {
   if (actor.source !== 'github' && actor.email) {
     actor.keys = (await githubIdsFor(actor.email)).map(id => `github:${id}`);
   }
+  return { session, actor, checkRoster };
+}
+
+/**
+ * What needs the manager's second look, across the whole project (#118 §2).
+ *
+ * Three groups, each row naming where it lives: broken assumptions with what
+ * rests on them, assumptions past their check-by date, and exceptions ending
+ * within fourteen days (or already ended while still marked active). Read over
+ * every part of the work, which is why only a manager is ever given it.
+ *
+ * A dependent the manager has already re-confirmed is listed as such rather
+ * than left out, so the list for a broken assumption is the whole story.
+ */
+/** The same day arithmetic `listRecords({ due })` uses for "ending soon". */
+const addDays = (day, n) => new Date(Date.parse(day) + n * 864e5).toISOString().slice(0, 10);
+
+function needsReviewSection({ config, workstreams, onDay = today() }) {
+  const trees = [{ id: null, tree: readProject() }, ...listWorkstreamIds().map(id => ({ id, tree: readWorkstream(id) }))];
+  const where = (id) => workstreamLocation(workstreams, id, config.project);
+  const all = [];
+  for (const { id, tree } of trees) for (const r of tree?.records || []) all.push({ ...r, ws: id });
+  const tasks = [];
+  for (const { id, tree } of trees) for (const t of tree?.tasks || []) tasks.push({ ...t, ws: id });
+  const flagged = needsReviewFlags(all, { onDay });
+  const brief = (r) => ({ id: r.id, key: r.key || null, type: r.type, text: r.text, ws: r.ws, where: where(r.ws) });
+
+  const broken = all.filter(r => r.type === 'assumption' && r.status === 'broken').map(a => {
+    const { records, tasks: onTasks } = restingOn(all, a.id, { onDay, tasks });
+    return {
+      ...brief(a),
+      brokenAt: a.brokenAt || null,
+      restingOn: records.map(r => ({ ...brief(r), stillFlagged: flagged.has(r.id) })),
+      tasks: onTasks.map(t => ({ id: t.id, key: t.key || null, title: t.title, ws: t.ws, where: where(t.ws) })),
+    };
+  });
+  const overdue = all
+    .filter(r => r.type === 'assumption' && r.status === 'active' && r.reviewBy && r.reviewBy < onDay)
+    .map(r => ({ ...brief(r), reviewBy: r.reviewBy, owner: r.owner?.name || null }));
+  const soon = addDays(onDay, 14);
+  const ending = all
+    .filter(r => r.type === 'exception' && r.status === 'active' && r.expiresAt && r.expiresAt <= soon)
+    .map(r => ({ ...brief(r), expiresAt: r.expiresAt, ended: r.expiresAt < onDay }));
+  return { broken, overdue, ending };
+}
+
+/**
+ * Approve or reject a queued contribution from the page (#118 §1).
+ *
+ * The same `approveReview` and `rejectReview` the CLI and the assistant use, run
+ * as the signed-in person inside their own session — so the manager gate is the
+ * one those already apply, and a non-manager gets the refusal they would get
+ * anywhere else. Nothing is decided here that is not decided there.
+ */
+export async function actOnReview({ owner, repo, user, id, action, replaces = [], reason = '' }) {
+  const { session, actor } = await openProject({ owner, repo, user });
+  const act = () => runWithSession(session, () => runWithActor(actor, async () => {
+    if (action === 'reject') return rejectReview({ id, reason: reason || undefined });
+    return approveReview({ id, ...(replaces.length ? { replaces } : {}) });
+  }));
+  if (action === 'reject') return act();
+
+  // Approving refreshes the role briefs for that part of the work, which is an
+  // AI call — the same one approving from an assistant makes. The key is chosen
+  // the way the connector chooses it: the approver's own first, then the key
+  // the project's primary manager shared. Only a part with roles spends it.
+  // Viewing the page still never calls AI; see the proposal for why acting on
+  // it is different.
+  const own = await readPersonalKey({ email: user.email, githubId: user.id }).catch(() => null);
+  const projectKeys = await readProjectKeys(owner, repo).catch(() => null);
+  const shared = () => runWithSession(session, () => {
+    const picked = pickProjectKey({ projectKeys, primaryKey: managersOf(readConfig()).primary });
+    return picked ? { apiKey: picked.apiKey, provider: picked.provider } : null;
+  });
+  return runWithAiKey(own?.apiKey || null, act, own?.provider || null, own?.apiKey ? null : shared);
+}
+
+export async function readProjectView({ owner, repo, user }) {
+  const { session, actor, checkRoster } = await openProject({ owner, repo, user });
 
   return runWithSession(session, async () => {
     const config = readConfig();
@@ -194,6 +286,9 @@ export async function readProjectView({ owner, repo, user }) {
       owner,
       repo,
       isManager,
+      // Read across every part of the work, so a manager's alone — a member's
+      // page data has nothing from outside their parts.
+      needsReview: isManager ? needsReviewSection({ config, workstreams }) : null,
       scopedTo: allowed,
       goal: projectTree.goal?.text || null,
       projectTree,
