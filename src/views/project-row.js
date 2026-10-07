@@ -38,7 +38,10 @@ export const ROW_CSS = `
 .pills .row-where,.pills .row-link{background:none;color:var(--faint);padding-left:2px;padding-right:2px}
 .pills .warning-chip,.row-notes .warning-chip{color:var(--amber);background:var(--amber-soft)}
 /* In the details panel the same pills, uncapped. */
-.pills.full > span,.pills.full .row-state > span,.pills.full .row-notes > span{white-space:normal;max-width:none;overflow:visible}
+/* A long note wraps here, and a fully rounded pill of several lines is an oval
+   its text spills out of; this radius is still round on one line. */
+.pills.full > span,.pills.full .row-state > span,.pills.full .row-notes > span{white-space:normal;max-width:none;overflow:visible;
+  border-radius:10px;padding:2px 8px}
 .pills.full .row-source.src-none{display:inline}
 `;
 
