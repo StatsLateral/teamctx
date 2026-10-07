@@ -21,8 +21,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - **The manager reviews and sees impact on the project page (#118).** The page
-  now has **Waiting for you · Needs review · Current state · Tasks** for a
-  manager, and **Current state · Tasks** for a member. *Waiting for you* shows one
+  now has **Current state · Tasks · Review** for a manager, and **Current state ·
+  Tasks** for a member. *Review* holds two sections, each paging on its own.
+  *Waiting for you* shows one
   card per contribution with its changes under it ("2 waiting · 9 changes"), and
   Approve / Reject on each; a card that contradicts a record asks which one it
   replaces before Approve works, and an inherited conflict says where it can be

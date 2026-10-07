@@ -1261,7 +1261,7 @@ app.get('/project/:owner/:repo', async (req, res) => {
     // following a link to one statement lands on the project and has to find it
     // again — which is the whole thing this was built to save them.
     const navigation = new URLSearchParams(parseViewParams(req.query));
-    for (const key of ['view', 'history', 'taskWs', 'taskOwner', 'tab', 'page', 'ipage']) {
+    for (const key of ['view', 'history', 'taskWs', 'taskOwner', 'tab', 'page', 'ipage', 'npage']) {
       const value = req.query[key];
       if (typeof value !== 'string') continue;
       const parameter = new URLSearchParams({ [key]: value });
@@ -1341,9 +1341,10 @@ async function renderProject(req, res, user, { owner, repo, query = req.query, f
       item,
       filters: { workstream: query.taskWs, owner: query.taskOwner },
       history: query.history === '1',
-      tab: ['context', 'tasks', 'review', 'needs'].includes(query.tab) ? query.tab : null,
+      tab: ['context', 'tasks', 'review'].includes(query.tab) ? query.tab : null,
       page: /^[1-9]\d{0,3}$/.test(String(query.page || '')) ? Number(query.page) : 1,
       inheritedPage: /^[1-9]\d{0,3}$/.test(String(query.ipage || '')) ? Number(query.ipage) : 1,
+      needsPage: /^[1-9]\d{0,3}$/.test(String(query.npage || '')) ? Number(query.npage) : 1,
       // So a copied prompt can carry the address of the page it was copied
       // from, which is the one thing that tells a reader where it came from.
       origin: baseUrlFor(req),

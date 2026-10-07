@@ -167,7 +167,7 @@ describe('a member looking at the same project', () => {
   it('is not shown the approval queue, which is the manager\'s', async () => {
     await lend();
     const { body } = await visit('/project/acme/ledger', MEMBER_GOOGLE);
-    expect(body).not.toContain('Waiting for you');
+    expect(body).not.toMatch(/>Review<span class="n/);
     expect(body).not.toContain('adds the pricing tiers');
   });
 
@@ -208,7 +208,7 @@ describe('who counts as the manager', () => {
     const { body } = await visit('/project/acme/ledger', { ...MEMBER_GOOGLE, email: 'maya@example.com' });
     // Being the manager shows in what the page gives them, not in a line
     // telling them so.
-    expect(body).toContain('Waiting for you');
+    expect(body).toMatch(/>Review<span class="n/);
   });
 });
 
@@ -1343,10 +1343,10 @@ describe('waiting for you, as a tab', () => {
 
   it('is offered to the manager, with a count, and keeps the queue off the context', async () => {
     const context = await visit('/project/acme/ledger', MANAGER);
-    expect(context.body).toMatch(/>Waiting for you<span class="n warn">1<\/span>/);
+    expect(context.body).toMatch(/>Review<span class="n warn">1<\/span>/);
     expect(context.body).not.toContain('id="r-c-1"');
     const review = await visit('/project/acme/ledger?tab=review', MANAGER);
-    expect(review.body).toMatch(/aria-current="page">Waiting for you/);
+    expect(review.body).toMatch(/aria-current="page">Review/);
     expect(review.body).toContain('id="r-c-1"');
   });
 
@@ -1359,7 +1359,7 @@ describe('waiting for you, as a tab', () => {
 
   it('opens on its own for a link to a queued contribution', async () => {
     const { body } = await visit('/project/acme/ledger?review=c-1', MANAGER);
-    expect(body).toMatch(/aria-current="page">Waiting for you/);
+    expect(body).toMatch(/aria-current="page">Review/);
   });
 
   it('pages ten proposals at a time, never splitting one', async () => {

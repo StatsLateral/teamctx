@@ -159,12 +159,42 @@ beforeEach(async () => {
 });
 
 describe('the tabs', () => {
-  it('gives the manager Waiting for you, Needs review, Current state and Tasks, opening on Current state', async () => {
+  it('gives the manager Current state first and open, then Tasks, then one Review tab counting both sections', async () => {
     const { body } = await visit('/project/acme/ledger', MANAGER);
     const tabs = /<nav class="tabs"[\s\S]*?<\/nav>/.exec(body)[0];
-    expect(tabs.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ')).toMatch(/Waiting for you 2 Needs review 3 Current state \d+ Tasks/);
+    expect(tabs.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ')).toMatch(/^ Current state \d+ Tasks \d+ open Review 5 $/);
     expect(tabs).toMatch(/aria-current="page">Current state/);
-    expect(tabs).toMatch(/Needs review<span class="n warn">3/);
+    expect(tabs).toMatch(/Review<span class="n warn">5/);
+  });
+
+  it('shows both sections in the Review tab, the queue first', async () => {
+    const { body } = await visit('/project/acme/ledger?tab=review', MANAGER);
+    expect(body).toMatch(/aria-current="page">Review/);
+    expect(body.indexOf('Waiting for you —')).toBeGreaterThan(-1);
+    expect(body.indexOf('Needs review — across the whole project')).toBeGreaterThan(body.indexOf('Waiting for you —'));
+  });
+
+  it('pages each section on its own, each pager keeping the other’s place', async () => {
+    for (let i = 0; i < 12; i++) {
+      repo.files.set(`.teamctx/queue/q-${i}.json`, JSON.stringify({
+        id: `q-${i}`, status: 'pending', author: 'Priya', summary: `queued ${i}`, workstream: 'product',
+        operations: [{ type: 'addTask', title: `task ${i}` }],
+      }));
+    }
+    const tech = JSON.parse(repo.files.get('.teamctx/workstreams/tech.json'));
+    for (let i = 0; i < 12; i++) tech.records.push({ id: `old-${i}`, type: 'assumption', text: `stale ${i}`, status: 'active', reviewBy: '2000-01-02' });
+    repo.files.set('.teamctx/workstreams/tech.json', JSON.stringify(tech));
+
+    const first = await visit('/project/acme/ledger?tab=review', MANAGER);
+    expect((first.body.match(/<nav class="pager"/g) || []).length).toBe(2);
+    expect(first.body).toContain('href="/project/acme/ledger?tab=review&amp;page=2#panel"');
+    expect(first.body).toContain('href="/project/acme/ledger?tab=review&amp;npage=2#panel"');
+
+    const both = await visit('/project/acme/ledger?tab=review&page=2&npage=2', MANAGER);
+    expect(both.body).toContain('href="/project/acme/ledger?tab=review&amp;npage=2#panel"'); // queue back to 1, needs stays
+    expect(both.body).toContain('href="/project/acme/ledger?tab=review&amp;page=2#panel"'); // needs back to 1, queue stays
+    expect(both.body).toContain('stale 11');
+    expect(both.body).not.toContain('the tech-only secret assumption');
   });
 
   it('gives a member Current state and Tasks only', async () => {
@@ -262,7 +292,7 @@ describe('waiting for you', () => {
 
 describe('needs review', () => {
   it('shows a broken assumption with what rests on it, re-confirmed ones marked as such', async () => {
-    const { body } = await visit('/project/acme/ledger?tab=needs', MANAGER);
+    const { body } = await visit('/project/acme/ledger?tab=review', MANAGER);
     const panel = body.slice(body.indexOf('Needs review — across the whole project'));
     expect(panel).toMatch(/A-1[\s\S]*buyers pay by card[\s\S]*Rests on it/);
     expect(panel).toMatch(/D-3[\s\S]*card checkout only[\s\S]*Needs re-confirming/);
@@ -271,13 +301,13 @@ describe('needs review', () => {
   });
 
   it('lists assumptions past their check-by date and exceptions ending or ended, wherever they are', async () => {
-    const { body } = await visit('/project/acme/ledger?tab=needs', MANAGER);
+    const { body } = await visit('/project/acme/ledger?tab=review', MANAGER);
     expect(body).toMatch(/Past their check-by date[\s\S]*the tech-only secret assumption[\s\S]*check by 2000-01-01/);
     expect(body).toMatch(/Exceptions ending within 14 days[\s\S]*hotfixes skip review[\s\S]*ended/);
   });
 
-  it('is never given to a member, not even when they ask for its tab', async () => {
-    const { body } = await visit('/project/acme/ledger?ws=product&tab=needs', MEMBER);
+  it('is never given to a member, not even when they ask for the Review tab', async () => {
+    const { body } = await visit('/project/acme/ledger?ws=product&tab=review', MEMBER);
     expect(body).not.toContain('across the whole project');
     expect(body).not.toContain('the tech-only secret assumption');
     expect(body).toMatch(/aria-current="page">Current state/);

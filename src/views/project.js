@@ -138,6 +138,8 @@ const CSS = `
   border-radius:var(--radius-sm);min-width:200px}
 .act-note{flex-basis:100%;font-size:13px;color:var(--amber);margin:0}
 /* Needs review: plain lists, each line linking to its record in its own part. */
+/* The second section of the Review tab, set apart from the queue above it. */
+.review-split{margin-top:28px;padding-top:14px;border-top:1px solid var(--line)}
 .nr-group{font-size:14px;margin:18px 0 6px}
 .nr-group .n{font-family:var(--font-mono);font-size:11px;color:var(--faint);margin-left:6px}
 .nr-list{list-style:none;padding:0;margin:0}
@@ -471,28 +473,47 @@ function reviewActions({ q, view }) {
 }
 
 /**
- * The manager's second look across the whole project (#118 §2): broken
- * assumptions and what rests on them, assumptions past their check-by date,
- * exceptions ending soon. Each line links to the record in its own part.
+ * The manager's second look across the whole project (#118 §2), as one list:
+ * broken assumptions, assumptions past their check-by date, exceptions ending
+ * soon — in that order, so it pages like any other list. A broken assumption is
+ * one entry together with everything resting on it, so a page never shows the
+ * break without what it affects.
  */
-function needsReviewPanel({ needs, base }) {
+const NEEDS_GROUPS = {
+  broken: 'Broken assumptions',
+  overdue: 'Past their check-by date',
+  ending: 'Exceptions ending within 14 days',
+};
+
+function needsEntries(needs) {
+  if (!needs) return [];
+  return ['broken', 'overdue', 'ending'].flatMap(group => needs[group].map(r => ({ group, node: r })));
+}
+
+/** One page of that list, each group under its heading with the group's full count. */
+function needsReviewPanel({ needs, entries, base }) {
+  if (!entries.length) return '<p class="muted">Nothing needs a second look.</p>';
   const link = (r) => `${base}?${new URLSearchParams({ ...(r.ws ? { ws: r.ws } : {}), item: r.id })}#panel`;
   const label = (r) => `<a class="nr-key" href="${esc(link(r))}">${esc(r.key || (LABELS[r.type] || r.type).replace(/:$/, ''))}</a>`;
   const line = (r, tail) => `<li>${label(r)} <span class="nr-text">${esc(r.text ?? r.title)}</span> <span class="nr-where">${esc(r.where)}</span>${tail ? ` <span class="nr-tail">${tail}</span>` : ''}</li>`;
-  const group = (title, items, body) => `<h3 class="nr-group">${title}<span class="n">${items.length}</span></h3>
-    ${items.length ? body : '<p class="muted">None.</p>'}`;
-  if (!needs.broken.length && !needs.overdue.length && !needs.ending.length) {
-    return '<p class="muted">Nothing needs a second look.</p>';
-  }
-  return `${group('Broken assumptions', needs.broken, needs.broken.map(a => `<div class="nr-item">
-      <ul class="nr-list">${line(a, a.brokenAt ? `broken ${esc(a.brokenAt)}` : 'broken')}</ul>
-      ${a.restingOn.length || a.tasks.length ? `<div class="nr-rests"><span class="section-title">Rests on it</span><ul class="nr-list">
-        ${a.restingOn.map(r => line(r, r.stillFlagged ? '<span class="flag">Needs re-confirming</span>' : 'Re-confirmed')).join('')}
-        ${a.tasks.map(t => `<li><a class="nr-key" href="${esc(`${base}?${new URLSearchParams({ ...(t.ws ? { ws: t.ws } : {}), item: t.id })}#panel`)}">${esc(t.key || 'Task')}</a> <span class="nr-text">${esc(t.title)}</span> <span class="nr-where">${esc(t.where)}</span></li>`).join('')}
+  const entry = ({ group, node: r }) => {
+    if (group === 'overdue') return `<ul class="nr-list">${line(r, `check by ${esc(r.reviewBy)}${r.owner ? ` · ${esc(r.owner)}` : ''}`)}</ul>`;
+    if (group === 'ending') return `<ul class="nr-list">${line(r, `${r.ended ? '<span class="flag">ended</span>' : 'ends'} ${esc(r.expiresAt)}`)}</ul>`;
+    return `<div class="nr-item">
+      <ul class="nr-list">${line(r, r.brokenAt ? `broken ${esc(r.brokenAt)}` : 'broken')}</ul>
+      ${r.restingOn.length || r.tasks.length ? `<div class="nr-rests"><span class="section-title">Rests on it</span><ul class="nr-list">
+        ${r.restingOn.map(d => line(d, d.stillFlagged ? '<span class="flag">Needs re-confirming</span>' : 'Re-confirmed')).join('')}
+        ${r.tasks.map(t => line({ ...t, type: 'task', key: t.key || 'Task' })).join('')}
       </ul></div>` : '<p class="muted nr-rests">Nothing rests on it.</p>'}
-    </div>`).join(''))}
-    ${group('Past their check-by date', needs.overdue, `<ul class="nr-list">${needs.overdue.map(r => line(r, `check by ${esc(r.reviewBy)}${r.owner ? ` · ${esc(r.owner)}` : ''}`)).join('')}</ul>`)}
-    ${group('Exceptions ending within 14 days', needs.ending, `<ul class="nr-list">${needs.ending.map(r => line(r, `${r.ended ? '<span class="flag">ended</span>' : 'ends'} ${esc(r.expiresAt)}`)).join('')}</ul>`)}`;
+    </div>`;
+  };
+  let shown = null;
+  return entries.map(e => {
+    const head = e.group === shown ? ''
+      : `<h3 class="nr-group">${NEEDS_GROUPS[e.group]}<span class="n">${needs[e.group].length}</span></h3>`;
+    shown = e.group;
+    return head + entry(e);
+  }).join('');
 }
 
 /** How many rows one page of a list shows. */
@@ -522,7 +543,7 @@ function pageFor(pages, asked, item, idOf = r => r.node?.id) {
   return Math.min(Math.max(1, asked || 1), pages.length);
 }
 
-export const projectPage = ({ user, view, selected, item = null, note = null, done = null, origin = null, filters = {}, history = false, tab = null, page = 1, inheritedPage: askedInherited = 1 }) => {
+export const projectPage = ({ user, view, selected, item = null, note = null, done = null, origin = null, filters = {}, history = false, tab = null, page = 1, inheritedPage: askedInherited = 1, needsPage = 1 }) => {
   const isProject = selected === null;
   const tree = isProject ? view.projectTree : view.trees[selected];
   const where = workstreamLocation(view.workstreams, selected, view.project);
@@ -557,15 +578,15 @@ export const projectPage = ({ user, view, selected, item = null, note = null, do
   // The review queue is the manager's, so its tab exists only for them.
   const reviewing = Array.isArray(view.pending);
   const linkedReview = reviewing && item && view.pending.some(q => q.id === item);
-  // So is the second look, which reads across every part of the work.
+  // So is the second look, which reads across every part of the work. Both
+  // are sections of one Review tab.
   const needs = view.needsReview || null;
-  const needsCount = needs ? needs.broken.length + needs.overdue.length + needs.ending.length : 0;
+  const needsList = needsEntries(needs);
   const changeCount = reviewing ? view.pending.reduce((n, q) => n + (Array.isArray(q.operations) ? q.operations.length : 0), 0) : 0;
   const active = linkedTask ? 'tasks'
     : (item && rows.some(r => r.node.id === item)) ? 'context'
       : linkedReview ? 'review'
         : tab === 'review' && reviewing ? 'review'
-          : tab === 'needs' && needs ? 'needs'
             : tab === 'tasks' || (tab !== 'context' && filtering) ? 'tasks' : 'context';
   const onTasks = active === 'tasks';
   // Every link and form in the panel lands back on the panel, not the top of
@@ -601,6 +622,11 @@ export const projectPage = ({ user, view, selected, item = null, note = null, do
   // being approved.
   const reviewPages = reviewing ? paginate(view.pending.map(q => ({ node: q })), 10) : [[]];
   const reviewPage = active === 'review' ? pageFor(reviewPages, page, item) : 1;
+  // The two sections of the Review tab page on their own, as the two context
+  // tables do: `page` for what is waiting, `npage` for what needs a second look.
+  const needsPages = paginate(needsList, 10);
+  const needsAt = active === 'review' ? pageFor(needsPages, needsPage, null) : 1;
+  const reviewParams = { tab: 'review', page: reviewPage > 1 ? reviewPage : '', npage: needsAt > 1 ? needsAt : '' };
   const pager = (pages, at, params, key = 'page') => (pages.length < 2 ? '' : `<nav class="pager" aria-label="Pages">
       <a class="${at > 1 ? '' : 'off'}" href="${esc(panelHref({ ...params, [key]: at - 1 > 1 ? at - 1 : '' }))}">← Previous</a>
       <span>Page ${at} of ${pages.length}</span>
@@ -652,19 +678,18 @@ ${done ? `<p class="note done" role="status">${esc(done)}</p>` : ''}
 
   <main>
     <nav class="tabs" id="panel" aria-label="What to show">
-      ${reviewing ? `<a href="${esc(panelHref({ tab: 'review' }))}"${active === 'review' ? ' aria-current="page"' : ''}>Waiting for you<span class="n${view.pending.length ? ' warn' : ''}">${view.pending.length}</span></a>` : ''}
-      ${needs ? `<a href="${esc(panelHref({ tab: 'needs' }))}"${active === 'needs' ? ' aria-current="page"' : ''}>Needs review<span class="n${needsCount ? ' warn' : ''}">${needsCount}</span></a>` : ''}
       <a href="${esc(panelHref({ history: history ? '1' : '' }))}"${active === 'context' ? ' aria-current="page"' : ''}>Current state<span class="n">${rows.length}</span></a>
       <a href="${esc(panelHref(taskParams))}"${onTasks ? ' aria-current="page"' : ''}>Tasks<span class="n">${tasks.length} open</span></a>
+      ${reviewing ? `<a href="${esc(panelHref({ tab: 'review' }))}"${active === 'review' ? ' aria-current="page"' : ''}>Review<span class="n${view.pending.length + needsList.length ? ' warn' : ''}">${view.pending.length + needsList.length}</span></a>` : ''}
     </nav>
     ${active === 'review' ? `<section>
       <div class="tree-head"><span class="section-title">Waiting for you${view.pending.length ? ` — ${view.pending.length} waiting · ${changeCount} change${changeCount === 1 ? '' : 's'}` : ''}</span></div>
       ${view.pending.length ? `${rowHeader({ text: 'Contribution' })}
       ${reviewPages[reviewPage - 1].map(({ node: q }) => queueRows({ q, view, item, origin })).join('')}
-      ${pager(reviewPages, reviewPage, { tab: 'review' })}` : '<p class="muted">Nothing is waiting for review.</p>'}
-    </section>` : active === 'needs' ? `<section>
-      <div class="tree-head"><span class="section-title">Needs review — across the whole project</span></div>
-      ${needsReviewPanel({ needs, base })}
+      ${pager(reviewPages, reviewPage, reviewParams)}` : '<p class="muted">Nothing is waiting for review.</p>'}
+      ${needs ? `<div class="tree-head review-split"><span class="section-title">Needs review — across the whole project${needsList.length ? ` — ${needsList.length}` : ''}</span></div>
+      ${needsReviewPanel({ needs, entries: needsPages[needsAt - 1], base })}
+      ${pager(needsPages, needsAt, reviewParams, 'npage')}` : ''}
     </section>` : onTasks ? `<section>
       <div class="tasks-head">
         <span class="section-title">Tasks${taskWs === '@all' ? '' : ` — ${esc(taskWs === '@project' ? (view.project || 'Overall project') : workstreamLocation(view.workstreams, taskWs))}`}</span>

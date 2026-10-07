@@ -45,14 +45,14 @@ section 3 exist. What is missing:
 
 ### Tabs
 
-For a manager: **Waiting for you · Needs review · Current state · Tasks**. For a
-member: **Current state · Tasks**. "Context" is renamed "Current state", the
-issue's name for it. Tasks stays: #127 put it there and #118 does not remove it.
+For a manager: **Current state · Tasks · Review**. For a member: **Current state ·
+Tasks**. "Context" is renamed "Current state", the issue's name for it. Tasks
+stays: #127 put it there and #118 does not remove it.
 
-The default tab stays Current state. The two manager tabs show counts, with a
-warning colour when non-zero, so what needs attention is visible on landing
-without the page changing under somebody depending on its contents. (A choice,
-not a requirement; easy to flip.)
+The issue asks for sections, not tabs, so *Waiting for you* and *Needs review*
+are two sections of the one **Review** tab, the queue first, each paging on its
+own (`page` and `npage`, as the two context tables do). Current state is first
+and the default; the Review tab's count is amber when there is something in it.
 
 ### 1 · Waiting for you
 
@@ -120,7 +120,7 @@ framework; no script beyond what the page already has.
 
 ## Plan
 
-- [x] Tabs: Waiting for you · Needs review · Current state · Tasks; counts
+- [x] Tabs: Current state · Tasks · Review (both manager sections, paged apart)
 - [x] Section 1 as cards with nested changes; "N waiting · M changes"
 - [x] Approve / Reject / Replace from the page; manager gate; Origin check
 - [x] Section 2: broken + what rests on them, overdue, ending soon
