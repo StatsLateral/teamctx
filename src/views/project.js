@@ -129,13 +129,16 @@ const CSS = `
   padding:6px 8px 10px;margin:0 0 12px}
 .changes{margin:6px 0 0 18px;padding-left:10px;border-left:2px solid var(--line)}
 .changes-head{font-size:12px;color:var(--soft);margin:4px 0}
-.review-act{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:flex-end;margin:10px 0 0 18px}
+.review-act{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;margin:10px 0 0 18px}
 .review-act form{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0}
+.review-act .act-reject{flex-wrap:nowrap}
 .review-act .replaces{border:0;padding:0;margin:0;font-size:13px}
 .review-act .replaces legend{font-size:12px;color:var(--soft);padding:0}
 .review-act .replaces label{display:block}
-.review-act input[type=text]{font:inherit;font-size:13px;padding:5px 8px;border:1px solid var(--line);
-  border-radius:var(--radius-sm);min-width:200px}
+/* The theme makes every input full width, which put the reason box on a line of
+   its own above both buttons, and stretched the checkboxes. */
+.review-act .replaces input{width:auto;margin:0 6px 0 0}
+.review-act input[type=text]{width:260px;flex:0 1 260px;min-width:0;font-size:13px;padding:7px 9px}
 .act-note{flex-basis:100%;font-size:13px;color:var(--amber);margin:0}
 /* Needs review: plain lists, each line linking to its record in its own part. */
 /* The second section of the Review tab, set apart from the queue above it. */
@@ -500,7 +503,7 @@ function needsReviewPanel({ needs, entries, base }) {
     if (group === 'overdue') return `<ul class="nr-list">${line(r, `check by ${esc(r.reviewBy)}${r.owner ? ` · ${esc(r.owner)}` : ''}`)}</ul>`;
     if (group === 'ending') return `<ul class="nr-list">${line(r, `${r.ended ? '<span class="flag">ended</span>' : 'ends'} ${esc(r.expiresAt)}`)}</ul>`;
     return `<div class="nr-item">
-      <ul class="nr-list">${line(r, r.brokenAt ? `broken ${esc(r.brokenAt)}` : 'broken')}</ul>
+      <ul class="nr-list">${line(r, r.brokenAt ? `broken ${esc(String(r.brokenAt).slice(0, 10))}` : 'broken')}</ul>
       ${r.restingOn.length || r.tasks.length ? `<div class="nr-rests"><span class="section-title">Rests on it</span><ul class="nr-list">
         ${r.restingOn.map(d => line(d, d.stillFlagged ? '<span class="flag">Needs re-confirming</span>' : 'Re-confirmed')).join('')}
         ${r.tasks.map(t => line({ ...t, type: 'task', key: t.key || 'Task' })).join('')}

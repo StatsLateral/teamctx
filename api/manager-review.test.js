@@ -294,7 +294,8 @@ describe('needs review', () => {
   it('shows a broken assumption with what rests on it, re-confirmed ones marked as such', async () => {
     const { body } = await visit('/project/acme/ledger?tab=review', MANAGER);
     const panel = body.slice(body.indexOf('Needs review — across the whole project'));
-    expect(panel).toMatch(/A-1[\s\S]*buyers pay by card[\s\S]*Rests on it/);
+    expect(panel).toMatch(/A-1[\s\S]*buyers pay by card[\s\S]*broken 2026-09-01<[\s\S]*Rests on it/);
+    expect(panel).not.toContain('T10:00:00');
     expect(panel).toMatch(/D-3[\s\S]*card checkout only[\s\S]*Needs re-confirming/);
     expect(panel).toMatch(/D-4[\s\S]*no invoicing[\s\S]*Re-confirmed/);
     expect(panel).toContain('href="/project/acme/ledger?ws=product&amp;item=a1#panel"');
