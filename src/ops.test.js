@@ -254,3 +254,83 @@ describe('the key a record is minted with', () => {
     expect(tree.records[0].key).toBe('D-1');
   });
 });
+
+/**
+ * The two moments that need the time of day.
+ *
+ * `updatedAt` is a date, which cannot order two changes made in one sitting —
+ * and breaking an assumption then re-confirming a decision that rested on it is
+ * exactly one sitting. `src/impact.js` compares these two stamps to decide
+ * whether a flag has been answered, so the order has to survive.
+ */
+describe('when something broke, and when it was last looked at', () => {
+  const at = '2026-10-05T09:00:00.000Z';
+  const assumption = () => makeRecord({
+    id: 'a1', type: 'assumption', owner: { key: 'git:o@x', name: 'O' }, reviewBy: '2026-12-01',
+  });
+
+  it('stamps brokenAt when an assumption is marked broken', () => {
+    const { tree } = applyOps(
+      makeProject({ records: [assumption()] }),
+      [{ type: 'setRecordStatus', id: 'a1', status: 'broken' }], C, { at },
+    );
+    expect(tree.records[0].status).toBe('broken');
+    expect(tree.records[0].brokenAt).toBe(at);
+  });
+
+  it('stamps reviewedAt when an already-active record is set active again', () => {
+    // The re-confirmation. It looks like a no-op — the status does not move —
+    // and it is how the manager says "I have looked, this still holds" without
+    // replacing it.
+    const { tree } = applyOps(
+      makeProject({ records: [makeRecord({ id: 'd1', type: 'decision' })] }),
+      [{ type: 'setRecordStatus', id: 'd1', status: 'active' }], C, { at },
+    );
+    expect(tree.records[0].status).toBe('active');
+    expect(tree.records[0].reviewedAt).toBe(at);
+  });
+
+  it('does not call reviving a broken record a re-confirmation', () => {
+    // Bringing an assumption back is not somebody having re-read what rested on
+    // it, and stamping `reviewedAt` here would clear flags nobody answered.
+    const { tree } = applyOps(
+      makeProject({ records: [makeRecord({ id: 'a1', type: 'assumption', status: 'broken', reviewBy: '2026-12-01' })] }),
+      [{ type: 'setRecordStatus', id: 'a1', status: 'active' }], C, { at },
+    );
+    expect(tree.records[0].status).toBe('active');
+    expect(tree.records[0].reviewedAt).toBeUndefined();
+  });
+
+  it('leaves both stamps alone for a status that is neither', () => {
+    const { tree } = applyOps(
+      makeProject({ records: [makeRecord({ id: 'd1', type: 'decision' })] }),
+      [{ type: 'setRecordStatus', id: 'd1', status: 'closed' }], C, { at },
+    );
+    expect(tree.records[0].brokenAt).toBeUndefined();
+    expect(tree.records[0].reviewedAt).toBeUndefined();
+  });
+
+  it('keeps the date on updatedAt, which is what gets shown', () => {
+    const { tree } = applyOps(
+      makeProject({ records: [assumption()] }),
+      [{ type: 'setRecordStatus', id: 'a1', status: 'broken' }], C, { at, onDay: '2026-10-05' },
+    );
+    expect(tree.records[0].updatedAt).toBe('2026-10-05');
+  });
+
+  it('records a second break over the first, so a repair can go stale again', () => {
+    const broke = applyOps(
+      makeProject({ records: [assumption()] }),
+      [{ type: 'setRecordStatus', id: 'a1', status: 'broken' }], C, { at },
+    ).tree;
+    const revived = applyOps(broke, [{ type: 'setRecordStatus', id: 'a1', status: 'active' }], C, { at: '2026-10-06T09:00:00.000Z' }).tree;
+    const again = applyOps(revived, [{ type: 'setRecordStatus', id: 'a1', status: 'broken' }], C, { at: '2026-10-07T09:00:00.000Z' }).tree;
+    expect(again.records[0].brokenAt).toBe('2026-10-07T09:00:00.000Z');
+  });
+
+  it('still refuses a status it does not know, and a record that is not there', () => {
+    const base = makeProject({ records: [assumption()] });
+    expect(applyOps(base, [{ type: 'setRecordStatus', id: 'a1', status: 'wobbly' }], C, { at }).dropped).toHaveLength(1);
+    expect(applyOps(base, [{ type: 'setRecordStatus', id: 'nope', status: 'broken' }], C, { at }).dropped).toHaveLength(1);
+  });
+});

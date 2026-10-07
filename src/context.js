@@ -14,7 +14,7 @@ import {
  * the whole chain.
  */
 export function serializeToMd(tree, projectName, lastUpdatedBy = '', contributions = [], {
-  includeSourceTags = false, includeContributors = true, project = null, chain = null,
+  includeSourceTags = false, includeContributors = true, project = null, chain = null, flagged = null,
 } = {}) {
   const isProject = !tree?.id;
   const md = renderBrief({
@@ -23,6 +23,7 @@ export function serializeToMd(tree, projectName, lastUpdatedBy = '', contributio
     chain: chain ?? (isProject ? [] : [tree]),
     includeSourceTags,
     lastUpdatedBy,
+    flagged,
   });
   if (includeSourceTags || !includeContributors) return md;
   const c = formatContributorsSection(collectContributorCounts(tree, contributions));
@@ -96,15 +97,20 @@ export async function generateRoleFile(workstream, role, projectName, config, co
   return callClaude({ prompt, model: config.model, config });
 }
 
-export async function compileTaskPrompt({ task, workstream, role, contributions, config, project = null, chain = null }) {
+export async function compileTaskPrompt({
+  task, workstream, role, contributions, config, project = null, chain = null, flagged = null,
+}) {
   const projectName = config?.project || workstream?.name || 'project';
-  const tree = serializeToMd(workstream, projectName, '', contributions, { includeContributors: false, project, chain });
+  // A compiled prompt is the thing a person actually acts on, and it is written
+  // once and read for weeks. A decision in it resting on an assumption that has
+  // since broken is the most expensive place for the flag to be missing.
+  const tree = serializeToMd(workstream, projectName, '', contributions, { includeContributors: false, project, chain, flagged });
   const now = new Date().toISOString().split('T')[0];
   const roleLine = role ? `Framed for role: ${role.name} — ${role.responsibilities || ''}` : 'No role filter — write for a general team member.';
   // The decisions and rules on this task's own chain, each exception under its
   // rule — never a loose list of everything anyone ever tagged.
   const settled = (w) => ({ ...w, tasks: [], records: (w?.records || []).filter(r => ['decision', 'rule', 'exception'].includes(r.type)) });
-  const decisionsList = renderBrief({ projectName, project: null, chain: (chain || [workstream]).map(settled) })
+  const decisionsList = renderBrief({ projectName, project: null, chain: (chain || [workstream]).map(settled), flagged })
     .split('\n').filter(l => l.trimStart().startsWith('- ')).join('\n') || '(none yet)';
 
   const prompt = [
