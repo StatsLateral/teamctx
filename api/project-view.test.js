@@ -1215,3 +1215,85 @@ describe('waiting on you, as a tab', () => {
     expect(second.body).toContain('task from proposal 14');
   });
 });
+
+/**
+ * The page's flag crosses scope; the assumption behind it does not.
+ *
+ * This is the one read path where the two halves of #120 pull against each
+ * other. Working out what rests on a broken assumption needs every record in the
+ * project, and #108's standing guarantee is that an out-of-scope tree is absent
+ * from the payload rather than hidden by the markup. So the records are read
+ * wide, used to answer one question, and only the mark is written onto the
+ * records being sent.
+ */
+describe('a record resting on a broken assumption, on the page', () => {
+  const breakIt = () => {
+    // The assumption lives in `tech`, which a member on `product` never sees.
+    repo.files.set('.teamctx/workstreams/tech.json', JSON.stringify({
+      id: 'tech', name: 'Tech',
+      records: [{
+        id: 'a1', type: 'assumption', text: 'the vendor keeps their uptime promise',
+        status: 'broken', brokenAt: '2026-10-05T09:00:00.000Z',
+        owner: { key: 'git:o@x', name: 'O' }, reviewBy: '2026-12-01',
+        attachedTo: { kind: 'workstream', id: 'tech' }, links: {},
+      }],
+      tasks: [],
+    }));
+  };
+  const restOnIt = (over = {}) => {
+    repo.files.set('.teamctx/workstreams/product.json', JSON.stringify({
+      id: 'product', name: 'Product',
+      records: [{
+        id: 'w1', type: 'decision', text: 'price it', status: 'active',
+        attachedTo: { kind: 'workstream', id: 'product' },
+        links: { restsOn: ['a1'] }, sourceContributionIds: ['c-prod'], ...over,
+      }],
+      tasks: [],
+    }));
+  };
+
+  it('marks the decision for the manager', async () => {
+    breakIt(); restOnIt();
+    const view = await readProjectView({ owner: 'acme', repo: 'ledger', user: MANAGER });
+    expect(view.trees.product.records[0].needsReview).toMatch(/rests on a broken assumption/);
+  });
+
+  it('marks it for a member who cannot see the assumption at all', async () => {
+    breakIt(); restOnIt(); await lend();
+    const view = await readProjectView({ owner: 'acme', repo: 'ledger', user: MEMBER_GOOGLE });
+    expect(Object.keys(view.trees)).toEqual(['product']);
+    expect(view.trees.product.records[0].needsReview).toMatch(/rests on a broken assumption/);
+  });
+
+  it('still keeps the assumption and its tree out of what that member is sent', async () => {
+    // The guarantee the wide read must not break: the words of the broken
+    // assumption, and the tree it lives in, are absent — only the sentence
+    // crossed. Its *id* is in the payload, and was before any of this: it is in
+    // the decision's own `links.restsOn`, which is the decision's content rather
+    // than something the flag carried over.
+    breakIt(); restOnIt(); await lend();
+    const view = await readProjectView({ owner: 'acme', repo: 'ledger', user: MEMBER_GOOGLE });
+    const sent = JSON.stringify(view);
+    expect(sent).not.toContain('the vendor keeps their uptime promise');
+    expect(Object.keys(view.trees)).toEqual(['product']);
+  });
+
+  it('shows it on the row, so the page can be scanned without opening each one', async () => {
+    breakIt(); restOnIt();
+    const { body } = await visit('/project/acme/ledger?ws=product', MANAGER);
+    expect(body).toContain('needs review');
+    expect(body).toContain('rests on a broken assumption');
+  });
+
+  it('does not show it once the manager has re-confirmed the decision', async () => {
+    breakIt(); restOnIt({ reviewedAt: '2026-10-05T10:00:00.000Z' });
+    const { body } = await visit('/project/acme/ledger?ws=product', MANAGER);
+    expect(body).toContain('price it');
+    expect(body).not.toContain('rests on a broken assumption');
+  });
+
+  it('says nothing on an ordinary project where nothing has broken', async () => {
+    const { body } = await visit('/project/acme/ledger?ws=product', MANAGER);
+    expect(body).not.toContain('rests on a broken assumption');
+  });
+});

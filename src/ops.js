@@ -101,13 +101,41 @@ function editRecord(tree, op, c, dropped, onDay, where) {
   return { ...tree, records: tree.records.map((r, j) => j === i ? next : r) };
 }
 
-function setStatus(tree, op, c, dropped, onDay) {
-  if (!STATUS_TARGETS.includes(op.status)) { dropped.push({ op, reason: `unknown status "${op.status}"` }); return tree; }
-  if (!tree.records.some(r => r.id === op.id)) { dropped.push({ op, reason: `no record "${op.id}"` }); return tree; }
-  return { ...tree, records: tree.records.map(r => r.id === op.id ? { ...withSource(r, c), status: op.status, updatedAt: onDay } : r) };
+/**
+ * Two moments worth the time of day, not just the date.
+ *
+ * `updatedAt` is a date, which is right for showing when something last changed
+ * and wrong for ordering two changes made in one sitting. Breaking an assumption
+ * and re-confirming a decision that rested on it is exactly that: the manager
+ * does both in the same conversation, and whether the second came after the first
+ * is the whole question `src/impact.js` asks. So those two get a timestamp.
+ *
+ * Setting an already-active record active again is the re-confirmation. It looks
+ * like a no-op — the status does not move — and it is the only way the manager
+ * says "I have looked at this, it still holds" without replacing it.
+ */
+function statusStamps(record, status, at) {
+  if (status === 'broken') return { brokenAt: at };
+  if (status === 'active' && record.status === 'active') return { reviewedAt: at };
+  return {};
 }
 
-export function applyOps(tree, ops, contributionId, { onDay = today(), target, nextKey } = {}) {
+function setStatus(tree, op, c, dropped, onDay, at) {
+  if (!STATUS_TARGETS.includes(op.status)) { dropped.push({ op, reason: `unknown status "${op.status}"` }); return tree; }
+  const existing = tree.records.find(r => r.id === op.id);
+  if (!existing) { dropped.push({ op, reason: `no record "${op.id}"` }); return tree; }
+  const stamps = statusStamps(existing, op.status, at);
+  return {
+    ...tree,
+    records: tree.records.map(r => (r.id === op.id
+      ? { ...withSource(r, c), status: op.status, updatedAt: onDay, ...stamps }
+      : r)),
+  };
+}
+
+export function applyOps(tree, ops, contributionId, {
+  onDay = today(), at = new Date().toISOString(), target, nextKey,
+} = {}) {
   const dropped = [];
   // Carried in a box so the branches below can spend from it in order, and
   // handed back for the caller to store — see `mintKey`. A caller that writes
@@ -159,7 +187,7 @@ export function applyOps(tree, ops, contributionId, { onDay = today(), target, n
     if (typeof o.title !== 'string' || !o.title.trim()) { dropped.push({ op: o, reason: 'task title is empty' }); return t; }
     return { ...t, tasks: t.tasks.map(x => x.id === o.id ? { ...withSource(x, contributionId), title: o.title.trim() } : x) };
   });
-  each(of('setRecordStatus'), (t, o) => setStatus(t, o, contributionId, dropped, onDay));
+  each(of('setRecordStatus'), (t, o) => setStatus(t, o, contributionId, dropped, onDay, at));
   each(of('removeTask'), (t, o) => {
     if (!t.tasks.some(x => x.id === o.id)) { dropped.push({ op: o, reason: `no task "${o.id}"` }); return t; }
     return { ...t, tasks: t.tasks.filter(x => x.id !== o.id) };
