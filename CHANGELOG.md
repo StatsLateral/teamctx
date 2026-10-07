@@ -34,7 +34,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   unchanged; posts from another site are refused. Approving refreshes role
   briefs as it does anywhere else, on the approver's or the project's AI key;
   viewing the page still never calls AI. A link to an item that is gone says
-  *"That item isn't here anymore"* without repeating the value.
+  *"That item isn't here anymore"* without repeating the value. Rows on every
+  tab are compact: the key, the statement (up to two lines), and the rest —
+  type, status, owner, notes, where, source — as pills under it; clicking a row
+  shows the whole statement and every pill in full.
 - **A note that contradicts an assumption is put to the manager as evidence.**
   #120 says what rested on an assumption once it breaks; somebody still had to
   notice it broke, and that notice arrives as a meeting note or a document that

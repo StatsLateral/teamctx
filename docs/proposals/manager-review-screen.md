@@ -90,7 +90,13 @@ data never contains it.
 
 ### 3 · Current state
 
-The existing context view, unchanged apart from its name.
+The existing context view, renamed. Its rows — and every row on the page —
+are now compact: the key in a narrow column, the statement taking the rest of
+the row (capped at two lines), and type, status, owner, notes, where and source
+as pills under it. A column each had left the statement a sliver and every row
+tall; the manager reading the queue was the one paying for it. Clicking a row
+shows the whole statement and every pill in full. (Asked for during review of
+this screen, not in the issue.)
 
 ### Unknown items
 
@@ -127,3 +133,4 @@ framework; no script beyond what the page already has.
 - [x] Unknown `?item=` note, never echoing the value
 - [x] Member page data has neither section 1 nor 2
 - [x] Tests for each acceptance line; CHANGELOG
+- [x] Compact rows: statement plus pills, details on click (asked for in review)
