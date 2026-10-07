@@ -40,6 +40,7 @@ vi.mock('../src/adapters/github.js', async (orig) => ({
 }));
 
 const { kvSet, kvGet, keys, __resetMemory } = await import('../src/oauth/kv.js');
+const { readProjectView } = await import('../src/oauth/project-view.js');
 // The remembered verdict on a repository, so a test can let it lapse.
 const __resetKnown = () => kvSet(keys.repoState('maya@example.com', 'acme', 'old-demo'), null);
 
@@ -146,7 +147,7 @@ describe('the manager looking at a project', () => {
     expect(body).toContain('Draft the pricing page');
     expect(body).toContain('Migrate the database');
     expect(onPage(body)).not.toContain('Something finished');
-    expect(body).toMatch(/1\s*\n?task already done/);
+    expect(body).toContain('Show history (1 done)');
   });
 
   it('sees what is waiting on them', async () => {
@@ -387,207 +388,6 @@ describe('the goal and why it matters, opening the page', () => {
   });
 });
 
-describe('the work the page draws', () => {
-  it('opens on the whole project, with every part of the work and its tasks', async () => {
-    const start = await visit('/project/acme/ledger', MANAGER);
-    expect(start.body).toContain('Draft the pricing page');
-    expect(start.body).toContain('Migrate the database');
-    const product = await visit('/project/acme/ledger?ws=product', MANAGER);
-    expect(product.body).toContain('Draft the pricing page');
-    expect(onPage(product.body)).not.toContain('Migrate the database');
-  });
-
-  it('shows no decision, rule, assumption or exception: those are read through the assistant', async () => {
-    for (const path of ['/project/acme/ledger', '/project/acme/ledger?ws=product', '/project/acme/ledger?tab=review']) {
-      const { body } = await visit(path, MANAGER);
-      const page = onPage(body);
-      expect(page, path).not.toContain('ship it');
-      expect(page, path).not.toContain('price it');
-      expect(page, path).not.toContain('keep the servers up');
-      expect(page, path).not.toMatch(/Project context — inherited|Governed by|class="list"/);
-    }
-  });
-
-  it('has no Context tab, and an old link to it lands on the tasks', async () => {
-    const { status, body } = await visit('/project/acme/ledger?tab=context&history=1&ipage=2', MANAGER);
-    expect(status).toBe(200);
-    expect(body).not.toMatch(/>Context<span/);
-    expect(body).toMatch(/aria-current="page">Tasks</);
-    expect(body).not.toMatch(/Show history|Hide history/);
-  });
-
-  it('never carries a tree the reader is not on, not even hidden', async () => {
-    // Scope that only holds in the markup is not scope: a reader who opens the
-    // network tab is still a reader.
-    await lend();
-    const { body } = await visit('/project/acme/ledger', MEMBER_GOOGLE);
-    expect(body).not.toContain('keep the servers up');
-    expect(body).not.toContain('Migrate the database');
-  });
-
-  it('numbers each part of the work flat, and indents the ones inside another', async () => {
-    const files = repo.files;
-    files.set('.teamctx/config.json', JSON.stringify({
-      ...CONFIG,
-      workstreams: [
-        { id: 'product', number: 1, name: 'Product', parent: null, order: 1 },
-        { id: 'pricing', number: 2, name: 'Pricing', parent: 'product', order: 1 },
-        { id: 'tech', number: 3, name: 'Tech', parent: null, order: 2 },
-      ],
-    }));
-    files.set('.teamctx/workstreams/pricing.json', JSON.stringify({ id: 'pricing', name: 'Pricing', records: [], tasks: [] }));
-    const { body } = await visit('/project/acme/ledger', MANAGER);
-    expect(body).toMatch(/<span class="num">1<\/span><span class="name">Product/);
-    expect(body).toMatch(/--depth:1[^>]*>[\s\S]*?<span class="num">2<\/span><span class="name">Pricing/);
-    expect(body).toMatch(/<span class="num">3<\/span><span class="name">Tech/);
-    expect(body).not.toMatch(/class="num">1\.1<\/span><span class="name"/);
-  });
-
-  it('counts open tasks on each part of the work, not records', async () => {
-    const { body } = await visit('/project/acme/ledger', MANAGER);
-    expect(body).toMatch(/<span class="name">Product<\/span><span class="count">1</);
-    expect(body).toMatch(/<span class="name">Tech<\/span><span class="count">1</);
-  });
-
-  it('names who wrote a task, and what kind of source it came from', async () => {
-    const { body } = await visit('/project/acme/ledger?ws=product', MANAGER);
-    expect(body).toMatch(/data-who="Priya"/);
-    // The source column says where it came through, in a word — teamctx
-    // records the surface, not whether a person or a model wrote the words.
-    expect(body).toMatch(/class="row-source src-mcp"[^>]*>Assistant</);
-  });
-
-  it('numbers the tasks on screen by their stored number, never a letter key', async () => {
-    const { body } = await visit('/project/acme/ledger', MANAGER);
-    expect(body).toMatch(/class="num">1\.1</);
-    expect(body).toMatch(/class="num">2\.1</);
-    expect(body).not.toMatch(/class="num">[TDRAXQ]-\d/);
-  });
-
-  it('writes a prompt a fresh chat can act on', async () => {
-    // Beside the page, "tell me more about X in Y" reads fine. Pasted into a
-    // new conversation it names nothing an assistant can act on — which of
-    // several projects, and with what.
-    const { body } = await visit('/project/acme/ledger?ws=product', MANAGER);
-    const prompt = rowPrompt(body);
-    // It names the repository and tells the assistant how to check it is on
-    // that one — the version before this said a connector "may be named
-    // something else", which told an assistant on a different project to carry
-    // on, and it did: it answered about the nearest thing it could find.
-    expect(prompt).toContain('connected to the repository acme/ledger');
-    expect(prompt).toContain('get_connect_url');
-    expect(prompt).toContain('stop and tell me');
-    expect(prompt).not.toContain('may be named something else');
-    expect(prompt).toContain('the part of the work called &quot;Product&quot;');
-    expect(prompt).toContain('Tell me more about task 1.1:');
-    expect(prompt).toContain('Find this, quoted word for word');
-    expect(prompt).toContain('&quot;Draft the pricing page&quot;');
-    expect(prompt).toContain('say so plainly rather than answering about the closest thing');
-  });
-
-  it('names the part of the work without exposing its internal id', async () => {
-    // Breadcrumb names locate the work; internal ids stay in link targets.
-    const { body } = await visit('/project/acme/ledger?ws=product', MANAGER);
-    const prompt = rowPrompt(body);
-    expect(prompt).toContain('&quot;Product&quot;');
-    expect(prompt).not.toContain('(id: product)');
-  });
-
-  it('carries the address of the page it was copied from', async () => {
-    const { body } = await visit('/project/acme/ledger?ws=product', MANAGER);
-    const prompt = rowPrompt(body);
-    expect(prompt).toMatch(/The page it came from: https?:[^ ]*project\/acme\/ledger/);
-    expect(prompt).toContain('item=pricing-page');
-  });
-
-  it('says so plainly when there is no work yet', async () => {
-    repo.files.set('.teamctx/config.json', JSON.stringify({ ...CONFIG, workstreams: [], members: [] }));
-    repo.files.delete('.teamctx/workstreams/product.json');
-    repo.files.delete('.teamctx/workstreams/tech.json');
-    const { body } = await visit('/project/acme/ledger', MANAGER);
-    expect(body).toMatch(/No work yet — ask your assistant to add a workstream/);
-  });
-
-  it('says so plainly when a part of the work holds no open task', async () => {
-    repo.files.set('.teamctx/workstreams/tech.json', JSON.stringify({ id: 'tech', name: 'Tech', records: [], tasks: [] }));
-    const { body } = await visit('/project/acme/ledger?ws=tech', MANAGER);
-    expect(body).toMatch(/No open tasks match these filters/);
-  });
-});
-
-describe('arriving from a link', () => {
-  it('opens the part of the work the link named', async () => {
-    const { body } = await visit('/project/acme/ledger?ws=product', MANAGER);
-    expect(body).toMatch(/class="lane on"[^>]*href="[^"]*ws=product/);
-  });
-
-  it('marks the task the link pointed at', async () => {
-    const { body } = await visit('/project/acme/ledger?ws=product&item=pricing-page', MANAGER);
-    expect(body).toMatch(/class="item tier-task marked" id="t-pricing-page"/);
-  });
-
-  it('reaches the same row by number as by id', async () => {
-    // Links carry the internal id, which never changes; the number is what a
-    // person has in front of them, so a link pasted from the page or out of a
-    // prompt has to land in the same place.
-    const byId = await visit('/project/acme/ledger?ws=product&item=pricing-page', MANAGER);
-    const byNumber = await visit('/project/acme/ledger?ws=product&item=1.1', MANAGER);
-    expect(byNumber.body).toMatch(/class="item tier-task marked" id="t-pricing-page"/);
-    expect(byNumber.body).toContain('<span class="num">1.1</span>');
-    expect(byNumber.body).toContain('Tell me more about task 1.1:');
-    expect(byNumber.body).toBe(byId.body);
-  });
-
-  it('reaches a task by its number through the task parameter too', async () => {
-    const { body } = await visit('/project/acme/ledger?task=2.1', MANAGER);
-    expect(body).toMatch(/class="item tier-task marked" id="t-migrate-db"/);
-  });
-
-  it('reaches a waiting item by the number it waits under', async () => {
-    const { body } = await visit('/project/acme/ledger?review=1.2', MANAGER);
-    expect(body).toMatch(/aria-current="page">Waiting on you/);
-    expect(body).toMatch(/class="item[^"]*marked"[^>]*id="r-c-1"/);
-    expect(body).toContain('<span class="num">1.2</span>');
-  });
-
-  it('falls back quietly for a number that names nothing', async () => {
-    // Same quiet landing an unknown id gets — the page, nothing marked, and the
-    // value never written back into it.
-    const { status, body } = await visit('/project/acme/ledger?ws=product&item=9.9', MANAGER);
-    expect(status).toBe(200);
-    // Not "marked" anywhere: that word is in the stylesheet. Nothing *carries*
-    // the class.
-    expect(body).not.toMatch(/class="item[^"]*marked/);
-    expect(onPage(body)).not.toMatch(/9\.9/);
-  });
-
-  it('does not reach a record, which has no number and is not on the page', async () => {
-    const { status, body } = await visit('/project/acme/ledger?ws=product&item=w1', MANAGER);
-    expect(status).toBe(200);
-    expect(body).not.toMatch(/class="item[^"]*marked/);
-    expect(onPage(body)).not.toContain('price it');
-  });
-
-  it('falls back quietly when the part of the work is not theirs to see', async () => {
-    await lend();
-    const { body } = await visit('/project/acme/ledger?ws=tech', MEMBER_GOOGLE);
-    expect(body).toMatch(/not here, or not yours to see/);
-    expect(body).not.toContain('Migrate the database');
-  });
-
-  it('never writes what was asked for back into the page', async () => {
-    // A parameter is somebody else's text until proven otherwise.
-    const { body } = await visit('/project/acme/ledger?ws=<script>alert(1)</script>', MANAGER);
-    expect(body).not.toContain('<script>alert(1)</script>');
-    expect(body).not.toContain('alert(1)');
-  });
-});
-
-// The page renders one tree at a time, so an out-of-scope tree in the payload
-// would never show — which is exactly why the rule is checked against the data
-// and not by reading the HTML. "Not in the page data", not "not on screen".
-const { readProjectView } = await import('../src/oauth/project-view.js');
-
 describe('what the data function hands back', () => {
 
   it('gives a member the trees they are on, and no others', async () => {
@@ -628,29 +428,6 @@ describe('what the data function hands back', () => {
     await lend();
     const view = await readProjectView({ owner: 'acme', repo: 'ledger', user: MEMBER_GOOGLE });
     expect(Object.keys(view.contributions)).toEqual(['c-prod']);
-  });
-});
-
-describe('what a link may and may not open', () => {
-  it('marks a task, and its drawer carries the task itself, never "undefined"', async () => {
-    // A task is an item in its own right, so the drawer it opens must hold its
-    // title rather than a statement's missing fields.
-    const { body } = await visit('/project/acme/ledger?ws=product&task=pricing-page', MANAGER);
-    expect(body).toMatch(/class="item tier-task marked" id="t-pricing-page"/);
-    const marked = /<button class="item[^"]*marked"[^>]*data-text="([^"]*)"/.exec(body);
-    if (marked) expect(marked[1]).not.toBe('undefined');
-    expect(body).not.toContain('data-text="undefined"');
-  });
-
-  it('gives a marked row something to look at', async () => {
-    const { body } = await visit('/project/acme/ledger?ws=product&task=pricing-page', MANAGER);
-    expect(body).toContain('.item.marked{');
-    expect(body).toContain('data-text="Draft the pricing page"');
-  });
-
-  it('opens the task of a part of the work the link did not name', async () => {
-    const { body } = await visit('/project/acme/ledger?task=migrate-db', MANAGER);
-    expect(body).toMatch(/class="item tier-task marked" id="t-migrate-db"/);
   });
 });
 
@@ -774,19 +551,18 @@ describe('the Settings block', () => {
     expect(body).toContain("window.matchMedia('(min-width: 901px)')");
   });
 
-  it('keeps the lanes, the lane picker and the drawers working', async () => {
+  it('sits beside the tree and the drawers, which still work', async () => {
     const { body } = await visit('/project/acme/ledger', MANAGER);
-    expect(body).toContain('class="lanes"');
-    expect(body).toContain('id="lane-pick"');
+    expect(body).toContain('class="tree"');
     expect(body).toContain('id="drawer"');
+    expect(body).not.toContain('id="lane-pick"');
   });
-});
 
-describe('a task with nothing recorded behind it', () => {
-  it('says nothing was recorded rather than naming a source it does not have', async () => {
-    // The tech tasks have no sourceContributionIds in this fixture.
-    const { body } = await visit('/project/acme/ledger?ws=tech', MANAGER);
-    expect(body).toMatch(/class="row-source src-none" title="No source recorded">—</);
+  it('counts the team and the agents beneath the address', async () => {
+    const { body } = await visit('/project/acme/ledger', MANAGER);
+    const settings = /<section class="settings"[\s\S]*?<\/section>/.exec(body)[0];
+    expect(settings).toContain('<p class="stline">2 team members</p>');
+    expect(settings).toContain('<p class="stline">1 agent</p>');
   });
 });
 
@@ -870,217 +646,6 @@ describe('stored fields are never trusted as markup', () => {
   });
 });
 
-describe('shared rows, task filters and governance (#127)', () => {
-  const row = (html, id) => new RegExp(`<button[^>]*id="${id}"[\\s\\S]*?</button>`).exec(html)?.[0];
-  function records(items) {
-    const tree = JSON.parse(repo.files.get('.teamctx/workstreams/product.json'));
-    repo.files.set('.teamctx/workstreams/product.json', JSON.stringify({ ...tree, records: items }));
-  }
-
-  it('shows both sides of a contradiction in the manager queue, with stored text escaped', async () => {
-    const hostile = '<img src=x onerror="alert(1)">';
-    repo.files.set('.teamctx/queue/c-1.json', JSON.stringify({
-      id: 'c-1', status: 'pending', author: 'Priya', summary: 'Change the entry offer', workstream: 'product',
-      operations: [{ type: 'addRecord', record: { type: 'decision', text: 'An AI-readiness assessment' } }],
-      contradictions: [{ operationIndex: 0, proposedText: 'An AI-readiness assessment', record: { id: 'old', type: 'decision', text: hostile, workstream: 'product' } }],
-    }));
-    const manager = await visit('/project/acme/ledger?tab=review', MANAGER);
-    expect(row(manager.body, 'r-c-1')).toContain('Contradicts');
-    expect(row(manager.body, 'proposal-c-1-0')).toContain('warning-chip');
-    expect(row(manager.body, 'proposal-c-1-0')).toContain('We decided: &lt;img');
-    expect(row(manager.body, 'proposal-c-1-0')).toContain('An AI-readiness assessment');
-    expect(manager.body).not.toContain(hostile);
-    await lend();
-    const member = await visit('/project/acme/ledger', MEMBER_GOOGLE);
-    expect(member.body).not.toContain('An AI-readiness assessment');
-    expect(member.body).not.toContain('onerror');
-  });
-
-  it('keeps the page readable when a queued proposal includes malformed operations', async () => {
-    repo.files.set('.teamctx/queue/c-1.json', JSON.stringify({
-      id: 'c-1', status: 'pending', author: 'Priya', summary: 'Partial proposal', workstream: 'product',
-      operations: [null, { type: 'addRecord' }, { type: 'addTask', title: 'Valid task proposal' }],
-    }));
-    const { status, body } = await visit('/project/acme/ledger?tab=review', MANAGER);
-    expect(status).toBe(200);
-    expect(body).toContain('Valid task proposal');
-    expect(body).toContain('Partial proposal');
-    repo.files.set('.teamctx/queue/c-1.json', JSON.stringify({ id: 'c-1', status: 'pending', author: 'Priya', summary: 'Bad operation list', operations: {} }));
-    expect((await visit('/project/acme/ledger?tab=review', MANAGER)).status).toBe(200);
-  });
-
-  it('shows which rule a proposed exception bends, including a proposed rule reference', async () => {
-    records([{ id: 'rule', type: 'rule', text: 'Annual contracts only', status: 'active' }]);
-    repo.files.set('.teamctx/queue/c-1.json', JSON.stringify({
-      id: 'c-1', status: 'pending', author: 'Priya', workstream: 'product',
-      operations: [
-        { type: 'addRecord', record: { type: 'exception', text: 'Acme monthly pilot', links: { bends: 'rule' }, expiresAt: '2999-01-01' } },
-        { type: 'addRecord', ref: 'pilot-rule', record: { type: 'rule', text: 'Pilot lasts two weeks' } },
-        { type: 'addRecord', record: { type: 'exception', text: 'Acme gets three weeks', links: { bends: 'pilot-rule' }, expiresAt: '2999-01-01' } },
-      ],
-    }));
-    const { body } = await visit('/project/acme/ledger?tab=review', MANAGER);
-    expect(row(body, 'proposal-c-1-0')).toContain('↳ bends the rule &quot;Annual contracts only&quot;');
-    expect(row(body, 'proposal-c-1-2')).toContain('↳ bends the proposed rule');
-    expect(row(body, 'proposal-c-1-2')).toContain('Pilot lasts two weeks');
-  });
-
-  it('previews only editable fields and merges partial record links as approval does', async () => {
-    records([
-      { id: 'rule', type: 'rule', text: 'Annual contracts only', status: 'active' },
-      { id: 'exception', type: 'exception', text: 'Acme monthly pilot', status: 'active', expiresAt: '2999-01-01', links: { bends: 'rule' } },
-    ]);
-    repo.files.set('.teamctx/queue/c-1.json', JSON.stringify({
-      id: 'c-1', status: 'pending', author: 'Priya', workstream: 'product',
-      operations: [{ type: 'editRecord', id: 'exception', changes: {
-        text: 'Updated Acme monthly pilot', links: { restsOn: [] }, status: 'broken', id: 'spoofed', key: 'X-999',
-      } }],
-    }));
-    const { body } = await visit('/project/acme/ledger?tab=review', MANAGER);
-    const proposal = row(body, 'proposal-c-1-0');
-    expect(proposal).toContain('↳ bends the rule &quot;Annual contracts only&quot;');
-    expect(proposal).toContain('Awaiting review · active');
-    expect(proposal).toContain('Updated Acme monthly pilot');
-    expect(proposal).not.toContain('spoofed');
-    expect(proposal).not.toContain('X-999');
-  });
-
-  it('shows an overdue review and an expired exception on a proposal, as it did on a record', async () => {
-    repo.files.set('.teamctx/queue/c-1.json', JSON.stringify({
-      id: 'c-1', status: 'pending', author: 'Priya', workstream: 'product',
-      operations: [
-        { type: 'addRecord', record: { type: 'assumption', text: 'buyers need SSO', owner: { name: 'Priya' }, reviewBy: '2000-01-01' } },
-      ],
-    }));
-    const { body } = await visit('/project/acme/ledger?tab=review', MANAGER);
-    expect(row(body, 'proposal-c-1-0')).toContain('warning-chip">Review overdue 2000-01-01');
-  });
-
-  it('renders tasks and proposals with the shared anatomy', async () => {
-    const tasks = await visit('/project/acme/ledger?ws=product&tab=tasks', MANAGER);
-    expect(tasks.body.match(/id="t-pricing-page"/g)).toHaveLength(1);
-    const task = row(tasks.body, 't-pricing-page');
-    for (const text of ['class="num">1.1', 'class="type-label">Task', 'class="row-owner">Priya', 'class="row-state"', 'class="row-notes"', 'class="row-source src-mcp"', 'class="row-where">Product']) expect(task).toContain(text);
-    const queue = await visit('/project/acme/ledger?tab=review', MANAGER);
-    expect(row(queue.body, 'r-c-1')).toContain('Awaiting review');
-    expect(row(queue.body, 'r-c-1')).toContain('class="num">1.2');
-  });
-
-  it('filters by workstream and owner, with a useful empty state', async () => {
-    const product = await visit('/project/acme/ledger?taskWs=product&taskOwner=Priya', MANAGER);
-    expect(product.body).toContain('id="t-pricing-page"');
-    expect(product.body).not.toContain('id="t-migrate-db"');
-    const mismatch = await visit('/project/acme/ledger?taskWs=product&taskOwner=Dev', MANAGER);
-    expect(mismatch.body).not.toContain('id="t-pricing-page"');
-    expect(mismatch.body).toContain('No open tasks match these filters');
-    const all = await visit('/project/acme/ledger?ws=product&taskWs=@all', MANAGER);
-    expect(all.body).toContain('id="t-migrate-db"');
-  });
-
-  it('filters unassigned tasks on their own, and offers no project-level choice: a task is in a workstream', async () => {
-    repo.files.set('.teamctx/workstreams/tech.json', JSON.stringify({
-      id: 'tech', name: 'Tech',
-      records: [],
-      tasks: [{ id: 'orphan-task', key: '2.3', title: 'Nobody has this', status: 'open', owner: null }],
-    }));
-    const { body } = await visit('/project/acme/ledger?taskOwner=@unassigned', MANAGER);
-    expect(body).toContain('id="t-orphan-task"');
-    expect(body).not.toContain('id="t-pricing-page"');
-    expect(body).not.toContain('value="@project"');
-  });
-
-  it('keeps the part of the work in the filter form, so a filter lands where it was', async () => {
-    const tasks = await visit('/project/acme/ledger?ws=product&taskWs=tech&taskOwner=Dev', MANAGER);
-    const form = /<form class="task-filters"[\s\S]*?<\/form>/.exec(tasks.body)[0];
-    expect(form).toContain('name="ws" value="product"');
-    expect(form).not.toContain('name="view"');
-    expect(form).not.toContain('name="tab"');
-    expect(form).toContain('value="Dev" selected');
-  });
-
-  it('names nested locations in tasks and proposals, without raw ids as labels', async () => {
-    repo.files.set('.teamctx/config.json', JSON.stringify({ ...CONFIG, workstreams: [
-      { id: 'product', name: 'Pricing', parent: 'tech' }, { id: 'tech', name: 'Launch' },
-    ] }));
-    const { body } = await visit('/project/acme/ledger?tab=tasks', MANAGER);
-    expect(row(body, 't-pricing-page')).toContain('class="row-where">Launch › Pricing');
-    const queue = await visit('/project/acme/ledger?tab=review', MANAGER);
-    expect(row(queue.body, 'r-c-1')).toContain('class="row-where">Launch › Pricing');
-    expect(body).not.toContain('(id: product)');
-    expect(body).not.toContain('class="row-where">product');
-    expect(body).not.toContain('class="row-where">tech');
-  });
-
-  it('does not reveal a hidden ancestor through breadcrumbs or filters', async () => {
-    repo.files.set('.teamctx/config.json', JSON.stringify({ ...CONFIG, workstreams: [
-      { id: 'product', name: 'Pricing', parent: 'tech' }, { id: 'tech', name: 'Secret launch' },
-    ] }));
-    await lend();
-    const view = await readProjectView({ owner: 'acme', repo: 'ledger', user: MEMBER_GOOGLE });
-    expect(view.tasks.open[0].where).toBe('Pricing');
-    const { body } = await visit('/project/acme/ledger?taskWs=tech&taskOwner=Unknown', MEMBER_GOOGLE);
-    expect(body).not.toContain('Secret launch');
-    expect(body).not.toContain('value="tech"');
-    expect(body).not.toContain('Unknown');
-    expect(body).toContain('id="t-pricing-page"');
-  });
-
-  it('keeps linked tasks visible through conflicting filters, including completed tasks', async () => {
-    const { body } = await visit('/project/acme/ledger?task=pricing-page&taskWs=tech&taskOwner=Dev', MANAGER);
-    expect(body).toContain('class="item tier-task marked" id="t-pricing-page"');
-    expect(body).toContain('value="product" selected');
-    const done = await visit('/project/acme/ledger?task=old-thing', MANAGER);
-    expect(done.body).toContain('class="item tier-task marked" id="t-old-thing"');
-    expect(row(done.body, 't-old-thing')).toContain('class="status-chip">done');
-  });
-
-  it('shows proposed additions without numbers, and edits of a record without one either', async () => {
-    records([{ id: 'w1', type: 'decision', text: 'price it', status: 'active' }]);
-    repo.files.set('.teamctx/queue/c-1.json', JSON.stringify({
-      id: 'c-1', status: 'pending', author: 'Priya', source: 'mcp', summary: 'Pricing changes', workstream: 'product',
-      operations: [
-        { type: 'addRecord', record: { type: 'rule', text: 'New proposed rule', key: 'R-999' } },
-        { type: 'addTask', title: 'New proposed task' },
-        { type: 'editRecord', id: 'w1', changes: { text: 'Updated price' } },
-        { type: 'setRecordStatus', id: 'w1', status: 'replaced' },
-      ],
-    }));
-    const before = [...repo.files];
-    const { body } = await visit('/project/acme/ledger?tab=review', MANAGER);
-    expect(row(body, 'proposal-c-1-0')).toContain('class="num">—');
-    expect(row(body, 'proposal-c-1-1')).toContain('class="type-label">Task');
-    expect(row(body, 'proposal-c-1-1')).toContain('class="num">—');
-    expect(row(body, 'proposal-c-1-2')).toContain('class="num">—');
-    expect(row(body, 'proposal-c-1-3')).toContain('Awaiting review · replaced');
-    expect(row(body, 'proposal-c-1-0')).toContain('data-who="Priya"');
-    expect(row(body, 'proposal-c-1-0')).toContain('item=c-1');
-    expect(body).not.toContain('R-999');
-    expect(body).not.toContain('item=undefined');
-    expect([...repo.files]).toEqual(before);
-  });
-
-  it('escapes hostile owner, location, text and source values', async () => {
-    const hostile = '<img src=x onerror="alert(1)">';
-    repo.files.set('.teamctx/config.json', JSON.stringify({ ...CONFIG, workstreams: [{ id: 'product', number: 1, name: hostile }] }));
-    repo.files.set('.teamctx/workstreams/product.json', JSON.stringify({
-      id: 'product', name: hostile, records: [],
-      tasks: [{ id: 'pricing-page', key: '1.1', title: hostile, owner: hostile, status: 'open' }],
-    }));
-    const { body } = await visit(`/project/acme/ledger?ws=product&taskOwner=${encodeURIComponent(hostile)}`, MANAGER);
-    expect(body).not.toContain(hostile);
-    expect(body).toContain('&lt;img');
-    expect(body).not.toContain('onerror="alert(1)"');
-  });
-
-  it('preserves signed-out history and filter selections through sign-in', async () => {
-    const path = '/project/acme/ledger?taskWs=%40all&taskOwner=Mary%20Jane&tab=review';
-    const result = await visit(path);
-    expect(result.status).toBe(303);
-    expect(result.location).toContain('tab=review');
-    expect(new URLSearchParams(result.location.split('?returnTo=')[1].split('?')[1]).get('taskOwner')).toBe('Mary Jane');
-  });
-});
-
 /**
  * A link that points at nothing leaves nothing behind.
  *
@@ -1137,18 +702,16 @@ describe('the project and workstream drawers', () => {
   const panel = (body, id) => new RegExp(`<section class="dpanel" id="${id}"[\\s\\S]*?</section>`).exec(body)?.[0];
   const promptMap = (body) => JSON.parse(/<script type="application\/json" id="prompts">([\s\S]*?)<\/script>/.exec(body)[1]);
 
-  it('opens from an icon beside the goal, one beside the project, and one beside each workstream', async () => {
+  it('opens from an icon beside the goal and one beside each workstream\'s heading', async () => {
     const { body } = await visit('/project/acme/ledger', MANAGER);
     expect(body).toMatch(/<button type="button" class="ctx-open" data-panel="dp-project" aria-label="Read the full goal and why it matters"/);
-    expect(body).toMatch(/data-panel="dp-project" aria-label="Project summary and context"/);
     expect(body).toMatch(/data-panel="dp-ws-product" aria-label="Context for Product"/);
     expect(body).toMatch(/data-panel="dp-ws-tech" aria-label="Context for Tech"/);
   });
 
-  it('opens from the tasks heading too once a workstream is picked', async () => {
-    const { body } = await visit('/project/acme/ledger?ws=product', MANAGER);
-    const head = /<div class="tasks-head">[\s\S]*?<\/form>/.exec(body)[0];
-    expect(head).toMatch(/data-panel="dp-ws-product" aria-label="Context for Product"/);
+  it('puts no context icon in the tree: the tree is for choosing, the headings are for reading', async () => {
+    const { body } = await visit('/project/acme/ledger', MANAGER);
+    expect(/<ul class="tree">[\s\S]*?<\/ul>\s*<\/li><\/ul>/.exec(body)[0]).not.toContain('ctx-open');
   });
 
   it('puts the goal and why in full, then the project context in plain English', async () => {
@@ -1492,203 +1055,515 @@ describe('evidence against an assumption, in the queue', () => {
   });
 });
 
-describe('the task filters', () => {
-  it('sit beside the heading, as compact pickers', async () => {
-    const { body } = await visit('/project/acme/ledger?tab=tasks', MANAGER);
-    const head = /<div class="tasks-head">[\s\S]*?<\/form>\s*<\/div>/.exec(body)[0];
-    expect(head).toContain('class="section-title">Tasks<');
-    expect(head).toMatch(/<label class="pick"><span>Where<\/span><select name="taskWs"/);
-    expect(head).toMatch(/<label class="pick"><span>Owner<\/span><select name="taskOwner"/);
-  });
-
-  it('wait for their button rather than reloading on every change', async () => {
-    const { body } = await visit('/project/acme/ledger?tab=tasks', MANAGER);
-    expect(body).toContain('<button type="submit" class="apply">Filter</button>');
-    expect(body).not.toContain("document.querySelectorAll('.task-filters select')");
-  });
-
-  it('land back on the list after filtering, not the top of the page', async () => {
-    const { body } = await visit('/project/acme/ledger?tab=tasks', MANAGER);
-    expect(body).toMatch(/<form class="task-filters" method="GET" action="\/project\/acme\/ledger#panel">/);
-    expect(body).toContain('id="panel"');
-  });
-
-  it('are not full-width form fields', async () => {
-    // The theme makes every select width:100%, which is what made these ugly.
-    const { body } = await visit('/project/acme/ledger', MANAGER);
-    expect(body).toMatch(/\.task-filters select\{width:auto/);
-  });
-
-  it('offer a way back only when a filter is on', async () => {
-    const plain = await visit('/project/acme/ledger?tab=tasks', MANAGER);
-    expect(plain.body).not.toMatch(/class="clear"/);
-    const filtered = await visit('/project/acme/ledger?taskOwner=Dev', MANAGER);
-    expect(filtered.body).toMatch(/<a class="clear" href="\/project\/acme\/ledger#panel">Clear<\/a>/);
-  });
-});
-
 /**
- * Headings, tabs and pages on the project page.
- *
- * The row anatomy is fixed — number, type, text, owner, status, source — and
- * without headings nobody could tell what each part was. Tasks and what is
- * waiting share the page as two tabs, and each list pages on its own.
+ * One page: the tree on the left says which part of the work to look at, and the
+ * main column shows what is waiting and every part's open tasks, each under its
+ * own heading. No tabs, no dropdowns, no filter button, no pager.
  */
-describe('reading the project page', () => {
-  const manyTasks = (n) => Array.from({ length: n }, (_, i) => ({
-    id: `ptask${i + 1}`, key: `1.${i + 1}`, title: `product task ${i + 1}`, owner: 'Priya', status: 'open',
+const node = (body, name) => new RegExp(`<a class="node[^"]*"[^>]*>(?:(?!</a>)[\\s\\S])*?<span class="nm">${name}</span>[\\s\\S]*?</a>`).exec(body)?.[0];
+
+describe('the project page is one page', () => {
+  const nested = (over = {}) => repo.files.set('.teamctx/config.json', JSON.stringify({
+    ...CONFIG,
+    workstreams: [
+      { id: 'product', number: 1, name: 'Product', parent: null, order: 1 },
+      { id: 'pricing', number: 2, name: 'Pricing', parent: 'product', order: 1 },
+      { id: 'tech', number: 3, name: 'Tech', parent: null, order: 2 },
+    ],
+    ...over,
   }));
-  const setProduct = (tasks) => repo.files.set('.teamctx/workstreams/product.json', JSON.stringify({
-    id: 'product', name: 'Product', records: [], tasks,
-  }));
+  const withPricing = (tasks) => repo.files.set('.teamctx/workstreams/pricing.json', JSON.stringify({ id: 'pricing', name: 'Pricing', records: [], tasks }));
+  const section = (body, id) => new RegExp(`<section class="wsec" id="ws-${id}">[\\s\\S]*?</section>`).exec(body)?.[0];
 
-  it('heads the tasks with what each column is', async () => {
-    const tasks = await visit('/project/acme/ledger', MANAGER);
-    expect(tasks.body).toMatch(/<div class="row-head"[^>]*><span>No\.<\/span><span>Type<\/span><span>Task<\/span><span>Owner<\/span><span>Status<\/span><span[^>]*>Notes<\/span><span[^>]*>Source<\/span><\/div>/);
-    const queue = await visit('/project/acme/ledger?tab=review', MANAGER);
-    expect(queue.body).toMatch(/<span>No\.<\/span><span>Type<\/span><span>Proposal<\/span>/);
-    expect(tasks.body).not.toContain('<span>Key</span>');
-  });
-
-  it('shows Tasks or Waiting on you, never both, with the active tab marked', async () => {
-    const tasks = await visit('/project/acme/ledger', MANAGER);
-    expect(tasks.body).toMatch(/<a href="[^"]*#panel" aria-current="page">Tasks/);
-    expect(tasks.body).toContain('Draft the pricing page');
-    expect(onPage(tasks.body)).not.toContain('adds the pricing tiers');
-    const review = await visit('/project/acme/ledger?tab=review', MANAGER);
-    expect(review.body).toMatch(/aria-current="page">Waiting on you/);
-    expect(review.body).toContain('adds the pricing tiers');
-    expect(onPage(review.body)).not.toContain('Draft the pricing page');
-  });
-
-  it('opens the tab that holds what a link points at', async () => {
-    const task = await visit('/project/acme/ledger?task=pricing-page', MANAGER);
-    expect(task.body).toMatch(/aria-current="page">Tasks/);
-    expect(task.body).toMatch(/class="item tier-task marked" id="t-pricing-page"/);
-    const waiting = await visit('/project/acme/ledger?review=c-1', MANAGER);
-    expect(waiting.body).toMatch(/aria-current="page">Waiting on you/);
-  });
-
-  it('pages a long list, twenty to a page, landing back on the panel', async () => {
-    setProduct(manyTasks(45));
-    const first = await visit('/project/acme/ledger?ws=product', MANAGER);
-    expect(first.body).toContain('product task 20<');
-    expect(first.body).not.toContain('product task 21<');
-    expect(first.body).toContain('Page 1 of 3');
-    expect(first.body).toMatch(/href="\/project\/acme\/ledger\?ws=product&amp;page=2#panel">Next/);
-    const second = await visit('/project/acme/ledger?ws=product&page=2', MANAGER);
-    expect(second.body).toContain('product task 21<');
-    expect(second.body).toContain('Page 2 of 3');
-  });
-
-  it('opens the page holding the task a link points at', async () => {
-    setProduct(manyTasks(45));
-    const { body } = await visit('/project/acme/ledger?ws=product&item=ptask33', MANAGER);
-    expect(body).toContain('Page 2 of 3');
-    expect(body).toMatch(/class="item tier-task marked" id="t-ptask33"/);
-  });
-
-  it('offers no pager when everything fits on one page', async () => {
+  it('opens on the whole project: every part with an open task, each under its own heading', async () => {
     const { body } = await visit('/project/acme/ledger', MANAGER);
-    expect(body).not.toContain('class="pager"');
-  });
-});
-
-/**
- * The row's last three columns say what they are.
- *
- * Status held both the state and every governance note, so the notes had no
- * heading of their own; and the source was a coloured dot, which in a project
- * where everything arrives through an assistant was a column of identical
- * green dots.
- */
-describe('status, notes and source in their own columns', () => {
-  it('keeps the status apart from the notes', async () => {
-    const { body } = await visit('/project/acme/ledger?ws=product', MANAGER);
-    const r = /<button[^>]*id="t-pricing-page"[\s\S]*?<\/button>/.exec(body)[0];
-    expect(r).toMatch(/<span class="row-state"><span class="status-chip">open<\/span><\/span>/);
-    expect(r).toMatch(/<span class="row-notes"><\/span>/);
+    expect(section(body, 'product')).toContain('<span class="wsn">1</span>Product');
+    expect(section(body, 'tech')).toContain('<span class="wsn">2</span>Tech');
+    expect(body).toContain('Draft the pricing page');
+    expect(body).toContain('Migrate the database');
   });
 
-  it('puts a warning in the notes, not in the status', async () => {
-    repo.files.set('.teamctx/queue/c-1.json', JSON.stringify({
-      id: 'c-1', status: 'pending', author: 'Priya', workstream: 'product',
-      operations: [{ type: 'addRecord', record: { type: 'assumption', text: 'they will pay', owner: { name: 'O' }, reviewBy: '2020-01-01' } }],
-    }));
-    const { body } = await visit('/project/acme/ledger?tab=review', MANAGER);
-    const r = /<button[^>]*id="proposal-c-1-0"[\s\S]*?<\/button>/.exec(body)[0];
-    expect(r).toMatch(/<span class="row-notes"><span class="governance-chip warning-chip">Review overdue 2020-01-01<\/span><\/span>/);
-  });
-
-  it('labels each part on a narrow screen, where the header is hidden', async () => {
-    const { body } = await visit('/project/acme/ledger', MANAGER);
-    const narrow = body.slice(body.indexOf('@media(max-width:1200px)'));
-    for (const label of ["content:'Owner: '", "content:'Status: '", "content:'Notes: '"]) expect(narrow).toContain(label);
-  });
-});
-
-describe('the filter button', () => {
-  it('looks like a button', async () => {
-    const { body } = await visit('/project/acme/ledger?tab=tasks', MANAGER);
-    expect(body).toMatch(/\.task-filters \.apply\{[^}]*background:var\(--accent\)/);
-  });
-
-  it('is greyed out until the choice differs from what is shown', async () => {
-    const { body } = await visit('/project/acme/ledger?tab=tasks', MANAGER);
-    expect(body).toMatch(/\.task-filters \.apply:disabled\{/);
-    expect(body).toContain('apply.disabled = ');
-    // Rendered live, so it still works with JavaScript off.
-    expect(body).toContain('<button type="submit" class="apply">Filter</button>');
-  });
-});
-
-/**
- * The review queue is its own tab.
- *
- * It sat below the context with nothing between them, so the manager could not
- * tell where the team's context ended and what was waiting on them began. It
- * pages by proposal, so one proposal's changes are never split across pages.
- */
-describe('waiting on you, as a tab', () => {
-  const queue = (n) => {
-    for (let i = 1; i <= n; i++) {
-      repo.files.set(`.teamctx/queue/q-${String(i).padStart(2, '0')}.json`, JSON.stringify({
-        id: `q-${String(i).padStart(2, '0')}`, status: 'pending', author: 'Priya', summary: `proposal ${i}`, workstream: null,
-        operations: [{ type: 'addTask', title: `task from proposal ${i}` }],
-      }));
-    }
-  };
-
-  it('is offered to the manager, with a count, and keeps the queue off the tasks', async () => {
-    const context = await visit('/project/acme/ledger', MANAGER);
-    expect(context.body).toMatch(/>Waiting on you<span class="n">1<\/span>/);
-    expect(context.body).not.toContain('id="r-c-1"');
-    const review = await visit('/project/acme/ledger?tab=review', MANAGER);
-    expect(review.body).toMatch(/aria-current="page">Waiting on you/);
-    expect(review.body).toContain('id="r-c-1"');
-  });
-
-  it('is not offered to a member, and asking for it shows them their tasks', async () => {
+  it('has no tabs, no dropdowns, no filter button and no pager, for anyone', async () => {
     await lend();
-    const { body } = await visit('/project/acme/ledger?tab=review', MEMBER_GOOGLE);
-    expect(body).not.toContain('Waiting on you');
-    expect(body).toMatch(/aria-current="page">Tasks/);
+    for (const [who, path] of [[MANAGER, '/project/acme/ledger'], [MANAGER, '/project/acme/ledger?ws=product'], [MEMBER_GOOGLE, '/project/acme/ledger']]) {
+      const page = onPage((await visit(path, who)).body);
+      expect(page, path).not.toMatch(/class="tabs"|<select|class="apply"|class="pager"|>Filter<|Where<|Owner</);
+    }
   });
 
-  it('opens on its own for a link to a queued contribution', async () => {
-    const { body } = await visit('/project/acme/ledger?review=c-1', MANAGER);
-    expect(body).toMatch(/aria-current="page">Waiting on you/);
+  it('lands old links with a tab, a filter or a page on the same page', async () => {
+    const plain = await visit('/project/acme/ledger', MANAGER);
+    const old = await visit('/project/acme/ledger?tab=review&taskWs=tech&taskOwner=Dev&page=3&ipage=2&view=list', MANAGER);
+    expect(old.status).toBe(200);
+    expect(old.body).toBe(plain.body);
   });
 
-  it('pages ten proposals at a time, never splitting one', async () => {
-    queue(14);
-    const first = await visit('/project/acme/ledger?tab=review', MANAGER);
-    expect(first.body).toContain('Page 1 of 2');
-    expect(first.body).toMatch(/href="\/project\/acme\/ledger\?tab=review&amp;page=2#panel">Next/);
-    const second = await visit('/project/acme/ledger?tab=review&page=2', MANAGER);
-    expect(second.body).toContain('Page 2 of 2');
-    // Both the proposal and its change are on the same page.
-    expect(second.body).toContain('proposal 14');
-    expect(second.body).toContain('task from proposal 14');
+  it('shows no decision, rule, assumption or exception: those are read through the assistant', async () => {
+    for (const path of ['/project/acme/ledger', '/project/acme/ledger?ws=product']) {
+      const page = onPage((await visit(path, MANAGER)).body);
+      for (const text of ['ship it', 'price it', 'keep the servers up']) expect(page, path).not.toContain(text);
+      expect(page, path).not.toMatch(/Project context — inherited|Governed by|class="list"/);
+    }
+  });
+
+  it('never carries a part of the work the reader is not on, not even hidden', async () => {
+    await lend();
+    const { body } = await visit('/project/acme/ledger', MEMBER_GOOGLE);
+    expect(body).not.toContain('keep the servers up');
+    expect(body).not.toContain('Migrate the database');
+  });
+
+  describe('the tree', () => {
+    it('starts with Overall Project and the number of open tasks, never the project\'s own name', async () => {
+      const { body } = await visit('/project/acme/ledger', MANAGER);
+      const root = node(body, 'Overall Project');
+      expect(root).toContain('class="node root on"');
+      expect(root).toContain('aria-current="page"');
+      expect(root).toContain('<span class="cnt">2</span>');
+      expect(body.match(/<a class="node/g).length).toBe(3);
+    });
+
+    it('numbers each part flat, as stored, and nests the ones inside another', async () => {
+      nested(); withPricing([]);
+      const { body } = await visit('/project/acme/ledger', MANAGER);
+      expect(body).toMatch(/<span class="num">1<\/span><span class="nm">Product<\/span>[\s\S]*?<\/a><ul>[\s\S]*?<span class="num">2<\/span><span class="nm">Pricing<\/span>/);
+      expect(body).toMatch(/<span class="num">3<\/span><span class="nm">Tech<\/span>/);
+      expect(body).not.toMatch(/<span class="num">1\.1<\/span><span class="nm">/);
+    });
+
+    it('counts the open tasks at a part and inside it', async () => {
+      nested();
+      withPricing([{ id: 'quote', key: '2.1', title: 'Quote the tiers', owner: 'Priya', status: 'open' }, { id: 'quote2', key: '2.2', title: 'Quote more', owner: 'Priya', status: 'open' }]);
+      const { body } = await visit('/project/acme/ledger', MANAGER);
+      expect(node(body, 'Product')).toContain('<span class="cnt">3</span>');
+      expect(node(body, 'Pricing')).toContain('<span class="cnt">2</span>');
+      expect(node(body, 'Overall Project')).toContain('<span class="cnt">4</span>');
+    });
+
+    it('marks a part with a dot when something waiting is at or under it, and only then', async () => {
+      const { body } = await visit('/project/acme/ledger', MANAGER);
+      expect(node(body, 'Product')).toContain('class="dot"');
+      expect(node(body, 'Tech')).not.toContain('class="dot"');
+      expect(node(body, 'Overall Project')).toContain('class="dot"');
+    });
+
+    it('marks a part with a dot for an assumption past its review date, and keeps it for the manager\'s queue', async () => {
+      repo.files.set('.teamctx/workstreams/tech.json', JSON.stringify({
+        id: 'tech', name: 'Tech', tasks: [],
+        records: [{ id: 'a1', type: 'assumption', text: 'x', status: 'active', owner: { name: 'O' }, reviewBy: '2000-01-01' }],
+      }));
+      await lend();
+      const { body } = await visit('/project/acme/ledger', MANAGER);
+      expect(node(body, 'Tech')).toContain('class="dot"');
+    });
+
+    it('shows a member only the parts they are on, and no dot for what is the manager\'s', async () => {
+      await lend();
+      const { body } = await visit('/project/acme/ledger', MEMBER_GOOGLE);
+      expect(body).toContain('<span class="nm">Product</span>');
+      expect(body).not.toContain('<span class="nm">Tech</span>');
+      expect(node(body, 'Product')).not.toContain('class="dot"');
+    });
+
+    it('links each part to itself, and the whole project to the page', async () => {
+      const { body } = await visit('/project/acme/ledger', MANAGER);
+      expect(node(body, 'Overall Project')).toContain('href="/project/acme/ledger"');
+      expect(node(body, 'Product')).toContain('href="/project/acme/ledger?ws=product"');
+    });
+  });
+
+  describe('choosing a part', () => {
+    it('shows that part and what is inside it, and nothing else', async () => {
+      nested(); withPricing([{ id: 'quote', key: '2.1', title: 'Quote the tiers', owner: 'Priya', status: 'open' }]);
+      const { body } = await visit('/project/acme/ledger?ws=product', MANAGER);
+      expect(node(body, 'Product')).toContain('class="node on"');
+      expect(node(body, 'Overall Project')).toContain('class="node root"');
+      expect(onPage(body)).toContain('Draft the pricing page');
+      expect(onPage(body)).toContain('Quote the tiers');
+      expect(onPage(body)).not.toContain('Migrate the database');
+    });
+
+    it('heads a part inside it with where it sits, and the chosen part with its own name', async () => {
+      nested(); withPricing([{ id: 'quote', key: '2.1', title: 'Quote the tiers', owner: 'Priya', status: 'open' }]);
+      const { body } = await visit('/project/acme/ledger?ws=product', MANAGER);
+      expect(section(body, 'product')).toContain('</span>Product<');
+      expect(section(body, 'pricing')).toContain('</span>Product › Pricing<');
+    });
+
+    it('leaves out a part with nothing open, and says so when the chosen part has nothing', async () => {
+      repo.files.set('.teamctx/workstreams/tech.json', JSON.stringify({ id: 'tech', name: 'Tech', records: [], tasks: [] }));
+      const all = await visit('/project/acme/ledger', MANAGER);
+      expect(section(all.body, 'tech')).toBeUndefined();
+      const tech = await visit('/project/acme/ledger?ws=tech', MANAGER);
+      expect(onPage(tech.body)).toContain('Nothing open here.');
+    });
+
+    it('gives each heading a context icon that opens that part\'s drawer', async () => {
+      const { body } = await visit('/project/acme/ledger', MANAGER);
+      expect(section(body, 'product')).toMatch(/<button type="button" class="ctx-open" data-panel="dp-ws-product" aria-label="Context for Product"/);
+      expect(section(body, 'tech')).toMatch(/data-panel="dp-ws-tech" aria-label="Context for Tech"/);
+    });
+  });
+
+  describe('a task', () => {
+    const row = (body, id) => new RegExp(`<button[^>]*id="t-${id}"[\\s\\S]*?</button>`).exec(body)?.[0];
+
+    it('is a number, what it is, who has it and how many sources are behind it', async () => {
+      repo.files.set('.teamctx/workstreams/product.json', JSON.stringify({
+        id: 'product', name: 'Product', records: [],
+        tasks: [{ id: 'pricing-page', key: '1.1', title: 'Draft the pricing page', owner: 'Priya', status: 'open', sourceContributionIds: ['c-prod', 'c-tech'] }],
+      }));
+      const r = row((await visit('/project/acme/ledger', MANAGER)).body, 'pricing-page');
+      expect(r).toContain('<span class="num">1.1</span>');
+      expect(r).toContain('<span class="ttl">Draft the pricing page</span>');
+      expect(r).toContain('👤 Priya');
+      expect(r).toContain('<span class="clip" title="2 linked sources">📎 2</span>');
+    });
+
+    it('shows an agent as an agent, and a person as a person', async () => {
+      repo.files.set('.teamctx/workstreams/product.json', JSON.stringify({
+        id: 'product', name: 'Product', records: [],
+        tasks: [
+          { id: 'by-agent', key: '1.1', title: 'Run the numbers', owner: 'Nightly report', status: 'open' },
+          { id: 'by-person', key: '1.2', title: 'Read them', owner: 'Priya', status: 'open' },
+          { id: 'by-nobody', key: '1.3', title: 'Nobody has it', owner: null, status: 'open' },
+        ],
+      }));
+      const { body } = await visit('/project/acme/ledger', MANAGER);
+      expect(row(body, 'by-agent')).toContain('<span class="chip agent">🤖 Nightly report</span>');
+      expect(row(body, 'by-person')).toContain('<span class="chip">👤 Priya</span>');
+      expect(row(body, 'by-nobody')).toContain('Unassigned');
+    });
+
+    it('has no type column, no status chip and no heading row: the section says what it is', async () => {
+      const page = onPage((await visit('/project/acme/ledger', MANAGER)).body);
+      expect(page).not.toMatch(/class="row-head"|class="type-label"|class="status-chip"|class="row-notes"/);
+    });
+
+    it('names who wrote it, and carries what the drawer and the prompt need', async () => {
+      const r = row((await visit('/project/acme/ledger?ws=product', MANAGER)).body, 'pricing-page');
+      expect(r).toContain('data-who="Priya"');
+      expect(r).toContain('data-ws="product"');
+      expect(r).toContain('data-kind="Task 1.1"');
+    });
+
+    it('is numbered by its stored number, never a letter key', async () => {
+      const { body } = await visit('/project/acme/ledger', MANAGER);
+      expect(body).toMatch(/class="num">1\.1</);
+      expect(body).toMatch(/class="num">2\.1</);
+      expect(onPage(body)).not.toMatch(/\b[TDRAXQ]-\d+\b/);
+    });
+
+    it('writes a prompt a fresh chat can act on', async () => {
+      const { body } = await visit('/project/acme/ledger?ws=product', MANAGER);
+      const prompt = rowPrompt(body);
+      expect(prompt).toContain('connected to the repository acme/ledger');
+      expect(prompt).toContain('get_connect_url');
+      expect(prompt).toContain('stop and tell me');
+      expect(prompt).toContain('the part of the work called &quot;Product&quot;');
+      expect(prompt).toContain('Tell me more about task 1.1:');
+      expect(prompt).toContain('&quot;Draft the pricing page&quot;');
+      expect(prompt).not.toContain('(id: product)');
+      expect(prompt).toMatch(/The page it came from: https?:[^ ]*project\/acme\/ledger/);
+      expect(prompt).toContain('item=pricing-page');
+    });
+
+    it('says nothing was recorded rather than naming a source it does not have', async () => {
+      const r = row((await visit('/project/acme/ledger?ws=tech', MANAGER)).body, 'migrate-db');
+      expect(r).toContain('<span class="clip"></span>');
+      expect(r).toContain('data-who=""');
+    });
+  });
+
+  describe('what is done', () => {
+    it('is out of the way: not listed, and counted in a link to show it', async () => {
+      const { body } = await visit('/project/acme/ledger', MANAGER);
+      expect(onPage(body)).not.toContain('Something finished');
+      expect(body).toMatch(/<p class="hist"><a href="\/project\/acme\/ledger\?history=1">Show history \(1 done\)<\/a><\/p>/);
+    });
+
+    it('is listed, struck through and faded, once history is shown, with a link to hide it', async () => {
+      const { body } = await visit('/project/acme/ledger?history=1', MANAGER);
+      expect(body).toMatch(/class="item trow done" id="t-old-thing"/);
+      expect(body).toContain('Something finished');
+      expect(body).toMatch(/\.trow\.done \.ttl\{text-decoration:line-through\}/);
+      expect(body).toMatch(/<a href="\/project\/acme\/ledger">Hide history<\/a>/);
+    });
+
+    it('keeps the chosen part when history is turned on and off', async () => {
+      const { body } = await visit('/project/acme/ledger?ws=tech', MANAGER);
+      expect(body).toContain('href="/project/acme/ledger?ws=tech&amp;history=1"');
+      const on = await visit('/project/acme/ledger?ws=tech&history=1', MANAGER);
+      expect(on.body).toContain('href="/project/acme/ledger?ws=tech">Hide history');
+    });
+
+    it('is not offered when there is none to show', async () => {
+      repo.files.set('.teamctx/workstreams/tech.json', JSON.stringify({ id: 'tech', name: 'Tech', records: [], tasks: [{ id: 'migrate-db', key: '2.1', title: 'Migrate', owner: 'Dev', status: 'open' }] }));
+      const { body } = await visit('/project/acme/ledger?ws=tech', MANAGER);
+      expect(body).not.toContain('Show history');
+    });
+
+    it('counts only what is inside the chosen part', async () => {
+      const all = await visit('/project/acme/ledger', MANAGER);
+      const product = await visit('/project/acme/ledger?ws=product', MANAGER);
+      expect(all.body).toContain('Show history (1 done)');
+      expect(product.body).not.toContain('Show history');
+    });
+  });
+
+  describe('when there is nothing to show', () => {
+    it('says so plainly when there is no work yet', async () => {
+      repo.files.set('.teamctx/config.json', JSON.stringify({ ...CONFIG, workstreams: [], members: [] }));
+      repo.files.delete('.teamctx/workstreams/product.json');
+      repo.files.delete('.teamctx/workstreams/tech.json');
+      const { body } = await visit('/project/acme/ledger', MANAGER);
+      expect(body).toMatch(/No work yet — ask your assistant to add a workstream/);
+      expect(onPage(body)).not.toContain('Waiting on you');
+    });
+  });
+});
+
+/**
+ * What is waiting on the manager, above the work. A card with one entry per
+ * proposal: its number, what it is, who sent it and where, how many things to
+ * check it against, and two icons: one to read it, one to go straight to the
+ * decision. The decision itself is made in the assistant or on the command line.
+ */
+describe('waiting on you', () => {
+  const card = (body) => /<section class="inbox"[\s\S]*?<\/section>/.exec(body)?.[0];
+  const item = (body, id) => new RegExp(`<div class="q[^"]*" id="r-${id}"[\\s\\S]*?\\n</div>`).exec(body)?.[0];
+  const unesc = (s) => s.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&#10;/g, '\n').replace(/&amp;/g, '&');
+  const dataOf = (html, name) => JSON.parse(unesc(new RegExp(`data-${name}="([^"]*)"`).exec(html)[1]));
+  const queue = (id, over) => repo.files.set(`.teamctx/queue/${id}.json`, JSON.stringify({ id, status: 'pending', author: 'Priya', summary: `proposal ${id}`, workstream: 'product', createdAt: '2026-10-06T10:00:00Z', ...over }));
+
+  it('is a card with a count, for the manager', async () => {
+    const { body } = await visit('/project/acme/ledger', MANAGER);
+    expect(card(body)).toContain('<h2 id="inbox-h">Waiting on you · 1</h2>');
+    expect(card(body)).toContain('adds the pricing tiers');
+  });
+
+  it('is not shown to a member, and a link to a waiting item shows them nothing of it', async () => {
+    await lend();
+    for (const path of ['/project/acme/ledger', '/project/acme/ledger?review=1.2', '/project/acme/ledger?review=c-1']) {
+      const { body } = await visit(path, MEMBER_GOOGLE);
+      expect(body, path).not.toContain('Waiting on you');
+      expect(body, path).not.toContain('adds the pricing tiers');
+    }
+  });
+
+  it('is left out when nothing is waiting', async () => {
+    repo.files.delete('.teamctx/queue/c-1.json');
+    expect(onPage((await visit('/project/acme/ledger', MANAGER)).body)).not.toContain('Waiting on you');
+  });
+
+  it('gives an item its number, what it is, who sent it, where and when', async () => {
+    const r = item((await visit('/project/acme/ledger', MANAGER)).body, 'c-1');
+    expect(r).toContain('<span class="num">1.2</span>');
+    expect(r).toContain('<button type="button" class="qmain">adds the pricing tiers</button>');
+    expect(r).toContain('<span class="chip">👤 Priya</span>');
+    expect(r).toContain('· Product');
+  });
+
+  it('shows an agent that sent it as an agent', async () => {
+    queue('c-agent', { author: 'Nightly report', number: '1.3' });
+    const r = item((await visit('/project/acme/ledger', MANAGER)).body, 'c-agent');
+    expect(r).toContain('<span class="chip agent">🤖 Nightly report</span>');
+  });
+
+  it('has two icons, to read it and to go to the decision, each named for what it is', async () => {
+    const r = item((await visit('/project/acme/ledger', MANAGER)).body, 'c-1');
+    expect(r).toMatch(/<button type="button" class="qicon" data-open="view" aria-label="View 1\.2" title="View details">/);
+    expect(r).toMatch(/<button type="button" class="qicon rv" data-open="review" aria-label="Review 1\.2: approve or reject" title="Review: approve or reject">/);
+    expect(r).not.toMatch(/>\s*Review\s*</);
+  });
+
+  it('opens the drawer from the row, the title or either icon, once', async () => {
+    const { body } = await visit('/project/acme/ledger', MANAGER);
+    expect(body).toContain("document.querySelectorAll('.item, .q')");
+    expect(body).toContain("document.querySelectorAll('.qicon')");
+    expect(body).toContain('e.stopPropagation();');
+    expect(body).toContain("b.dataset.open === 'review'");
+    expect(body).toContain("scrollIntoView({ behavior: 'smooth', block: 'center' })");
+  });
+
+  it('shows only what is at or inside the chosen part', async () => {
+    queue('c-tech', { workstream: 'tech', summary: 'a tech proposal' });
+    const product = card((await visit('/project/acme/ledger?ws=product', MANAGER)).body);
+    expect(product).toContain('Waiting on you · 1');
+    expect(product).toContain('adds the pricing tiers');
+    expect(product).not.toContain('a tech proposal');
+    const all = card((await visit('/project/acme/ledger', MANAGER)).body);
+    expect(all).toContain('Waiting on you · 2');
+  });
+
+  it('shows an item for the project itself only on the whole project, without a number', async () => {
+    queue('c-proj', { workstream: null, summary: 'a project-level proposal' });
+    const all = item((await visit('/project/acme/ledger', MANAGER)).body, 'c-proj');
+    expect(all).toContain('<span class="num">—</span>');
+    expect(all).toContain('· Ledger');
+    expect(onPage((await visit('/project/acme/ledger?ws=product', MANAGER)).body)).not.toContain('a project-level proposal');
+  });
+
+  it('counts what to check it against, and says so', async () => {
+    queue('c-conflict', {
+      summary: 'Change the entry offer',
+      operations: [{ type: 'addRecord', record: { type: 'decision', text: 'An AI-readiness assessment' } }],
+      contradictions: [{ operationIndex: 0, proposedText: 'An AI-readiness assessment', record: { id: 'old', type: 'decision', text: 'A pricing audit', workstream: 'product' } }],
+    });
+    const r = item((await visit('/project/acme/ledger', MANAGER)).body, 'c-conflict');
+    expect(r).toContain('<span class="chip warn">⚠ 1 to check against the record</span>');
+    expect(dataOf(r, 'checks').join(' ')).toMatch(/Contradicts.*A pricing audit.*An AI-readiness assessment/);
+    expect(item((await visit('/project/acme/ledger', MANAGER)).body, 'c-1')).not.toContain('to check against the record');
+  });
+
+  it('says what it would change in words, for each kind of change', async () => {
+    repo.files.set('.teamctx/workstreams/product.json', JSON.stringify({
+      id: 'product', name: 'Product',
+      records: [{ id: 'w1', type: 'decision', text: 'Price by seat', status: 'active' }],
+      tasks: [{ id: 'pricing-page', key: '1.1', title: 'Draft the pricing page', owner: 'Priya', status: 'open' }],
+    }));
+    queue('c-many', {
+      summary: 'Several changes',
+      operations: [
+        { type: 'addTask', title: 'Quote the tiers' },
+        { type: 'addRecord', record: { type: 'rule', text: 'No discounts over 15%' } },
+        { type: 'editRecord', id: 'w1', changes: { text: 'Price by team' } },
+        { type: 'setRecordStatus', id: 'w1', status: 'replaced' },
+        { type: 'editTask', id: 'pricing-page', title: 'Draft the pricing page again' },
+        { type: 'removeTask', id: 'pricing-page' },
+        { type: 'mystery' },
+      ],
+    });
+    const changes = dataOf(item((await visit('/project/acme/ledger', MANAGER)).body, 'c-many'), 'changes');
+    expect(changes).toEqual([
+      'Add a task: Quote the tiers',
+      'Add: Rule: No discounts over 15%',
+      'Reword "Price by seat" to: Price by team',
+      'Mark "Price by seat" as replaced',
+      'Retitle "Draft the pricing page" to: Draft the pricing page again',
+      'Remove the task "Draft the pricing page"',
+    ]);
+  });
+
+  it('says how to decide it, in the assistant or on the command line, and has no approve or reject button', async () => {
+    const { body } = await visit('/project/acme/ledger', MANAGER);
+    const lines = dataOf(item(body, 'c-1'), 'decide');
+    expect(lines[0]).toContain('"Approve 1.2"');
+    expect(lines[0]).toContain('"Reject 1.2"');
+    expect(lines[1]).toContain('teamctx review approve c-1');
+    expect(lines[1]).toContain('teamctx review reject c-1');
+    expect(onPage(body)).not.toMatch(/>\s*(Approve|Reject)\b/);
+    expect(body).toContain('id="d-decide-title">Decide<');
+  });
+
+  it('names an item with no number by what it says, so the instruction still means something', async () => {
+    queue('c-unnumbered', { summary: 'An unnumbered proposal', workstream: null });
+    const lines = dataOf(item((await visit('/project/acme/ledger', MANAGER)).body, 'c-unnumbered'), 'decide');
+    expect(lines[0]).toContain('name it by what it says');
+  });
+
+  it('escapes what somebody else wrote: the summary, the author, the changes and the conflicting record', async () => {
+    const hostile = '<img src=x onerror="alert(1)">';
+    queue('c-evil', {
+      summary: hostile, author: hostile,
+      operations: [{ type: 'addTask', title: hostile }],
+      contradictions: [{ operationIndex: 0, proposedText: hostile, record: { id: 'o', type: 'decision', text: hostile, workstream: 'product' } }],
+    });
+    const { body } = await visit('/project/acme/ledger', MANAGER);
+    expect(onPage(body)).not.toContain(hostile);
+    expect(body).not.toContain('<img src=x onerror');
+    expect(body).toContain('&lt;img');
+  });
+
+  it('stays readable when a proposal is malformed', async () => {
+    queue('c-bad', { summary: 'Partial proposal', operations: [null, { type: 'addRecord' }, { type: 'addTask', title: 'Valid task proposal' }] });
+    queue('c-worse', { summary: 'Bad operation list', operations: {}, contradictions: 'nope', impact: 7 });
+    const { status, body } = await visit('/project/acme/ledger', MANAGER);
+    expect(status).toBe(200);
+    expect(card(body)).toContain('Partial proposal');
+    expect(dataOf(item(body, 'c-bad'), 'changes')).toContain('Add a task: Valid task proposal');
+    expect(card(body)).toContain('Bad operation list');
+  });
+
+  it('is marked, and opens the drawer on load, when a link points at it by id or by number', async () => {
+    for (const path of ['/project/acme/ledger?review=c-1', '/project/acme/ledger?review=1.2', '/project/acme/ledger?item=c-1']) {
+      const { body } = await visit(path, MANAGER);
+      expect(body, path).toMatch(/<div class="q marked" id="r-c-1"/);
+    }
+    const { body } = await visit('/project/acme/ledger', MANAGER);
+    expect(body).toContain("document.querySelector('.marked[data-prompt]')");
+  });
+
+  it('widens to the whole project when the linked item is outside the chosen part', async () => {
+    const { body } = await visit('/project/acme/ledger?ws=tech&review=c-1', MANAGER);
+    expect(body).toMatch(/<div class="q marked" id="r-c-1"/);
+    expect(node(body, 'Overall Project')).toContain('class="node root on"');
+  });
+});
+
+/**
+ * A link names one thing and the page opens on it.
+ */
+describe('arriving from a link', () => {
+  it('opens the part of the work the link named', async () => {
+    const { body } = await visit('/project/acme/ledger?ws=product', MANAGER);
+    expect(body).toMatch(/<a class="node on" href="\/project\/acme\/ledger\?ws=product" aria-current="page">/);
+  });
+
+  it('marks the task the link pointed at, by id, by number and by the task parameter', async () => {
+    for (const path of ['?ws=product&item=pricing-page', '?ws=product&item=1.1', '?task=1.1', '?task=pricing-page']) {
+      const { body } = await visit(`/project/acme/ledger${path}`, MANAGER);
+      expect(body, path).toMatch(/class="item trow marked" id="t-pricing-page"/);
+    }
+  });
+
+  it('gives the same page by number as by id', async () => {
+    const byId = await visit('/project/acme/ledger?ws=product&item=pricing-page', MANAGER);
+    const byNumber = await visit('/project/acme/ledger?ws=product&item=1.1', MANAGER);
+    expect(byNumber.body).toBe(byId.body);
+  });
+
+  it('widens to the whole project when the linked task is in another part', async () => {
+    const { body } = await visit('/project/acme/ledger?ws=product&task=migrate-db', MANAGER);
+    expect(body).toMatch(/class="item trow marked" id="t-migrate-db"/);
+    expect(body).toContain('id="t-pricing-page"');
+  });
+
+  it('shows a finished task the link points at even with history off', async () => {
+    const { body } = await visit('/project/acme/ledger?task=old-thing', MANAGER);
+    expect(body).toMatch(/class="item trow marked done" id="t-old-thing"/);
+  });
+
+  it('gives a marked row something to look at', async () => {
+    const { body } = await visit('/project/acme/ledger?task=pricing-page', MANAGER);
+    expect(body).toContain('.item.marked{');
+    expect(body).toContain('data-text="Draft the pricing page"');
+    expect(body).not.toContain('data-text="undefined"');
+  });
+
+  it('falls back quietly for a number that names nothing, and never writes it back', async () => {
+    const { status, body } = await visit('/project/acme/ledger?ws=product&item=9.9', MANAGER);
+    expect(status).toBe(200);
+    expect(body).not.toMatch(/class="[^"]*marked/);
+    expect(onPage(body)).not.toMatch(/9\.9/);
+  });
+
+  it('does not reach a record, which has no number and is not on the page', async () => {
+    const { status, body } = await visit('/project/acme/ledger?ws=product&item=w1', MANAGER);
+    expect(status).toBe(200);
+    expect(body).not.toMatch(/class="[^"]*marked/);
+    expect(onPage(body)).not.toContain('price it');
+  });
+
+  it('falls back quietly when the part of the work is not theirs to see', async () => {
+    await lend();
+    const { body } = await visit('/project/acme/ledger?ws=tech', MEMBER_GOOGLE);
+    expect(body).toMatch(/not here, or not yours to see/);
+    expect(body).not.toContain('Migrate the database');
+  });
+
+  it('never writes what was asked for back into the page', async () => {
+    const { body } = await visit('/project/acme/ledger?ws=<script>alert(1)</script>', MANAGER);
+    expect(body).not.toContain('alert(1)');
   });
 });
