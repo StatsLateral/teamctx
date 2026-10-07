@@ -20,6 +20,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `workstream_split` and `teamctx workstream suggest` / `suggest_workstream_splits`.
 
 ### Added
+- Stable project-wide task and record keys: `T-14`, `D-3`, `R-2`, `A-2`, `X-1`.
+  Existing records and tasks are backfilled in creation order on the first
+  context write. Keys survive edits and are never reused after deletion;
+  queued proposals receive keys only when approved. Keys appear in briefs,
+  prompts, project pages and contribution/task results, and work in page links,
+  task commands and record lookup. Overlapping writes allocate against current
+  counters; conflicting hosted allocations ask for a retry.
 - **When an assumption breaks, teamctx says what was standing on it.** A decision
   or rule can name the assumptions it rests on, and that link had been stored
   since the governed-records model landed while nothing read it — so the one

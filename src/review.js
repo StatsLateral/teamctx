@@ -1,7 +1,17 @@
 import { applyOps } from './ops.js';
 
-export function applyQueueItem(tree, item) {
-  return applyOps(tree, item.operations || [], item.id).tree;
+/**
+ * Apply what a queued contribution proposed, now that somebody has approved it.
+ *
+ * Returns the counters as well as the tree, because this is where the keys for
+ * an approved contribution are actually minted: the run that put it in the queue
+ * threw its tree away and spent nothing. So a contribution that waits a week for
+ * review takes the numbers that are free when it lands, not the ones that were
+ * free when it was written, and one that is rejected takes none at all.
+ */
+export function applyQueueItem(tree, item, { nextKey } = {}) {
+  const { tree: next, nextKey: spent } = applyOps(tree, item.operations || [], item.id, { nextKey });
+  return { tree: next, nextKey: spent };
 }
 
 export function buildRejected(item, rejectedBy, reason) {

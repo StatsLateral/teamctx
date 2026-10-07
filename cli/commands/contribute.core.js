@@ -1,7 +1,7 @@
-import { readProject, readConfig, readTree, writeTree, writeTreeMd, appendContribution, writeRoleFile, writeQueueItem, readContributions, listWorkstreamIds } from '../../src/storage.js';
+import { readProject, readConfig, writeConfig, withRecordKeys, readTree, writeTree, writeTreeMd, appendContribution, writeRoleFile, writeQueueItem, readContributions, listWorkstreamIds } from '../../src/storage.js';
 import { resolveTarget, isProjectLevel } from '../../src/project-level.js';
 import { digestProject } from '../../src/tree-digest.js';
-import { touchedBy } from '../../src/ops.js';
+import { touchedBy, applyOps } from '../../src/ops.js';
 import { projectIsEmpty } from '../../src/context-gate.js';
 import { recompileInheritors, chainFor } from '../../src/recompile.js';
 import { updateShared, generateRoleFile, serializeToMd } from '../../src/context.js';
@@ -134,7 +134,7 @@ export async function contributeCore({
   const contribution = newContribution({ text, author: actor, authorKey, tagged, source, workstream: targetId });
   appendContribution(contribution, teamctxDir);
 
-  const { workstream: updated, summary, operations, dropped = [] } = await updateShared(workstream, contribution, config, { intent, avoid });
+  const { summary, operations, dropped = [] } = await updateShared(workstream, contribution, config, { intent, avoid });
   // Reasons only: what the AI proposed that did not validate, so the caller can
   // say what was left out without the raw operation travelling any further.
   const droppedReasons = dropped.map(d => ({ reason: d.reason }));
@@ -189,7 +189,13 @@ export async function contributeCore({
     };
   }
 
-  writeTree(targetId, updated, teamctxDir);
+  const updated = withRecordKeys(teamctxDir, current => {
+    const applied = applyOps(readTree(targetId, teamctxDir), operations, contribution.id, { nextKey: current.nextKey });
+    droppedReasons.push(...applied.dropped.map(d => ({ reason: d.reason })));
+    writeConfig({ ...current, nextKey: applied.nextKey }, teamctxDir);
+    writeTree(targetId, applied.tree, teamctxDir);
+    return applied.tree;
+  });
   const contributions = readContributions(teamctxDir);
   // A contribution to the project renders alone; a workstream renders under the
   // project and every part above it. Either way, the parts below inherit the
@@ -222,6 +228,10 @@ export async function contributeCore({
   return {
     id: contribution.id, workstream: targetId, author: actor, source,
     mode: 'applied', summary, operations, rolesRegenerated, pushed, pushError,
+    dropped: droppedReasons,
+    keys: [...updated.records, ...updated.tasks]
+      .filter(x => (x.sourceContributionIds || []).includes(contribution.id))
+      .map(x => ({ id: x.id, key: x.key })),
     // Reachable: a project on `none` requires review of nothing, so a member who
     // asked to bypass a queue that does not exist still gets their wish — just
     // not because they asked.

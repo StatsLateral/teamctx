@@ -7,6 +7,16 @@ const rule = makeRecord({ id: 'rec-rule', type: 'rule', text: 'No nuts anywhere'
 const exc = makeRecord({ type: 'exception', text: 'Chocolate frosting on the adults cake', expiresAt: '2026-10-31', links: { bends: 'rec-rule' } });
 
 describe('renderBrief', () => {
+  it('shows stored keys in the shared context without changing their labels', () => {
+    const md = renderBrief({ projectName: 'P', onDay: ON, project: makeProject({
+      records: [{ ...rule, key: 'R-7' }, { ...exc, key: 'X-2' }],
+      tasks: [makeTask({ key: 'T-14', title: 'Bake' })],
+    }), chain: [makeWorkstream('food', { tasks: [makeTask({ key: 'T-22', title: 'Shop' })] })] });
+    expect(md).toContain('R-7 Rule: No nuts');
+    expect(md).toContain('X-2 Allowed: Chocolate');
+    expect(md).toContain('T-14 Task: Bake');
+    expect(md).toContain('T-22 Shop');
+  });
   it('prints the goal and plain labels, never type names', () => {
     const md = renderBrief({ projectName: 'Party', project: makeProject({ goal: { text: 'A relaxed party', why: 'Family first' }, records: [makeRecord({ type: 'decision', text: 'Banana cake', detail: 'low sugar' })] }), chain: [], onDay: ON });
     expect(md).toContain('A relaxed party');

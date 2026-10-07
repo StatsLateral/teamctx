@@ -22,6 +22,7 @@ let dir;
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'teamctx-test-'));
   mkdirSync(join(dir, 'context', 'roles'), { recursive: true });
+  writeConfig({}, dir);
 });
 
 afterEach(() => {

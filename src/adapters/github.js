@@ -185,7 +185,8 @@ export class GithubSession {
         ...(opts.headers || {}),
       },
     });
-    if (!res.ok && res.status !== 404 && res.status !== 409) {
+    const refConflict = res.status === 422 && opts.method === 'PATCH' && url.includes('/git/refs/');
+    if (!res.ok && res.status !== 404 && res.status !== 409 && !refConflict) {
       const body = await res.text().catch(() => '');
       throw new Error(`github ${opts.method || 'GET'} ${url} → ${res.status}: ${body.slice(0, 400)}`);
     }
@@ -361,7 +362,17 @@ export class GithubSession {
       body: patchBody,
     });
 
-    if (patchRes.status === 422) {
+    if (patchRes.status === 422 || patchRes.status === 409) {
+      // A counter allocation cannot be replayed over a newer project: another
+      // request may have issued the same keys in a different workstream.
+      const configPath = '.teamctx/config.json';
+      if (this.changes.has(configPath)) {
+        const before = JSON.parse(this.files.get(configPath)?.content || '{}');
+        const after = JSON.parse(this.changes.get(configPath) || '{}');
+        if (before.nextKey || after.nextKey) {
+          throw new Error('The project changed while assigning record keys. Nothing from this request was committed. Retry the operation to use the latest project.');
+        }
+      }
       // Someone else pushed. Refresh base, rebuild, retry once.
       const refRes = await this.#ghFetch(refUrl);
       const refBody = await refRes.json();

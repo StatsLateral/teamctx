@@ -1,5 +1,5 @@
 import {
-  readConfig, writeConfig, readWorkstream, writeWorkstream, writeWorkstreamMd,
+  readConfig, writeConfig, readWorkstream, writeWorkstream, writeWorkstreamMd, withRecordKeys,
   readTree, writeTree, writeTreeMd, readProject,
   listWorkstreamIds, writeRoleFile, readContributions,
 } from '../../src/storage.js';
@@ -40,19 +40,22 @@ export async function addWorkstream({ name, parent = null, teamctxDir, projectDi
   const config = readConfig(teamctxDir);
   const { actor, displayName } = await currentIdentity(config, teamctxDir, projectDir);
   assertManager(config, { actor, displayName });
-  const list = config.workstreams || [];
-  if (parent && !list.some(w => w.id === parent)) throw new WorkstreamParentError(parent);
-  const base = slugify(clean) || 'workstream';
-  let id = base;
-  for (let i = 2; list.some(w => w.id === id) || listWorkstreamIds(teamctxDir).includes(id); i++) id = `${base}-${i}`;
-  const siblings = list.filter(w => (w.parent || null) === (parent || null));
-  const order = Math.max(0, ...siblings.map(w => w.order || 0)) + 1;
-  const entry = { id, name: clean, parent: parent || null, order, createdAt: new Date().toISOString() };
-  const next = { ...config, workstreams: [...list, entry] };
-  writeConfig(next, teamctxDir);
-  writeWorkstream(id, emptyWorkstream(id, clean), teamctxDir);
-  const git = await commitAndOptionallyPush(next, `workstream: add ${id}${parent ? ` under ${parent}` : ''}`, projectDir);
-  return { workstream: { ...entry, number: numberWorkstreams(next).get(id) }, ...git };
+  const { entry, next } = withRecordKeys(teamctxDir, current => {
+    const list = current.workstreams || [];
+    if (parent && !list.some(w => w.id === parent)) throw new WorkstreamParentError(parent);
+    const base = slugify(clean) || 'workstream';
+    let id = base;
+    for (let i = 2; list.some(w => w.id === id) || listWorkstreamIds(teamctxDir).includes(id); i++) id = `${base}-${i}`;
+    const siblings = list.filter(w => (w.parent || null) === (parent || null));
+    const order = Math.max(0, ...siblings.map(w => w.order || 0)) + 1;
+    const entry = { id, name: clean, parent: parent || null, order, createdAt: new Date().toISOString() };
+    const next = { ...current, workstreams: [...list, entry] };
+    writeConfig(next, teamctxDir);
+    writeWorkstream(id, emptyWorkstream(id, clean), teamctxDir);
+    return { entry, next };
+  });
+  const git = await commitAndOptionallyPush(next, `workstream: add ${entry.id}${parent ? ` under ${parent}` : ''}`, projectDir);
+  return { workstream: { ...entry, number: numberWorkstreams(next).get(entry.id) }, ...git };
 }
 
 function knownWorkstreams(config, teamctxDir) {
