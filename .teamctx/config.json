@@ -1,0 +1,24 @@
+{
+  "project": "Pycube GTM",
+  "me": "Shaun",
+  "provider": "anthropic",
+  "model": "claude-sonnet-4-6",
+  "autoPush": true,
+  "managerKey": "github:64789020",
+  "reviewPolicy": "all",
+  "deployUrl": "",
+  "githubRawBase": "",
+  "managerEmail": "",
+  "roles": [],
+  "members": [
+    {
+      "key": "github:64789020",
+      "name": "Shaun",
+      "email": null,
+      "login": "StatsLateral",
+      "workstreams": []
+    }
+  ],
+  "workstreams": [],
+  "activeWorkstream": null
+}
