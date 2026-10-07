@@ -154,6 +154,7 @@ export async function proposeDiff({
     '',
     operationsToCheck ? 'Check the supplied operations for contradictions only. Do not change or regenerate them. Output STRICT JSON:' : 'Propose changes. Output STRICT JSON:',
     'A task number such as 3.2 is the handle a person uses. When a contribution names one, resolve it to the matching task id above. Records have no number: refer to them by their wording. Use internal ids in operations and links; never assign or edit a number. A task belongs to a workstream: when the contribution is to the project itself, do not propose addTask.',
+    'For setGoal: "text" is one outcome sentence that names who or what changes, not how. "why" is the reason, the buyer or user need, or the cost of not doing it, and does not restate the goal. Plain words: no headings, bullets, hedging or marketing language. Use only what the input says. If it gives no reason, leave "why" out rather than invent one.',
     `{
   "summary": "1-2 sentences",
   "contradictions": [],

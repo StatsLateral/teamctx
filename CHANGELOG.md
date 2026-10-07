@@ -28,6 +28,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   otherwise the next number in its workstream), the task it becomes keeps that
   number, and `review approve 1.6` works by number. There is no migration: a
   project in the old format is started again with `teamctx init`.
+- **The project page opens with the goal and why it matters**, as plain escaped
+  text in three lines in all (the goal up to two, the why what is left, each
+  ending in an ellipsis when cut). The stored text is never shortened. The
+  prompt that drafts a goal asks for one outcome sentence and a reason, and to
+  leave the reason out rather than invent one.
 - **The project page no longer lists decisions, rules, assumptions or
   exceptions.** It shows the work (tasks, by workstream) and, for the manager,
   what is waiting. Context is read through the assistant. Impact flags,
