@@ -95,6 +95,30 @@ describe('task numbers through real storage and command paths', () => {
     expect(listQueue(dir)).toEqual([]);
   });
 
+  it('refuses a number that names two waiting items, rather than picking one', async () => {
+    const existing = await asManager(() => addTask({ title: 'Existing', workstream: 'sales', teamctxDir: dir }));
+    proposeDiff.mockResolvedValue({ summary: 'Retitle', operations: [{ type: 'editTask', id: existing.task.id, title: 'First rewording' }] });
+    await contribute({ workstreamId: 'sales', apply: false });
+    proposeDiff.mockResolvedValue({ summary: 'Retitle', operations: [{ type: 'editTask', id: existing.task.id, title: 'Second rewording' }] });
+    await contribute({ workstreamId: 'sales', apply: false });
+    // Both are about task 1.1, so both wait under 1.1.
+    expect(listQueue(dir).map(q => q.number)).toEqual(['1.1', '1.1']);
+    await expect(asManager(() => approveReview({ id: '1.1', teamctxDir: dir }))).rejects.toThrow(/names 2 waiting items/);
+    await expect(asManager(() => rejectReview({ id: '1.1', teamctxDir: dir }))).rejects.toThrow(/Use the id of the one you mean/);
+    expect(listQueue(dir)).toHaveLength(2);
+    const [first] = listQueue(dir);
+    await asManager(() => approveReview({ id: first.id, teamctxDir: dir }));
+    expect(listQueue(dir)).toHaveLength(1);
+  });
+
+  it('does not let a hand-edited queue number set the number of the task it creates', async () => {
+    const queued = await contribute({ workstreamId: 'sales', apply: false });
+    const file = join(dir, 'queue', `${queued.id}.json`);
+    writeFileSync(file, JSON.stringify({ ...JSON.parse(readFileSync(file, 'utf8')), number: '2.40' }));
+    await asManager(() => approveReview({ id: queued.id, teamctxDir: dir }));
+    expect(listTasks({}, dir).map(t => t.key)).toEqual(['1.2']);
+  });
+
   it('never reuses the number of a rejected item', async () => {
     const queued = await contribute({ workstreamId: 'sales', apply: false });
     await asManager(() => rejectReview({ id: queued.id, teamctxDir: dir }));

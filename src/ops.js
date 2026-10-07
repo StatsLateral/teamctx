@@ -1,6 +1,6 @@
 import { randomBytes } from 'crypto';
 import { validateRecord, today } from './model.js';
-import { mintTaskKey, normalizeCounters } from './numbering.js';
+import { mintTaskKey, normalizeCounters, isTaskKey } from './numbering.js';
 
 export const OP_TYPES = ['setGoal', 'addRecord', 'editRecord', 'addEvidence', 'setRecordStatus', 'addTask', 'editTask', 'removeTask'];
 const STATUS_TARGETS = ['replaced', 'broken', 'closed', 'active'];
@@ -200,7 +200,7 @@ export function applyOps(tree, ops, contributionId, {
   // numbers. `reserved` is the number a queued item was given when it was
   // submitted: the first task it adds keeps it, so the number a manager was told
   // to approve is the number the task has.
-  const keys = { next: normalizeCounters(nextKey), reserved: reservedKey };
+  const keys = { next: normalizeCounters(nextKey), reserved: null };
   const refs = new Map();
   // Where each operation sat in what the caller sent.
   //
@@ -217,6 +217,15 @@ export function applyOps(tree, ops, contributionId, {
   // file carries its id; the project's does not.
   const wsId = target !== undefined ? target : (tree?.id || null);
   const where = { id: wsId, defaultAttach: wsId ? { kind: 'workstream', id: wsId } : { kind: 'project' } };
+  // A queued item's number is read back from a file somebody else could have
+  // edited, so it is used only if it is what minting would have produced: a
+  // number in this workstream, already handed out (below the counter), and not
+  // on a task that is here. Anything else is ignored and a fresh number minted.
+  if (isTaskKey(reservedKey) && wsId && workstreamNumber) {
+    const [prefix, n] = reservedKey.split('.').map(Number);
+    const taken = (tree?.tasks || []).some(t => t.key === reservedKey);
+    if (prefix === workstreamNumber && n < (keys.next.tasks[wsId] || 1) && !taken) keys.reserved = reservedKey;
+  }
   let next = { ...tree, records: [...(tree.records || [])], tasks: [...(tree.tasks || [])] };
   const list = Array.isArray(ops) ? ops : [];
   list.forEach((o, i) => indexOf.set(o, i));

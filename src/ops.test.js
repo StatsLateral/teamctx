@@ -240,6 +240,22 @@ describe('the number a task is minted with', () => {
     expect(nextKey.tasks.food).toBe(8);
   });
 
+  it.each([
+    ['one in another workstream', '9.1'],
+    ['one that was never handed out', '3.50'],
+    ['one that is not a number at all', '<script>'],
+    ['one already on a task that is here', '3.2'],
+  ])('is not taken from a queued item that carries %s', (_, forged) => {
+    // The number is read back from a file somebody else could have edited, so a
+    // forged one must not become a task's number: a fresh one is minted instead.
+    const ws = food({ tasks: [{ id: 'task-x', key: '3.2', title: 'Already here', status: 'open' }] });
+    const { tree, nextKey } = applyOps(ws, [{ type: 'addTask', title: 'new' }], C, {
+      ...FOOD, reservedKey: forged, nextKey: { workstream: 4, tasks: { food: 5 } },
+    });
+    expect(tree.tasks.find(t => t.title === 'new').key).toBe('3.5');
+    expect(nextKey.tasks.food).toBe(6);
+  });
+
   it('is not spent by a task that is dropped', () => {
     const { nextKey } = applyOps(food(), [{ type: 'addTask', title: '   ' }, { type: 'addTask', title: 'real' }], C, FOOD);
     expect(nextKey.tasks.food).toBe(2);

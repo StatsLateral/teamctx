@@ -83,7 +83,20 @@ export function assertManager(config, { actor, displayName } = {}) {
  */
 export function resolveQueueId(idOrNumber, teamctxDir) {
   if (!isTaskKey(idOrNumber)) return idOrNumber;
-  return listQueue(teamctxDir).find(q => q.number === idOrNumber)?.id ?? idOrNumber;
+  const named = listQueue(teamctxDir).filter(q => q.number === idOrNumber);
+  // Two items about the same task share that task's number. Picking one would
+  // approve or reject something the manager did not mean to, so say which.
+  if (named.length > 1) {
+    throw new AmbiguousQueueNumberError(idOrNumber, named.map(q => q.id));
+  }
+  return named[0]?.id ?? idOrNumber;
+}
+
+export class AmbiguousQueueNumberError extends Error {
+  constructor(number, ids) {
+    super(`${number} names ${ids.length} waiting items (${ids.join(', ')}). Use the id of the one you mean.`);
+    this.code = 'AMBIGUOUS_QUEUE_NUMBER';
+  }
 }
 
 export async function listPendingReviews({ teamctxDir } = {}) {
@@ -121,7 +134,8 @@ export async function approveReview({ id, replaces, teamctxDir, projectDir, acto
   const who = actor || displayName;
 
   let item;
-  try { item = readQueueItem(resolveQueueId(id, teamctxDir), teamctxDir); }
+  const queueId = resolveQueueId(id, teamctxDir);
+  try { item = readQueueItem(queueId, teamctxDir); }
   catch { throw new QueueItemNotFoundError(id); }
 
   // `null` is the project itself. Defaulting to `main` here would have sent an
@@ -213,7 +227,8 @@ export async function rejectReview({ id, reason, teamctxDir, projectDir, actor }
   const rejectedBy = actor || displayName;
 
   let item;
-  try { item = readQueueItem(resolveQueueId(id, teamctxDir), teamctxDir); }
+  const queueId = resolveQueueId(id, teamctxDir);
+  try { item = readQueueItem(queueId, teamctxDir); }
   catch { throw new QueueItemNotFoundError(id); }
 
   writeRejected(buildRejected(item, rejectedBy, reason), teamctxDir);
