@@ -123,3 +123,40 @@ describe('proposeDiff — four kinds of record', () => {
     expect(prompt).toMatch(/reason.*detail/i);
   });
 });
+
+/**
+ * The distiller is told that re-confirming exists.
+ *
+ * It was not, and an end-to-end run is what found it. `applyOps` has accepted
+ * `status: "active"` and stamped `reviewedAt` all along, and the unit tests for
+ * it passed because they call `applyOps` directly. But the schema handed to the
+ * distiller listed only `replaced|broken|closed`, so asked to re-confirm a
+ * decision that still held, the AI replaced it with a copy of itself — the one
+ * operation that is both wrong and plausible. Half of #120's "one way to
+ * confirm" was unreachable in practice while every test passed.
+ */
+describe('re-confirming, in the schema the AI is given', () => {
+  const prompt = async () => {
+    await proposeDiff({ workstream, contribution: 'it still holds', source: 'alice', config: { model: 'm' } });
+    return call().prompt;
+  };
+
+  it('offers active as a status it may set', async () => {
+    expect(await prompt()).toContain('"replaced|broken|closed|active"');
+  });
+
+  it('says what setting an active record active again means', async () => {
+    const p = await prompt();
+    expect(p).toMatch(/already active back to active is how/i);
+    expect(p).toMatch(/clears the "needs review" mark/i);
+  });
+
+  it('tells it not to replace a record with a copy of itself instead', async () => {
+    // The exact thing it did before being told otherwise.
+    expect(await prompt()).toMatch(/not.*replace a record with a copy of itself/is);
+  });
+
+  it('keeps broken for assumptions and replaced for decisions apart', async () => {
+    expect(await prompt()).toMatch(/"broken" only for an assumption/i);
+  });
+});

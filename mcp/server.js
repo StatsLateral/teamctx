@@ -9,12 +9,14 @@ import {
   readConfig, readWorkstream, readProject, listWorkstreamIds,
   readTree, readTreeMd,
   readRoleFile,
-  readContributions,
+  readContributions, listTasks,
 } from '../src/storage.js';
 import { answerQuestion } from '../src/context.js';
 import { commitContext } from '../src/git.js';
 import { connectorUrl, originRemote } from '../cli/commands/connect.core.js';
 import { buildViewUrl } from '../src/view-url.js';
+import { flaggedInProject, projectRecords } from '../src/project-records.js';
+import { markNeedsReview, restingOn } from '../src/impact.js';
 import { computeStats } from '../src/metrics.js';
 import { initProject } from '../cli/commands/init.core.js';
 import {
@@ -598,6 +600,52 @@ function withLink(text, link) {
   return `${text} You must end your reply with this link, on its own line, as a plain URL: ${link.viewUrl}`;
 }
 
+/**
+ * What a contribution that breaks an assumption would take with it.
+ *
+ * The moment #120 is named for: "that assumption may be broken — these two
+ * decisions rest on it. Review?" Returned on the contribute and review results
+ * so the assistant can say it without a second call, and so the manager hears it
+ * at the point of deciding rather than afterwards.
+ *
+ * It answers the same for a queued contribution as for an applied one, because
+ * the walk follows `restsOn` and does not care what state the assumption is
+ * currently in — which is what makes it usable as a warning rather than only as
+ * a report.
+ */
+function breakingImpact(teamctxDir, operations) {
+  const breaks = (operations || []).filter(o => o?.type === 'setRecordStatus' && o.status === 'broken');
+  if (!breaks.length) return null;
+  const records = projectRecords(teamctxDir);
+  const tasks = listTasks({}, teamctxDir);
+  const out = [];
+  for (const op of breaks) {
+    const target = records.find(r => r.id === op.id);
+    if (!target || target.type !== 'assumption') continue;
+    const { records: resting, tasks: onTasks } = restingOn(records, op.id, { tasks });
+    out.push({
+      id: target.id,
+      text: target.text,
+      records: resting.map(r => ({ id: r.id, type: r.type, text: r.text })),
+      tasks: onTasks.map(t => ({ id: t.id, title: t.title })),
+    });
+  }
+  return out.length ? out : null;
+}
+
+/** The same thing in the words the assistant reads back. */
+function sayImpact(impact) {
+  if (!impact) return '';
+  return impact.map(({ text, records, tasks }) => {
+    if (!records.length) return ` Nothing on record rests on "${text}".`;
+    const n = records.length;
+    const list = records.map(r => `"${r.text}"`).join(', ');
+    const work = tasks.length ? ` Tasks affected: ${tasks.map(t => t.title).join(', ')}.` : '';
+    return ` ${n} thing${n === 1 ? '' : 's'} rest${n === 1 ? 's' : ''} on "${text}": ${list}.`
+      + ` Say so, and that ${n === 1 ? 'it needs' : 'they need'} a second look.${work}`;
+  }).join('');
+}
+
 function reportBackContribute(r) {
   // `where`, not the raw id. At project level the id is `null`, and the client
   // is told to read this string back word for word — so an unsplit project,
@@ -769,10 +817,16 @@ export function makeHandlers(projectRoot) {
       // and leaving it out meant a contribution to the project landed correctly
       // and then read as lost — nothing returned it, so the same question gave
       // a different answer each time as writes piled up unseen.
+      // Worked out once over every record in the project, then applied to the
+      // trees this caller may see. A decision here can rest on an assumption in
+      // a part of the work they are not on: the flag has to cross that line even
+      // though the assumption itself must not.
+      const flagged = flaggedInProject(teamctxDir);
+      const marked = (tree) => ({ ...tree, records: markNeedsReview(tree?.records, flagged) });
       const workstreams = [
-        { id: null, tree: readProject(teamctxDir) },
+        { id: null, tree: marked(readProject(teamctxDir)) },
         ...visibleWorkstreams(allowed, [...ids].sort())
-          .map(id => ({ id, tree: readWorkstream(id, teamctxDir) })),
+          .map(id => ({ id, tree: marked(readWorkstream(id, teamctxDir)) })),
       ];
       return textResult({ workstreams, ...(allowed ? { scopedTo: allowed } : {}) });
     },
@@ -794,13 +848,19 @@ export function makeHandlers(projectRoot) {
       // Only the declared filters are passed on: scope, date and directory are
       // the server's to decide, whatever else arrives in the arguments.
       const records = listRecords({ teamctxDir, scope: allowed, type, status, workstream, owner, due });
-      return textResult({ records, ...(allowed ? { scopedTo: allowed } : {}) });
+      return textResult({
+        records: markNeedsReview(records, flaggedInProject(teamctxDir)),
+        ...(allowed ? { scopedTo: allowed } : {}),
+      });
     },
 
     async get_record({ id } = {}) {
       const teamctxDir = dir();
       const allowed = await scope(teamctxDir, readConfig(teamctxDir));
-      return textResult(getRecord({ teamctxDir, scope: allowed, id }));
+      const record = getRecord({ teamctxDir, scope: allowed, id });
+      // Asking about one record is the most pointed way to ask whether it still
+      // stands, so this is the last place the flag should be missing.
+      return textResult(markNeedsReview([record], flaggedInProject(teamctxDir))[0]);
     },
 
     async get_workstream({ id } = {}) {
@@ -1463,7 +1523,13 @@ export function makeHandlers(projectRoot) {
           ? { review: r.id }
           : { ws: r.workstream })
         : { ws: r.workstream, item: changed });
-      return textResult({ ...r, ...link, reportBack: withLink(reportBackContribute(r), link) });
+      const impact = breakingImpact(teamctxDir, r.operations);
+      return textResult({
+        ...r,
+        ...link,
+        ...(impact ? { impact } : {}),
+        reportBack: withLink(reportBackContribute(r) + sayImpact(impact), link),
+      });
     },
 
     async submit_contribution(args) {
@@ -1557,8 +1623,10 @@ export function makeHandlers(projectRoot) {
     async review_approve({ id }) {
       // No caller-supplied identity: the gate reads the authenticated actor.
       const r = await approveReview({ id, teamctxDir: dir(), projectDir: gitCwd });
+      // Read after the approval, so what it names is what the tree now says.
+      const impact = breakingImpact(dir(), r.operations);
       const reportBack = `Tell the user: approved contribution ${r.id} by ${r.author} on ${targetLabel(r.workstream, readConfig(dir()).project)} (${r.operations.length} op${r.operations.length === 1 ? '' : 's'}${r.rolesRegenerated.length ? `, regenerated roles: ${r.rolesRegenerated.join(', ')}` : ''}${r.pushed ? ', pushed' : ''}).`;
-      return textResult({ ...r, reportBack });
+      return textResult({ ...r, ...(impact ? { impact } : {}), reportBack: reportBack + sayImpact(impact) });
     },
 
     async review_reject({ id, reason }) {
