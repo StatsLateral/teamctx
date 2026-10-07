@@ -135,7 +135,7 @@ describe('the manager looking at a project', () => {
 
   it('sees what is waiting on them', async () => {
     const { body } = await visit('/project/acme/ledger?tab=review', MANAGER);
-    expect(body).toContain('Waiting on you');
+    expect(body).toContain('Waiting for you');
     expect(body).toContain('adds the pricing tiers');
   });
 
@@ -167,7 +167,7 @@ describe('a member looking at the same project', () => {
   it('is not shown the approval queue, which is the manager\'s', async () => {
     await lend();
     const { body } = await visit('/project/acme/ledger', MEMBER_GOOGLE);
-    expect(body).not.toContain('Waiting on you');
+    expect(body).not.toContain('Waiting for you');
     expect(body).not.toContain('adds the pricing tiers');
   });
 
@@ -208,7 +208,7 @@ describe('who counts as the manager', () => {
     const { body } = await visit('/project/acme/ledger', { ...MEMBER_GOOGLE, email: 'maya@example.com' });
     // Being the manager shows in what the page gives them, not in a line
     // telling them so.
-    expect(body).toContain('Waiting on you');
+    expect(body).toContain('Waiting for you');
   });
 });
 
@@ -1201,7 +1201,7 @@ describe('reading the project page', () => {
 
   it('shows Context or Tasks, never both, with the active tab marked', async () => {
     const context = await visit('/project/acme/ledger', MANAGER);
-    expect(context.body).toMatch(/<a href="[^"]*#panel" aria-current="page">Context/);
+    expect(context.body).toMatch(/<a href="[^"]*#panel" aria-current="page">Current state/);
     expect(context.body).not.toContain('Draft the pricing page');
     const tasks = await visit('/project/acme/ledger?tab=tasks', MANAGER);
     expect(tasks.body).toMatch(/aria-current="page">Tasks/);
@@ -1331,7 +1331,7 @@ describe('what history says it added', () => {
  * tell where the team's context ended and what was waiting on them began. It
  * pages by proposal, so one proposal's changes are never split across pages.
  */
-describe('waiting on you, as a tab', () => {
+describe('waiting for you, as a tab', () => {
   const queue = (n) => {
     for (let i = 1; i <= n; i++) {
       repo.files.set(`.teamctx/queue/q-${String(i).padStart(2, '0')}.json`, JSON.stringify({
@@ -1343,23 +1343,23 @@ describe('waiting on you, as a tab', () => {
 
   it('is offered to the manager, with a count, and keeps the queue off the context', async () => {
     const context = await visit('/project/acme/ledger', MANAGER);
-    expect(context.body).toMatch(/>Waiting on you<span class="n">1<\/span>/);
+    expect(context.body).toMatch(/>Waiting for you<span class="n warn">1<\/span>/);
     expect(context.body).not.toContain('id="r-c-1"');
     const review = await visit('/project/acme/ledger?tab=review', MANAGER);
-    expect(review.body).toMatch(/aria-current="page">Waiting on you/);
+    expect(review.body).toMatch(/aria-current="page">Waiting for you/);
     expect(review.body).toContain('id="r-c-1"');
   });
 
   it('is not offered to a member, and asking for it shows them context', async () => {
     await lend();
     const { body } = await visit('/project/acme/ledger?tab=review', MEMBER_GOOGLE);
-    expect(body).not.toContain('Waiting on you');
-    expect(body).toMatch(/aria-current="page">Context/);
+    expect(body).not.toContain('Waiting for you');
+    expect(body).toMatch(/aria-current="page">Current state/);
   });
 
   it('opens on its own for a link to a queued contribution', async () => {
     const { body } = await visit('/project/acme/ledger?review=c-1', MANAGER);
-    expect(body).toMatch(/aria-current="page">Waiting on you/);
+    expect(body).toMatch(/aria-current="page">Waiting for you/);
   });
 
   it('pages ten proposals at a time, never splitting one', async () => {

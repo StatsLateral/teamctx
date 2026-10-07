@@ -119,6 +119,34 @@ const CSS = `
 .backdrop.on{display:block}
 .note{background:var(--amber-soft);color:var(--amber);padding:.5rem .7rem;border-radius:var(--radius-sm);
   margin-bottom:1rem;font-size:.9rem}
+.note.done{background:var(--accent-soft);color:var(--accent)}
+/* A count that asks for attention says so in colour, so it is seen on landing
+   without the page opening somewhere other than the current state. */
+.tabs .n.warn{color:var(--amber);font-weight:600}
+/* One card per contribution, its changes nested under it, so two contributions
+   with nine changes read as two things to decide — not eleven. */
+.proposal.card{border:1px solid var(--line);border-radius:var(--radius);background:var(--card);
+  padding:6px 8px 10px;margin:0 0 12px}
+.changes{margin:6px 0 0 18px;padding-left:10px;border-left:2px solid var(--line)}
+.changes-head{font-size:12px;color:var(--soft);margin:4px 0}
+.review-act{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:flex-end;margin:10px 0 0 18px}
+.review-act form{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0}
+.review-act .replaces{border:0;padding:0;margin:0;font-size:13px}
+.review-act .replaces legend{font-size:12px;color:var(--soft);padding:0}
+.review-act .replaces label{display:block}
+.review-act input[type=text]{font:inherit;font-size:13px;padding:5px 8px;border:1px solid var(--line);
+  border-radius:var(--radius-sm);min-width:200px}
+.act-note{flex-basis:100%;font-size:13px;color:var(--amber);margin:0}
+/* Needs review: plain lists, each line linking to its record in its own part. */
+.nr-group{font-size:14px;margin:18px 0 6px}
+.nr-group .n{font-family:var(--font-mono);font-size:11px;color:var(--faint);margin-left:6px}
+.nr-list{list-style:none;padding:0;margin:0}
+.nr-list li{padding:5px 0;border-bottom:1px solid var(--line);font-size:14px}
+.nr-key{font-family:var(--font-mono);font-size:12px;margin-right:4px}
+.nr-where,.nr-tail{color:var(--soft);font-size:12px}
+.nr-where::before{content:"· "}
+.nr-rests{margin:4px 0 10px 22px}
+.flag{color:var(--amber);font-weight:600}
 
 @media(max-width:760px){
   .layout{grid-template-columns:1fr}
@@ -388,7 +416,8 @@ function queueRows({ q, view, item, origin }) {
     }
     return '';
   }).join('');
-  return `<div class="proposal">${itemButton({
+  const changes = operations.length;
+  return `<article class="proposal card">${itemButton({
     row: { node: { id: q.id, text: q.summary || '(no summary)', owner: q.author, author: q.author, source: q.source }, tier: 'review', n: '—' },
     contributions: view.contributions, where: q.where, isProject: !q.workstream, wsId: q.workstream,
     owner: view.owner, repo: view.repo, origin, pending: true, id: `r-${q.id}`, marked: q.id === item,
@@ -397,7 +426,73 @@ function queueRows({ q, view, item, origin }) {
       ...operations.filter(o => o?.type === 'addEvidence').map(evidenceLabel),
       ...(q.impact || []).map(impactLabel),
     ],
-  })}${proposals}</div>`;
+  })}
+    <div class="changes">
+      <div class="changes-head">${changes} change${changes === 1 ? '' : 's'} in this contribution</div>
+      ${proposals}
+    </div>
+    ${reviewActions({ q, view })}
+  </article>`;
+}
+
+/**
+ * Approve and Reject for one contribution (#118 §1).
+ *
+ * A contradiction in this part of the work must be resolved by saying which
+ * record the contribution replaces — one box per flagged record, the same
+ * choice `review approve --replaces` takes — so Approve cannot be pressed
+ * without it. An inherited one cannot be resolved from here at all, and the
+ * card says where it can be instead of offering a button that would fail.
+ *
+ * Reject is its own form, so the boxes never stand in the way of saying no.
+ */
+function reviewActions({ q, view }) {
+  const action = `/project/${encodeURIComponent(view.owner)}/${encodeURIComponent(view.repo)}/review/${encodeURIComponent(q.id)}`;
+  const seen = new Set();
+  const conflicts = (q.contradictions || []).filter(c => c?.record?.id && !seen.has(c.record.id) && seen.add(c.record.id));
+  const local = conflicts.filter(c => (c.record.workstream ?? null) === (q.workstream ?? null));
+  const inherited = conflicts.filter(c => (c.record.workstream ?? null) !== (q.workstream ?? null));
+  const name = r => `${r.key ? `${r.key} ` : ''}${LABELS[r.type] || r.type} ${r.text}`;
+  return `<div class="review-act">
+      ${inherited.map(c => `<p class="act-note">Conflicts with ${esc(name(c.record))} in ${esc(workstreamLocation(view.workstreams, c.record.workstream ?? null, view.project))}. Replace or retire it there first, then approve this.</p>`).join('')}
+      <form method="POST" action="${esc(action)}" class="act-approve">
+        <input type="hidden" name="action" value="approve">
+        ${local.length ? `<fieldset class="replaces"><legend>Approving this replaces:</legend>
+          ${local.map(c => `<label><input type="checkbox" name="replaces" value="${esc(c.record.key || c.record.id)}" required> ${esc(name(c.record))}</label>`).join('')}
+        </fieldset>` : ''}
+        <button type="submit" class="primary"${inherited.length ? ' disabled' : ''}>Approve</button>
+      </form>
+      <form method="POST" action="${esc(action)}" class="act-reject">
+        <input type="hidden" name="action" value="reject">
+        <input type="text" name="reason" maxlength="500" placeholder="Reason (optional)" aria-label="Why it is rejected">
+        <button type="submit">Reject</button>
+      </form>
+    </div>`;
+}
+
+/**
+ * The manager's second look across the whole project (#118 §2): broken
+ * assumptions and what rests on them, assumptions past their check-by date,
+ * exceptions ending soon. Each line links to the record in its own part.
+ */
+function needsReviewPanel({ needs, base }) {
+  const link = (r) => `${base}?${new URLSearchParams({ ...(r.ws ? { ws: r.ws } : {}), item: r.id })}#panel`;
+  const label = (r) => `<a class="nr-key" href="${esc(link(r))}">${esc(r.key || (LABELS[r.type] || r.type).replace(/:$/, ''))}</a>`;
+  const line = (r, tail) => `<li>${label(r)} <span class="nr-text">${esc(r.text ?? r.title)}</span> <span class="nr-where">${esc(r.where)}</span>${tail ? ` <span class="nr-tail">${tail}</span>` : ''}</li>`;
+  const group = (title, items, body) => `<h3 class="nr-group">${title}<span class="n">${items.length}</span></h3>
+    ${items.length ? body : '<p class="muted">None.</p>'}`;
+  if (!needs.broken.length && !needs.overdue.length && !needs.ending.length) {
+    return '<p class="muted">Nothing needs a second look.</p>';
+  }
+  return `${group('Broken assumptions', needs.broken, needs.broken.map(a => `<div class="nr-item">
+      <ul class="nr-list">${line(a, a.brokenAt ? `broken ${esc(a.brokenAt)}` : 'broken')}</ul>
+      ${a.restingOn.length || a.tasks.length ? `<div class="nr-rests"><span class="section-title">Rests on it</span><ul class="nr-list">
+        ${a.restingOn.map(r => line(r, r.stillFlagged ? '<span class="flag">Needs re-confirming</span>' : 'Re-confirmed')).join('')}
+        ${a.tasks.map(t => `<li><a class="nr-key" href="${esc(`${base}?${new URLSearchParams({ ...(t.ws ? { ws: t.ws } : {}), item: t.id })}#panel`)}">${esc(t.key || 'Task')}</a> <span class="nr-text">${esc(t.title)}</span> <span class="nr-where">${esc(t.where)}</span></li>`).join('')}
+      </ul></div>` : '<p class="muted nr-rests">Nothing rests on it.</p>'}
+    </div>`).join(''))}
+    ${group('Past their check-by date', needs.overdue, `<ul class="nr-list">${needs.overdue.map(r => line(r, `check by ${esc(r.reviewBy)}${r.owner ? ` · ${esc(r.owner)}` : ''}`)).join('')}</ul>`)}
+    ${group('Exceptions ending within 14 days', needs.ending, `<ul class="nr-list">${needs.ending.map(r => line(r, `${r.ended ? '<span class="flag">ended</span>' : 'ends'} ${esc(r.expiresAt)}`)).join('')}</ul>`)}`;
 }
 
 /** How many rows one page of a list shows. */
@@ -427,7 +522,7 @@ function pageFor(pages, asked, item, idOf = r => r.node?.id) {
   return Math.min(Math.max(1, asked || 1), pages.length);
 }
 
-export const projectPage = ({ user, view, selected, item = null, note = null, origin = null, filters = {}, history = false, tab = null, page = 1, inheritedPage: askedInherited = 1 }) => {
+export const projectPage = ({ user, view, selected, item = null, note = null, done = null, origin = null, filters = {}, history = false, tab = null, page = 1, inheritedPage: askedInherited = 1 }) => {
   const isProject = selected === null;
   const tree = isProject ? view.projectTree : view.trees[selected];
   const where = workstreamLocation(view.workstreams, selected, view.project);
@@ -462,11 +557,16 @@ export const projectPage = ({ user, view, selected, item = null, note = null, or
   // The review queue is the manager's, so its tab exists only for them.
   const reviewing = Array.isArray(view.pending);
   const linkedReview = reviewing && item && view.pending.some(q => q.id === item);
+  // So is the second look, which reads across every part of the work.
+  const needs = view.needsReview || null;
+  const needsCount = needs ? needs.broken.length + needs.overdue.length + needs.ending.length : 0;
+  const changeCount = reviewing ? view.pending.reduce((n, q) => n + (Array.isArray(q.operations) ? q.operations.length : 0), 0) : 0;
   const active = linkedTask ? 'tasks'
     : (item && rows.some(r => r.node.id === item)) ? 'context'
       : linkedReview ? 'review'
         : tab === 'review' && reviewing ? 'review'
-          : tab === 'tasks' || (tab !== 'context' && filtering) ? 'tasks' : 'context';
+          : tab === 'needs' && needs ? 'needs'
+            : tab === 'tasks' || (tab !== 'context' && filtering) ? 'tasks' : 'context';
   const onTasks = active === 'tasks';
   // Every link and form in the panel lands back on the panel, not the top of
   // the page — a filter or a page turn reloads, and the reader was down here.
@@ -532,6 +632,7 @@ ${navBar({ user, current: '/projects' })}
     : ''}</h1>
 <p class="muted slug"><code>${esc(view.owner)}/${esc(view.repo)}</code></p>
 ${note ? `<p class="note">${esc(note)}</p>` : ''}
+${done ? `<p class="note done" role="status">${esc(done)}</p>` : ''}
 
 <div class="layout">
   <aside>
@@ -551,15 +652,19 @@ ${note ? `<p class="note">${esc(note)}</p>` : ''}
 
   <main>
     <nav class="tabs" id="panel" aria-label="What to show">
-      <a href="${esc(panelHref({ history: history ? '1' : '' }))}"${active === 'context' ? ' aria-current="page"' : ''}>Context<span class="n">${rows.length}</span></a>
+      ${reviewing ? `<a href="${esc(panelHref({ tab: 'review' }))}"${active === 'review' ? ' aria-current="page"' : ''}>Waiting for you<span class="n${view.pending.length ? ' warn' : ''}">${view.pending.length}</span></a>` : ''}
+      ${needs ? `<a href="${esc(panelHref({ tab: 'needs' }))}"${active === 'needs' ? ' aria-current="page"' : ''}>Needs review<span class="n${needsCount ? ' warn' : ''}">${needsCount}</span></a>` : ''}
+      <a href="${esc(panelHref({ history: history ? '1' : '' }))}"${active === 'context' ? ' aria-current="page"' : ''}>Current state<span class="n">${rows.length}</span></a>
       <a href="${esc(panelHref(taskParams))}"${onTasks ? ' aria-current="page"' : ''}>Tasks<span class="n">${tasks.length} open</span></a>
-      ${reviewing ? `<a href="${esc(panelHref({ tab: 'review' }))}"${active === 'review' ? ' aria-current="page"' : ''}>Waiting on you<span class="n">${view.pending.length}</span></a>` : ''}
     </nav>
     ${active === 'review' ? `<section>
-      <div class="tree-head"><span class="section-title">Waiting on you</span></div>
-      ${view.pending.length ? `${rowHeader({ text: 'Proposal' })}
+      <div class="tree-head"><span class="section-title">Waiting for you${view.pending.length ? ` — ${view.pending.length} waiting · ${changeCount} change${changeCount === 1 ? '' : 's'}` : ''}</span></div>
+      ${view.pending.length ? `${rowHeader({ text: 'Contribution' })}
       ${reviewPages[reviewPage - 1].map(({ node: q }) => queueRows({ q, view, item, origin })).join('')}
       ${pager(reviewPages, reviewPage, { tab: 'review' })}` : '<p class="muted">Nothing is waiting for review.</p>'}
+    </section>` : active === 'needs' ? `<section>
+      <div class="tree-head"><span class="section-title">Needs review — across the whole project</span></div>
+      ${needsReviewPanel({ needs, base })}
     </section>` : onTasks ? `<section>
       <div class="tasks-head">
         <span class="section-title">Tasks${taskWs === '@all' ? '' : ` — ${esc(taskWs === '@project' ? (view.project || 'Overall project') : workstreamLocation(view.workstreams, taskWs))}`}</span>
