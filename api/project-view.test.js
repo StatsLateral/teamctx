@@ -588,14 +588,16 @@ describe('what a link may and may not open', () => {
   });
 });
 
-describe('the space above the tree', () => {
-  it('is a back link, the name and the repository — nothing else', async () => {
+describe('the space above the work', () => {
+  it('is a back link and the name, with the repository line gone', async () => {
     const { body } = await visit('/project/acme/ledger', MANAGER);
     const header = body.slice(body.indexOf('class="crumb"'), body.indexOf('class="layout"'));
     expect(header).toContain('All projects');
-    expect(header).toContain('acme/ledger');
+    expect(header).toContain('Ledger');
+    expect(header).not.toContain('class="muted slug"');
+    expect(header).not.toContain('acme/ledger');
     // Whether you manage the project is not news to you, and it cost a line
-    // that pushed the tree below where the eye lands.
+    // that pushed the work below where the eye lands.
     expect(header).not.toMatch(/you manage this project|you are on this project/);
   });
 
@@ -603,6 +605,114 @@ describe('the space above the tree', () => {
     await lend();
     const { body } = await visit('/project/acme/ledger', MEMBER_GOOGLE);
     expect(body).not.toContain('you are on this project');
+  });
+});
+
+/**
+ * Settings: the project's plumbing, pinned at the foot of the left column.
+ *
+ * The one thing in it that matters today is the address an assistant is
+ * connected with. It is shown shortened (a person copies it, they do not read
+ * it) and the button copies the whole thing.
+ */
+describe('the Settings block', () => {
+  const block = (body) => /<section class="settings"[\s\S]*?<\/section>/.exec(body)?.[0];
+  const FULL = 'https://team.example.app/api/mcp/acme/ledger';
+
+  it('holds the connector address, shortened, with the whole address in the tooltip', async () => {
+    const { body } = await visit('/project/acme/ledger', MANAGER);
+    const settings = block(body);
+    expect(settings).toContain('class="section-title">Settings<');
+    expect(settings).toMatch(/<span class="mcp-url" id="mcp-url" title="https:\/\/team\.example\.app\/api\/mcp\/acme\/ledger"[^>]*>team\.example\.app\/…\/acme\/ledger<\/span>/);
+  });
+
+  it('copies the whole address, never the shortened text', async () => {
+    const { body } = await visit('/project/acme/ledger', MANAGER);
+    const button = /<button type="button" class="copy-url"[^>]*>/.exec(body)[0];
+    expect(button).toContain(`data-url="${FULL}"`);
+    expect(button).toContain('aria-label="Copy the MCP URL"');
+    expect(body).toContain('Add this as a custom connector in Claude, ChatGPT or Copilot');
+    expect(body).toContain('copyText(b.dataset.url)');
+  });
+
+  it('is read-only text: no input or textarea carries the address', async () => {
+    const { body } = await visit('/project/acme/ledger', MANAGER);
+    // The page has task filters (selects), but no field holding the address.
+    expect(body).not.toMatch(/<(input|textarea)[^>]*(mcp|api\/mcp)/);
+    expect(block(body)).not.toMatch(/<(input|textarea)/);
+  });
+
+  it('falls back to the browser copy command where there is no clipboard API', async () => {
+    const { body } = await visit('/project/acme/ledger', MANAGER);
+    expect(body).toContain('navigator.clipboard && navigator.clipboard.writeText');
+    expect(body).toContain("document.execCommand('copy')");
+    // The check mark returns to the copy icon after about 1.6 seconds.
+    expect(body).toContain("b.classList.add('done')");
+    expect(body).toContain('}, 1600);');
+  });
+
+  it('is shown to a member too: the address grants nothing, the connector still signs them in', async () => {
+    await lend();
+    const { body } = await visit('/project/acme/ledger', MEMBER_GOOGLE);
+    expect(block(body)).toContain(`data-url="${FULL}"`);
+  });
+
+  it('escapes a repository name that needs it', async () => {
+    const view = await import('../src/views/project.js');
+    const html = view.projectPage({
+      user: { name: 'x' },
+      view: {
+        project: 'P', owner: 'a"b', repo: '<c>', isManager: false, workstreams: [], projectTree: {}, trees: {},
+        contributions: {}, tasks: { open: [], done: [] }, pending: null,
+      },
+      selected: null, origin: 'https://h.test',
+    });
+    expect(html).not.toContain('<c>');
+    expect(html).toContain('/api/mcp/a%22b/%3Cc%3E');
+  });
+
+  it('is left out when the page does not know its own address, rather than guessed', async () => {
+    const view = await import('../src/views/project.js');
+    const html = view.projectPage({
+      user: { name: 'x' },
+      view: { project: 'P', owner: 'a', repo: 'b', isManager: false, workstreams: [], projectTree: {}, trees: {}, contributions: {}, tasks: { open: [], done: [] }, pending: null },
+      selected: null, origin: null,
+    });
+    expect(html).not.toContain('class="settings"');
+  });
+
+  it('sits at the foot of a pinned left column, after the work and inside the same column', async () => {
+    const { body } = await visit('/project/acme/ledger', MANAGER);
+    const rail = /<aside>\s*<div class="rail-work">[\s\S]*?<section class="settings"[\s\S]*?<\/aside>/.exec(body)?.[0];
+    expect(rail).toBeTruthy();
+    expect(rail.indexOf('The work')).toBeLessThan(rail.indexOf('class="settings"'));
+    expect(body).toMatch(/\.layout>aside\{position:sticky;top:12px;display:flex;flex-direction:column;[^}]*max-height:calc\(100vh - 24px\)\}/);
+    expect(body).toMatch(/\.rail-work\{[^}]*overflow-y:auto/);
+    expect(body).toMatch(/\.settings\{flex:none/);
+  });
+
+  it('is fitted to the screen on scroll, resize and when fonts load, with 260px as the least', async () => {
+    const { body } = await visit('/project/acme/ledger', MANAGER);
+    expect(body).toContain("window.addEventListener('scroll', fitRail");
+    expect(body).toContain("window.addEventListener('resize', fitRail)");
+    expect(body).toContain('document.fonts.ready.then(fitRail)');
+    expect(body).toContain('Math.max(260, window.innerHeight - top - 12)');
+  });
+
+  it('is an ordinary section after the work under 900px: one column, no pinning', async () => {
+    const { body } = await visit('/project/acme/ledger', MANAGER);
+    const narrow = body.slice(body.indexOf('@media(max-width:900px)'));
+    expect(narrow).toMatch(/\.layout\{grid-template-columns:1fr\}/);
+    expect(narrow).toMatch(/\.layout>aside\{position:static;min-height:0;max-height:none\}/);
+    expect(narrow).toMatch(/\.rail-work\{overflow:visible\}/);
+    expect(body).toContain("window.matchMedia('(min-width: 901px)')");
+  });
+
+  it('keeps the lanes, the lane picker and the drawers working', async () => {
+    const { body } = await visit('/project/acme/ledger', MANAGER);
+    expect(body).toContain('class="lanes"');
+    expect(body).toContain('id="lane-pick"');
+    expect(body).toContain('id="drawer"');
   });
 });
 

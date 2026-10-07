@@ -2,6 +2,7 @@ import { shell, navBar, esc } from './theme.js';
 import { LABELS, RECORD_TYPES } from '../model.js';
 import { projectRow, ROW_CSS, rowHeader } from './project-row.js';
 import { workstreamLocation } from './workstream-location.js';
+import { mcpUrl, shortMcpUrl } from './mcp-url.js';
 import { EDITABLE_RECORD_FIELDS } from '../ops.js';
 import { contradictionLabel, evidenceLabel } from '../contradictions.js';
 
@@ -28,6 +29,24 @@ const CSS = `
 .goal-why{font-size:1rem;line-height:1.45;color:var(--soft);margin:0;overflow-wrap:anywhere;
   display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:1;overflow:hidden}
 .layout{display:grid;grid-template-columns:240px 1fr;gap:20px;align-items:start}
+/* The left column is pinned and sized to the screen: the tree scrolls inside its
+   own area and Settings stays at the foot, on screen however long the tree is.
+   The script fits the height from where the column starts; this is the answer
+   before it runs and when it cannot. */
+.layout>aside{position:sticky;top:12px;display:flex;flex-direction:column;min-height:260px;max-height:calc(100vh - 24px)}
+.rail-work{flex:1 1 auto;min-height:0;overflow-y:auto;padding-right:2px}
+.settings{flex:none;margin-top:12px;padding-top:10px;border-top:1px solid var(--line)}
+.mcp-row{display:flex;align-items:center;gap:8px}
+.mcp-url{flex:1 1 auto;min-width:0;font-family:var(--font-mono);font-size:11px;color:var(--soft);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.copy-url{flex:none;display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;padding:0;
+  border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--soft);cursor:pointer}
+.copy-url:hover,.copy-url:focus-visible{border-color:var(--accent);color:var(--ink)}
+.copy-url svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.copy-url .ico-check{display:none;color:var(--accent)}
+.copy-url.done .ico-copy{display:none}
+.copy-url.done .ico-check{display:block}
+.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 .lanes{display:flex;flex-direction:column;gap:6px}
 .lane{display:block;text-decoration:none;color:inherit;background:var(--card);
   border:1px solid var(--line);border-radius:var(--radius-sm);padding:10px 12px}
@@ -108,8 +127,13 @@ const CSS = `
 .note{background:var(--amber-soft);color:var(--amber);padding:.5rem .7rem;border-radius:var(--radius-sm);
   margin-bottom:1rem;font-size:.9rem}
 
-@media(max-width:760px){
+@media(max-width:900px){
+  /* One column: the tree and Settings are ordinary sections, no pinning. */
   .layout{grid-template-columns:1fr}
+  .layout>aside{position:static;min-height:0;max-height:none}
+  .rail-work{overflow:visible}
+}
+@media(max-width:760px){
   .lanes{display:none}
   .lane-pick{display:block}
   .task-filters{margin-left:0}
@@ -215,6 +239,48 @@ const SCRIPT = `
     fit();
     window.addEventListener('resize', fit);
     if (document.fonts && document.fonts.ready) document.fonts.ready.then(fit);
+  }
+  // The left column is as tall as the screen allows from where it starts, so
+  // Settings is on screen at first load and while scrolling. Recomputed on
+  // scroll, resize and when fonts load; one column under 900px, where it is not
+  // pinned at all.
+  var rail = document.querySelector('.layout > aside');
+  if (rail) {
+    var wide = window.matchMedia('(min-width: 901px)');
+    var fitRail = function () {
+      if (!wide.matches) { rail.style.maxHeight = ''; return; }
+      var top = Math.max(rail.getBoundingClientRect().top, 12);
+      rail.style.maxHeight = Math.max(260, window.innerHeight - top - 12) + 'px';
+    };
+    fitRail();
+    window.addEventListener('scroll', fitRail, { passive: true });
+    window.addEventListener('resize', fitRail);
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(fitRail);
+  }
+  // Copy the full address, never the shortened text. The clipboard API does not
+  // exist on a plain-http page or an old browser, so there is a fallback that
+  // uses a hidden field and the browser's own copy command.
+  var copyUrl = document.querySelector('.copy-url');
+  if (copyUrl) {
+    var copyText = function (text) {
+      if (navigator.clipboard && navigator.clipboard.writeText) return navigator.clipboard.writeText(text);
+      return new Promise(function (resolve, reject) {
+        var field = document.createElement('textarea');
+        field.value = text; field.setAttribute('readonly', ''); field.style.position = 'fixed'; field.style.opacity = '0';
+        document.body.appendChild(field); field.select();
+        var ok = false;
+        try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+        document.body.removeChild(field);
+        if (ok) resolve(); else reject(new Error('copy failed'));
+      });
+    };
+    copyUrl.addEventListener('click', function () {
+      var b = this;
+      copyText(b.dataset.url).then(function () {
+        b.classList.add('done');
+        setTimeout(function () { b.classList.remove('done'); }, 1600);
+      }, function () { b.title = 'Could not copy: select the address and copy it'; });
+    });
   }
 }());`;
 
@@ -461,6 +527,24 @@ export const projectPage = ({ user, view, selected, item = null, note = null, or
     <div class="lane-row">${id === null ? '' : `<span class="num">${esc(view.workstreams.find(w => w.id === id)?.number ?? '')}</span>`}<span class="name">${esc(name)}</span><span class="count">${count}</span></div>
     ${members.length ? `<div class="lane-team">${members.map(m => `<span class="team-chip">${esc(m)}</span>`).join('')}</div>` : ''}
   </a>`;
+  // The one thing a person needs to start working with an assistant: its address.
+  // Read-only text beside a copy button, never an input: a box would say it can be
+  // edited. Team, agents and sources join this block as their data reaches the page.
+  const settings = origin ? (() => {
+    const parts = { origin, owner: view.owner, repo: view.repo };
+    const full = mcpUrl(parts);
+    return `<section class="settings" aria-label="Settings">
+      <div class="section-title">Settings</div>
+      <div class="mcp-row">
+        <span class="mcp-url" id="mcp-url" title="${esc(full)}" aria-describedby="mcp-help">${esc(shortMcpUrl(parts))}</span>
+        <button type="button" class="copy-url" data-url="${esc(full)}" aria-label="Copy the MCP URL" title="Copy the MCP URL">
+          <svg class="ico-copy" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg>
+          <svg class="ico-check" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>
+        </button>
+      </div>
+      <span class="sr-only" id="mcp-help">Add this as a custom connector in Claude, ChatGPT or Copilot</span>
+    </section>`;
+  })() : '';
   const openIn = (ws) => view.tasks.open.filter(t => t.workstream === ws).length;
 
   return shell(view.project || `${view.owner}/${view.repo}`, `
@@ -469,12 +553,12 @@ ${navBar({ user, current: '/projects' })}
 <h1>${esc(view.project || `${view.owner}/${view.repo}`)}${view.isManager
     ? ' <span class="role-chip">Manager</span>'
     : ''}</h1>
-<p class="muted slug"><code>${esc(view.owner)}/${esc(view.repo)}</code></p>
 ${view.projectTree?.goal?.text ? `<div class="goal-block" id="goal-block"><p class="goal-text">${esc(view.projectTree.goal.text)}</p>${view.projectTree.goal.why ? `<p class="goal-why">${esc(view.projectTree.goal.why)}</p>` : ''}</div>` : ''}
 ${note ? `<p class="note">${esc(note)}</p>` : ''}
 
 <div class="layout">
   <aside>
+    <div class="rail-work">
     <div class="section-title">The work</div>
     <div class="lanes">
       ${lane(null, view.project || 'Project', [], view.tasks.open.length, isProject)}
@@ -487,6 +571,8 @@ ${note ? `<p class="note">${esc(note)}</p>` : ''}
       </select>
       <button type="submit">Open</button>
     </form>
+    </div>
+    ${settings}
   </aside>
 
   <main>

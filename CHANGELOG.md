@@ -33,6 +33,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ending in an ellipsis when cut). The stored text is never shortened. The
   prompt that drafts a goal asks for one outcome sentence and a reason, and to
   leave the reason out rather than invent one.
+- **Settings, with the project's MCP address, at the foot of the left column.**
+  The address an assistant is connected with is shown shortened
+  (`host/…/owner/repo`) beside a copy button that always copies the whole
+  address, with a fallback where the browser has no clipboard API. The column is
+  pinned and sized to the screen, so Settings stays in view however long the
+  list of workstreams is; under 900px it is an ordinary section after them. The
+  repository line under the title is gone.
 - **The project page no longer lists decisions, rules, assumptions or
   exceptions.** It shows the work (tasks, by workstream) and, for the manager,
   what is waiting. Context is read through the assistant. Impact flags,
