@@ -17,11 +17,13 @@ import { lendDecision } from '../src/oauth/lend-decision.js';
 import { GithubSession, listUserOrgs, createRepo, slugifyProjectName, suggestAvailableName, listPushableRepos } from '../src/adapters/github.js';
 import { runWithSession } from '../src/session-context.js';
 import { initProject } from '../cli/commands/init.core.js';
-import { readProjectView, ProjectViewError } from '../src/oauth/project-view.js';
+import { readProjectView, ProjectViewError, actOnReview } from '../src/oauth/project-view.js';
+import { ManagerGateError, QueueItemNotFoundError } from '../cli/commands/review.core.js';
+import { ContradictionResolutionError } from '../src/contradictions.js';
 import { TOOLS, callTool } from '../mcp/server.js';
 import { baseUrlFrom } from '../src/base-url.js';
 import { resolveKey } from '../src/record-key.js';
-import { isReturnable, parseViewParams } from '../src/view-url.js';
+import { isReturnable, parseViewParams, isViewId } from '../src/view-url.js';
 import { parseProjectRef } from '../src/project-ref.js';
 // Page templates. They used to sit at the bottom of this file, which left it
 // mostly HTML with the routes buried in it — see #103 part 1.
@@ -1268,7 +1270,22 @@ app.get('/project/:owner/:repo', async (req, res) => {
     const back = navigation.toString();
     return signInFor(res, `/project/${owner}/${repo}${back ? `?${back}` : ''}`);
   }
+  return renderProject(req, res, user, { owner, repo });
+});
+
+/** What a review action reports once it has gone through. Fixed wording, so
+ * nothing from the request is written back into the page. */
+const REVIEW_DONE = { approved: 'Approved — it is now part of the team\u2019s context.', rejected: 'Rejected — nothing was changed.' };
+
+/**
+ * Draw a project page for somebody signed in.
+ *
+ * Shared by the GET and by a review action that was refused, which redraws the
+ * page with its reason rather than redirecting with that reason in the URL.
+ */
+async function renderProject(req, res, user, { owner, repo, query = req.query, failure = null, status = 200 }) {
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.status(status);
   try {
     const view = await readProjectView({ owner, repo, user });
     // Remembered now that the project has let them in, so the next visit starts
@@ -1283,7 +1300,7 @@ app.get('/project/:owner/:repo', async (req, res) => {
     // never reaches it, then checked against what exists: anything unknown or
     // out of scope falls back to the nearest thing that does, with a quiet
     // note, and the value asked for is never echoed back.
-    const asked = parseViewParams(req.query);
+    const asked = parseViewParams(query);
     const known = view.workstreams.some(w => w.id === asked.ws);
     let selected = known ? asked.ws : null;
     // A key resolves to the same thing its id does. Links carry the internal id,
@@ -1307,6 +1324,11 @@ app.get('/project/:owner/:repo', async (req, res) => {
     const reaches = [...reachable.records, ...reachable.tasks].some(x => x?.id === wanted)
       || (view.pending || []).some(q => q.id === wanted);
     const item = reaches ? wanted : null;
+    // Asked for something and it is not here: said plainly, and the value itself
+    // is never written back (#118). Whether it was asked for is read from the
+    // link itself, so a value too malformed to parse still gets the note rather
+    // than silence.
+    const lost = [query.item, query.task, query.review].some(v => typeof v === 'string' && v !== '') && !item;
     // An item-only link still opens the tree that owns the record.
     if (item && !view.projectTree?.records?.some(r => r.id === item)) {
       const owningTree = Object.entries(view.trees || {}).find(([, tree]) => tree.records?.some(r => r.id === item));
@@ -1317,22 +1339,76 @@ app.get('/project/:owner/:repo', async (req, res) => {
       view,
       selected,
       item,
-      filters: { workstream: req.query.taskWs, owner: req.query.taskOwner },
-      history: req.query.history === '1',
-      tab: ['context', 'tasks', 'review'].includes(req.query.tab) ? req.query.tab : null,
-      page: /^[1-9]\d{0,3}$/.test(String(req.query.page || '')) ? Number(req.query.page) : 1,
-      inheritedPage: /^[1-9]\d{0,3}$/.test(String(req.query.ipage || '')) ? Number(req.query.ipage) : 1,
+      filters: { workstream: query.taskWs, owner: query.taskOwner },
+      history: query.history === '1',
+      tab: ['context', 'tasks', 'review', 'needs'].includes(query.tab) ? query.tab : null,
+      page: /^[1-9]\d{0,3}$/.test(String(query.page || '')) ? Number(query.page) : 1,
+      inheritedPage: /^[1-9]\d{0,3}$/.test(String(query.ipage || '')) ? Number(query.ipage) : 1,
       // So a copied prompt can carry the address of the page it was copied
       // from, which is the one thing that tells a reader where it came from.
       origin: baseUrlFor(req),
-      note: asked.ws && !known ? 'That part of the work is not here, or not yours to see.' : null,
+      // The part-of-the-work note first: when that is out of reach it is also
+      // why the item is, and says more than "not here".
+      note: failure
+        || (asked.ws && !known ? 'That part of the work is not here, or not yours to see.' : null)
+        || (lost ? 'That item isn\u2019t here anymore.' : null),
+      done: failure ? null : REVIEW_DONE[query.done] || null,
     }));
   } catch (e) {
     const denied = e instanceof ProjectViewError || e.code === 'MEMBER_ACCESS_DENIED';
     // An old-format project is not a failure of this server: say what to do.
-    const status = e.code === 'LEGACY_FORMAT' ? 409 : denied ? 403 : 500;
-    res.status(status).send(errorPage(e.message));
+    const code = e.code === 'LEGACY_FORMAT' ? 409 : denied ? 403 : 500;
+    res.status(code).send(errorPage(e.message));
   }
+}
+
+/**
+ * Approve or reject a queued contribution from the page (#118).
+ *
+ * The decision is made by `approveReview` / `rejectReview` as the signed-in
+ * person — the gate is theirs, not this route's. What this route adds is that
+ * it is the first form on the page that changes the team's context, so a post
+ * from another site is refused twice over: the session cookie is
+ * `SameSite=Lax`, so a cross-site post arrives signed out, and the browser's
+ * `Origin` must name the host the post was sent to.
+ */
+app.post('/project/:owner/:repo/review/:id', async (req, res) => {
+  const owner = String(req.params.owner || '');
+  const repo = String(req.params.repo || '');
+  const user = await currentUser(req);
+  if (!user) return signInFor(res, `/project/${owner}/${repo}?tab=review`);
+  const origin = req.get('origin');
+  if (origin) {
+    let from = null;
+    try { from = new URL(origin).host; } catch { /* unreadable: refused below */ }
+    if (from !== (req.get('x-forwarded-host') || req.get('host'))) {
+      return res.status(403).send(errorPage('That request did not come from this page.'));
+    }
+  }
+  const id = String(req.params.id || '');
+  if (!isViewId(id)) return res.status(400).send(errorPage('That is not something in the review queue.'));
+  const action = req.body?.action === 'reject' ? 'reject' : 'approve';
+  // Which flagged record each conflict replaces, as `review approve --replaces`
+  // takes them. Ids or keys only; anything else is not a record handle.
+  const replaces = [].concat(req.body?.replaces || []).map(String).filter(v => isViewId(v)).slice(0, 20);
+  const reason = String(req.body?.reason || '').trim().slice(0, 500);
+  try {
+    await actOnReview({ owner, repo, user, id, action, replaces, reason });
+  } catch (e) {
+    // Refusals from the review core are written for the person: the gate, a
+    // conflict still unresolved, an item already handled. Anything else is not
+    // theirs to read, and goes to the log.
+    const told = e instanceof ManagerGateError || e instanceof QueueItemNotFoundError
+      || e instanceof ContradictionResolutionError || e instanceof ProjectViewError;
+    const noKey = /API_KEY|api key/i.test(String(e.message || ''));
+    if (!told) console.warn(`review ${action} on ${owner}/${repo} failed:`, e);
+    const failure = told ? e.message
+      : noKey ? 'Nothing was approved: this part of the work has roles, and refreshing their briefs needs an AI key. Add one in settings, or approve from your assistant.'
+        : 'Nothing was changed: the approval could not be completed. Try again, or approve from your assistant.';
+    // Redrawn on the queue, whatever the post's own address carried.
+    return renderProject(req, res, user, { owner, repo, query: { tab: 'review' }, failure, status: e instanceof ManagerGateError ? 403 : 409 });
+  }
+  res.redirect(303, `/project/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}?tab=review&done=${action === 'reject' ? 'rejected' : 'approved'}#panel`);
 });
 
 // ---- The SDK's OAuth server: metadata, /authorize, /token, /register --
