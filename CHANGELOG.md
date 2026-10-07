@@ -20,6 +20,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `workstream_split` and `teamctx workstream suggest` / `suggest_workstream_splits`.
 
 ### Added
+- **When an assumption breaks, teamctx says what was standing on it.** A decision
+  or rule can name the assumptions it rests on, and that link had been stored
+  since the governed-records model landed while nothing read it — so the one
+  question it exists to answer had never been asked. Marking an assumption broken
+  now lists everything resting on it, followed all the way down, plus the tasks
+  that work is being done on, and says it on the contribute and review results
+  while the manager is still deciding: *"2 things rest on this: … they need a
+  second look."* From then on every way an AI reads that decision — `my_brief`,
+  `get_context`, `list_records`, `get_record`, a compiled task prompt, the
+  project page — marks it *"needs review — rests on a broken assumption"*, until
+  the manager re-confirms it (it stays active, the flag clears) or replaces it.
+  Nothing's status changes without the manager. The flag is worked out over every
+  record in the project, because a decision in one part of the work can rest on an
+  assumption recorded in another — but only the flag crosses that line, never the
+  assumption's own words or the tree it lives in. Part of #120.
 - `list_records` and `get_record` (scoped like everything else), and
   `teamctx workstream add <name> [--under <id>]` / `workstream_add`.
 - `propose_structure` returns a draft in the new model: goal and why it matters,
