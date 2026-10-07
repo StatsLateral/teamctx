@@ -57,7 +57,9 @@ function opIsAdditive(op) {
  */
 function governs(op) {
   if (op?.type === 'addRecord') return NEVER_ADDITIVE_RECORDS.has(op.record?.type) || !!op.record?.links?.replaces;
-  return op?.type === 'setRecordStatus';
+  // Evidence is "added only through review" (#122), so it needs the manager
+  // under `none` too — it argues that something the team relies on is wrong.
+  return op?.type === 'setRecordStatus' || op?.type === 'addEvidence';
 }
 
 export class InvalidReviewPolicyError extends Error {

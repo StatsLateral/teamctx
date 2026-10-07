@@ -12,7 +12,7 @@ import {
   readContributions, listTasks,
 } from '../src/storage.js';
 import { answerQuestion } from '../src/context.js';
-import { contradictionLabel } from '../src/contradictions.js';
+import { contradictionLabel, evidenceLabel } from '../src/contradictions.js';
 import { commitContext } from '../src/git.js';
 import { connectorUrl, originRemote } from '../cli/commands/connect.core.js';
 import { buildViewUrl } from '../src/view-url.js';
@@ -648,7 +648,7 @@ function sayImpact(impact) {
   }).join('');
 }
 
-function reportBackContribute(r) {
+export function reportBackContribute(r) {
   // `where`, not the raw id. At project level the id is `null`, and the client
   // is told to read this string back word for word — so an unsplit project,
   // which is most of them, reported work landing on workstream "null".
@@ -656,15 +656,22 @@ function reportBackContribute(r) {
   // Asked for `apply` and did not get it. Said plainly and once, so the assistant
   // reports where the contribution went instead of treating the refusal as a
   // failure and sending the same text a second time. Nothing was lost by asking.
+  // Why `apply` was not honoured decides what to say. Telling the manager it is
+  // "the manager's alone" — the non-manager's reason — reads as telling them they
+  // are not the manager, which is what this said for evidence until a live run
+  // showed it.
   const refused = r.applyRefused
     ? r.contradictions?.length
       ? ' Direct apply was refused because contradictions require explicit manager review.'
+      : (r.operations || []).some(o => o?.type === 'addEvidence')
+        ? ' Direct apply was not used: evidence against an assumption always waits for the manager to'
+          + ' confirm it, even when the manager sent it. Nothing was lost; it is in the queue.'
       : ' Note for you, not a problem to report as one: `apply` was not honoured because it is the'
       + " manager's alone. The contribution was kept and took the ordinary path, so tell the user"
       + ' where it went and do not call contribute again for the same text.'
     : '';
   if (r.mode === 'no-op') return `Tell the user: contribution logged for ${where} but the AI proposed no changes to the tree.${refused}`;
-  if (r.mode === 'queued') return `Tell the user: contribution ${r.id} queued for manager approval on ${where} (${r.operations.length} op${r.operations.length === 1 ? '' : 's'}). Manager must run \`teamctx review approve ${r.id}\` or call the review_approve tool.${(r.contradictions || []).map(c => ` ${contradictionLabel(c)}. Resolve with a replacement or reject; do not retry direct apply.`).join('')}${refused}`;
+  if (r.mode === 'queued') return `Tell the user: contribution ${r.id} queued for manager approval on ${where} (${r.operations.length} op${r.operations.length === 1 ? '' : 's'}). Manager must run \`teamctx review approve ${r.id}\` or call the review_approve tool.${(r.contradictions || []).map(c => ` ${contradictionLabel(c)}. Resolve with a replacement or reject; do not retry direct apply.`).join('')}${(r.operations || []).filter(o => o?.type === 'addEvidence').map(o => ` ${evidenceLabel(o)}. The manager decides whether it holds; nothing changes until they do.`).join('')}${refused}`;
   const keys = (r.keys || []).map(x => x.key).filter(Boolean);
   const applied = `Tell the user: contribution ${r.id} applied to ${where} (${r.operations.length} op${r.operations.length === 1 ? '' : 's'})${r.rolesRegenerated?.length ? `, regenerated roles: ${r.rolesRegenerated.join(', ')}` : ''}${r.pushed ? ', committed and pushed' : ', committed'}.${keys.length ? ` Updated: ${keys.join(', ')}.` : ''}${refused}`;
   if (!r.founding) return applied;

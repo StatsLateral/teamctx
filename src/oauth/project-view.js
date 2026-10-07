@@ -8,8 +8,8 @@ import { scopeFor, inScope } from '../member-scope.js';
 import { resolveTarget } from '../project-level.js';
 import { workstreamLocation } from '../views/workstream-location.js';
 import { managerKeys, matchesActor } from '../review.js';
-import { flaggedInProject } from '../project-records.js';
-import { markNeedsReview } from '../impact.js';
+import { flaggedInProject, projectRecords } from '../project-records.js';
+import { markNeedsReview, restingOn } from '../impact.js';
 import { kvGet, keys } from './kv.js';
 import { githubIdsFor } from './ai-keys.js';
 
@@ -158,6 +158,22 @@ export async function readProjectView({ owner, repo, user }) {
       }));
 
     // The queue is the manager's to clear, so only they are shown what is in it.
+    // What a queued break would take with it, so the manager reads the impact
+    // beside the evidence instead of after approving. Worked out over every
+    // record, because what rests on an assumption may sit in any part of the
+    // work — and only for a manager, who may see all of it; the queue is theirs.
+    const everything = isManager ? projectRecords(undefined) : [];
+    // A queue item is somebody else's file until proven otherwise: a list that
+    // is not a list must not take the page down.
+    const impactOf = (operations) => (Array.isArray(operations) ? operations : [])
+      .filter(o => o?.type === 'setRecordStatus' && o.status === 'broken')
+      .map(o => everything.find(r => r.id === o.id))
+      .filter(r => r?.type === 'assumption')
+      .map(a => ({
+        id: a.id,
+        text: a.text,
+        records: restingOn(everything, a.id).records.map(r => ({ id: r.id, key: r.key || null, type: r.type, text: r.text })),
+      }));
     const pending = isManager
       ? (await listPendingReviews({})).map(q => ({
         id: q.id,
@@ -167,6 +183,7 @@ export async function readProjectView({ owner, repo, user }) {
         source: q.source || null,
         operations: q.operations || [],
         contradictions: q.contradictions || [],
+        impact: impactOf(q.operations),
         workstream: resolveTarget(q.workstream),
         where: workstreamLocation(workstreams, resolveTarget(q.workstream), config.project),
       }))

@@ -35,6 +35,37 @@ export function serializeToMd(tree, projectName, lastUpdatedBy = '', contributio
  * default to the plain contribution behaviour, so existing callers are
  * unaffected.
  */
+/**
+ * Who said it, where, and when — from the contribution, never from the model.
+ *
+ * The distiller proposes evidence against an assumption and quotes the part of
+ * the contribution that bears on it. Everything else about that evidence is a
+ * fact about the contribution, which the server already holds, so it is written
+ * here and anything the model put in those fields is discarded. Done before the
+ * proposal is applied or queued, so the queue item carries exactly what an
+ * approval will write.
+ */
+export function stampEvidence(operations, contribution, tree = null) {
+  return (operations || []).map(op => {
+    if (op?.type !== 'addEvidence') return op;
+    // What the evidence is against, as it read when the evidence was written —
+    // the same snapshot a contradiction carries. The manager judges the note
+    // against those words, and the queue has to say them without another read.
+    // Absent when the id names nothing in this tree; `applyOps` then drops it.
+    const target = (tree?.records || []).find(r => r.id === op.id);
+    return {
+      ...op,
+      evidence: {
+        text: typeof op.evidence?.text === 'string' ? op.evidence.text : '',
+        source: contribution?.source || null,
+        by: contribution?.author || null,
+        at: contribution?.ts || null,
+      },
+      ...(target ? { against: { id: target.id, ...(target.key ? { key: target.key } : {}), type: target.type, text: target.text } } : {}),
+    };
+  });
+}
+
 export async function updateShared(tree, contribution, config, { intent, avoid, comparisonRecords, operationsToCheck } = {}) {
   const proposal = await proposeDiff({
     workstream: tree,
@@ -48,7 +79,7 @@ export async function updateShared(tree, contribution, config, { intent, avoid, 
     operationsToCheck,
   });
   const { summary, contradictions = [] } = proposal;
-  const operations = operationsToCheck ?? proposal.operations;
+  const operations = stampEvidence(operationsToCheck ?? proposal.operations, contribution, tree);
   const { tree: updated, dropped, nextKey } = applyOps(tree, operations, contribution.id, {
     nextKey: config?.nextKey,
   });

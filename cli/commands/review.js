@@ -1,5 +1,5 @@
 import { listPendingReviews, approveReview, rejectReview, ManagerGateError, QueueItemNotFoundError } from './review.core.js';
-import { contradictionLabel, ContradictionResolutionError } from '../../src/contradictions.js';
+import { contradictionLabel, evidenceLabel, ContradictionResolutionError } from '../../src/contradictions.js';
 
 export async function reviewListCommand() {
   const queue = await listPendingReviews();
@@ -24,6 +24,7 @@ export async function reviewListCommand() {
   rows.forEach(r => console.log(fmt(r)));
   for (const item of queue) {
     for (const conflict of item.contradictions || []) console.log(`\n${item.id}: ${contradictionLabel(conflict)}`);
+    for (const op of (item.operations || []).filter(o => o?.type === 'addEvidence')) console.log(`\n${item.id}: ${evidenceLabel(op)}`);
   }
   console.log('');
 }

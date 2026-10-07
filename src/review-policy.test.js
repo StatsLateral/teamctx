@@ -153,3 +153,23 @@ describe('retiring or settling something is never a quiet addition', () => {
     expect(needsReview({ reviewPolicy: 'none' }, [{ type: 'setRecordStatus', id: 'r', status: 'replaced' }])).toBe(true);
   });
 });
+
+/**
+ * Evidence is added only through review, under every policy.
+ *
+ * `contributeCore` also forces a contribution carrying evidence into the queue,
+ * so this is the second of two guarantees — the one that holds for any caller
+ * asking the policy directly rather than going through that path.
+ */
+describe('evidence against an assumption', () => {
+  const evidence = { type: 'addEvidence', id: 'a1', evidence: { text: 'x' } };
+
+  it.each(['all', 'additive', 'none'])('needs the manager under %s', policy => {
+    expect(needsReview({ reviewPolicy: policy }, [evidence])).toBe(true);
+  });
+
+  it('is not an addition, even though it only adds to a list', () => {
+    // It argues that something the team relies on is wrong.
+    expect(isAdditive([evidence])).toBe(false);
+  });
+});

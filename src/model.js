@@ -39,6 +39,18 @@ const recordSchema = {
       },
     },
     sourceContributionIds: IDS,
+    // Added only through review, by `addEvidence`. The text is a quote; who,
+    // where from and when come from the contribution, never from the model.
+    evidence: {
+      type: 'array',
+      items: {
+        type: 'object', required: ['text'],
+        properties: {
+          text: { type: 'string', minLength: 1 },
+          source: { type: ['string', 'null'] }, at: { type: ['string', 'null'] }, by: { type: ['string', 'null'] },
+        },
+      },
+    },
   },
   allOf: [
     { if: { properties: { type: { const: 'assumption' } } }, then: { required: ['owner', 'reviewBy'], properties: { owner: PERSON } } },
