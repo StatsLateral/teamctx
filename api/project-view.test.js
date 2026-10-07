@@ -250,6 +250,78 @@ describe('getting there', () => {
   });
 });
 
+describe('the goal and why it matters, opening the page', () => {
+  const setGoal = (goal) => repo.files.set('.teamctx/project.json', JSON.stringify({ name: 'Ledger', goal, records: [], tasks: [] }));
+  const block = (body) => /<div class="goal-block" id="goal-block">[\s\S]*?<\/div>/.exec(body)?.[0];
+
+  it('shows the goal, then why it matters, directly under the title', async () => {
+    setGoal({ text: 'Open conversations at four health systems', why: 'Buyers ignore cold outreach' });
+    const { body } = await visit('/project/acme/ledger', MANAGER);
+    const goal = block(body);
+    expect(goal).toContain('<p class="goal-text">Open conversations at four health systems</p>');
+    expect(goal).toContain('<p class="goal-why">Buyers ignore cold outreach</p>');
+    expect(goal.indexOf('goal-text')).toBeLessThan(goal.indexOf('goal-why'));
+    expect(body.indexOf('<h1>')).toBeLessThan(body.indexOf('id="goal-block"'));
+    expect(body.indexOf('id="goal-block"')).toBeLessThan(body.indexOf('class="layout"'));
+  });
+
+  it('shows only the goal when there is no why, with no placeholder', async () => {
+    setGoal({ text: 'Open conversations' });
+    const goal = block((await visit('/project/acme/ledger', MANAGER)).body);
+    expect(goal).toContain('goal-text');
+    expect(goal).not.toContain('goal-why');
+  });
+
+  it('shows nothing when the project has no goal yet', async () => {
+    setGoal(null);
+    const { body } = await visit('/project/acme/ledger', MANAGER);
+    expect(body).not.toContain('id="goal-block"');
+  });
+
+  it('escapes both lines, which are somebody else’s text', async () => {
+    setGoal({ text: '<script>alert(1)</script>', why: '<img src=x onerror="alert(2)">' });
+    const { body } = await visit('/project/acme/ledger', MANAGER);
+    expect(body).not.toContain('<script>alert(1)</script>');
+    expect(body).not.toContain('<img src=x onerror');
+    expect(block(body)).toContain('&lt;script&gt;');
+  });
+
+  it('shows it once, and not as a row in the work', async () => {
+    setGoal({ text: 'Reach ten enterprise pilots', why: 'Because' });
+    for (const path of ['/project/acme/ledger', '/project/acme/ledger?tab=review']) {
+      const { body } = await visit(path, MANAGER);
+      expect(body.match(/Reach ten enterprise pilots/g), path).toHaveLength(1);
+    }
+  });
+
+  it('is shown to a member too: the goal belongs to the project, not to a part of it', async () => {
+    setGoal({ text: 'Reach ten enterprise pilots' });
+    await lend();
+    const { body } = await visit('/project/acme/ledger', MEMBER_GOOGLE);
+    expect(block(body)).toContain('Reach ten enterprise pilots');
+  });
+
+  it('is limited to three lines in all, the goal two at most and the why what is left', async () => {
+    const { whyLinesLeft } = await import('../src/views/project.js');
+    expect([1, 2, 3, 6].map(whyLinesLeft)).toEqual([2, 1, 1, 1]);
+    setGoal({ text: 'A goal', why: 'A why' });
+    const { body } = await visit('/project/acme/ledger', MANAGER);
+    // The no-JavaScript answer, then the script that does it properly.
+    expect(body).toMatch(/\.goal-text\{[^}]*-webkit-line-clamp:2/);
+    expect(body).toMatch(/\.goal-why\{[^}]*-webkit-line-clamp:1/);
+    expect(body).toContain('var whyLinesLeft = (goalLines) => Math.max(1, 3 - Math.min(2, goalLines))');
+    expect(body).toContain('document.fonts.ready.then(fit)');
+    expect(body).toContain("window.addEventListener('resize', fit)");
+  });
+
+  it('does not cut what is stored: the whole text is in the page, only the display is clamped', async () => {
+    const long = 'word '.repeat(300).trim();
+    setGoal({ text: long, why: long });
+    const { body } = await visit('/project/acme/ledger', MANAGER);
+    expect(block(body).split(long).length - 1).toBe(2);
+  });
+});
+
 describe('the work the page draws', () => {
   it('opens on the whole project, with every part of the work and its tasks', async () => {
     const start = await visit('/project/acme/ledger', MANAGER);

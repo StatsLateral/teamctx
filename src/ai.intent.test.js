@@ -234,3 +234,17 @@ describe('relying on an assumption is not evidence against it', () => {
     expect(p).toMatch(/a new decision\s+that rests on an assumption is recorded as usual/);
   });
 });
+
+describe('proposeDiff — the shape of a goal', () => {
+  it('asks for an outcome sentence and a reason, in plain words', async () => {
+    await proposeDiff({ workstream, contribution: 'we want ten pilots', source: 'alice', config: {} });
+    expect(call().prompt).toMatch(/one outcome sentence that names who or what changes, not how/);
+    expect(call().prompt).toMatch(/does not restate the goal/);
+    expect(call().prompt).toMatch(/no headings, bullets, hedging or marketing/);
+  });
+
+  it('tells the model to leave the reason out rather than invent one', async () => {
+    await proposeDiff({ workstream, contribution: 'we want ten pilots', source: 'alice', config: {} });
+    expect(call().prompt).toMatch(/leave "why" out rather than invent one/);
+  });
+});
