@@ -58,6 +58,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   revoked token or a slow answer never does; a project that cannot be asked about
   stays. Nothing is removed from what teamctx remembers, so an entry returns with
   its repository. Answers are remembered for ten minutes.
+- **A connector can always connect and list its tools, even when GitHub refuses
+  the signed-in account.** `initialize`, `tools/list`, `ping` and the
+  notifications no longer download the repository first, so an organization that
+  restricts third-party apps, SAML single sign-on or a revoked token no longer
+  turns the whole server into a bare 500 that a client reads as "no tools". A tool
+  call that cannot read the project now returns a tool error that says why and
+  what to do. The authorization server's `issuer` now matches the identifier the
+  protected-resource document points at (it had a trailing slash the other lacked).
 - **The project page no longer lists decisions, rules, assumptions or
   exceptions.** It shows the work (tasks, by workstream) and, for the manager,
   what is waiting. Context is read through the assistant. Impact flags,

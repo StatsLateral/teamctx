@@ -22,7 +22,22 @@ export async function handleMcpHttp(req, res, projectContext) {
     ref: projectContext.ref || null,
     ghToken: projectContext.ghToken,
   });
-  await session.prefetch();
+
+  const body = await readJsonBody(req);
+  // Only a tool call reads the project. `initialize`, `tools/list`, `ping` and the
+  // notifications depend on nothing in the repository (the tool list differs only
+  // for an agent), so they are answered without asking GitHub for anything. A
+  // connector can always connect and list its tools; if the person's GitHub access
+  // is the problem, the first tool call says so, instead of the whole server
+  // looking dead, which is how a client reads a 500 on its first request.
+  const messages = Array.isArray(body) ? body : [body];
+  if (messages.some(m => m?.method === 'tools/call')) {
+    try {
+      await session.prefetch();
+    } catch (error) {
+      return refuseToolCalls(res, messages, explainGithubFailure(error, projectContext));
+    }
+  }
 
   await runWithSession(session, async () => {
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
@@ -31,9 +46,45 @@ export async function handleMcpHttp(req, res, projectContext) {
     const server = buildServer({ __backend: 'github', ...projectContext });
     await server.connect(transport);
 
-    const body = await readJsonBody(req);
     await transport.handleRequest(req, res, body);
   });
+}
+
+/**
+ * Why GitHub would not let this person read the project, in words they can act
+ * on. Only the status and GitHub's own short message are used, never the token.
+ */
+export function explainGithubFailure(error, { owner, repo }) {
+  const text = String(error?.message || '');
+  const status = Number(/→\s*(\d{3})/.exec(text)?.[1]) || null;
+  const what = `${owner}/${repo}`;
+  if (status === 401) {
+    return `GitHub rejected the sign-in teamctx holds for you (it has expired or been revoked), so ${what} could not be read. Disconnect and connect this server again.`;
+  }
+  if (status === 403) {
+    return `GitHub refused access to ${what} for the account you signed in with. If ${owner} is an organization, it may restrict third-party apps or require SAML single sign-on: ask an owner to approve the teamctx OAuth app, or connect again with an account that can read the repository.`;
+  }
+  if (status === 404) {
+    return `${what} was not found, or the account you signed in with cannot see it (GitHub answers 404 for a private repository the account has no access to). Check the repository name, or connect again with an account that can read it.`;
+  }
+  const detail = /\{"message":"([^"]{1,160})/.exec(text)?.[1];
+  return `teamctx could not read ${what} from GitHub${status ? ` (${status})` : ''}${detail ? `: ${detail}` : ''}. Try again in a moment; if it keeps happening, connect this server again.`;
+}
+
+/**
+ * Answer a request that needed the project when the project could not be read:
+ * a tool call gets a normal tool error carrying the reason, which a client shows
+ * the person; anything else in the same request gets a JSON-RPC error; a
+ * notification gets nothing.
+ */
+function refuseToolCalls(res, messages, reason) {
+  const replies = messages.filter(m => m && m.id !== undefined && m.method).map(m => (m.method === 'tools/call'
+    ? { jsonrpc: '2.0', id: m.id, result: { isError: true, content: [{ type: 'text', text: reason }] } }
+    : { jsonrpc: '2.0', id: m.id, error: { code: -32603, message: reason } }));
+  if (!replies.length) { res.statusCode = 202; res.end(); return; }
+  res.statusCode = 200;
+  res.setHeader('Content-Type', 'application/json');
+  res.end(JSON.stringify(replies.length === 1 && messages.length === 1 ? replies[0] : replies));
 }
 
 async function readJsonBody(req) {
