@@ -8,12 +8,13 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 import http from 'http';
 
-const repo = vi.hoisted(() => ({ files: new Map(), prefetchError: null }));
+const repo = vi.hoisted(() => ({ files: new Map(), prefetchError: null, gone: new Set(), unknown: new Set(), moved: new Map() }));
 
 vi.mock('../src/adapters/github.js', async (orig) => ({
   ...(await orig()),
   listPushableRepos: async () => [],
   listUserOrgs: async () => [],
+  repoExistence: async (token, owner, name) => (repo.gone.has(`${owner}/${name}`) ? { state: 'gone' } : repo.unknown.has(`${owner}/${name}`) ? { state: 'unknown' } : { state: 'exists', fullName: repo.moved.get(`${owner}/${name}`) ?? null }),
   GithubSession: class {
     constructor({ owner, repo: name, ghToken }) {
       Object.assign(this, { owner, repo: name, ghToken });
@@ -38,7 +39,9 @@ vi.mock('../src/adapters/github.js', async (orig) => ({
   },
 }));
 
-const { kvSet, keys, __resetMemory } = await import('../src/oauth/kv.js');
+const { kvSet, kvGet, keys, __resetMemory } = await import('../src/oauth/kv.js');
+// The remembered verdict on a repository, so a test can let it lapse.
+const __resetKnown = () => kvSet(keys.repoState('maya@example.com', 'acme', 'old-demo'), null);
 
 let server, base;
 beforeAll(async () => {
@@ -124,6 +127,9 @@ function rowPrompt(body, id = 't-pricing-page') {
 
 beforeEach(() => {
   __resetMemory();
+  repo.gone = new Set();
+  repo.unknown = new Set();
+  repo.moved = new Map();
   project();
 });
 
@@ -258,6 +264,54 @@ describe('getting there', () => {
     const { status, body } = await visit('/project/acme/ledger', MANAGER);
     expect(status).toBe(403);
     expect(body).toMatch(/could not be read/);
+  });
+
+  describe('a project whose repository was deleted on GitHub', () => {
+    const list = async (user = MANAGER) => (await visit('/projects', user)).body;
+    const known = (...slugs) => kvSet(keys.connectedProjects('maya@example.com'), { projects: slugs });
+
+    it('is left off the list, and the ones that still exist stay', async () => {
+      await known('acme/ledger', 'acme/old-demo', 'acme/other-test');
+      repo.gone = new Set(['acme/old-demo', 'acme/other-test']);
+      const body = await list();
+      expect(body).toContain('acme/ledger');
+      expect(body).not.toContain('acme/old-demo');
+      expect(body).not.toContain('acme/other-test');
+    });
+
+    it('is not removed from what teamctx remembers: it comes back if the repository does', async () => {
+      await known('acme/ledger', 'acme/old-demo');
+      repo.gone = new Set(['acme/old-demo']);
+      expect(await list()).not.toContain('acme/old-demo');
+      expect((await kvGet(keys.connectedProjects('maya@example.com'))).projects).toEqual(['acme/ledger', 'acme/old-demo']);
+      repo.gone = new Set();
+      __resetKnown();
+      await known('acme/ledger', 'acme/old-demo');
+      expect(await list()).toContain('acme/old-demo');
+    });
+
+    it('says there is nothing on the list when every project is gone', async () => {
+      await known('acme/old-demo');
+      repo.gone = new Set(['acme/old-demo']);
+      expect(await list()).toMatch(/Nothing on your list yet/);
+    });
+
+    it('is shown under its current name when the repository was renamed or moved, not listed twice', async () => {
+      await known('oldorg/ledger', 'acme/ledger');
+      repo.moved = new Map([['oldorg/ledger', 'acme/ledger']]);
+      const body = await list();
+      expect(body).not.toContain('oldorg/ledger');
+      expect(body.match(/acme\/ledger/g).length).toBeGreaterThan(0);
+      expect(body).toMatch(/href="\/project\/acme\/ledger"/);
+    });
+
+    it('stays on the list when GitHub cannot say, which is not the same as gone', async () => {
+      await known('acme/ledger', 'acme/flaky');
+      repo.unknown = new Set(['acme/flaky']);
+      const body = await list();
+      expect(body).toContain('acme/ledger');
+      expect(body).toContain('acme/flaky');
+    });
   });
 });
 
