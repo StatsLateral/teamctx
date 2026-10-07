@@ -18,6 +18,15 @@ const CSS = `
 .role-chip{font-family:var(--font-mono);font-size:11px;text-transform:uppercase;letter-spacing:.06em;
   color:var(--accent);background:var(--accent-soft);border-radius:99px;padding:3px 9px;vertical-align:middle}
 .slug{margin:0 0 1rem}
+/* The goal and why it matters open the page: serif and ink for the goal, body
+   size and soft grey for the why. Three lines in all, so the CSS clamp below is
+   the no-JavaScript answer (goal two lines, why one) and the script gives the
+   why whatever the goal leaves. The stored text is never cut. */
+.goal-block{margin:0 0 1.25rem;max-width:none}
+.goal-text{font-family:var(--font-display);font-weight:500;font-size:1.35rem;line-height:1.3;color:var(--ink);margin:0 0 .3rem;
+  overflow-wrap:anywhere;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
+.goal-why{font-size:1rem;line-height:1.45;color:var(--soft);margin:0;overflow-wrap:anywhere;
+  display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:1;overflow:hidden}
 .layout{display:grid;grid-template-columns:240px 1fr;gap:20px;align-items:start}
 .lanes{display:flex;flex-direction:column;gap:6px}
 .lane{display:block;text-decoration:none;color:inherit;background:var(--card);
@@ -107,6 +116,16 @@ const CSS = `
 }`;
 
 /**
+ * How many lines the why gets, given how many lines the goal needs.
+ *
+ * Three lines in all, sub-heading included: the goal takes up to two and the why
+ * takes what is left, at least one. A one-line goal leaves two for the why.
+ * Display only; the stored text is never shortened. Also inlined into the page
+ * script below, so the browser and the tests run the same rule.
+ */
+export const whyLinesLeft = (goalLines) => Math.max(1, 3 - Math.min(2, goalLines));
+
+/**
  * Everything the page does after it loads, which is not much on purpose.
  *
  * Opening a drawer, copying a prompt, and finding whatever a link pointed at.
@@ -178,6 +197,24 @@ const SCRIPT = `
     };
     Array.prototype.forEach.call(selects, function (s) { s.addEventListener('change', sync); });
     sync();
+  }
+  // The goal and why share three lines. Measured after fonts load and on resize,
+  // so it holds at phone width; without JavaScript the CSS clamp (2 and 1) stands.
+  var block = document.getElementById('goal-block');
+  if (block) {
+    var goal = block.querySelector('.goal-text');
+    var why = block.querySelector('.goal-why');
+    var whyLinesLeft = ${whyLinesLeft.toString()};
+    var fit = function () {
+      goal.style.webkitLineClamp = 'none';
+      var lh = parseFloat(getComputedStyle(goal).lineHeight);
+      var lines = Math.max(1, Math.round(goal.getBoundingClientRect().height / lh));
+      goal.style.webkitLineClamp = String(Math.min(2, lines));
+      if (why) why.style.webkitLineClamp = String(whyLinesLeft(lines));
+    };
+    fit();
+    window.addEventListener('resize', fit);
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(fit);
   }
 }());`;
 
@@ -433,6 +470,7 @@ ${navBar({ user, current: '/projects' })}
     ? ' <span class="role-chip">Manager</span>'
     : ''}</h1>
 <p class="muted slug"><code>${esc(view.owner)}/${esc(view.repo)}</code></p>
+${view.projectTree?.goal?.text ? `<div class="goal-block" id="goal-block"><p class="goal-text">${esc(view.projectTree.goal.text)}</p>${view.projectTree.goal.why ? `<p class="goal-why">${esc(view.projectTree.goal.why)}</p>` : ''}</div>` : ''}
 ${note ? `<p class="note">${esc(note)}</p>` : ''}
 
 <div class="layout">
