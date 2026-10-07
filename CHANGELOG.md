@@ -20,6 +20,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `workstream_split` and `teamctx workstream suggest` / `suggest_workstream_splits`.
 
 ### Added
+- **The manager reviews and sees impact on the project page (#118).** The page
+  now has **Waiting for you · Needs review · Current state · Tasks** for a
+  manager, and **Current state · Tasks** for a member. *Waiting for you* shows one
+  card per contribution with its changes under it ("2 waiting · 9 changes"), and
+  Approve / Reject on each; a card that contradicts a record asks which one it
+  replaces before Approve works, and an inherited conflict says where it can be
+  resolved. *Needs review* lists broken assumptions with everything resting on
+  them (re-confirmed ones marked as such), assumptions past their check-by date
+  and exceptions ending within 14 days, across the whole project. The approval
+  is the same `approveReview` the CLI and assistant use, so the manager gate is
+  unchanged; posts from another site are refused. Approving refreshes role
+  briefs as it does anywhere else, on the approver's or the project's AI key;
+  viewing the page still never calls AI. A link to an item that is gone says
+  *"That item isn't here anymore"* without repeating the value.
 - **A note that contradicts an assumption is put to the manager as evidence.**
   #120 says what rested on an assumption once it breaks; somebody still had to
   notice it broke, and that notice arrives as a meeting note or a document that

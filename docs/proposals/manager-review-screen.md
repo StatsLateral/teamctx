@@ -1,6 +1,6 @@
 # Proposal: the manager's review-and-impact screen
 
-**Status:** In progress · **Issue:** [#118](https://github.com/StatsLateral/teamctx/issues/118)
+**Status:** Implemented · **Issue:** [#118](https://github.com/StatsLateral/teamctx/issues/118)
 **Base:** `feat/assumption-evidence` (#126, #127, #121, #120, #122 — every one of which this screen shows)
 
 ## What the issue asks
@@ -120,10 +120,10 @@ framework; no script beyond what the page already has.
 
 ## Plan
 
-- [ ] Tabs: Waiting for you · Needs review · Current state · Tasks; counts
-- [ ] Section 1 as cards with nested changes; "N waiting · M changes"
-- [ ] Approve / Reject / Replace from the page; manager gate; Origin check
-- [ ] Section 2: broken + what rests on them, overdue, ending soon
-- [ ] Unknown `?item=` note, never echoing the value
-- [ ] Member page data has neither section 1 nor 2
-- [ ] Tests for each acceptance line; CHANGELOG
+- [x] Tabs: Waiting for you · Needs review · Current state · Tasks; counts
+- [x] Section 1 as cards with nested changes; "N waiting · M changes"
+- [x] Approve / Reject / Replace from the page; manager gate; Origin check
+- [x] Section 2: broken + what rests on them, overdue, ending soon
+- [x] Unknown `?item=` note, never echoing the value
+- [x] Member page data has neither section 1 nor 2
+- [x] Tests for each acceptance line; CHANGELOG
