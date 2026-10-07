@@ -1,6 +1,6 @@
 import { shell, navBar, esc } from './theme.js';
 import { LABELS, RECORD_TYPES } from '../model.js';
-import { projectRow, ROW_CSS, rowHeader } from './project-row.js';
+import { projectRow, ROW_CSS } from './project-row.js';
 import { workstreamLocation } from './workstream-location.js';
 import { EDITABLE_RECORD_FIELDS } from '../ops.js';
 import { contradictionLabel, evidenceLabel } from '../contradictions.js';
@@ -108,6 +108,7 @@ const CSS = `
   padding:16px 20px;border-bottom:1px solid var(--line)}
 .drawer-body{padding:20px;overflow-y:auto}
 .drawer-body .statement{font-family:var(--font-display);font-size:18px;margin:0 0 10px;overflow-wrap:anywhere}
+.drawer-body .pills{margin:0 0 14px}
 /* What the button is about to put on the clipboard, shut by default: it is long,
    and the drawer is for reading the statement, not the instructions. */
 .peek{margin:1rem 0}
@@ -175,6 +176,10 @@ const SCRIPT = `
   var backdrop = document.getElementById('backdrop');
   function open(el) {
     document.getElementById('d-text').textContent = el.dataset.text;
+    // The row's own pills, uncapped: whatever the row had to shorten is read
+    // here in full. Copied from the row, which the server already escaped.
+    var pills = el.querySelector('.pills');
+    document.getElementById('d-pills').innerHTML = pills ? pills.innerHTML : '';
     // Shown only when there is something to show, so the drawer does not carry
     // an empty line about a record that is standing on solid ground.
     var review = document.getElementById('d-review');
@@ -641,7 +646,6 @@ export const projectPage = ({ user, view, selected, item = null, note = null, do
   const inherited = inheritedRows.length
     ? `<div class="inherited">
       <div class="section-title">Project context — inherited</div>
-      ${rowHeader()}
       ${inheritedPages[inheritedAt - 1].map(row => itemButton({ row, contributions: view.contributions, where: view.project,
         isProject: true, owner: view.owner, repo: view.repo, origin, marked: row.node.id === item })).join('')}
       ${pager(inheritedPages, inheritedAt, contextParams, 'ipage')}
@@ -687,8 +691,7 @@ ${done ? `<p class="note done" role="status">${esc(done)}</p>` : ''}
     </nav>
     ${active === 'review' ? `<section>
       <div class="tree-head"><span class="section-title">Waiting for you${view.pending.length ? ` — ${view.pending.length} waiting · ${changeCount} change${changeCount === 1 ? '' : 's'}` : ''}</span></div>
-      ${view.pending.length ? `${rowHeader({ text: 'Contribution' })}
-      ${reviewPages[reviewPage - 1].map(({ node: q }) => queueRows({ q, view, item, origin })).join('')}
+      ${view.pending.length ? `      ${reviewPages[reviewPage - 1].map(({ node: q }) => queueRows({ q, view, item, origin })).join('')}
       ${pager(reviewPages, reviewPage, reviewParams)}` : '<p class="muted">Nothing is waiting for review.</p>'}
       ${needs ? `<div class="tree-head review-split"><span class="section-title">Needs review — across the whole project${needsList.length ? ` — ${needsList.length}` : ''}</span></div>
       ${needsReviewPanel({ needs, entries: needsPages[needsAt - 1], base })}
@@ -711,7 +714,6 @@ ${done ? `<p class="note done" role="status">${esc(done)}</p>` : ''}
     ? `<a class="clear" href="${esc(panelHref({ tab: 'tasks' }))}">Clear</a>` : ''}
         </form>
       </div>
-      ${tasks.length ? rowHeader({ text: 'Task' }) : ''}
       <div class="task-list">${tasks.length ? taskPages[taskPage - 1].map(({ node: t }) => itemButton({
         row: { node: t, tier: 'task', n: '—' }, contributions: view.contributions, where: t.where,
         isProject: !t.workstream, wsId: t.workstream, owner: view.owner, repo: view.repo,
@@ -730,7 +732,7 @@ ${done ? `<p class="note done" role="status">${esc(done)}</p>` : ''}
     ${history && retired ? `<p class="history-note">Showing ${retired} retired record${retired === 1 ? '' : 's'} — replaced, broken or closed — dimmed, with their status. Current context is not dimmed.</p>` : ''}
     ${inherited}
     ${rows.length
-    ? `${rowHeader()}${list({
+    ? `${list({
       rows: contextPages[contextPage - 1],
       contributions: view.contributions,
       where,
@@ -755,6 +757,7 @@ ${done ? `<p class="note done" role="status">${esc(done)}</p>` : ''}
   </div>
   <div class="drawer-body">
     <p class="statement" id="d-text"></p>
+    <div class="pills full" id="d-pills"></div>
     <p class="stale-note" id="d-review" style="display:none"></p>
     <div class="section-title">Summary</div>
     <p id="d-summary"></p>

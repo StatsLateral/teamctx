@@ -1192,11 +1192,11 @@ describe('reading the project page', () => {
     name: 'Ledger', tasks: [], records,
   }));
 
-  it('heads each table with what its columns are', async () => {
+  it('has no column headings: each row says what its parts are', async () => {
     const context = await visit('/project/acme/ledger', MANAGER);
-    expect(context.body).toMatch(/<div class="row-head"[^>]*><span>Key<\/span><span>Type<\/span><span>Statement<\/span><span>Owner<\/span><span>Status<\/span><span[^>]*>Notes<\/span><span[^>]*>Source<\/span><\/div>/);
+    expect(context.body).not.toContain('class="row-head"');
     const tasks = await visit('/project/acme/ledger?tab=tasks', MANAGER);
-    expect(tasks.body).toMatch(/<span>Key<\/span><span>Type<\/span><span>Task<\/span>/);
+    expect(tasks.body).not.toContain('class="row-head"');
   });
 
   it('shows Context or Tasks, never both, with the active tab marked', async () => {
@@ -1265,14 +1265,13 @@ describe('reading the project page', () => {
 });
 
 /**
- * The row's last three columns say what they are.
+ * A row is its statement, with everything else as pills under it.
  *
- * Status held both the record's state and every governance note, so the notes
- * had no heading of their own; and the source was a coloured dot, which in a
- * project where everything arrives through an assistant was a column of
- * identical green dots.
+ * With a column for each part, the statement was a sliver in the middle of a
+ * wide row and every row grew tall to fit it. Status, notes and source are still
+ * apart from one another — they just are not columns.
  */
-describe('status, notes and source in their own columns', () => {
+describe('the statement, and its pills', () => {
   const setProject = (records) => repo.files.set('.teamctx/project.json', JSON.stringify({ name: 'Ledger', tasks: [], records }));
 
   it('keeps the status apart from the notes', async () => {
@@ -1289,10 +1288,34 @@ describe('status, notes and source in their own columns', () => {
     expect(/<button[^>]*id="i-d1"[\s\S]*?<\/button>/.exec(body)[0]).toContain('<span class="row-notes"></span>');
   });
 
-  it('labels each part on a narrow screen, where the header is hidden', async () => {
+  it('puts type, status, owner, notes and source in pills under the statement', async () => {
+    setProject([{ id: 'a1', key: 'A-1', type: 'assumption', text: 'they will pay', status: 'active', owner: { name: 'O' }, reviewBy: '2020-01-01' }]);
     const { body } = await visit('/project/acme/ledger', MANAGER);
-    const narrow = body.slice(body.indexOf('@media(max-width:1200px)'));
-    for (const label of ["content:'Owner: '", "content:'Status: '", "content:'Notes: '"]) expect(narrow).toContain(label);
+    const r = /<button[^>]*id="i-a1"[\s\S]*?<\/button>/.exec(body)[0];
+    expect(r).toMatch(/<span class="num">A-1<\/span>\s*<span class="text">they will pay<\/span>\s*<span class="pills">/);
+    const pills = r.slice(r.indexOf('class="pills"'));
+    for (const part of ['class="type-label">Assumption', 'class="status-chip">active', 'class="row-owner">O<', 'Review overdue 2020-01-01', 'class="row-source']) expect(pills).toContain(part);
+  });
+
+  it('caps the statement at two lines and a pill at a width, so a row stays short', async () => {
+    const { body } = await visit('/project/acme/ledger', MANAGER);
+    expect(body).toMatch(/\.item \.text\{[^}]*-webkit-line-clamp:2/);
+    const pill = /\.pills > span[^{]*\{([^}]*)\}/.exec(body)[1];
+    expect(pill).toContain('max-width:280px');
+    expect(pill).toContain('text-overflow:ellipsis');
+  });
+
+  it('shows a row’s pills uncapped in the details, under the whole statement', async () => {
+    const { body } = await visit('/project/acme/ledger', MANAGER);
+    expect(body).toContain('<div class="pills full" id="d-pills"></div>');
+    expect(body).toContain("document.getElementById('d-pills').innerHTML = pills ? pills.innerHTML : '';");
+    expect(body).toMatch(/\.pills\.full > span[^{]*\{[^}]*max-width:none/);
+  });
+
+  it('leaves out the owner pill when nobody owns it', async () => {
+    setProject([{ id: 'd1', key: 'D-1', type: 'decision', text: 'ship it', status: 'active' }]);
+    const { body } = await visit('/project/acme/ledger', MANAGER);
+    expect(/<button[^>]*id="i-d1"[\s\S]*?<\/button>/.exec(body)[0]).not.toContain('row-owner');
   });
 });
 
