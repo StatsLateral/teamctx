@@ -1,8 +1,11 @@
 import { shell, navBar, esc } from './theme.js';
-import { LABELS, RECORD_TYPES } from '../model.js';
+import { LABELS, RECORD_TYPES, today } from '../model.js';
 import { projectRow, ROW_CSS, rowHeader } from './project-row.js';
 import { workstreamLocation } from './workstream-location.js';
 import { mcpUrl, shortMcpUrl } from './mcp-url.js';
+import { assistantPlan } from './assistant-actions.js';
+import { panelsHtml, assistantBlockHtml } from './drawers.js';
+import { drawerPrompts } from '../prompts.js';
 import { EDITABLE_RECORD_FIELDS } from '../ops.js';
 import { contradictionLabel, evidenceLabel } from '../contradictions.js';
 
@@ -114,6 +117,41 @@ const CSS = `
 .drawer-head{display:flex;align-items:center;justify-content:space-between;gap:10px;
   padding:16px 20px;border-bottom:1px solid var(--line)}
 .drawer-body{padding:20px;overflow-y:auto}
+.dpanel[hidden]{display:none}
+.dpanel .why-full{margin:0 0 1rem;color:var(--soft);overflow-wrap:anywhere}
+.cgroup{margin:0 0 1rem}
+.cgroup h3{font-family:var(--font-mono);font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--faint);margin:0 0 .35rem;font-weight:500}
+.cgroup ul{margin:0;padding-left:1.1rem}
+.cgroup li{margin:0 0 .45rem;line-height:1.45;overflow-wrap:anywhere}
+.cgroup li ul{margin-top:.35rem}
+.why-line,.needs-line{display:block;font-size:12px;color:var(--soft)}
+.needs-line{color:var(--amber)}
+.until{color:var(--soft);font-size:12px}
+.ctxline{font-size:13px;color:var(--soft);margin:.4rem 0 1rem}
+.linkbtn{background:none;border:0;padding:0;font:inherit;color:var(--accent);text-decoration:underline;cursor:pointer}
+/* Context icons: a small panel glyph that opens a drawer. */
+.ctx-open{display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;padding:0;flex:none;
+  border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--soft);cursor:pointer}
+.ctx-open:hover,.ctx-open:focus-visible{border-color:var(--accent);color:var(--ink)}
+.ctx-open svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.goal-block{display:flex;align-items:flex-start;gap:12px}
+.goal-copy{flex:1 1 auto;min-width:0}
+.lane-wrap{display:flex;align-items:center;gap:6px}
+.lane-wrap .lane{flex:1 1 auto;min-width:0}
+.title-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+/* The assistant block every drawer carries. */
+.assist{margin-top:1.4rem;padding-top:1rem;border-top:1px solid var(--line)}
+.amode{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--soft);margin:0 0 .7rem}
+.assist .amode label{display:flex;align-items:center;gap:8px;margin:0;font-size:13px;font-weight:400;color:var(--soft);cursor:pointer}
+.assist .amode input[type=radio]{width:auto;margin:0;padding:0;flex:none;accent-color:var(--accent)}
+.chatrow{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.chatcap{font-size:13px;color:var(--soft)}
+.chatico{display:inline-flex;align-items:center;justify-content:center;width:42px;height:42px;padding:0;border:1px solid var(--line);
+  border-radius:10px;background:var(--card);color:var(--ink);cursor:pointer}
+.chatico:hover,.chatico:focus-visible{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft);outline:none}
+.chatdiv{width:1px;height:26px;background:var(--line);margin:0 2px}
+.chatnote{font-size:12px;color:var(--faint);margin:.6rem 0 0}
+.toast{min-height:1.2em;font-size:13px;color:var(--accent);margin:.6rem 0 0}
 .drawer-body .statement{font-family:var(--font-display);font-size:18px;margin:0 0 10px;overflow-wrap:anywhere}
 /* What the button is about to put on the clipboard, shut by default: it is long,
    and the drawer is for reading the statement, not the instructions. */
@@ -160,7 +198,34 @@ const SCRIPT = `
 (function () {
   var drawer = document.getElementById('drawer');
   var backdrop = document.getElementById('backdrop');
+  var prompts = JSON.parse(document.getElementById('prompts').textContent);
+  var assistantPlan = ${assistantPlan.toString()};
+  var current = { short: '', full: '' };
+  var opener = null;
+  var taskView = document.getElementById('d-task');
+  var panels = document.querySelectorAll('.dpanel');
+  var peek = document.getElementById('d-prompt');
+  var mode = function () {
+    var picked = document.querySelector('input[name="amode"]:checked');
+    return picked ? picked.value : 'connected';
+  };
+  var showPrompt = function () { peek.textContent = mode() === 'paste' ? current.full : current.short; };
+  // The prompts for one place, from the map the server built for this reader. A
+  // part they cannot see is not in it, and falls back to the project's.
+  var forScope = function (scope) {
+    if (scope && scope.indexOf('ws:') === 0 && prompts.ws[scope.slice(3)]) return prompts.ws[scope.slice(3)];
+    return prompts.project;
+  };
+  var reveal = function () {
+    drawer.classList.add('open'); backdrop.classList.add('on');
+    drawer.setAttribute('aria-hidden', 'false');
+    document.getElementById('toast').textContent = '';
+    document.getElementById('d-close').focus();
+  };
   function open(el) {
+    opener = el;
+    taskView.hidden = false;
+    panels.forEach(function (p) { p.hidden = true; });
     document.getElementById('d-text').textContent = el.dataset.text;
     // Shown only when there is something to show, so the drawer does not carry
     // an empty line about a record that is standing on solid ground.
@@ -170,34 +235,75 @@ const SCRIPT = `
     document.getElementById('d-kind').textContent = el.dataset.kind;
     document.getElementById('d-summary').textContent = el.dataset.summary || 'No summary recorded.';
     document.getElementById('d-who').textContent = el.dataset.who || 'Nobody recorded.';
-    document.getElementById('copy').dataset.prompt = el.dataset.prompt;
-    document.getElementById('d-prompt').textContent = el.dataset.prompt;
-    drawer.classList.add('open'); backdrop.classList.add('on');
-    drawer.setAttribute('aria-hidden', 'false');
-    document.getElementById('d-close').focus();
+    // One sentence and a way in, instead of the list of records that govern it.
+    var ws = el.dataset.ws || '';
+    var ctx = document.getElementById('d-ctx');
+    ctx.hidden = !(ws && document.getElementById('dp-ws-' + ws));
+    ctx.dataset.panel = 'dp-ws-' + ws;
+    var scoped = forScope(ws ? 'ws:' + ws : 'project');
+    current = {
+      short: el.dataset.prompt,
+      full: scoped.full + '\\n---\\n' + (el.dataset.ask || '') + '\\nAnswer in plain language, from the context above only.\\n'
+    };
+    showPrompt();
+    reveal();
+  }
+  function openPanel(id, from) {
+    var panel = document.getElementById(id);
+    if (!panel) return;
+    if (from) opener = from;
+    taskView.hidden = true;
+    panels.forEach(function (p) { p.hidden = p !== panel; });
+    document.getElementById('d-kind').textContent = panel.dataset.title;
+    current = forScope(panel.dataset.scope);
+    showPrompt();
+    reveal();
   }
   function close() {
     drawer.classList.remove('open'); backdrop.classList.remove('on');
     drawer.setAttribute('aria-hidden', 'true');
+    if (opener && opener.focus) opener.focus();
   }
   document.querySelectorAll('.item').forEach(function (el) {
     el.addEventListener('click', function () { open(el); });
   });
+  document.querySelectorAll('[data-panel]').forEach(function (el) {
+    el.addEventListener('click', function (e) { e.preventDefault(); e.stopPropagation(); openPanel(el.dataset.panel, el); });
+  });
+  document.getElementById('d-ctx-open').addEventListener('click', function () {
+    openPanel(document.getElementById('d-ctx').dataset.panel);
+  });
   backdrop.addEventListener('click', close);
   document.getElementById('d-close').addEventListener('click', close);
   document.addEventListener('keydown', function (e) { if (e.key === 'Escape') close(); });
-  document.getElementById('copy').addEventListener('click', function () {
-    var b = this;
-    var back = function () { b.textContent = 'Copy a prompt for your assistant'; };
-    // The clipboard API does not exist on a plain-http deployment, and the
-    // failure is silent unless it is caught: the button appears to do nothing.
-    if (!navigator.clipboard) {
-      b.textContent = 'Select the text above to copy it'; setTimeout(back, 2500); return;
-    }
-    navigator.clipboard.writeText(b.dataset.prompt).then(function () {
-      b.textContent = 'Copied'; setTimeout(back, 1500);
-    }, function () {
-      b.textContent = 'Could not copy'; setTimeout(back, 2500);
+  document.querySelectorAll('input[name="amode"]').forEach(function (r) { r.addEventListener('change', showPrompt); });
+  // The clipboard API does not exist on a plain-http deployment, and the failure
+  // is silent unless it is caught: the button appears to do nothing. The fallback
+  // is a hidden field and the browser's own copy command.
+  var toText = function (text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) return navigator.clipboard.writeText(text);
+    return new Promise(function (resolve, reject) {
+      var field = document.createElement('textarea');
+      field.value = text; field.setAttribute('readonly', ''); field.style.position = 'fixed'; field.style.opacity = '0';
+      document.body.appendChild(field); field.select();
+      var ok = false;
+      try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+      document.body.removeChild(field);
+      if (ok) resolve(); else reject(new Error('copy failed'));
+    });
+  };
+  var say = function (message) {
+    var toast = document.getElementById('toast');
+    toast.textContent = message;
+    setTimeout(function () { if (toast.textContent === message) toast.textContent = ''; }, 3500);
+  };
+  document.querySelectorAll('.chatico').forEach(function (b) {
+    // A click on the inner SVG lands here too, because the listener is on the button.
+    b.addEventListener('click', function () {
+      var plan = assistantPlan(b.dataset.go, mode(), current);
+      var go = function () { if (plan.open) window.open(plan.open, '_blank', 'noopener'); if (plan.toast) say(plan.toast); };
+      if (!plan.copy) { go(); return; }
+      toText(plan.copy).then(go, function () { say('Could not copy. Open "See the prompt first" and copy it from there.'); });
     });
   });
   // Shared rows carry the text and prompt for their drawer.
@@ -366,6 +472,8 @@ function itemButton({ row, contributions, where, marked, isProject, owner, repo,
     attributes: ` data-text="${esc(tier === 'task' ? node.title : node.text)}" data-kind="${esc(`${tier === 'task' ? 'Task' : (LABELS[tier] || tier).replace(/:$/, '')}${tier === 'task' && node.key ? ` ${node.key}` : ''}`)}"
   data-summary="${esc(node.detail || node.summary || '')}" data-who="${esc(who.join(', '))}"
   data-review="${esc(node.needsReview || '')}"
+  data-ws="${esc(wsId || '')}"
+  data-ask="${escAttr(prompt.split('\n\n')[0])}"
   data-prompt="${escAttr(prompt)}"` });
 }
 
@@ -475,6 +583,10 @@ function pageFor(pages, asked, item, idOf = r => r.node?.id) {
   return Math.min(Math.max(1, asked || 1), pages.length);
 }
 
+/** A small side-panel glyph: the icon that opens a drawer on a level of the project. */
+const PANEL_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/></svg>';
+const ctxButton = (panel, label) => `<button type="button" class="ctx-open" data-panel="${esc(panel)}" aria-label="${esc(label)}" title="${esc(label)}">${PANEL_ICON}</button>`;
+
 export const projectPage = ({ user, view, selected, item = null, note = null, origin = null, filters = {}, tab = null, page = 1 }) => {
   const isProject = selected === null;
   const allTasks = [...view.tasks.open, ...view.tasks.done];
@@ -523,10 +635,10 @@ export const projectPage = ({ user, view, selected, item = null, note = null, or
       <a class="${at < pages.length ? '' : 'off'}" href="${esc(panelHref({ ...params, [key]: at + 1 }))}">Next →</a>
     </nav>`);
 
-  const lane = (id, name, members, count, on) => `<a class="lane${on ? ' on' : ''}" href="${laneHref(id)}">
+  const lane = (id, name, members, count, on) => `<div class="lane-wrap"><a class="lane${on ? ' on' : ''}" href="${laneHref(id)}">
     <div class="lane-row">${id === null ? '' : `<span class="num">${esc(view.workstreams.find(w => w.id === id)?.number ?? '')}</span>`}<span class="name">${esc(name)}</span><span class="count">${count}</span></div>
     ${members.length ? `<div class="lane-team">${members.map(m => `<span class="team-chip">${esc(m)}</span>`).join('')}</div>` : ''}
-  </a>`;
+  </a>${id === null ? ctxButton('dp-project', 'Project summary and context') : ctxButton(`dp-ws-${id}`, `Context for ${name}`)}</div>`;
   // The one thing a person needs to start working with an assistant: its address.
   // Read-only text beside a copy button, never an input: a box would say it can be
   // edited. Team, agents and sources join this block as their data reaches the page.
@@ -553,7 +665,7 @@ ${navBar({ user, current: '/projects' })}
 <h1>${esc(view.project || `${view.owner}/${view.repo}`)}${view.isManager
     ? ' <span class="role-chip">Manager</span>'
     : ''}</h1>
-${view.projectTree?.goal?.text ? `<div class="goal-block" id="goal-block"><p class="goal-text">${esc(view.projectTree.goal.text)}</p>${view.projectTree.goal.why ? `<p class="goal-why">${esc(view.projectTree.goal.why)}</p>` : ''}</div>` : ''}
+${view.projectTree?.goal?.text ? `<div class="goal-block" id="goal-block"><div class="goal-copy"><p class="goal-text">${esc(view.projectTree.goal.text)}</p>${view.projectTree.goal.why ? `<p class="goal-why">${esc(view.projectTree.goal.why)}</p>` : ''}</div>${ctxButton('dp-project', 'Read the full goal and why it matters')}</div>` : ''}
 ${note ? `<p class="note">${esc(note)}</p>` : ''}
 
 <div class="layout">
@@ -588,6 +700,7 @@ ${note ? `<p class="note">${esc(note)}</p>` : ''}
     </section>` : `<section>
       <div class="tasks-head">
         <span class="section-title">Tasks${taskWs === '@all' ? '' : ` — ${esc(workstreamLocation(view.workstreams, taskWs))}`}</span>
+        ${taskWs === '@all' ? '' : ctxButton(`dp-ws-${taskWs}`, `Context for ${workstreamLocation(view.workstreams, taskWs)}`)}
         <form class="task-filters" method="GET" action="${esc(`${base}#panel`)}">
           ${selected ? `<input type="hidden" name="ws" value="${esc(selected)}">` : ''}
           <label class="pick"><span>Where</span><select name="taskWs" aria-label="Which part of the work">
@@ -624,17 +737,18 @@ ${note ? `<p class="note">${esc(note)}</p>` : ''}
     <button class="ghost" id="d-close" aria-label="Close">✕</button>
   </div>
   <div class="drawer-body">
-    <p class="statement" id="d-text"></p>
-    <p class="stale-note" id="d-review" style="display:none"></p>
-    <div class="section-title">Summary</div>
-    <p id="d-summary"></p>
-    <div class="section-title">Who wrote it</div>
-    <p id="d-who"></p>
-    <details class="peek">
-      <summary>See the prompt first</summary>
-      <pre id="d-prompt"></pre>
-    </details>
-    <button class="primary" id="copy">Copy a prompt for your assistant</button>
+    <div id="d-task">
+      <p class="statement" id="d-text"></p>
+      <p class="stale-note" id="d-review" style="display:none"></p>
+      <p class="ctxline" id="d-ctx" hidden>Your assistant reads the approved context for this task. <button type="button" class="linkbtn" id="d-ctx-open">See the context</button></p>
+      <div class="section-title">Summary</div>
+      <p id="d-summary"></p>
+      <div class="section-title">Who wrote it</div>
+      <p id="d-who"></p>
+    </div>
+    ${panelsHtml({ view, onDay: today() })}
+    ${assistantBlockHtml()}
   </div>
-</aside>`, { wide: true, extraCss: `${CSS}\n${ROW_CSS}`, script: SCRIPT });
+</aside>
+<script type="application/json" id="prompts">${JSON.stringify(drawerPrompts({ view, onDay: today() })).replace(/</g, '\\u003c')}</script>`, { wide: true, extraCss: `${CSS}\n${ROW_CSS}`, script: SCRIPT });
 };
