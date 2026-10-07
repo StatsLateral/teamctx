@@ -5,7 +5,8 @@ import { listAllWorkstreams } from '../../cli/commands/workstream.core.js';
 import { listMembers, memberByEmail } from '../../cli/commands/member.core.js';
 import { listPendingReviews } from '../../cli/commands/review.core.js';
 import { scopeFor, inScope } from '../member-scope.js';
-import { resolveTarget, targetLabel } from '../project-level.js';
+import { resolveTarget } from '../project-level.js';
+import { workstreamLocation } from '../views/workstream-location.js';
 import { managerKeys, matchesActor } from '../review.js';
 import { flaggedInProject } from '../project-records.js';
 import { markNeedsReview } from '../impact.js';
@@ -151,7 +152,9 @@ export async function readProjectView({ owner, repo, user }) {
         title: t.title,
         owner: t.owner || null,
         status: t.status === 'done' ? 'done' : 'open',
-        where: targetLabel(resolveTarget(t.workstream), config.project),
+        sourceContributionIds: t.sourceContributionIds || [],
+        workstream: resolveTarget(t.workstream),
+        where: workstreamLocation(workstreams, resolveTarget(t.workstream), config.project),
       }));
 
     // The queue is the manager's to clear, so only they are shown what is in it.
@@ -161,7 +164,10 @@ export async function readProjectView({ owner, repo, user }) {
         author: q.author,
         summary: q.summary,
         createdAt: q.createdAt || null,
-        where: targetLabel(resolveTarget(q.workstream), config.project),
+        source: q.source || null,
+        operations: q.operations || [],
+        workstream: resolveTarget(q.workstream),
+        where: workstreamLocation(workstreams, resolveTarget(q.workstream), config.project),
       }))
       : null;
 

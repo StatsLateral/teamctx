@@ -20,6 +20,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `workstream_split` and `teamctx workstream suggest` / `suggest_workstream_splits`.
 
 ### Added
+- The project page uses one row layout for records, inherited context, tasks
+  and review proposals. Tasks appear in one list with workstream and owner
+  filters and named location breadcrumbs. Overdue assumptions and expired
+  exceptions show warning chips; replaced, broken and closed records are
+  available through Show history, including direct links to retired records.
+  The columns/list toggle is gone: once tasks had their own list the two views
+  showed the same rows. Show history appears only when something has been
+  retired, says how many, and dims what it adds. Context and Tasks are two tabs
+  over one panel rather than one long page, each table is headed with what its
+  columns are, and each list pages twenty at a time — in a workstream the
+  inherited project context and the workstream's own page separately. Task
+  filters are compact pickers applied with a Filter button, and filtering or
+  turning a page lands back on the table instead of the top of the page.
+  The manager's review queue is a third tab, "Waiting on you", paged by
+  proposal. Status, governance notes and source have their own columns, and
+  the source says how a record arrived in a word rather than a coloured dot.
 - Stable project-wide task and record keys: `T-14`, `D-3`, `R-2`, `A-2`, `X-1`.
   Existing records and tasks are backfilled in creation order on the first
   context write. Keys survive edits and are never reused after deletion;
@@ -50,6 +66,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   link and the member gate agree.
 
 ### Fixed
+- Project goal links now open the goal row. Malformed review operations no
+  longer crash the project page; proposal previews retain unchanged links,
+  show exception-to-rule relationships and ignore fields approval cannot edit.
+  Sidebar record counts include expired active exceptions visible on the page.
 - A manager's opening contribution lands without `apply: true`, so a new project
   can take members immediately instead of waiting on the manager to approve
   their own first message. An agent's still queues.

@@ -1258,7 +1258,14 @@ app.get('/project/:owner/:repo', async (req, res) => {
     // Carry what the link pointed at through the sign-in and back, or somebody
     // following a link to one statement lands on the project and has to find it
     // again — which is the whole thing this was built to save them.
-    const back = new URLSearchParams(parseViewParams(req.query)).toString();
+    const navigation = new URLSearchParams(parseViewParams(req.query));
+    for (const key of ['view', 'history', 'taskWs', 'taskOwner', 'tab', 'page', 'ipage']) {
+      const value = req.query[key];
+      if (typeof value !== 'string') continue;
+      const parameter = new URLSearchParams({ [key]: value });
+      if (isReturnable(`/project/${owner}/${repo}?${parameter}`)) navigation.set(key, value);
+    }
+    const back = navigation.toString();
     return signInFor(res, `/project/${owner}/${repo}${back ? `?${back}` : ''}`);
   }
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
@@ -1278,7 +1285,7 @@ app.get('/project/:owner/:repo', async (req, res) => {
     // note, and the value asked for is never echoed back.
     const asked = parseViewParams(req.query);
     const known = view.workstreams.some(w => w.id === asked.ws);
-    const selected = known ? asked.ws : null;
+    let selected = known ? asked.ws : null;
     // A key resolves to the same thing its id does. Links carry the internal id,
     // which never changes — but the key is what a person has in front of them, on
     // the page or in a prompt, so `?task=T-14` has to reach the row that
@@ -1286,7 +1293,10 @@ app.get('/project/:owner/:repo', async (req, res) => {
     // sent, so a key in a part of the work they are not on resolves to nothing,
     // the same as an unknown id.
     const reachable = {
-      records: [...(view.projectTree?.records || []), ...Object.values(view.trees || {}).flatMap(t => t.records || [])],
+      records: [
+        ...(view.projectTree?.goal?.text ? [{ ...view.projectTree.goal, id: 'goal', key: null }] : []),
+        ...(view.projectTree?.records || []), ...Object.values(view.trees || {}).flatMap(t => t.records || []),
+      ],
       tasks: [...(view.tasks?.open || []), ...(view.tasks?.done || [])],
     };
     const wanted = resolveKey(asked.item || asked.task || asked.review || null, reachable);
@@ -1297,12 +1307,21 @@ app.get('/project/:owner/:repo', async (req, res) => {
     const reaches = [...reachable.records, ...reachable.tasks].some(x => x?.id === wanted)
       || (view.pending || []).some(q => q.id === wanted);
     const item = reaches ? wanted : null;
+    // An item-only link still opens the tree that owns the record.
+    if (item && !view.projectTree?.records?.some(r => r.id === item)) {
+      const owningTree = Object.entries(view.trees || {}).find(([, tree]) => tree.records?.some(r => r.id === item));
+      if (owningTree) selected = owningTree[0];
+    }
     res.send(projectPage({
       user,
       view,
       selected,
-      viewMode: req.query.view === 'list' ? 'list' : 'columns',
       item,
+      filters: { workstream: req.query.taskWs, owner: req.query.taskOwner },
+      history: req.query.history === '1',
+      tab: ['context', 'tasks', 'review'].includes(req.query.tab) ? req.query.tab : null,
+      page: /^[1-9]\d{0,3}$/.test(String(req.query.page || '')) ? Number(req.query.page) : 1,
+      inheritedPage: /^[1-9]\d{0,3}$/.test(String(req.query.ipage || '')) ? Number(req.query.ipage) : 1,
       // So a copied prompt can carry the address of the page it was copied
       // from, which is the one thing that tells a reader where it came from.
       origin: baseUrlFor(req),
