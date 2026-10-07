@@ -10,8 +10,8 @@ import { applyOps } from './ops.js';
  * free when it was written, and one that is rejected takes none at all.
  */
 export function applyQueueItem(tree, item, { nextKey } = {}) {
-  const { tree: next, nextKey: spent } = applyOps(tree, item.operations || [], item.id, { nextKey });
-  return { tree: next, nextKey: spent };
+  const { tree: next, nextKey: spent, dropped } = applyOps(tree, item.operations || [], item.id, { nextKey });
+  return { tree: next, nextKey: spent, dropped };
 }
 
 export function buildRejected(item, rejectedBy, reason) {

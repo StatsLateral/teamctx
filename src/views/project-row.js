@@ -96,6 +96,7 @@ export function rowHeader({ text = 'Statement' } = {}) {
 export function projectRow({ node, type = node.type, contributions = {}, where = '',
   fallbackKey = '—', pending = false, marked = false, id = `i-${node.id}`,
   attributes = '', relation = '', onDay = today(), statusLabel,
+  warnings = [],
 }) {
   if (!Object.hasOwn(TYPES, type)) return '';
   const owner = typeof node.owner === 'string' ? node.owner : node.owner?.name;
@@ -111,7 +112,7 @@ export function projectRow({ node, type = node.type, contributions = {}, where =
   <span class="text">${esc(text || '(no text)')}${relation ? `<span class="row-link">${esc(relation)}</span>` : ''}${where ? `<span class="row-where">${esc(where)}</span>` : ''}</span>
   <span class="row-owner">${esc(owner || '—')}</span>
   <span class="row-state"><span class="status-chip">${esc(status)}</span></span>
-  <span class="row-notes">${governance(node, type, onDay, pending)}</span>
+  <span class="row-notes">${governance(node, type, onDay, pending)}${warnings.map(label => `<span class="governance-chip warning-chip">${esc(label)}</span>`).join('')}</span>
   <span class="row-source src-${source}" title="${SOURCE_TITLES[source]}">${SOURCE_LABELS[source]}</span>
 </button>`;
 }

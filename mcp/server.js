@@ -12,6 +12,7 @@ import {
   readContributions, listTasks,
 } from '../src/storage.js';
 import { answerQuestion } from '../src/context.js';
+import { contradictionLabel } from '../src/contradictions.js';
 import { commitContext } from '../src/git.js';
 import { connectorUrl, originRemote } from '../cli/commands/connect.core.js';
 import { buildViewUrl } from '../src/view-url.js';
@@ -393,6 +394,7 @@ export const TOOLS = [
       type: 'object',
       properties: {
         id: { type: 'string', description: 'Queue item id (from list_pending_reviews)' },
+        replaces: { type: 'array', items: { type: 'string' }, description: 'IDs or stable keys of flagged local decisions/rules to replace. Required to resolve a contradiction unless links.replaces already names it. Inherited records must be resolved in their own part of the work.' },
       },
       required: ['id'], additionalProperties: false,
     },
@@ -655,12 +657,14 @@ function reportBackContribute(r) {
   // reports where the contribution went instead of treating the refusal as a
   // failure and sending the same text a second time. Nothing was lost by asking.
   const refused = r.applyRefused
-    ? ' Note for you, not a problem to report as one: `apply` was not honoured because it is the'
+    ? r.contradictions?.length
+      ? ' Direct apply was refused because contradictions require explicit manager review.'
+      : ' Note for you, not a problem to report as one: `apply` was not honoured because it is the'
       + " manager's alone. The contribution was kept and took the ordinary path, so tell the user"
       + ' where it went and do not call contribute again for the same text.'
     : '';
   if (r.mode === 'no-op') return `Tell the user: contribution logged for ${where} but the AI proposed no changes to the tree.${refused}`;
-  if (r.mode === 'queued') return `Tell the user: contribution ${r.id} queued for manager approval on ${where} (${r.operations.length} op${r.operations.length === 1 ? '' : 's'}). Manager must run \`teamctx review approve ${r.id}\` or call the review_approve tool.${refused}`;
+  if (r.mode === 'queued') return `Tell the user: contribution ${r.id} queued for manager approval on ${where} (${r.operations.length} op${r.operations.length === 1 ? '' : 's'}). Manager must run \`teamctx review approve ${r.id}\` or call the review_approve tool.${(r.contradictions || []).map(c => ` ${contradictionLabel(c)}. Resolve with a replacement or reject; do not retry direct apply.`).join('')}${refused}`;
   const keys = (r.keys || []).map(x => x.key).filter(Boolean);
   const applied = `Tell the user: contribution ${r.id} applied to ${where} (${r.operations.length} op${r.operations.length === 1 ? '' : 's'})${r.rolesRegenerated?.length ? `, regenerated roles: ${r.rolesRegenerated.join(', ')}` : ''}${r.pushed ? ', committed and pushed' : ', committed'}.${keys.length ? ` Updated: ${keys.join(', ')}.` : ''}${refused}`;
   if (!r.founding) return applied;
@@ -1621,9 +1625,9 @@ export function makeHandlers(projectRoot) {
       });
     },
 
-    async review_approve({ id }) {
+    async review_approve({ id, replaces }) {
       // No caller-supplied identity: the gate reads the authenticated actor.
-      const r = await approveReview({ id, teamctxDir: dir(), projectDir: gitCwd });
+      const r = await approveReview({ id, ...(replaces?.length ? { replaces } : {}), teamctxDir: dir(), projectDir: gitCwd });
       // Read after the approval, so what it names is what the tree now says.
       const impact = breakingImpact(dir(), r.operations);
       const reportBack = `Tell the user: approved contribution ${r.id} by ${r.author} on ${targetLabel(r.workstream, readConfig(dir()).project)} (${r.operations.length} op${r.operations.length === 1 ? '' : 's'}${r.rolesRegenerated.length ? `, regenerated roles: ${r.rolesRegenerated.join(', ')}` : ''}${r.pushed ? ', pushed' : ''}).`;

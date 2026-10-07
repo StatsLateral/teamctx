@@ -658,6 +658,25 @@ describe('shared rows, task filters and governance (#127)', () => {
     repo.files.set('.teamctx/workstreams/product.json', JSON.stringify({ ...tree, records: items }));
   }
 
+  it('shows both sides of a contradiction in the manager queue, with stored text escaped', async () => {
+    const hostile = '<img src=x onerror="alert(1)">';
+    repo.files.set('.teamctx/queue/c-1.json', JSON.stringify({
+      id: 'c-1', status: 'pending', author: 'Priya', summary: 'Change the entry offer', workstream: 'product',
+      operations: [{ type: 'addRecord', record: { type: 'decision', text: 'An AI-readiness assessment' } }],
+      contradictions: [{ operationIndex: 0, proposedText: 'An AI-readiness assessment', record: { id: 'old', type: 'decision', text: hostile, workstream: 'product' } }],
+    }));
+    const manager = await visit('/project/acme/ledger?tab=review', MANAGER);
+    expect(row(manager.body, 'r-c-1')).toContain('Contradicts');
+    expect(row(manager.body, 'proposal-c-1-0')).toContain('warning-chip');
+    expect(row(manager.body, 'proposal-c-1-0')).toContain('We decided: &lt;img');
+    expect(row(manager.body, 'proposal-c-1-0')).toContain('An AI-readiness assessment');
+    expect(manager.body).not.toContain(hostile);
+    await lend();
+    const member = await visit('/project/acme/ledger', MEMBER_GOOGLE);
+    expect(member.body).not.toContain('An AI-readiness assessment');
+    expect(member.body).not.toContain('onerror');
+  });
+
   it('opens the project goal from its contribution link and preserves the goal link in its drawer', async () => {
     repo.files.set('.teamctx/project.json', JSON.stringify({ goal: { text: 'Reach ten enterprise pilots' }, records: [], tasks: [] }));
     const { body } = await visit('/project/acme/ledger?item=goal', MANAGER);

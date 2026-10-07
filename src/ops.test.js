@@ -256,6 +256,61 @@ describe('the key a record is minted with', () => {
 });
 
 /**
+ * A dropped operation is identifiable by where it sat, not by being the same
+ * object.
+ *
+ * `resolveTaskRef` hands back a **copy** when a record attaches to a task added
+ * in the same contribution. Callers matched what was dropped against what they
+ * sent by comparing the operation objects, and a copy is never identical — so a
+ * dropped operation read as a kept one. It was reported to the person, written
+ * into the queue item, and dropped again on approval.
+ */
+describe('finding a dropped operation again', () => {
+  it('says where it sat in what the caller sent', () => {
+    const { dropped } = applyOps(makeProject(), [
+      { type: 'addRecord', record: { type: 'decision', text: 'fine' } },
+      { type: 'addRecord', record: { type: 'decision', text: '' } },
+    ], C);
+    expect(dropped).toHaveLength(1);
+    expect(dropped[0].index).toBe(1);
+  });
+
+  it('says so for one that was copied on the way through', () => {
+    // The case that broke it: the record attaches to a task added alongside it,
+    // so `resolveTaskRef` replaces the operation with a copy — and this one
+    // fails validation afterwards, with an exception bending nothing.
+    const { dropped } = applyOps(makeProject(), [
+      { type: 'addTask', ref: 'T', title: 'Build it' },
+      {
+        type: 'addRecord',
+        record: {
+          type: 'exception', text: 'just this once', expiresAt: '2026-12-31',
+          attachedTo: { kind: 'task', id: 'T' }, links: { bends: 'rec-nope' },
+        },
+      },
+    ], C);
+    expect(dropped).toHaveLength(1);
+    expect(dropped[0].index).toBe(1);
+  });
+
+  it('numbers every operation from the list as sent, not from its own group', () => {
+    // Records are applied in two passes, exceptions after the rest, so a group
+    // index would not match what the caller holds.
+    const { dropped } = applyOps(makeProject(), [
+      { type: 'addRecord', record: { type: 'exception', text: 'x', expiresAt: '2026-12-31', links: { bends: 'rec-nope' } } },
+      { type: 'addRecord', record: { type: 'decision', text: 'kept' } },
+      { type: 'addRecord', record: { type: 'decision', text: '' } },
+    ], C);
+    expect(dropped.map(d => d.index).sort()).toEqual([0, 2]);
+  });
+
+  it('answers -1 for something that was never in the list', () => {
+    const { dropped } = applyOps(makeProject(), [{ type: 'nonsense' }], C);
+    expect(dropped[0].index).toBe(0);
+  });
+});
+
+/**
  * The two moments that need the time of day.
  *
  * `updatedAt` is a date, which cannot order two changes made in one sitting —

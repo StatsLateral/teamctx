@@ -369,7 +369,13 @@ export class GithubSession {
       if (this.changes.has(configPath)) {
         const before = JSON.parse(this.files.get(configPath)?.content || '{}');
         const after = JSON.parse(this.changes.get(configPath) || '{}');
-        if (before.nextKey || after.nextKey) {
+        // Whether the counters *moved*, not whether the project has any. Every
+        // write that touches config.json stages it — `member_add`, `config_set`,
+        // `role_add`, `set_review_policy` — and after the first backfill a
+        // project always has counters. Testing for their presence therefore
+        // refused the one safe refresh-and-retry on any of those, and said
+        // "while assigning record keys" about a request that assigned none.
+        if (JSON.stringify(before.nextKey) !== JSON.stringify(after.nextKey)) {
           throw new Error('The project changed while assigning record keys. Nothing from this request was committed. Retry the operation to use the latest project.');
         }
       }

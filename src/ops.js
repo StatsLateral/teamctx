@@ -144,12 +144,24 @@ export function applyOps(tree, ops, contributionId, {
   // keys, so a rejected contribution costs nothing.
   const keys = { next: { ...emptyCounters(), ...(nextKey || {}) } };
   const refs = new Map();
+  // Where each operation sat in what the caller sent.
+  //
+  // Callers match what was dropped against what they sent — `updateShared` to
+  // work out what survived, `approveReview` to tell a resolved conflict from an
+  // unrelated stale edit. Both compared the operation *objects*, and
+  // `resolveTaskRef` below hands back a **copy** when a record attaches to a
+  // task added in the same contribution. A copy is never identical to the
+  // original, so a dropped operation looked like a kept one: it was reported to
+  // the person, written into the queue item, and dropped again on approval.
+  // Position is the thing that survives being copied.
+  const indexOf = new Map();
   // Which tree this is decides where its records are attached. A workstream
   // file carries its id; the project's does not.
   const wsId = target !== undefined ? target : (tree?.id || null);
   const where = { id: wsId, defaultAttach: wsId ? { kind: 'workstream', id: wsId } : { kind: 'project' } };
   let next = { ...tree, records: [...(tree.records || [])], tasks: [...(tree.tasks || [])] };
   const list = Array.isArray(ops) ? ops : [];
+  list.forEach((o, i) => indexOf.set(o, i));
   const of = (t) => list.filter(o => o?.type === t);
   for (const o of list) if (!OP_TYPES.includes(o?.type)) dropped.push({ op: o, reason: `unknown operation "${o?.type}"` });
   // One malformed proposal is dropped with a reason; it never sinks the rest.
@@ -177,8 +189,13 @@ export function applyOps(tree, ops, contributionId, {
     }] };
   });
   const adds = of('addRecord');
-  const resolveTaskRef = (o) => (o?.record?.attachedTo?.kind === 'task' && refs.has(o.record.attachedTo.id)
-    ? { ...o, record: { ...o.record, attachedTo: { kind: 'task', id: refs.get(o.record.attachedTo.id) } } } : o);
+  const resolveTaskRef = (o) => {
+    if (!(o?.record?.attachedTo?.kind === 'task' && refs.has(o.record.attachedTo.id))) return o;
+    const resolved = { ...o, record: { ...o.record, attachedTo: { kind: 'task', id: refs.get(o.record.attachedTo.id) } } };
+    // The copy answers to the original's position, so dropping it is visible.
+    indexOf.set(resolved, indexOf.get(o));
+    return resolved;
+  };
   each(adds.filter(o => o?.record?.type !== 'exception').map(resolveTaskRef), (t, o) => addRecord(t, o, contributionId, refs, dropped, onDay, where, keys));
   each(adds.filter(o => o?.record?.type === 'exception').map(resolveTaskRef), (t, o) => addRecord(t, o, contributionId, refs, dropped, onDay, where, keys));
   each(of('editRecord'), (t, o) => editRecord(t, o, contributionId, dropped, onDay, where));
@@ -192,6 +209,9 @@ export function applyOps(tree, ops, contributionId, {
     if (!t.tasks.some(x => x.id === o.id)) { dropped.push({ op: o, reason: `no task "${o.id}"` }); return t; }
     return { ...t, tasks: t.tasks.filter(x => x.id !== o.id) };
   });
+  // Stamped once at the end rather than at each `dropped.push`, because those
+  // sit inside helpers that have no reason to know about positions.
+  for (const d of dropped) d.index = indexOf.has(d.op) ? indexOf.get(d.op) : -1;
   return { tree: next, dropped, nextKey: keys.next };
 }
 

@@ -12,6 +12,7 @@ import { canApprove } from '../../src/review.js';
 import { needsReview } from '../../src/review-policy.js';
 import { resolveActor } from '../../src/actor.js';
 import { resolveActiveWorkstream, resolveDisplayName } from '../../src/prefs.js';
+import { comparisonRecords, comparisonFingerprint } from '../../src/contradictions.js';
 
 function newContribution({ text, author, authorKey, tagged, source, workstream }) {
   const idPrefix = source === 'mcp' ? 'mcp' : 'c';
@@ -134,7 +135,21 @@ export async function contributeCore({
   const contribution = newContribution({ text, author: actor, authorKey, tagged, source, workstream: targetId });
   appendContribution(contribution, teamctxDir);
 
-  const { summary, operations, dropped = [] } = await updateShared(workstream, contribution, config, { intent, avoid });
+  let comparisons = comparisonRecords({ config, target: targetId, teamctxDir });
+  let proposal = await updateShared(workstream, contribution, config, { intent, avoid, comparisonRecords: comparisons });
+  // An AI call can outlive another contribution. Recheck once against the
+  // current comparison set rather than applying a verdict on obsolete context.
+  const latestConfig = readConfig(teamctxDir);
+  const latestComparisons = comparisonRecords({ config: latestConfig, target: targetId, teamctxDir });
+  if (comparisonFingerprint(comparisons) !== comparisonFingerprint(latestComparisons)) {
+    comparisons = latestComparisons;
+    const checked = await updateShared(readTree(targetId, teamctxDir), contribution, latestConfig, { intent, avoid, comparisonRecords: comparisons, operationsToCheck: proposal.operations });
+    proposal = { ...checked, summary: proposal.summary, dropped: [...(proposal.dropped || []), ...(checked.dropped || [])] };
+    if (comparisonFingerprint(comparisons) !== comparisonFingerprint(comparisonRecords({ config: readConfig(teamctxDir), target: targetId, teamctxDir }))) {
+      throw new Error('Context changed again during the contradiction check. The contribution was logged; try it again before applying.');
+    }
+  }
+  const { summary, operations, dropped = [], contradictions = [] } = proposal;
   // Reasons only: what the AI proposed that did not validate, so the caller can
   // say what was left out without the raw operation travelling any further.
   const droppedReasons = dropped.map(d => ({ reason: d.reason }));
@@ -154,8 +169,8 @@ export async function contributeCore({
   // shared context, and the terminal was asking "submit for manager approval?"
   // before it knew that — so somebody answering yes was told their work had
   // gone to a queue it never entered.
-  const willQueue = !mayApply && (reviewRequired || needsReview(config, operations));
-  if (onProposed && (await onProposed({ summary, operations, willQueue })) === false) {
+  const willQueue = contradictions.length > 0 || (!mayApply && (reviewRequired || needsReview(config, operations)));
+  if (onProposed && (await onProposed({ summary, operations, willQueue, contradictions })) === false) {
     return {
       id: contribution.id, workstream: targetId, author: actor, source,
       mode: 'discarded', summary, operations, pushed: false, pushError: null,
@@ -174,6 +189,7 @@ export async function contributeCore({
       id: contribution.id, status: 'pending', createdAt: contribution.ts,
       author: contribution.author, source, workstream: targetId,
       text: contribution.text, tagged: contribution.tagged, summary, operations,
+      ...(contradictions.length ? { contradictions } : {}),
       ...(droppedReasons.length ? { dropped: droppedReasons } : {}),
     }, teamctxDir);
     const { pushed, pushError } = await commitAndOptionallyPush(
@@ -184,12 +200,16 @@ export async function contributeCore({
     return {
       id: contribution.id, workstream: targetId, author: actor, source,
       mode: 'queued', summary, operations, pushed, pushError,
+      ...(contradictions.length ? { contradictions, ...(apply ? { applyRefused: true } : {}) } : {}),
       ...(applyRefused ? { applyRefused: true } : {}),
       dropped: droppedReasons,
     };
   }
 
   const updated = withRecordKeys(teamctxDir, current => {
+    if (comparisonFingerprint(comparisons) !== comparisonFingerprint(comparisonRecords({ config: current, target: targetId, teamctxDir }))) {
+      throw new Error('Context changed after the contradiction check. The contribution was logged; try it again before applying.');
+    }
     const applied = applyOps(readTree(targetId, teamctxDir), operations, contribution.id, { nextKey: current.nextKey });
     droppedReasons.push(...applied.dropped.map(d => ({ reason: d.reason })));
     writeConfig({ ...current, nextKey: applied.nextKey }, teamctxDir);
