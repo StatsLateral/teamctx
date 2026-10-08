@@ -185,17 +185,22 @@ export function workHtml({ view, selected, item, history, origin, base }) {
     const w = parts.find(p => p.id === id);
     if (!w) return '';
     const tasks = allTasks.filter(t => t.workstream === id && (t.status === 'open' || history || t.id === item));
-    if (!tasks.length) return '';
     // Inside a selected part, its own name; for the parts inside it, where they sit.
     const name = id === selected ? w.name : workstreamLocation(parts, id, view.project);
+    // A part with nothing open is still a part of the work. Left off the page, a
+    // project of new workstreams read as an empty one.
+    const body = tasks.length
+      ? `<div class="trows">${tasks.map(t => taskRow({ t, view, origin, marked: t.id === item })).join('')}</div>`
+      : `<div class="noTasks"><p class="empty">${allTasks.some(t => t.workstream === id)
+        ? 'No open tasks in this workstream.' : 'No tasks found in this workstream.'}</p>`
+        + `<button type="button" class="mk-tasks" data-panel="dp-ws-${esc(id)}" data-intent="tasks">Create new tasks</button></div>`;
     return `<section class="wsec" id="ws-${esc(id)}"><h2><span class="wsn">${esc(w.number ?? '')}</span>${esc(name)}`
-      + `${ctxButton(`dp-ws-${id}`, `Context for ${name}`)}</h2>`
-      + `<div class="trows">${tasks.map(t => taskRow({ t, view, origin, marked: t.id === item })).join('')}</div></section>`;
+      + `${ctxButton(`dp-ws-${id}`, `Context for ${name}`)}</h2>${body}</section>`;
   }).join('');
 
   const empty = !parts.length
     ? '<p class="empty">No work yet — ask your assistant to add a workstream, then its tasks.</p>'
-    : (!inbox && !sections ? '<p class="empty">Nothing open here.</p>' : '');
+    : '';
   const linkTo = (on) => {
     const query = new URLSearchParams({ ...(selected ? { ws: selected } : {}), ...(on ? { history: '1' } : {}) }).toString();
     return query ? `${base}?${query}` : base;
