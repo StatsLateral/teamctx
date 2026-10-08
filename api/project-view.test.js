@@ -1934,3 +1934,14 @@ describe('a task’s history', () => {
     expect(body).not.toMatch(/d-history[^;]*innerHTML/);
   });
 });
+
+describe('a task history built from files anybody with write access could have edited', () => {
+  it('survives an approval file that is not valid, empty, or not an object', async () => {
+    repo.files.set('.teamctx/approved/bad.json', '{not json');
+    repo.files.set('.teamctx/approved/null.json', 'null');
+    repo.files.set('.teamctx/approved/noid.json', JSON.stringify({ approvedAt: '2026-10-06' }));
+    const r = await visit('/project/acme/ledger', MANAGER);
+    expect(r.status).toBe(200);
+    expect(r.body).toContain('Draft the pricing page');
+  });
+});
