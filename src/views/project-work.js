@@ -2,7 +2,7 @@ import { esc } from './theme.js';
 import { RECORD_TYPES, today } from '../model.js';
 import { contradictionLabel, evidenceLabel } from '../contradictions.js';
 import { describeChange } from '../change-labels.js';
-import { promptFor, decidePrompt, escAttr, whoTouched } from './prompt-for.js';
+import { promptFor, decidePrompt, decisionPrompt, escAttr, whoTouched } from './prompt-for.js';
 import { workstreamLocation } from './workstream-location.js';
 import { historyStatus, historyLine } from '../task-history.js';
 
@@ -174,8 +174,10 @@ function waitingItem({ q, view, origin, marked }) {
   const approving = !q.forTask ? ''
     : taskDone ? `${forWhich.charAt(0).toUpperCase()}${forWhich.slice(1)} is already done. Approving records this submission and changes nothing else.`
       : `Accepts this for ${forWhich} and marks the task done. Nothing is published or sent by this step.`;
-  const prompt = promptFor({
-    node: { id: q.id, text: title }, tier: 'review', where, isProject: !q.workstream, owner: view.owner, repo: view.repo, parent: null, pending: true,
+  // Deciding happens in the assistant, so what the drawer hands over is a
+  // request to show this item and ask, not a question about it.
+  const prompt = decisionPrompt({
+    ref, id: q.id, title, owner: view.owner, repo: view.repo,
     link: origin ? `${origin}/project/${view.owner}/${view.repo}?${new URLSearchParams({ ...(q.workstream ? { ws: q.workstream } : {}), item: q.id })}` : null,
   });
   // What a manager can hand over, one per line, each with a Copy button
