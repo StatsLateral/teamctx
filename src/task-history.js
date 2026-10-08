@@ -79,7 +79,13 @@ export function taskHistory({
 
   // On the plan, but nothing says how it got there: one line, nothing invented.
   const known = events.some(e => (e.did === 'submitted' && !e.waiting) || e.did === 'approved');
-  if (task && !known) events.unshift({ at: task.createdAt || null, by: null, did: 'added' });
+  // Added directly says who added it; one from before that was recorded names
+  // nobody.
+  if (task && !known) {
+    events.unshift(task.addedBy
+      ? { at: task.addedAt || task.createdAt || null, by: name(task.addedBy.name), did: 'added' }
+      : { at: task.createdAt || null, by: null, did: 'added', unrecorded: true });
+  }
 
   // Oldest first. A date-only stamp sorts before a full time on the same day,
   // which is the order the older facts happened in anyway.
@@ -105,7 +111,7 @@ export function historyLine(e) {
     case 'rejected': return `rejected it${e.reason ? `: ${e.reason}` : ''}`;
     case 'completed': return 'marked it done';
     case 'reopened': return 'reopened it';
-    case 'added': return 'added to the plan';
+    case 'added': return e.unrecorded ? 'added to the plan' : 'added it';
     default: return '';
   }
 }

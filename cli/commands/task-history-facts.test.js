@@ -77,6 +77,15 @@ describe('who approved a contribution, and when', () => {
   });
 });
 
+describe('who added a task directly', () => {
+  it('is kept on the task, with when', async () => {
+    const { task } = await as(member, () => addTask({ title: 'Ship it', workstream: 'sales', teamctxDir: dir }));
+    expect(task.addedBy).toEqual({ key: 'git:priya@x', name: 'Priya' });
+    expect(listTasks({}, dir)[0].addedBy.name).toBe('Priya');
+    expect(Date.parse(task.addedAt)).not.toBeNaN();
+  });
+});
+
 describe('who completed or reopened a task, and when', () => {
   it('keeps each change, in order, with who made it', async () => {
     const { task } = await as(manager, () => addTask({ title: 'Ship it', workstream: 'sales', teamctxDir: dir }));

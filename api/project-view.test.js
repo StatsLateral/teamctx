@@ -1646,6 +1646,18 @@ describe('a task’s history', () => {
     expect(h).toEqual({ status: 'Added', lines: [{ date: '2026-08-01', at: '2026-08-01', who: null, agent: false, text: 'added to the plan' }] });
   });
 
+  it('says who added a task added directly, and someone to a member when off the roster', async () => {
+    withProduct({ id: 'direct', key: '1.5', title: 'Added directly', owner: 'Priya', status: 'open', createdAt: '2026-10-08',
+      addedBy: { key: 'git:maya@example.com', name: 'Maya' }, addedAt: '2026-10-08T09:00:00.000Z' });
+    const h = historyOf(row((await visit('/project/acme/ledger?ws=product', MANAGER)).body, 'direct'));
+    expect(h).toEqual({ status: 'Added', lines: [{ date: '2026-10-08', at: '2026-10-08T09:00:00.000Z', who: 'Maya', agent: false, text: 'added it' }] });
+    withProduct({ id: 'direct', key: '1.5', title: 'Added directly', owner: 'Priya', status: 'open', createdAt: '2026-10-08',
+      addedBy: { key: 'git:gone@example.com', name: 'Former Lead' }, addedAt: '2026-10-08T09:00:00.000Z' });
+    await lend();
+    const m = historyOf(row((await visit('/project/acme/ledger?ws=product', MEMBER_GOOGLE)).body, 'direct'));
+    expect(m.lines[0]).toMatchObject({ who: 'someone', text: 'added it' });
+  });
+
   it('shows something only in the queue as not approved yet', async () => {
     repo.files.set('.teamctx/queue/c-1.json', JSON.stringify({
       id: 'c-1', number: '1.2', status: 'pending', author: 'Priya', source: 'mcp', createdAt: '2026-10-06T10:00:00.000Z', summary: 'adds the pricing tiers', workstream: 'product',

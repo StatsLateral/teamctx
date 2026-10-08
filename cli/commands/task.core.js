@@ -213,6 +213,10 @@ export async function addTask({
     status: 'open',
     workstream: targetWorkstream,
     createdAt: todayIso(),
+    // Who put it on the plan, for its history (#143): a task added directly has
+    // no contribution behind it to say so.
+    addedBy: { key: resolvedActor.key || null, name: me },
+    addedAt: new Date().toISOString(),
     doneAt: null,
     compiledAt: null,
   };

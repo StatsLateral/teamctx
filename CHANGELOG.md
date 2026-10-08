@@ -79,7 +79,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   assistant or on the command line. Settings also counts the team and agents.
 - **A task's drawer shows its history (#143).** Under the details: "Approved",
   "Approved · a new submission is waiting", "Not approved yet" or "Added", then
-  one line per event, oldest first — who submitted it and how, who approved or
+  one line per event, oldest first — who submitted or added it and how, who approved or
   rejected it, who marked it done or reopened it — with the date, and the exact
   time on hover. To make that possible, approving a contribution now records who
   and when in `.teamctx/approved/<id>.json` (beside `rejected/`), a rejection

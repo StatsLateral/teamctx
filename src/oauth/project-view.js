@@ -161,7 +161,10 @@ export async function readProjectView({ owner, repo, user }) {
     for (const a of Object.values(approvals)) vouched(a.approvedBy?.name, a.approvedBy?.key);
     for (const r of rejected) vouched(r.rejectedBy, r.rejectedByKey);
     const allTasks = listTasks({}, undefined);
-    for (const t of allTasks) for (const e of t.statusLog || []) vouched(e.by?.name, e.by?.key);
+    for (const t of allTasks) {
+      vouched(t.addedBy?.name, t.addedBy?.key);
+      for (const e of t.statusLog || []) vouched(e.by?.name, e.by?.key);
+    }
     const agentNames = new Set(agents.map(a => a.name));
     const historyOf = (task, pending = []) => taskHistory({
       task, contributions: contributionLog, approvals, rejected, queue: queued, pending,

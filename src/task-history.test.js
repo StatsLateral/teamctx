@@ -43,8 +43,16 @@ describe('a task’s history', () => {
 
   it('says Added for a task from before any of this was recorded, and invents nothing', () => {
     const h = taskHistory({ task: task({ sourceContributionIds: undefined, createdAt: '2026-09-01' }) });
-    expect(h.events).toEqual([{ at: '2026-09-01', by: null, did: 'added' }]);
+    expect(h.events).toEqual([{ at: '2026-09-01', by: null, did: 'added', unrecorded: true }]);
     expect(historyStatus(h)).toBe('Added');
+  });
+
+  it('says who added a task added directly, with no contribution behind it', () => {
+    const h = taskHistory({ task: task({ sourceContributionIds: undefined, addedBy: { key: 'k', name: 'Maya' }, addedAt: '2026-10-08T09:00:00.000Z' }) });
+    expect(h.events).toEqual([{ at: '2026-10-08T09:00:00.000Z', by: 'Maya', did: 'added' }]);
+    expect(historyLine(h.events[0])).toBe('added it');
+    expect(taskHistory({ task: task({ sourceContributionIds: undefined, addedBy: { name: 'Maya' } }), canSee: () => false }).events[0])
+      .toMatchObject({ by: null, did: 'added' });
   });
 
   it('never calls a submission approved when nobody recorded approving it', () => {

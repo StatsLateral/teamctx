@@ -93,7 +93,7 @@ export const whoChip = (name, agents) => {
 export function historyData(h, agents) {
   if (!h) return null;
   const agentNames = new Set((agents || []).map(a => a.name));
-  const silent = (e) => e.did === 'added' || e.byPolicy || e.unrecorded;
+  const silent = (e) => e.byPolicy || e.unrecorded;
   return {
     status: historyStatus(h),
     lines: h.events.map(e => ({
