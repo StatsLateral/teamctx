@@ -44,6 +44,7 @@
     "openai": "^6.46.0"
   },
   "devDependencies": {
+    "jsdom": "^25.0.1",
     "vitest": "^2.0.0"
   },
   "engines": {

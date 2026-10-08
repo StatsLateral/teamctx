@@ -1,7 +1,7 @@
 import { esc } from './theme.js';
 import { LABELS, RECORD_TYPES, today } from '../model.js';
 import { contradictionLabel, evidenceLabel } from '../contradictions.js';
-import { promptFor, escAttr, whoTouched } from './prompt-for.js';
+import { promptFor, decidePrompt, escAttr, whoTouched } from './prompt-for.js';
 import { workstreamLocation } from './workstream-location.js';
 import { historyStatus, historyLine } from '../task-history.js';
 
@@ -182,9 +182,18 @@ function waitingItem({ q, view, origin, marked }) {
     node: { id: q.id, text: title }, tier: 'review', where, isProject: !q.workstream, owner: view.owner, repo: view.repo, parent: null, pending: true,
     link: origin ? `${origin}/project/${view.owner}/${view.repo}?${new URLSearchParams({ ...(q.workstream ? { ws: q.workstream } : {}), item: q.id })}` : null,
   });
+  // What a manager can hand over, one per line, each with a Copy button
+  // (#142). `label` is what the line shows, and the page clips it to fit;
+  // `text` is what Copy puts on the clipboard, always whole. For the assistant
+  // that is a full prompt, since a bare "Approve 1.2" means nothing to a fresh
+  // chat; for the command line the command is already the whole thing.
+  const link = origin ? `${origin}/project/${view.owner}/${view.repo}?${new URLSearchParams({ ...(q.workstream ? { ws: q.workstream } : {}), review: q.id })}` : null;
+  const named = ref || `"${title}"`;
   const decide = [
-    `Tell your assistant: "Approve ${ref || 'this'}"${ref ? '' : ' (name it by what it says)'}, or "Reject ${ref || 'this'}" with a reason.`,
-    `From the command line: teamctx review approve ${q.id}   or   teamctx review reject ${q.id}`,
+    { where: 'In your assistant', label: `Approve ${named}`, text: decidePrompt({ action: 'approve', id: q.id, summary: title, owner: view.owner, repo: view.repo, link }) },
+    { where: 'In your assistant', label: `Reject ${named}, with a reason`, text: decidePrompt({ action: 'reject', id: q.id, summary: title, owner: view.owner, repo: view.repo, link }) },
+    { where: 'On the command line', label: `teamctx review approve ${q.id}`, text: `teamctx review approve ${q.id}` },
+    { where: 'On the command line', label: `teamctx review reject ${q.id} --reason "…"`, text: `teamctx review reject ${q.id} --reason "…"` },
   ];
   const label = ref || title.slice(0, 40);
   const date = q.createdAt ? String(q.createdAt).slice(5, 10) : '';

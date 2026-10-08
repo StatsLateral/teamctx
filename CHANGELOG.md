@@ -89,6 +89,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   is waiting and what was turned down are shown to the manager only, and a name
   nobody on the roster answers to reads "someone". A done task's title is struck
   through in the drawer, as it already was in the list.
+  Each way to decide is its own line with a **Copy** button that says Copied
+  when it is done: approve or reject in the assistant, each copying a whole
+  prompt (which repository, which item by id, what to check, and to ask for a
+  reason rather than invent one), and the `teamctx review approve` / `reject
+  --reason` commands. A line shows a short label, clipped to fit; what is
+  copied is never shortened. Every drawer opens at the top; only the Review icon
+  goes on to the decision (#142).
 - **The project page no longer lists decisions, rules, assumptions or
   exceptions.** It shows the work (tasks, by workstream) and, for the manager,
   what is waiting. Context is read through the assistant. Impact flags,

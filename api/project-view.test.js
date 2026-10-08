@@ -7,6 +7,7 @@
  */
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 import http from 'http';
+import { JSDOM } from 'jsdom';
 
 const repo = vi.hoisted(() => ({ files: new Map(), prefetchError: null, gone: new Set(), unknown: new Set(), moved: new Map() }));
 
@@ -1447,19 +1448,47 @@ describe('waiting on you', () => {
 
   it('says how to decide it, in the assistant or on the command line, and has no approve or reject button', async () => {
     const { body } = await visit('/project/acme/ledger', MANAGER);
+    // One line each, with what the line shows and what Copy takes (#142).
     const lines = dataOf(item(body, 'c-1'), 'decide');
-    expect(lines[0]).toContain('"Approve 1.2"');
-    expect(lines[0]).toContain('"Reject 1.2"');
-    expect(lines[1]).toContain('teamctx review approve c-1');
-    expect(lines[1]).toContain('teamctx review reject c-1');
+    expect(lines.map(({ where, label }) => [where, label])).toEqual([
+      ['In your assistant', 'Approve 1.2'],
+      ['In your assistant', 'Reject 1.2, with a reason'],
+      ['On the command line', 'teamctx review approve c-1'],
+      ['On the command line', 'teamctx review reject c-1 --reason "…"'],
+    ]);
+    expect(lines[2].text).toBe('teamctx review approve c-1');
+    expect(lines[3].text).toBe('teamctx review reject c-1 --reason "…"');
     expect(onPage(body)).not.toMatch(/>\s*(Approve|Reject)\b/);
     expect(body).toContain('id="d-decide-title">Decide<');
   });
 
-  it('names an item with no number by what it says, so the instruction still means something', async () => {
+  it('copies a whole prompt for the assistant: which repository, which item, which tool', async () => {
+    // A bare "Approve 1.2" told a fresh chat nothing. What is copied says it all.
+    const [approve, reject] = dataOf(item((await visit('/project/acme/ledger', MANAGER)).body, 'c-1'), 'decide');
+    expect(approve.text).toMatch(/^Approve this contribution that is waiting for my review: "adds the pricing tiers"\./);
+    for (const part of ['Instructions for the AI agent:', 'acme/ledger', 'id c-1', 'list_pending_reviews', 'review_approve, id c-1',
+      'ask me which one it replaces', 'review=c-1']) expect(approve.text).toContain(part);
+    expect(reject.text).toMatch(/^Reject this contribution that is waiting for my review: "adds the pricing tiers"\./);
+    for (const part of ['Reason: <write your reason here>', 'acme/ledger', 'review_reject, id c-1', 'ask me for it. Do not make one up'])
+      expect(reject.text).toContain(part);
+  });
+
+  it('names an item with no number by what it says', async () => {
     queue('c-unnumbered', { summary: 'An unnumbered proposal', workstream: null });
     const lines = dataOf(item((await visit('/project/acme/ledger', MANAGER)).body, 'c-unnumbered'), 'decide');
-    expect(lines[0]).toContain('name it by what it says');
+    expect(lines.map(l => l.label).slice(0, 2)).toEqual(['Approve "An unnumbered proposal"', 'Reject "An unnumbered proposal", with a reason']);
+  });
+
+  it('never shortens what is copied, however long; the page clips only what it shows', async () => {
+    const summary = 'x'.repeat(300);
+    queue('c-long', { summary, workstream: null });
+    const { body } = await visit('/project/acme/ledger', MANAGER);
+    const [approve, reject] = dataOf(item(body, 'c-long'), 'decide');
+    expect(approve.label).toBe(`Approve "${summary}"`);
+    expect(approve.text).toContain(`"${summary}"`);
+    expect(reject.text).toContain(`"${summary}"`);
+    expect(JSON.stringify([approve, reject])).not.toContain('…"');
+    expect(body).toMatch(/\.decide-line code\{[^}]*white-space:nowrap[^}]*text-overflow:ellipsis/);
   });
 
   it('escapes what somebody else wrote: the summary, the author, the changes and the conflicting record', async () => {
@@ -1498,6 +1527,113 @@ describe('waiting on you', () => {
     const { body } = await visit('/project/acme/ledger?ws=tech&review=c-1', MANAGER);
     expect(body).toMatch(/<div class="q marked" id="r-c-1"/);
     expect(node(body, 'Overall Project')).toContain('class="node root on"');
+  });
+
+  /**
+   * The icons, clicked (#142). The page's own script runs in a real DOM, so
+   * these check what happens rather than what the source says. jsdom has no
+   * layout, scrolling or clipboard, so `scrollIntoView` records where it was
+   * asked to go and the clipboard records what it was given.
+   */
+  describe('clicked', () => {
+    async function live(path = '/project/acme/ledger') {
+      const { body } = await visit(path, MANAGER);
+      const copied = [];
+      const { window } = new JSDOM(body, {
+        url: `${base}${path}`,
+        runScripts: 'dangerously',
+        beforeParse(w) {
+          w.scrolledTo = [];
+          w.Element.prototype.scrollIntoView = function () { w.scrolledTo.push(this.id || this.className); };
+          Object.defineProperty(w.navigator, 'clipboard', { value: { writeText: (t) => { copied.push(t); return Promise.resolve(); } } });
+          Object.defineProperty(w.document, 'fonts', { value: { ready: Promise.resolve() } });
+          w.matchMedia = () => ({ matches: false, addEventListener() {}, addListener() {} });
+        },
+      });
+      const $ = (sel) => window.document.querySelector(sel);
+      const row = $('#r-c-1');
+      return {
+        window, $, copied,
+        eye: row.querySelector('.qicon[data-open="view"]'),
+        review: row.querySelector('.qicon[data-open="review"]'),
+        title: row.querySelector('.qmain'),
+        open: () => $('#drawer').classList.contains('open'),
+        scrolled: () => $('.drawer-body').scrollTop,
+        // As if somebody had read down to the decision of the last item opened.
+        readDown: () => { $('.drawer-body').scrollTop = 400; window.scrolledTo.length = 0; },
+        escape: () => window.document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape' })),
+      };
+    }
+
+    it('opens the drawer at the top from the eye', async () => {
+      const page = await live();
+      page.readDown();
+      page.eye.click();
+      expect(page.open()).toBe(true);
+      expect(page.scrolled()).toBe(0);
+      expect(page.window.scrolledTo).toEqual([]);
+    });
+
+    it('opens it at the top from the row too', async () => {
+      const page = await live();
+      page.readDown();
+      page.title.click();
+      expect(page.open()).toBe(true);
+      expect(page.scrolled()).toBe(0);
+      expect(page.window.scrolledTo).toEqual([]);
+    });
+
+    it('opens it at the decision from the Review icon', async () => {
+      const page = await live();
+      page.review.click();
+      expect(page.open()).toBe(true);
+      expect(page.window.scrolledTo).toEqual(['d-decide-title']);
+      expect(page.$('#d-text').textContent).toBe('adds the pricing tiers');
+    });
+
+    it('opens one drawer per click, and gives focus back to the icon that opened it', async () => {
+      for (const which of ['eye', 'review']) {
+        const page = await live();
+        page[which].click();
+        page.escape();
+        expect(page.open(), which).toBe(false);
+        // Had the row's own handler run as well, it would have taken over as the
+        // opener, and focus would have gone back to the row.
+        expect(page.window.document.activeElement, which).toBe(page[which]);
+      }
+    });
+
+    it('lists each instruction with a Copy button that copies the whole of it', async () => {
+      const page = await live();
+      page.review.click();
+      const lines = [...page.window.document.querySelectorAll('#d-decide .decide-line')];
+      expect(lines.map(l => l.querySelector('code').textContent)).toEqual([
+        'Approve 1.2', 'Reject 1.2, with a reason', 'teamctx review approve c-1', 'teamctx review reject c-1 --reason "…"',
+      ]);
+      const buttons = lines.map(l => l.querySelector('button.decide-copy'));
+      expect(new Set(buttons.map(b => b.getAttribute('aria-label'))).size).toBe(4);
+      // The assistant line shows a label and copies the whole prompt behind it.
+      buttons[0].click();
+      await new Promise(r => setTimeout(r, 0));
+      expect(page.copied[0]).toMatch(/^Approve this contribution that is waiting for my review: "adds the pricing tiers"\.[\s\S]*review_approve, id c-1/);
+      expect(page.$('#toast').textContent).toBe('Copied: Approve 1.2');
+      buttons[2].click();
+      await new Promise(r => setTimeout(r, 0));
+      expect(page.copied[1]).toBe('teamctx review approve c-1');
+      expect(page.$('#toast').textContent).toBe('Copied: teamctx review approve c-1');
+      // Confirmed where the click was, since the message line can be off screen.
+      expect(buttons[2].textContent).toBe('Copied');
+      expect(buttons[1].textContent).toBe('Copy');
+    });
+
+    it('writes the instructions as text, never as markup', async () => {
+      queue('c-evil', { summary: '<img src=x onerror="window.pwned=1">', number: undefined });
+      const page = await live();
+      page.$('#r-c-evil .qicon[data-open="review"]').click();
+      expect(page.$('#d-decide img')).toBeNull();
+      expect(page.$('#d-decide code').textContent).toContain('<img src=x');
+      expect(page.window.pwned).toBeUndefined();
+    });
   });
 });
 
