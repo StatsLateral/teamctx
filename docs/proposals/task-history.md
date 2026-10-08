@@ -1,6 +1,6 @@
 # Proposal: task history
 
-**Status:** In progress · **Issue:** [#143](https://github.com/StatsLateral/teamctx/issues/143)
+**Status:** Implemented · **Issue:** [#143](https://github.com/StatsLateral/teamctx/issues/143)
 **Spec:** [task history](../superpowers/specs/2026-10-07-task-history-design.md) ·
 **Plan:** task 6 in [the UI specs build](../superpowers/plans/2026-10-07-ui-specs-build.md)
 **Base:** `main` at `818ef8d`
@@ -91,9 +91,9 @@ Nothing: one derived list. Activity-feed and audit libraries are far heavier.
 
 ## Plan
 
-- [ ] `taskHistory` and its tests (the spec's cases, old data, scope)
-- [ ] Approvals recorded (review approve, manager apply, additive policy)
-- [ ] `statusLog` and `doneBy` on completion and reopening; `rejectedByKey`
-- [ ] Page data: history per task, scope-filtered
-- [ ] Drawer: History section; struck-through title for done tasks; history in the review drawer
-- [ ] View tests, CHANGELOG
+- [x] `taskHistory` and its tests (the spec's cases, old data, scope)
+- [x] Approvals recorded (review approve, manager apply, additive policy)
+- [x] `statusLog` and `doneBy` on completion and reopening; `rejectedByKey`
+- [x] Page data: history per task, scope-filtered
+- [x] Drawer: History section; struck-through title for done tasks; history in the review drawer
+- [x] View tests, CHANGELOG
