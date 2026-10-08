@@ -7,7 +7,8 @@
  * same shape the page already uses: a source, what came from it, and the tasks it
  * feeds. The names are made up, and the drawer says so.
  */
-export const ISSUES_URL = 'https://github.com/StatsLateral/teamctx/issues';
+// The issue that describes the feature and links one issue per connector.
+export const ISSUES_URL = 'https://github.com/StatsLateral/teamctx/issues/168';
 
 export const SAMPLE_SOURCES = [
   {
