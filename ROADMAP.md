@@ -20,50 +20,54 @@ It compiles a role-specific file for each person to bring to their AI tool witho
 
 ## Recently shipped 🎉
 
-- **Project → workstream inheritance and the member's first-step brief** (#80–#83, #85, #90) — every part of the work inherits the project's context, members can't be brought onto an empty project, and `my_brief` is a member's first read
+The web page and the assistant-first flow (October 2026):
 
-The previous roadmap is nearly all built (thank you, contributors!):
+- **The project page** — a read-only page for a manager or a member: the goal and why it matters, the work as a tree, tasks, and what is waiting on the manager, with drawers for the project's and each workstream's context (#138–#141, #156)
+- **Decide in your assistant first** — a queued contribution is read back in the person's own chat, with its tasks as a separate decision (`review_approve` takes `tasks: include | leave_out`); the page opens the assistant with the right prompt and stays read-only (#154, #158, #142)
+- **Task history** — who asked for a task, who approved it, and when it was done (#143)
+- **My Team** — members, agents and external talent in one drawer; a manager can list someone as external (#162)
+- **Connectors that recover** — opening a connector address in a browser says what it is (#164); a connector whose GitHub sign-in was revoked signs in again by itself (#166)
 
-- **Provider-agnostic AI layer** — Claude, OpenAI, or Gemini behind one interface
-- **MCP server, full surface** — every command callable from Claude Desktop/Code, Cursor, etc., with a tiered safety model and manager-identity gate
-- **Manager approval queue** — contributions wait as durable pending objects; `review list/approve/reject`
-- **Context snapshots** — freeze and approve known-good states of the whole workspace
-- **Governed records** (#117) — the goal and why it matters, nested workstreams, tasks, and four kinds of governed record: decisions, assumptions, rules and exceptions (each exception shown under the rule it bends, with an end date). Replaced the Why/What/How tree.
-- **Tasks as first-class objects** — cheap local task CRUD + on-demand AI prompt compile per task
-- **Bring-your-own-agent recipes** — copy-paste prompts for Claude Code, Cursor, ChatGPT
-- **`ask` citations & audit** (#16) — every answer names the contributions it drew from; `ask --audit` expands the full source list
-- **Hosted MCP with OAuth** (#17) — use teamctx from any MCP client with zero local install; operators deploy once via [docs/mcp-hosted-setup.md](docs/mcp-hosted-setup.md)
-- **Context import (cold-start onboarding)** (#20) — `teamctx import <files…>` reads local docs a team already has and proposes the decisions, rules and assumptions it finds, proposed as pending contributions through the same manager-approval pipeline
-- **MCP test for `ask`'s `audit` param** (#19) — `mcp/server.test.js` covers the `audit` flag on the `ask` tool
+Earlier:
+
+- **Governed records** (#117) — the goal, nested workstreams, tasks, and four kinds of governed record: decisions, assumptions, rules and exceptions (each exception shown under the rule it bends, with an end date)
+- **When an assumption breaks, show what rests on it, and the checks around it** — impact (#120), new evidence proposed as "assumption at risk" (#122), the contradiction check (#121), and one review-and-impact screen (#118)
+- **Project → workstream inheritance and the member's first-step brief** (#80–#83, #85, #90); **workstream-scoped membership**, enforced server-side for members who reach the project through the hosted MCP
+- **Manager handoff and co-managers** (#86, #87) and **tokens for unattended agents**
+- **Context import and its six connectors** — `teamctx import` reads local files, Slack, Google Drive, Microsoft 365, Dropbox, Notion and Coda, and proposes what it finds through the review queue (#20–#27)
+- **Local team-productivity metrics** — `teamctx stats` (#28)
+- **Hosted MCP with OAuth** (#17), the **manager approval queue**, **context snapshots**, **tasks as first-class objects**, the **provider-agnostic AI layer**, **`ask` citations & audit** (#16), and **bring-your-own-agent recipes**
 
 ## Now
 
-The current focus is one end-to-end moment that shows whether governed context is worth a manager's minutes: **something new contradicts what the team assumed → teamctx proposes it → the manager approves → everything that rested on it is flagged → every connected AI gets the new state.**
-
-- **When an assumption breaks, show what rests on it** — marking an assumption broken lists the decisions and tasks that depend on it, for the manager to review, and every member's brief says so — *managers in control* · [#120](https://github.com/StatsLateral/teamctx/issues/120)
-- **New evidence proposes "assumption at risk"** — a meeting note or document contributed to teamctx that contradicts an active assumption is proposed as evidence against it, through the same review queue — *bring your own tools* · [#122](https://github.com/StatsLateral/teamctx/issues/122)
-- **Contradiction check** — a contribution that contradicts an active decision or rule is flagged to the manager instead of becoming a second, conflicting record — *managers in control* · [#121](https://github.com/StatsLateral/teamctx/issues/121)
-- **One review-and-impact screen** — the web page a manager opens to approve what's waiting and see what a change affects — [#118](https://github.com/StatsLateral/teamctx/issues/118)
-- **Local team-productivity metrics** — `teamctx stats`, including how long the manager spends reviewing — *prove team productivity* · [proposal](docs/proposals/local-metrics.md) · [#28](https://github.com/StatsLateral/teamctx/issues/28)
+- **Task submissions in the review queue, and AI-suggested next steps** — a draft sent back for a task is shown against that task, approving it marks the task done, and the approver decides which follow-on tasks to add — *managers in control* · [#144](https://github.com/StatsLateral/teamctx/issues/144)
+- **Tasks the AI proposes read as work a person would pick up** — today they can read as steps for an assistant — *managers in control* · [#175](https://github.com/StatsLateral/teamctx/issues/175)
 
 ## Next
 
-- **First-run experience + `teamctx doctor`** — a new user should reach their first compiled role file in under 10 minutes. `doctor` checks the environment (git repo, Node version, API key present and valid, provider reachable) and prints one actionable fix per problem — *easy to start*
-- **Mid-session decision capture** — the deeper promise: when a team member's AI tool reaches a decision mid-session, the tool itself proposes `submit_contribution` over MCP (with the member's confirmation), so decisions flow into shared context at the speed they're made instead of at the weekly review — *bring your own tools & agents* — builds on the recipes + MCP surface
-- **Import connectors (6): Slack, Google Drive, Microsoft 365, Dropbox, Notion, Coda** — extend `teamctx import` beyond local files to where a team's context actually lives: a Slack channel or thread (where decisions get made and then die), a Google Drive folder, a SharePoint/OneDrive library (many SMB teams are Microsoft-cloud-first), a Dropbox folder, a Notion or Coda workspace. Thin, pull-based adapters with user OAuth — each connector feeds the same import → review-queue pipeline, no server required. One shared connector interface so each is a well-scoped, independent contribution: **build the contract first ([#21](https://github.com/StatsLateral/teamctx/issues/21)), then connectors in any order — each one is a great standalone PR**: [Slack #22](https://github.com/StatsLateral/teamctx/issues/22) · [Drive #23](https://github.com/StatsLateral/teamctx/issues/23) · [M365 #24](https://github.com/StatsLateral/teamctx/issues/24) · [Dropbox #25](https://github.com/StatsLateral/teamctx/issues/25) · [Notion #26](https://github.com/StatsLateral/teamctx/issues/26) · [Coda #27](https://github.com/StatsLateral/teamctx/issues/27) — *bring your own tools · easy to start* · [proposal](docs/proposals/context-import.md)
-- **Workstream-scoped membership** — a manager invites someone into *one* workstream, and that person's AI sees, contributes to, and is compiled from only that workstream. Enforced server-side for members who reach the project through the hosted MCP (a no-GitHub member has no repo access of their own, so the server is their only path to the context); advisory for GitHub collaborators holding a clone, and documented as such rather than pretended otherwise. Revisits the "members are project-wide" decision in [project-members.md](docs/proposals/project-members.md) now that the hosted path makes enforcement real. Not RBAC or a permission matrix — one fact per member, which workstream(s) they are on; a member on no list stays project-wide, so existing projects change nothing — *managers in control · structured workstreams*
-- **Manager handoff / co-manager** — the manager is pinned at `init` and, on purpose, unreachable afterwards (writing it is self-granting approval). Add a manager-gated way to name a co-manager, transfer the role, or step down — never leaving a project with zero managers. The API key does **not** transfer: the incoming manager brings their own key (or hosted lent-credential), so a client can run the project without depending on the builder's key. Unlocks the "here is the AI project — you can keep running it without me" handoff; the "stay on as fractional manager" half already works. Ships with a copy-paste recipe for packaging and handing off a project — *managers in control* · [#86](https://github.com/StatsLateral/teamctx/issues/86) · recipe [#87](https://github.com/StatsLateral/teamctx/issues/87)
-- **Slack approval notifications** — when a contribution lands in the queue, ping the manager where they already live; approving stays in the CLI/MCP — *managers in control*
-- **Context freshness signals** — role files and `status` surface "last approved N days ago / M pending contributions" so a stale context is visible before it misleads someone's AI — *prove team productivity*
-- **Basic read-only web view of project state** — a non-technical manager currently has no way to just *look* at which workstreams exist, who's on each, what tasks are open and assigned to whom, or what's pending approval — only chat or the CLI. A thin, mostly read-only view (workstreams, tasks + assignees, approval queue) closes that gap without becoming a project-management tool. Self-hosted per team (extends the existing [git-for-non-tech-teams](https://github.com/StatsLateral/git-for-non-tech-teams) web app), so this stays inside the "no hosted SaaS UI" non-goal below — *structured workstreams · managers in control* · [#100](https://github.com/StatsLateral/teamctx/issues/100)
+- **Connected sources** — record what a project draws on (which tool, which item, when it was read, which tasks it feeds), as links and summaries and never copies of files, in the team's own repository; the drawer in Settings shows sample data until then. One issue each for **Slack, Notion, Google Drive, Microsoft SharePoint, Dropbox and Coda**; build the record first, then connectors in any order — each is a good standalone PR. The open-source options (Activepieces and Onyx cover all six, both MIT) are surveyed in the first issue — *bring your own tools* · [#168](https://github.com/StatsLateral/teamctx/issues/168) · [Slack #169](https://github.com/StatsLateral/teamctx/issues/169) · [Notion #170](https://github.com/StatsLateral/teamctx/issues/170) · [Drive #171](https://github.com/StatsLateral/teamctx/issues/171) · [SharePoint #172](https://github.com/StatsLateral/teamctx/issues/172) · [Dropbox #173](https://github.com/StatsLateral/teamctx/issues/173) · [Coda #174](https://github.com/StatsLateral/teamctx/issues/174)
+
+- **First-run experience + `teamctx doctor`** — a new user should reach their first compiled role file in under 10 minutes. `doctor` checks the environment (git repo, Node version, API key present and valid, provider reachable) and prints one actionable fix per problem — *easy to start* · [#180](https://github.com/StatsLateral/teamctx/issues/180)
+- **Mid-session decision capture** — when a team member's AI tool reaches a decision mid-session, the tool itself proposes `submit_contribution` over MCP (with the member's confirmation), so decisions flow into shared context at the speed they're made instead of at the weekly review — *bring your own tools & agents* · [#181](https://github.com/StatsLateral/teamctx/issues/181)
+- **Slack approval notifications** — when a contribution lands in the queue, ping the manager where they already live; approving stays in the assistant or the command line — *managers in control* · [#182](https://github.com/StatsLateral/teamctx/issues/182)
+- **Context freshness signals** — role files and `status` surface "last approved N days ago / M pending contributions" so a stale context is visible before it misleads someone's AI — *prove team productivity* · [#183](https://github.com/StatsLateral/teamctx/issues/183)
+
+## Parked
+
+Open, and not being worked on until there is a reason:
+
+- **Non-technical member's fallback path** still needs a terminal and git — [#93](https://github.com/StatsLateral/teamctx/issues/93)
+- **A GitHub App instead of the OAuth `repo` scope**, to narrow access to the project's repository — [#110](https://github.com/StatsLateral/teamctx/issues/110)
+- **A read log**, so a manager can see who read which part of the context — [#111](https://github.com/StatsLateral/teamctx/issues/111)
+- **Approve and Reject buttons on the page itself.** Deciding stays in the assistant on purpose; this needs the server-side manager check, a confirmation, and a record before it is worth building — [#176](https://github.com/StatsLateral/teamctx/issues/176)
 
 ## Later
 
-- **More import connectors: Confluence, Airtable, Box…** — same connector interface; any popular document/knowledge tool is fair game once the contract exists — *bring your own tools*
+- **More import connectors: Confluence, Airtable, Box…** — same connector interface; any popular document/knowledge tool is fair game — *bring your own tools*
 - **Export workstreams to project-management tools** — push workstreams/tasks out to Jira, Linear, Asana, or Trello — *structured workstreams*
 - **Non-git storage backends** — the GitHub-API adapter (#17) is the first step; a filesystem/DB backend would free teamctx from git entirely for non-technical teams
 - **Cross-project context links** — a decision in one project's context updates a linked context in another (e.g. a product-strategy decision updates the GTM team's context)
-- **Team layer** — context shared by several projects, inherited above each project's own the way a workstream inherits its project. Deferred: today one team is one project, and a team context spans repositories while a project is exactly one. Distinct from cross-project links, which propagate sideways between peers rather than down from above — *structured workstreams* · [seam note](docs/proposals/team-layer.md)
+- **Team layer** — context shared by several projects, inherited above each project's own the way a workstream inherits its project. Deferred: today one team is one project — *structured workstreams* · [seam note](docs/proposals/team-layer.md)
 
 ## Non-goals (for now)
 
