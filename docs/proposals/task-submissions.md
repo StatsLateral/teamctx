@@ -67,8 +67,8 @@ spec deliberately avoids.
 
 ## Plan
 
-- [ ] `forTask` and `submitted` on `contribute` (both tools); hidden or unknown task refused alike
-- [ ] `applyTaskSubmission`; approve routes a submission through it; no record written
-- [ ] Row and drawer wording; "task already done"
-- [ ] Tests (the spec's cases: two submissions for one task, an already-done task, scope, identical titles); CHANGELOG
+- [x] `forTask` and `submitted` on `contribute` (both tools); hidden or unknown task refused alike
+- [x] `applyTaskSubmission`; approve routes a submission through it; no record written
+- [x] Row and drawer wording; "task already done"
+- [x] Tests (the spec's cases: two submissions for one task, an already-done task, scope, identical titles); CHANGELOG
 - [ ] Held: `nextSteps` and the Approved view, pending the answer on #144
