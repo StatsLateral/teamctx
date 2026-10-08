@@ -1,6 +1,6 @@
 # Proposal: finish the Waiting on you icons
 
-**Status:** In progress · **Issue:** [#142](https://github.com/StatsLateral/teamctx/issues/142)
+**Status:** Implemented · **Issue:** [#142](https://github.com/StatsLateral/teamctx/issues/142)
 **Spec:** [waiting-on-you icons](../superpowers/specs/2026-10-07-waiting-on-you-icons-design.md) ·
 **Plan:** task 5 in [the UI specs build](../superpowers/plans/2026-10-07-ui-specs-build.md)
 **Base:** `main` at `818ef8d` (the one-page project view)
@@ -84,8 +84,8 @@ spec already rejected icon, tooltip and clipboard libraries.
 
 ## Plan
 
-- [ ] Decide: structured instructions, each with a Copy button and a distinct label
-- [ ] Every drawer opening starts at the top; Review then scrolls to Decide
-- [ ] jsdom behaviour tests: View at the top, Review at Decide, one drawer per click,
+- [x] Decide: structured instructions, each with a Copy button and a distinct label
+- [x] Every drawer opening starts at the top; Review then scrolls to Decide
+- [x] jsdom behaviour tests: View at the top, Review at Decide, one drawer per click,
       focus back to the icon on close, Copy copies the exact text
-- [ ] Update the string tests for the new Decide shape; CHANGELOG
+- [x] Update the string tests for the new Decide shape; CHANGELOG
