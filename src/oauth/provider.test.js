@@ -294,6 +294,55 @@ describe('token exchange', () => {
   });
 });
 
+describe('a refresh and the GitHub sign-in behind it', () => {
+  const signedIn = async (provider) => {
+    const { code } = await runAuthFlow(provider, { fetchMock: githubHappyPath() });
+    return provider.exchangeAuthorizationCode(CLIENT, code);
+  };
+
+  it('refuses to refresh once GitHub no longer accepts the sign-in, so the client has to sign in again', async () => {
+    // Refreshing used to carry a dead GitHub token forward for the whole life of the
+    // refresh token, 90 days, and the connector stayed broken with nothing to tell
+    // the client to start over.
+    const provider = makeProvider();
+    const first = await signedIn(provider);
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 401, json: async () => ({ message: 'Bad credentials' }) })));
+    await expectOAuthError(provider.exchangeRefreshToken(CLIENT, first.refresh_token), 'invalid_grant');
+    // And it is not left usable.
+    await expectOAuthError(provider.exchangeRefreshToken(CLIENT, first.refresh_token), 'invalid_grant');
+  });
+
+  it('keeps the connection when GitHub is merely unreachable or erroring', async () => {
+    const provider = makeProvider();
+    const first = await signedIn(provider);
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('network down'); }));
+    expect((await provider.exchangeRefreshToken(CLIENT, first.refresh_token)).access_token).toBeTruthy();
+    const again = await signedIn(provider);
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 502, json: async () => ({}) })));
+    expect((await provider.exchangeRefreshToken(CLIENT, again.refresh_token)).access_token).toBeTruthy();
+  });
+
+  it('does not ask GitHub about a sign-in that never had a GitHub token', async () => {
+    const provider = makeProvider();
+    await kvSet(keys.refresh('google-refresh'), { clientId: CLIENT.client_id, googleUser: { email: 'p@example.com' }, scopes: [] });
+    const spy = vi.fn(async () => { throw new Error('GitHub must not be asked'); });
+    vi.stubGlobal('fetch', spy);
+    const tokens = await provider.exchangeRefreshToken(CLIENT, 'google-refresh');
+    expect(tokens.access_token).toBeTruthy();
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('records when GitHub signed the person in, and keeps it across refreshes', async () => {
+    const provider = makeProvider();
+    const first = await signedIn(provider);
+    const before = (await provider.verifyAccessToken(first.access_token)).extra.githubSignedInAt;
+    expect(Number.isNaN(Date.parse(before))).toBe(false);
+    vi.stubGlobal('fetch', githubHappyPath());
+    const second = await provider.exchangeRefreshToken(CLIENT, first.refresh_token);
+    expect((await provider.verifyAccessToken(second.access_token)).extra.githubSignedInAt).toBe(before);
+  });
+});
+
 describe('verifyAccessToken', () => {
   it('returns AuthInfo carrying the GitHub token and profile', async () => {
     const provider = makeProvider();
