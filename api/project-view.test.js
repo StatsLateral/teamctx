@@ -7,6 +7,7 @@
  */
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 import http from 'http';
+import { JSDOM } from 'jsdom';
 
 const repo = vi.hoisted(() => ({ files: new Map(), prefetchError: null, gone: new Set(), unknown: new Set(), moved: new Map() }));
 
@@ -1506,6 +1507,105 @@ describe('waiting on you', () => {
     const { body } = await visit('/project/acme/ledger?ws=tech&review=c-1', MANAGER);
     expect(body).toMatch(/<div class="q marked" id="r-c-1"/);
     expect(node(body, 'Overall Project')).toContain('class="node root on"');
+  });
+
+  /**
+   * The icons, clicked (#142). The page's own script runs in a real DOM, so
+   * these check what happens rather than what the source says. jsdom has no
+   * layout, scrolling or clipboard, so `scrollIntoView` records where it was
+   * asked to go and the clipboard records what it was given.
+   */
+  describe('clicked', () => {
+    async function live(path = '/project/acme/ledger') {
+      const { body } = await visit(path, MANAGER);
+      const copied = [];
+      const { window } = new JSDOM(body, {
+        url: `${base}${path}`,
+        runScripts: 'dangerously',
+        beforeParse(w) {
+          w.scrolledTo = [];
+          w.Element.prototype.scrollIntoView = function () { w.scrolledTo.push(this.id || this.className); };
+          Object.defineProperty(w.navigator, 'clipboard', { value: { writeText: (t) => { copied.push(t); return Promise.resolve(); } } });
+          Object.defineProperty(w.document, 'fonts', { value: { ready: Promise.resolve() } });
+          w.matchMedia = () => ({ matches: false, addEventListener() {}, addListener() {} });
+        },
+      });
+      const $ = (sel) => window.document.querySelector(sel);
+      const row = $('#r-c-1');
+      return {
+        window, $, copied,
+        eye: row.querySelector('.qicon[data-open="view"]'),
+        review: row.querySelector('.qicon[data-open="review"]'),
+        title: row.querySelector('.qmain'),
+        open: () => $('#drawer').classList.contains('open'),
+        scrolled: () => $('.drawer-body').scrollTop,
+        // As if somebody had read down to the decision of the last item opened.
+        readDown: () => { $('.drawer-body').scrollTop = 400; window.scrolledTo.length = 0; },
+        escape: () => window.document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape' })),
+      };
+    }
+
+    it('opens the drawer at the top from the eye', async () => {
+      const page = await live();
+      page.readDown();
+      page.eye.click();
+      expect(page.open()).toBe(true);
+      expect(page.scrolled()).toBe(0);
+      expect(page.window.scrolledTo).toEqual([]);
+    });
+
+    it('opens it at the top from the row too', async () => {
+      const page = await live();
+      page.readDown();
+      page.title.click();
+      expect(page.open()).toBe(true);
+      expect(page.scrolled()).toBe(0);
+      expect(page.window.scrolledTo).toEqual([]);
+    });
+
+    it('opens it at the decision from the Review icon', async () => {
+      const page = await live();
+      page.review.click();
+      expect(page.open()).toBe(true);
+      expect(page.window.scrolledTo).toEqual(['d-decide-title']);
+      expect(page.$('#d-text').textContent).toBe('adds the pricing tiers');
+    });
+
+    it('opens one drawer per click, and gives focus back to the icon that opened it', async () => {
+      for (const which of ['eye', 'review']) {
+        const page = await live();
+        page[which].click();
+        page.escape();
+        expect(page.open(), which).toBe(false);
+        // Had the row's own handler run as well, it would have taken over as the
+        // opener, and focus would have gone back to the row.
+        expect(page.window.document.activeElement, which).toBe(page[which]);
+      }
+    });
+
+    it('lists each instruction with a Copy button that copies exactly that line', async () => {
+      const page = await live();
+      page.review.click();
+      const lines = [...page.window.document.querySelectorAll('#d-decide .decide-line')];
+      expect(lines.map(l => l.querySelector('code').textContent)).toEqual([
+        'Approve 1.2', 'Reject 1.2 because …', 'teamctx review approve c-1', 'teamctx review reject c-1 --reason "…"',
+      ]);
+      const buttons = lines.map(l => l.querySelector('button.decide-copy'));
+      expect(new Set(buttons.map(b => b.getAttribute('aria-label'))).size).toBe(4);
+      buttons[2].click();
+      await new Promise(r => setTimeout(r, 0));
+      expect(page.copied).toEqual(['teamctx review approve c-1']);
+      expect(page.$('#toast').textContent).toBe('Copied: teamctx review approve c-1');
+    });
+
+    it('writes the instructions as text, never as markup', async () => {
+      queue('c-evil', { summary: '<img src=x onerror="window.pwned=1">', number: undefined });
+      const page = await live();
+      page.$('#r-c-evil .qicon[data-open="review"]').click();
+      expect(page.$('#d-decide img')).toBeNull();
+      expect(page.$('#d-decide code').textContent).toContain('<img src=x');
+      expect(page.window.pwned).toBeUndefined();
+    });
   });
 });
 
