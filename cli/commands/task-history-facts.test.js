@@ -77,6 +77,26 @@ describe('who approved a contribution, and when', () => {
   });
 });
 
+describe('who completed or reopened a task, and when', () => {
+  it('keeps each change, in order, with who made it', async () => {
+    const { task } = await as(manager, () => addTask({ title: 'Ship it', workstream: 'sales', teamctxDir: dir }));
+    await as(member, () => setTaskStatus({ id: task.id, status: 'done', teamctxDir: dir }));
+    await as(manager, () => setTaskStatus({ id: task.id, status: 'open', teamctxDir: dir }));
+    await as(manager, () => setTaskStatus({ id: task.id, status: 'done', teamctxDir: dir }));
+    const [stored] = listTasks({}, dir);
+    expect(stored.statusLog.map(s => [s.did, s.by.name])).toEqual([['completed', 'Priya'], ['reopened', 'Manager'], ['completed', 'Manager']]);
+    expect(stored.statusLog.every(s => !Number.isNaN(Date.parse(s.at)))).toBe(true);
+    expect(stored.doneBy).toEqual({ key: 'git:manager@x', name: 'Manager' });
+    expect(stored.doneAt).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+
+  it('writes nothing when the status does not change', async () => {
+    const { task } = await as(manager, () => addTask({ title: 'Ship it', workstream: 'sales', teamctxDir: dir }));
+    await as(manager, () => setTaskStatus({ id: task.id, status: 'open', teamctxDir: dir }));
+    expect(listTasks({}, dir)[0].statusLog).toBeUndefined();
+  });
+});
+
 describe('who rejected a contribution', () => {
   it('keeps the rejecter’s key beside their name', async () => {
     const queued = await contribute(member, {});
