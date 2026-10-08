@@ -54,7 +54,7 @@ export function treeHtml({ view, selected, base, onDay = today() }) {
   const node = (w) => {
     const ids = covered(parts, w.id);
     const kids = parts.filter(c => c.parent === w.id);
-    return `<li><a class="node${w.id === selected ? ' on' : ''}" href="${esc(href(w.id))}"${w.id === selected ? ' aria-current="page"' : ''}>`
+    return `<li><a class="node${w.id === selected ? ' on' : ''}" href="${esc(href(w.id))}" title="${esc(w.name)}"${w.id === selected ? ' aria-current="page"' : ''}>`
       + `<span class="num">${esc(w.number ?? '')}</span><span class="nm">${esc(w.name)}</span>${dot(ids, false)}<span class="cnt">${openIn(ids)}</span></a>`
       + `${kids.length ? `<ul>${kids.map(node).join('')}</ul>` : ''}</li>`;
   };
@@ -98,7 +98,7 @@ function taskRow({ t, view, origin, marked }) {
   return `<button type="button" class="item trow${marked ? ' marked' : ''}${t.status === 'done' ? ' done' : ''}" id="t-${esc(t.id)}"
   data-text="${esc(t.title)}" data-kind="${esc(`Task${t.key ? ` ${t.key}` : ''}`)}" data-summary="" data-who="${esc(who.join(', '))}"
   data-review="" data-ws="${esc(t.workstream || '')}" data-ask="${escAttr(prompt.split('\n\n')[0])}" data-prompt="${escAttr(prompt)}">
-  <span class="num">${esc(t.key || '—')}</span><span class="ttl">${esc(t.title)}</span>
+  <span class="num">${esc(t.key || '—')}</span><span class="ttl" title="${esc(t.title)}">${esc(t.title)}</span>
   <span class="own">${whoChip(t.owner, view.agents)}</span>${clip(t)}</button>`;
 }
 
@@ -163,7 +163,7 @@ function waitingItem({ q, view, origin, marked }) {
   data-changes="${esc(JSON.stringify(changes))}" data-checks="${esc(JSON.stringify(checks))}" data-decide="${esc(JSON.stringify(decide))}"
   data-ask="${escAttr(prompt.split('\n\n')[0])}" data-prompt="${escAttr(prompt)}">
   <span class="num">${esc(ref || '—')}</span>
-  <span class="what"><button type="button" class="qmain">${esc(title)}</button></span>
+  <span class="what"><button type="button" class="qmain" title="${esc(title)}">${esc(title)}</button></span>
   <span class="qicons">
     <button type="button" class="qicon" data-open="view" aria-label="View ${esc(label)}" title="View details">${EYE}</button>
     <button type="button" class="qicon rv" data-open="review" aria-label="Review ${esc(label)}: approve or reject" title="Review: approve or reject">${REVIEW}</button>

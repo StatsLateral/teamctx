@@ -14,7 +14,7 @@
 export const esc = (v) => String(v).replace(/[<>&"]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' }[c]));
 
 const FONTS = 'https://fonts.googleapis.com/css2'
-  + '?family=Fraunces:wght@500;600'
+  + '?family=Fraunces:wght@400;500;600'
   + '&family=Hanken+Grotesk:wght@400;500;600'
   + '&family=Spline+Sans+Mono:wght@500;600&display=swap';
 
