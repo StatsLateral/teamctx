@@ -55,6 +55,14 @@ describe('a task’s history', () => {
       .toMatchObject({ by: null, did: 'added' });
   });
 
+  it('keeps who added a task first, when work sent for it later is rejected or approved', () => {
+    const t = task({ addedBy: { name: 'Maya' }, addedAt: '2026-09-29T09:00:00.000Z', sourceContributionIds: ['c1'] });
+    const h = taskHistory({ task: t, contributions: { c1 }, approvals: { c1: approvedC1 } });
+    expect(did(h)).toEqual(['added', 'submitted', 'approved']);
+    const r = taskHistory({ task: task({ sourceContributionIds: undefined, createdAt: '2026-09-01' }), rejected: [{ ...queued(), rejectedBy: 'Maya', rejectedAt: '2026-10-07T09:00:00.000Z' }] });
+    expect(did(r)).toEqual(['added', 'submitted', 'rejected']);
+  });
+
   it('never calls a submission approved when nobody recorded approving it', () => {
     const h = taskHistory({ task: task(), contributions: { c1 } });
     expect(did(h)).toEqual(['submitted']);
