@@ -125,7 +125,21 @@ function assertConflictApplied(item, dropped) {
   }
 }
 
-export async function approveReview({ id, replaces, teamctxDir, projectDir, actor } = {}) {
+export class TasksNeedDecisionError extends Error {
+  constructor(titles) {
+    super(`This item would also add ${titles.length} task${titles.length === 1 ? '' : 's'}: ${titles.map(t => `"${t}"`).join('; ')}. Nothing has been approved. Read them to the user and ask whether to approve with the tasks (tasks: "include") or without them (tasks: "leave_out").`);
+    this.code = 'TASKS_NEED_DECISION';
+  }
+}
+
+/**
+ * `tasks` is `include` or `leave_out`. With `askAboutTasks` an item that carries
+ * tasks is refused until it is one of them: an assistant approving on someone's
+ * behalf must not create work they were never shown. The command line keeps its
+ * old behaviour, because a person typing `review approve` has the item in front
+ * of them.
+ */
+export async function approveReview({ id, replaces, tasks, askAboutTasks = false, teamctxDir, projectDir, actor } = {}) {
   const config = readConfig(teamctxDir);
   // The gate reads the resolved identity, never the caller-supplied `actor`.
   // That argument is attribution only: it is a claim, not a credential.
@@ -141,6 +155,15 @@ export async function approveReview({ id, replaces, teamctxDir, projectDir, acto
   // `null` is the project itself. Defaulting to `main` here would have sent an
   // approved project-level contribution to a workstream that no longer exists.
   const targetId = resolveTarget(item.workstream);
+  // Tasks are decided on their own. Left out, they are not applied and not kept:
+  // the approver said no to them, and a number is never reused, so the one the
+  // item waited under simply stays its reference.
+  const proposed = (item.operations || []).filter(o => o?.type === 'addTask');
+  if (askAboutTasks && proposed.length && tasks !== 'include' && tasks !== 'leave_out') {
+    throw new TasksNeedDecisionError(proposed.map(o => o.title));
+  }
+  const tasksLeftOut = tasks === 'leave_out' ? proposed.map(o => ({ title: o.title })) : [];
+  if (tasks === 'leave_out') item = { ...item, operations: (item.operations || []).filter(o => o?.type !== 'addTask') };
   // Check before acquiring the key lock: an unresolved conflict must not even
   // backfill existing records, let alone apply or delete the queued proposal.
   const resolvedItem = resolveContradictions(item, { replaces, config, teamctxDir });
@@ -213,6 +236,7 @@ export async function approveReview({ id, replaces, teamctxDir, projectDir, acto
     author: item.author,
     approvedBy: approvedBy.name,
     operations: item.operations || [],
+    ...(tasksLeftOut.length ? { tasksLeftOut } : {}),
     ...(item.contradictions?.length ? { contradictions: item.contradictions } : {}),
     rolesRegenerated,
     pushed,
