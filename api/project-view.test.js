@@ -1447,11 +1447,13 @@ describe('waiting on you', () => {
 
   it('says how to decide it, in the assistant or on the command line, and has no approve or reject button', async () => {
     const { body } = await visit('/project/acme/ledger', MANAGER);
-    const lines = dataOf(item(body, 'c-1'), 'decide');
-    expect(lines[0]).toContain('"Approve 1.2"');
-    expect(lines[0]).toContain('"Reject 1.2"');
-    expect(lines[1]).toContain('teamctx review approve c-1');
-    expect(lines[1]).toContain('teamctx review reject c-1');
+    // Each one whole, on its own line, so it can be copied as it is (#142).
+    expect(dataOf(item(body, 'c-1'), 'decide')).toEqual([
+      { where: 'In your assistant', text: 'Approve 1.2' },
+      { where: 'In your assistant', text: 'Reject 1.2 because …' },
+      { where: 'On the command line', text: 'teamctx review approve c-1' },
+      { where: 'On the command line', text: 'teamctx review reject c-1 --reason "…"' },
+    ]);
     expect(onPage(body)).not.toMatch(/>\s*(Approve|Reject)\b/);
     expect(body).toContain('id="d-decide-title">Decide<');
   });
@@ -1459,7 +1461,13 @@ describe('waiting on you', () => {
   it('names an item with no number by what it says, so the instruction still means something', async () => {
     queue('c-unnumbered', { summary: 'An unnumbered proposal', workstream: null });
     const lines = dataOf(item((await visit('/project/acme/ledger', MANAGER)).body, 'c-unnumbered'), 'decide');
-    expect(lines[0]).toContain('name it by what it says');
+    expect(lines.map(l => l.text).slice(0, 2)).toEqual(['Approve "An unnumbered proposal"', 'Reject "An unnumbered proposal" because …']);
+  });
+
+  it('shortens a long summary in the instruction, so the line stays one thing to copy', async () => {
+    queue('c-long', { summary: 'x'.repeat(200), workstream: null });
+    const [approve] = dataOf(item((await visit('/project/acme/ledger', MANAGER)).body, 'c-long'), 'decide');
+    expect(approve.text).toBe(`Approve "${'x'.repeat(57)}…"`);
   });
 
   it('escapes what somebody else wrote: the summary, the author, the changes and the conflicting record', async () => {

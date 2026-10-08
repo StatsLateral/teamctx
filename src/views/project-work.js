@@ -150,9 +150,15 @@ function waitingItem({ q, view, origin, marked }) {
     node: { id: q.id, text: title }, tier: 'review', where, isProject: !q.workstream, owner: view.owner, repo: view.repo, parent: null, pending: true,
     link: origin ? `${origin}/project/${view.owner}/${view.repo}?${new URLSearchParams({ ...(q.workstream ? { ws: q.workstream } : {}), item: q.id })}` : null,
   });
+  // The exact things a manager can hand over, one per line so each can be
+  // copied whole (#142). An item with no number is named by what it says, so the
+  // copied instruction still points at one thing.
+  const name = ref || `"${title.length > 60 ? `${title.slice(0, 57)}…` : title}"`;
   const decide = [
-    `Tell your assistant: "Approve ${ref || 'this'}"${ref ? '' : ' (name it by what it says)'}, or "Reject ${ref || 'this'}" with a reason.`,
-    `From the command line: teamctx review approve ${q.id}   or   teamctx review reject ${q.id}`,
+    { where: 'In your assistant', text: `Approve ${name}` },
+    { where: 'In your assistant', text: `Reject ${name} because …` },
+    { where: 'On the command line', text: `teamctx review approve ${q.id}` },
+    { where: 'On the command line', text: `teamctx review reject ${q.id} --reason "…"` },
   ];
   const label = ref || title.slice(0, 40);
   const date = q.createdAt ? String(q.createdAt).slice(5, 10) : '';

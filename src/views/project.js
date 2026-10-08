@@ -107,6 +107,12 @@ const CSS = `
 .plain li{margin:0 0 .4rem;line-height:1.45;overflow-wrap:anywhere}
 .decide p{margin:0 0 .5rem;font-size:13px;line-height:1.5;color:var(--ink);overflow-wrap:anywhere}
 .decide code{font-family:var(--font-mono);font-size:12px}
+/* One instruction per line, its Copy button beside it; the text wraps first. */
+.decide .decide-where{margin:.6rem 0 .3rem;font-size:12px;color:var(--soft)}
+.decide-line{display:flex;align-items:center;gap:8px;margin:0 0 6px}
+.decide-line code{flex:1;min-width:0;overflow-wrap:anywhere;background:var(--paper);border:1px solid var(--line);
+  border-radius:6px;padding:5px 8px;color:var(--ink)}
+.decide-copy{flex:none;font-size:12px;padding:4px 10px;border-radius:6px}
 
 /* The drawer. */
 .drawer{position:fixed;top:0;right:0;height:100vh;width:min(520px,100vw);background:var(--card);
@@ -246,10 +252,24 @@ const SCRIPT = `
       };
       fill('d-changes', 'changes');
       document.getElementById('d-checks-wrap').hidden = !fill('d-checks', 'checks');
+      // Each instruction on its own line with a Copy button, under where it is
+      // used. Built as text nodes: these are somebody else's words.
       var decide = document.getElementById('d-decide');
       decide.textContent = '';
+      var group = null;
       JSON.parse(el.dataset.decide || '[]').forEach(function (line) {
-        var p = document.createElement('p'); p.textContent = line; decide.appendChild(p);
+        if (line.where !== group) {
+          group = line.where;
+          var head = document.createElement('p'); head.className = 'decide-where'; head.textContent = group;
+          decide.appendChild(head);
+        }
+        var row = document.createElement('div'); row.className = 'decide-line';
+        var code = document.createElement('code'); code.textContent = line.text;
+        var copy = document.createElement('button');
+        copy.type = 'button'; copy.className = 'decide-copy'; copy.textContent = 'Copy';
+        copy.setAttribute('aria-label', 'Copy: ' + line.text);
+        copy.dataset.copy = line.text;
+        row.appendChild(code); row.appendChild(copy); decide.appendChild(row);
       });
     }
     document.getElementById('d-who').textContent = el.dataset.who || 'Nobody recorded.';
@@ -336,6 +356,13 @@ const SCRIPT = `
       if (!plan.copy) { go(); return; }
       toText(plan.copy).then(go, function () { say('Could not copy. Open "See the prompt first" and copy it from there.'); });
     });
+  });
+  // One listener for the Decide lines, which are rebuilt on every opening.
+  document.getElementById('d-decide').addEventListener('click', function (e) {
+    var b = e.target.closest('.decide-copy');
+    if (!b) return;
+    toText(b.dataset.copy).then(function () { say('Copied: ' + b.dataset.copy); },
+      function () { say('Could not copy. Select the line and copy it by hand.'); });
   });
   // Shared rows carry the text and prompt for their drawer.
   var statement = document.querySelector('.marked[data-prompt]');
