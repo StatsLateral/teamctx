@@ -163,3 +163,42 @@ describe('the reason given for each way GitHub can say no', () => {
     expect(explainGithubFailure(new Error('fetch failed'), ctx)).toMatch(/could not read acme\/ledger.*connect this server again/s);
   });
 });
+
+describe('a GitHub sign-in that has been rejected, when the caller can be sent to sign in again', () => {
+  const again = (res) => {
+    res.statusCode = 401;
+    res.setHeader('WWW-Authenticate', 'Bearer error="invalid_token"');
+    res.end('{"error":"unauthorized"}');
+  };
+
+  it('answers a tool call with the 401 that makes a client sign in again, not a tool error', async () => {
+    refuse(401);
+    await start({ signInAgain: again });
+    const r = await post(CALL);
+    expect(r.status).toBe(401);
+  });
+
+  it('leaves every other kind of GitHub refusal as the explanation it was', async () => {
+    refuse(403);
+    await start({ signInAgain: () => { throw new Error('must not be called for a 403'); } });
+    const r = await post(CALL);
+    expect(r.status).toBe(200);
+    expect(JSON.stringify(r.json)).toMatch(/organization|SAML|third-party/);
+  });
+
+  it('does nothing for a request that never reads the project', async () => {
+    refuse(401);
+    await start({ signInAgain: () => { throw new Error('must not be called'); } });
+    expect((await post(INIT)).status).toBe(200);
+    expect((await post(LIST)).status).toBe(200);
+  });
+
+  it('still explains in words when there is nobody to send back to sign in', async () => {
+    refuse(401);
+    await start();
+    const r = await post(CALL);
+    expect(r.status).toBe(200);
+    expect(JSON.stringify(r.json)).toMatch(/expired or been revoked/);
+  });
+});
+

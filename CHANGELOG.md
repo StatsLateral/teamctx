@@ -183,6 +183,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   link and the member gate agree.
 
 ### Fixed
+- **A connector whose GitHub sign-in GitHub has stopped accepting now signs in again by
+  itself.** It used to get a normal tool answer ("disconnect and connect again"), which an
+  assistant cannot act on and a client never does, and a refresh carried the dead GitHub
+  token forward for the whole ninety days. The endpoint now answers 401 `invalid_token`
+  and forgets the access token, and a refresh checks GitHub first and is refused when
+  GitHub says 401 (never on an outage). A GitHub sign-in is stamped with when it was made,
+  and a rejection logs how old it was, never the token.
 - **Opening the connector address in a browser no longer shows a line of JSON.** An
   invitee who clicked the "connector link" got `MCP endpoint accepts POST only`. A
   browser now gets a page saying what the address is, with a copy button and a link
