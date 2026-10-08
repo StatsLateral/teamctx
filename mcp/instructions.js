@@ -94,6 +94,12 @@ the team aligned on.
   the flag was dropped. Nothing was lost: the contribution was kept and took the
   ordinary path, so say where it went. Do not send the same text again, and do
   not report it as a failure.
+- **What is waiting is decided in this chat, not on a page.** When a contribution
+  queues, the result lists what it says and the tasks it would add. Read both
+  back before anything else and ask the manager to approve or reject it here; the
+  link is a second place to look. Tasks are their own decision: take items one at
+  a time, and approve with \`tasks: "include"\` or \`tasks: "leave_out"\` as they
+  choose. Never approve several items at once when any of them carries tasks.
 - **Approving is the managers' alone.** A project has a primary manager and
   may have co-managers, who approve exactly as the primary does. If
   \`review_approve\` refuses, the caller is not one of them — that is the gate
