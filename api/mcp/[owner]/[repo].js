@@ -17,7 +17,7 @@ import {
   isAgentToken, verifyAgentToken, touchAgent, readAgentKey, markAgentKeyFailed,
 } from '../../../src/oauth/agent-tokens.js';
 import { actorFromAgent } from '../../../src/agents.js';
-import { kvGet, keys } from '../../../src/oauth/kv.js';
+import { kvGet, kvDelete, keys } from '../../../src/oauth/kv.js';
 
 /**
  * Hosted MCP endpoint.  POST /api/mcp/<owner>/<repo>
@@ -139,6 +139,7 @@ export default async function handler(req, res) {
   let actor = null;
   let googleUser = null;
   let agent = null;
+  let signInAgain = null;
 
   const bearer = readBearer(req);
 
@@ -183,6 +184,22 @@ export default async function handler(req, res) {
       // named — usually Anthropic.
       aiProvider = stored?.provider ?? null;
       googleUser = auth.extra?.googleUser ?? null;
+      // Only a connection that holds a GitHub token of its own can be told to sign
+      // in again when GitHub stops accepting it; a Google sign-in reads through the
+      // project's own credential, and that is a different thing to fix.
+      if (ghToken) {
+        const who = auth.extra?.githubUser?.login || 'a user';
+        const since = Date.parse(auth.extra?.githubSignedInAt || '');
+        signInAgain = async (out) => {
+          // How old it was when GitHub refused it, which is what tells a token that
+          // lapsed from one that was revoked or pushed out by newer sign-ins. Never
+          // the token.
+          console.warn(`teamctx: GitHub rejected the sign-in held for ${who} on ${owner}/${repo}, `
+            + (Number.isNaN(since) ? 'signed in at a time that was not recorded' : `signed in ${Math.round((Date.now() - since) / 60000)} minutes ago`));
+          await kvDelete(keys.token(bearer));
+          unauthorized(req, out, owner, repo, 'GitHub no longer accepts the sign-in this connection holds. Sign in again.', { invalidToken: true });
+        };
+      }
     } catch {
       return unauthorized(req, res, owner, repo, 'The access token is invalid or has expired');
     }
@@ -265,6 +282,8 @@ export default async function handler(req, res) {
     __backend: 'github', owner, repo, ref, ghToken, baseUrl: baseUrl(req),
     // What holds an agent to its tools — see mcp/server.js.
     ...(agent ? { agent } : {}),
+    // Taken out again by handleMcpHttp before the server is built.
+    ...(signInAgain ? { signInAgain } : {}),
   };
 
   // Header-token mode (local dev, `static_headers`) carries no identity, so it
@@ -302,12 +321,14 @@ async function githubUserFromToken(ghToken) {
  * header has to be exactly right: Claude does not honour it on a 200, and the
  * `resource` in the metadata document must match this URL including its path.
  */
-function unauthorized(req, res, owner, repo, description) {
+function unauthorized(req, res, owner, repo, description, { invalidToken = false } = {}) {
   const base = baseUrl(req);
   const prm = `${base}/.well-known/oauth-protected-resource/api/mcp/${owner}/${repo}`;
   res.statusCode = 401;
+  // `invalid_token` says the credential was presented and refused, as opposed to
+  // missing, which is what sends a client to refresh and then to sign in again.
   res.setHeader('WWW-Authenticate',
-    `Bearer realm="teamctx", resource_metadata="${prm}", scope="mcp:tools"`);
+    `Bearer realm="teamctx"${invalidToken ? ', error="invalid_token"' : ''}, resource_metadata="${prm}", scope="mcp:tools"`);
   res.setHeader('Content-Type', 'application/json');
   res.end(JSON.stringify({
     error: 'unauthorized',

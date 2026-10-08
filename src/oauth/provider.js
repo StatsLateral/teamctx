@@ -194,6 +194,9 @@ export class TeamctxOAuthProvider {
       resource: pending.resource,
       githubToken,
       githubUser,
+      // When GitHub signed this person in, so that if GitHub later stops accepting
+      // the token there is an age to look at rather than a guess.
+      githubSignedInAt: new Date().toISOString(),
     }, { ttlSeconds: TTL.code });
 
     back.searchParams.set('code', ourCode);
@@ -276,6 +279,7 @@ export class TeamctxOAuthProvider {
       githubToken: record.githubToken,
       githubUser: record.githubUser,
       googleUser: record.googleUser,
+      githubSignedInAt: record.githubSignedInAt,
       scopes: record.scopes,
     });
   }
@@ -288,22 +292,50 @@ export class TeamctxOAuthProvider {
     if (record.clientId !== client.client_id) {
       throw new InvalidGrantError('Refresh token was issued to a different client');
     }
+    // The GitHub token is carried through every refresh, so a dead one used to be
+    // carried for the whole ninety days, and the connector stayed broken with
+    // nothing to tell the client to start over. Refusing here is what does that:
+    // the client's refresh fails and it signs in again. Only a clear "no" counts;
+    // GitHub being slow or down must not sign everyone out.
+    if (record.githubToken && await this.#githubRejects(record.githubToken)) {
+      throw new InvalidGrantError('GitHub no longer accepts the sign-in behind this connection. Sign in again.');
+    }
     return this.#issueTokens({
       clientId: client.client_id,
       githubToken: record.githubToken,
       githubUser: record.githubUser,
       googleUser: record.googleUser,
+      githubSignedInAt: record.githubSignedInAt,
       scopes: scopes?.length ? scopes : record.scopes,
     });
   }
 
-  async #issueTokens({ clientId, githubToken, githubUser, googleUser, scopes = [] }) {
+  /** True only when GitHub answers 401 for the token; an error or a network failure is not an answer. */
+  async #githubRejects(githubToken) {
+    try {
+      const res = await fetch(GITHUB_USER, {
+        headers: {
+          Authorization: `Bearer ${githubToken}`,
+          Accept: 'application/vnd.github+json',
+          'X-GitHub-Api-Version': '2022-11-28',
+        },
+      });
+      return res.status === 401;
+    } catch {
+      return false;
+    }
+  }
+
+  async #issueTokens({ clientId, githubToken, githubUser, googleUser, githubSignedInAt, scopes = [] }) {
     const accessToken = newToken();
     const refreshToken = newToken();
     // Exactly one of githubUser / googleUser is set. A Google session carries no
     // GitHub token at all — that is the point of it, and what makes the
     // project's own credential necessary downstream.
-    const payload = { clientId, githubToken, githubUser, googleUser, scopes };
+    const payload = {
+      clientId, githubToken, githubUser, googleUser, scopes,
+      ...(githubToken ? { githubSignedInAt: githubSignedInAt || new Date().toISOString() } : {}),
+    };
 
     await kvSet(keys.token(accessToken), payload, { ttlSeconds: TTL.accessToken });
     await kvSet(keys.refresh(refreshToken), payload, { ttlSeconds: TTL.refreshToken });
@@ -334,6 +366,7 @@ export class TeamctxOAuthProvider {
         githubToken: record.githubToken,
         githubUser: record.githubUser,
         googleUser: record.googleUser,
+        githubSignedInAt: record.githubSignedInAt ?? null,
       },
     };
   }
