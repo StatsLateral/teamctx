@@ -33,6 +33,29 @@ export function connectedPrompt({ owner, repo, subject, scope }) {
   ].join('\n');
 }
 
+
+const taskAsk = (label) => `Help me think about the tasks for ${label}.`;
+const TASK_STEPS = [
+  '- First check what tasks this part of the work already has, so you do not repeat them.',
+  '- Then propose a short list of concrete tasks, each one a piece of work a person would pick up and finish: a plain sentence saying what gets done, not a step for an AI to carry out. Base them on the goal, the decisions and the rules above, and say which of those each one comes from.',
+  '- Do not add anything yet. Show me the list and ask me which to add. Add only the ones I choose, and tell me plainly what happened, including whether they are waiting for review.',
+];
+
+/** The same two prompts as a workstream's, asking instead for help deciding its tasks. */
+function tasksPrompts({ label, owner, repo, full }) {
+  return {
+    short: [
+      taskAsk(label),
+      '',
+      'Instructions for the AI agent:',
+      `- Confirm you are connected to the repository ${owner}/${repo}. get_connect_url returns a URL containing the owner and repo. If it is a different one, stop and tell me, rather than answering from the project you are connected to.`,
+      `- Use the teamctx connector to fetch the current approved context for ${label} and the project context it inherits.`,
+      ...TASK_STEPS,
+    ].join('\n'),
+    full: [full, '---', taskAsk(label), '', 'Instructions for the AI agent:', ...TASK_STEPS, ''].join('\n'),
+  };
+}
+
 const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
 /** One line per workstream outside the path, and a count of what cannot be seen. */
@@ -89,6 +112,7 @@ export function drawerPrompts({ view, onDay = today() }) {
     out.ws[w.id] = {
       short: connectedPrompt({ owner: view.owner, repo: view.repo, subject: label, scope: `${label} and the project context it inherits` }),
       full: full({ chain, exclude: new Set(chain.map(c => c.id)), scope: label }),
+      tasks: tasksPrompts({ label, owner: view.owner, repo: view.repo, full: full({ chain, exclude: new Set(chain.map(c => c.id)), scope: label }) }),
     };
   }
   return out;
