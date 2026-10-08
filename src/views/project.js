@@ -220,6 +220,10 @@ const SCRIPT = `
     return prompts.project;
   };
   var reveal = function () {
+    // Every opening starts at the top: the drawer kept its scroll, so after a
+    // Review click had gone down to Decide, the next item opened partway down.
+    // Only the Review icon then scrolls on, to the decision.
+    drawer.querySelector('.drawer-body').scrollTop = 0;
     drawer.classList.add('open'); backdrop.classList.add('on');
     drawer.setAttribute('aria-hidden', 'false');
     document.getElementById('toast').textContent = '';
