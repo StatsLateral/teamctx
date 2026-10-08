@@ -77,6 +77,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   count, and a "Show history (N done)" link at the bottom. A waiting item's drawer
   says what it would change, what to check it against, and how to decide it in the
   assistant or on the command line. Settings also counts the team and agents.
+- **A task's drawer shows its history (#143).** Under the details: "Approved",
+  "Approved · a new submission is waiting", "Not approved yet" or "Added", then
+  one line per event, oldest first — who submitted or added it and how, who approved or
+  rejected it, who marked it done or reopened it — with the date, and the exact
+  time on hover. To make that possible, approving a contribution now records who
+  and when in `.teamctx/approved/<id>.json` (beside `rejected/`), a rejection
+  keeps the rejecter's key, and marking a task done or open again appends who and
+  when to its `statusLog`, with `doneBy` beside `doneAt`. Nothing old is
+  rewritten: a task from before this says "Added" and invents no approval. What
+  is waiting and what was turned down are shown to the manager only, and a name
+  nobody on the roster answers to reads "someone". A done task's title is struck
+  through in the drawer, as it already was in the list.
   In Decide, the `teamctx review approve` / `reject --reason` commands each sit
   on their own line with a **Copy** button that says Copied when it is done;
   deciding in the assistant goes through the drawer's assistant row. A line is

@@ -213,6 +213,10 @@ export async function addTask({
     status: 'open',
     workstream: targetWorkstream,
     createdAt: todayIso(),
+    // Who put it on the plan, for its history (#143): a task added directly has
+    // no contribution behind it to say so.
+    addedBy: { key: resolvedActor.key || null, name: me },
+    addedAt: new Date().toISOString(),
     doneAt: null,
     compiledAt: null,
   };
@@ -230,12 +234,19 @@ export async function setTaskStatus({
   const { task } = findTask(id, teamctxDir);
   if (task.status === status) return { task, unchanged: true, committed: false, pushed: false };
 
+  // Who did it and when, appended, so a task completed, reopened and completed
+  // again keeps all three for its history (#143). `doneAt` stays a date for
+  // everything that already reads it.
+  const resolved = actor || await resolveActor({ config, cwd: projectDir });
+  const me = await resolveDisplayName({ actor: resolved, config, teamctxDir });
+  const by = { key: resolved?.key || null, name: me };
+  const entry = { did: status === 'done' ? 'completed' : 'reopened', by, at: new Date().toISOString() };
+  const statusLog = [...(Array.isArray(task.statusLog) ? task.statusLog : []), entry];
   const updated = status === 'done'
-    ? { ...task, status: 'done', doneAt: todayIso() }
-    : { ...task, status: 'open', doneAt: null };
+    ? { ...task, status: 'done', doneAt: todayIso(), doneBy: by, statusLog }
+    : { ...task, status: 'open', doneAt: null, doneBy: null, statusLog };
   writeTask(updated, teamctxDir);
 
-  const me = await whoAmI({ config, teamctxDir, projectDir, actor });
   const verb = status === 'done' ? 'done' : 'reopen';
   const git = await commitAndPush(config, `task: ${verb} ${task.id} by ${me}`, projectDir);
   return { task: updated, unchanged: false, ...git };

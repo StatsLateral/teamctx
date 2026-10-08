@@ -1,6 +1,7 @@
 import { GithubSession } from '../adapters/github.js';
 import { runWithSession } from '../session-context.js';
-import { readConfig, readProject, readWorkstream, listTasks, readContributions } from '../storage.js';
+import { readConfig, readProject, readWorkstream, listTasks, readContributions, readApprovals, listRejected } from '../storage.js';
+import { taskHistory, touchesTask } from '../task-history.js';
 import { listAllWorkstreams } from '../../cli/commands/workstream.core.js';
 import { listMembers, memberByEmail } from '../../cli/commands/member.core.js';
 import { listPendingReviews } from '../../cli/commands/review.core.js';
@@ -145,7 +146,32 @@ export async function readProjectView({ owner, repo, user }) {
       workstreams.map(w => [w.id, marked(readWorkstream(w.id) || { id: w.id, name: w.name, records: [], tasks: [] })]),
     );
 
-    const tasks = listTasks({}, undefined)
+    // A task's history (#143), from the contribution log, the approval and
+    // rejection files, the queue and the task's status log. What was turned
+    // down and what is waiting are the manager's to see, as the queue is; and
+    // a name nobody on this roster answers to is shown as "someone".
+    const contributionLog = Object.fromEntries(readContributions().map(c => [c.id, c]));
+    const approvals = readApprovals();
+    const rejected = isManager ? listRejected() : [];
+    const queued = isManager ? await listPendingReviews({}) : [];
+    const managerSet = new Set(managerKeys(config));
+    const rosterKeys = new Set([...members, ...agents].map(m => m.key).filter(Boolean));
+    const visible = new Set([...members, ...agents].map(m => m.name).filter(Boolean));
+    const vouched = (who, key) => { if (who && key && (managerSet.has(key) || rosterKeys.has(key))) visible.add(who); };
+    for (const a of Object.values(approvals)) vouched(a.approvedBy?.name, a.approvedBy?.key);
+    for (const r of rejected) vouched(r.rejectedBy, r.rejectedByKey);
+    const allTasks = listTasks({}, undefined);
+    for (const t of allTasks) {
+      vouched(t.addedBy?.name, t.addedBy?.key);
+      for (const e of t.statusLog || []) vouched(e.by?.name, e.by?.key);
+    }
+    const agentNames = new Set(agents.map(a => a.name));
+    const historyOf = (task, pending = []) => taskHistory({
+      task, contributions: contributionLog, approvals, rejected, queue: queued, pending,
+      canSee: (name) => isManager || visible.has(name), isAgent: (name) => agentNames.has(name),
+    });
+
+    const tasks = allTasks
       .filter(t => inScope(allowed, resolveTarget(t.workstream)))
       .map(t => ({
         id: t.id,
@@ -159,6 +185,7 @@ export async function readProjectView({ owner, repo, user }) {
         sourceContributionIds: t.sourceContributionIds || [],
         workstream: resolveTarget(t.workstream),
         where: workstreamLocation(workstreams, resolveTarget(t.workstream), config.project),
+        history: historyOf(t),
       }));
 
     // The queue is the manager's to clear, so only they are shown what is in it.
@@ -179,7 +206,7 @@ export async function readProjectView({ owner, repo, user }) {
         records: restingOn(everything, a.id).records.map(r => ({ id: r.id, type: r.type, text: r.text })),
       }));
     const pending = isManager
-      ? (await listPendingReviews({})).map(q => ({
+      ? queued.map(q => ({
         id: q.id,
         // The number it is known by while it waits, if its workstream gave it one.
         number: q.number || null,
@@ -192,6 +219,12 @@ export async function readProjectView({ owner, repo, user }) {
         impact: impactOf(q.operations),
         workstream: resolveTarget(q.workstream),
         where: workstreamLocation(workstreams, resolveTarget(q.workstream), config.project),
+        // A change to a task shows that task's whole history, this submission at
+        // the end; anything else is not approved yet, and this is all there is.
+        history: (() => {
+          const task = allTasks.find(t => touchesTask(q, t.id));
+          return task ? historyOf(task) : historyOf(null, [q]);
+        })(),
       }))
       : null;
 

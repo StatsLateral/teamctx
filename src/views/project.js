@@ -142,6 +142,18 @@ h1{font-size:28px;line-height:1.25;margin:0 0 .35rem}
 .stale-note{background:var(--amber-soft);color:var(--amber);font-size:12px;padding:6px 8px;border-radius:6px;margin:0 0 10px}
 .plain{margin:0 0 1rem;padding-left:1.1rem}
 .plain li{margin:0 0 .4rem;line-height:1.45;overflow-wrap:anywhere}
+/* A task's history: the date, who, what happened, one line each. */
+.hstatus{margin:0 0 .4rem;font-size:13px;color:var(--ink);font-weight:600}
+.history{list-style:none;padding-left:0}
+.history li{font-size:13px;display:flex;flex-wrap:wrap;align-items:baseline;gap:6px}
+.history .hdate{font-family:var(--font-mono);font-size:11px;color:var(--faint);min-width:76px}
+.history .hwait{font-size:11px;color:var(--amber);background:var(--amber-soft);border-radius:99px;padding:0 7px}
+#d-history-earlier{margin:0 0 .4rem}
+/* The theme gives every button and these rows a display of their own, which
+   overrides the hidden attribute: the empty Show earlier button left a gap, and
+   the earlier lines it holds back stayed on screen. */
+#d-history-earlier[hidden],.history li[hidden]{display:none}
+#d-text.done{text-decoration:line-through;opacity:.75}
 .decide p{margin:0 0 .5rem;font-size:13px;line-height:1.5;color:var(--ink);overflow-wrap:anywhere}
 .decide code{font-family:var(--font-mono);font-size:12px}
 /* One instruction per line, its Copy button beside it; the text wraps first. */
@@ -268,6 +280,50 @@ const SCRIPT = `
     document.getElementById('toast').textContent = '';
     document.getElementById('d-close').focus();
   };
+  // A task's history (#143): the status, then one line per event, oldest first,
+  // all written as text. Past ten events the earlier ones wait behind a link,
+  // and nothing is dropped.
+  var HISTORY_SHOWN = 10;
+  function showHistory(data) {
+    var wrap = document.getElementById('d-history-wrap');
+    var list = document.getElementById('d-history');
+    var earlier = document.getElementById('d-history-earlier');
+    wrap.hidden = !data;
+    list.textContent = '';
+    earlier.hidden = true;
+    if (!data) return;
+    document.getElementById('d-history-status').textContent = data.status;
+    var hidden = Math.max(0, data.lines.length - HISTORY_SHOWN);
+    data.lines.forEach(function (line, i) {
+      var li = document.createElement('li');
+      if (i < hidden) { li.hidden = true; li.className = 'earlier'; }
+      var date = document.createElement('span'); date.className = 'hdate';
+      date.textContent = line.date; if (line.at) date.title = line.at;
+      li.appendChild(date);
+      var text = line.text;
+      if (line.who) {
+        var chip = document.createElement('span'); chip.className = 'chip' + (line.agent ? ' agent' : '');
+        chip.textContent = (line.agent ? '\\u{1F916} ' : '\\u{1F464} ') + line.who;
+        li.appendChild(chip);
+      } else {
+        text = text.charAt(0).toUpperCase() + text.slice(1);
+      }
+      li.appendChild(document.createTextNode(' ' + text));
+      if (line.waiting) {
+        var tag = document.createElement('span'); tag.className = 'hwait'; tag.textContent = 'waiting for approval';
+        li.appendChild(tag);
+      }
+      list.appendChild(li);
+    });
+    if (hidden) {
+      earlier.hidden = false;
+      earlier.textContent = 'Show earlier (' + hidden + ')';
+    }
+  }
+  document.getElementById('d-history-earlier').addEventListener('click', function () {
+    document.querySelectorAll('#d-history li.earlier').forEach(function (li) { li.hidden = false; });
+    this.hidden = true;
+  });
   // The assistant block says what it is for: asking about something, or deciding it.
   function assistFor(deciding) {
     document.getElementById('d-assist').hidden = false;
@@ -331,6 +387,9 @@ const SCRIPT = `
       });
     }
     document.getElementById('d-who').textContent = el.dataset.who || 'Nobody recorded.';
+    // A done task reads as done here too.
+    document.getElementById('d-text').classList.toggle('done', el.dataset.done === '1');
+    showHistory(el.dataset.history ? JSON.parse(el.dataset.history) : null);
     // One sentence and a way in, instead of the list of records that govern it.
     var ws = el.dataset.ws || '';
     var ctx = document.getElementById('d-ctx');
@@ -574,6 +633,12 @@ ${note ? `<p class="note">${esc(note)}</p>` : ''}
       <p id="d-summary"></p>
       <div class="section-title">Who wrote it</div>
       <p id="d-who"></p>
+      <div id="d-history-wrap" hidden>
+        <div class="section-title">History</div>
+        <p class="hstatus" id="d-history-status"></p>
+        <button type="button" class="linkbtn" id="d-history-earlier" hidden></button>
+        <ul class="plain history" id="d-history"></ul>
+      </div>
       <div id="d-queue" hidden>
         <div class="section-title">What it would change</div>
         <ul class="plain" id="d-changes"></ul>
