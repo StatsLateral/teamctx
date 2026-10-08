@@ -42,6 +42,7 @@ These are **contributor-facing write-ups** for the larger items on the
 | [A token for an unattended agent](agent-tokens.md) | Bring your own tools · Managers in control | Medium (token record, per-caller tool list, Settings section) |
 | [Project context as a layer workstreams inherit](project-context-layer.md) | Structured workstreams · Managers in control | Large (a new tree, every compile path, a migration) |
 | [Nobody is brought onto an empty project](member-context-gate.md) | Managers in control | Small (one check, two call sites) |
+| [Task history](task-history.md) | Managers in control | Medium (three stored facts, one derived list, one drawer section) |
 
 
 ## Shipped proposals 🎉
