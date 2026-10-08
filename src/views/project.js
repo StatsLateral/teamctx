@@ -89,6 +89,11 @@ const CSS = `
 .wsec .ctx-open{width:26px;height:26px}
 .wsec .ctx-open svg{width:14px;height:14px}
 .trows{border-bottom:1px solid var(--line)}
+.noTasks{display:flex;align-items:center;gap:12px;flex-wrap:wrap;border-bottom:1px solid var(--line);padding:2px 0 14px}
+.noTasks .empty{flex:0 1 auto;border:0;padding:6px 0;text-align:left}
+.mk-tasks{font:inherit;font-size:13px;font-weight:600;color:var(--ink);background:transparent;border:1px solid var(--accent);border-radius:var(--radius-sm);padding:6px 12px;cursor:pointer}
+.mk-tasks:hover,.mk-tasks:focus-visible{background:var(--accent);color:var(--bg,#fff)}
+.tasknote{font-size:13px;color:var(--muted,var(--faint));margin:0 0 12px}
 .trow{display:grid;grid-template-columns:48px minmax(0,1fr) minmax(0,230px) 48px;gap:6px 12px;align-items:start;width:100%;text-align:left;
   background:none;border:0;border-top:1px solid var(--line);border-radius:0;padding:9px 8px;font:inherit;color:inherit;cursor:pointer}
 .trow:hover{background:var(--accent-soft)}
@@ -299,8 +304,13 @@ const SCRIPT = `
     if (from) opener = from;
     taskView.hidden = true;
     panels.forEach(function (p) { p.hidden = p !== panel; });
-    document.getElementById('d-kind').textContent = panel.dataset.title;
-    current = forScope(panel.dataset.scope);
+    // The button under an empty part asks for help with its tasks; every other way
+    // in is just to read the part's context.
+    var forTasks = !!(from && from.dataset && from.dataset.intent === 'tasks');
+    var scoped = forScope(panel.dataset.scope);
+    document.getElementById('d-kind').textContent = panel.dataset.title + (forTasks ? ' · New tasks' : '');
+    panel.querySelectorAll('[data-for="tasks"]').forEach(function (n) { n.hidden = !forTasks; });
+    current = forTasks && scoped.tasks ? scoped.tasks : scoped;
     showPrompt();
     reveal();
   }

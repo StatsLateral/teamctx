@@ -1,6 +1,7 @@
 import { esc } from './theme.js';
-import { LABELS, RECORD_TYPES, today } from '../model.js';
+import { RECORD_TYPES, today } from '../model.js';
 import { contradictionLabel, evidenceLabel } from '../contradictions.js';
+import { describeChange } from '../change-labels.js';
 import { promptFor, decidePrompt, escAttr, whoTouched } from './prompt-for.js';
 import { workstreamLocation } from './workstream-location.js';
 
@@ -103,22 +104,7 @@ function taskRow({ t, view, origin, marked }) {
 
 // ---- what is waiting --------------------------------------------------------
 
-/** One operation of a proposal, in the words a manager would use. */
-export function describeChange(op, tree) {
-  const text = (id) => (tree?.records || []).find(r => r.id === id)?.text;
-  const task = (id) => (tree?.tasks || []).find(t => t.id === id)?.title;
-  switch (op?.type) {
-    case 'setGoal': return `Set the goal: ${op.text}`;
-    case 'addRecord': return `Add: ${LABELS[op.record?.type] || 'Note:'} ${op.record?.text}`;
-    case 'editRecord': return `Reword ${text(op.id) ? `"${text(op.id)}"` : 'a record'}${op.changes?.text ? ` to: ${op.changes.text}` : ''}`;
-    case 'setRecordStatus': return `Mark ${text(op.id) ? `"${text(op.id)}"` : 'a record'} as ${op.status}`;
-    case 'addEvidence': return evidenceLabel(op);
-    case 'addTask': return `Add a task: ${op.title}`;
-    case 'editTask': return `Retitle ${task(op.id) ? `"${task(op.id)}"` : 'a task'} to: ${op.title}`;
-    case 'removeTask': return `Remove the task ${task(op.id) ? `"${task(op.id)}"` : ''}`.trim();
-    default: return null;
-  }
-}
+export { describeChange };
 
 /** What an approver should look at against what is already approved. */
 function checksOf(q) {
@@ -208,17 +194,22 @@ export function workHtml({ view, selected, item, history, origin, base }) {
     const w = parts.find(p => p.id === id);
     if (!w) return '';
     const tasks = allTasks.filter(t => t.workstream === id && (t.status === 'open' || history || t.id === item));
-    if (!tasks.length) return '';
     // Inside a selected part, its own name; for the parts inside it, where they sit.
     const name = id === selected ? w.name : workstreamLocation(parts, id, view.project);
+    // A part with nothing open is still a part of the work. Left off the page, a
+    // project of new workstreams read as an empty one.
+    const body = tasks.length
+      ? `<div class="trows">${tasks.map(t => taskRow({ t, view, origin, marked: t.id === item })).join('')}</div>`
+      : `<div class="noTasks"><p class="empty">${allTasks.some(t => t.workstream === id)
+        ? 'No open tasks in this workstream.' : 'No tasks found in this workstream.'}</p>`
+        + `<button type="button" class="mk-tasks" data-panel="dp-ws-${esc(id)}" data-intent="tasks">Create new tasks</button></div>`;
     return `<section class="wsec" id="ws-${esc(id)}"><h2><span class="wsn">${esc(w.number ?? '')}</span>${esc(name)}`
-      + `${ctxButton(`dp-ws-${id}`, `Context for ${name}`)}</h2>`
-      + `<div class="trows">${tasks.map(t => taskRow({ t, view, origin, marked: t.id === item })).join('')}</div></section>`;
+      + `${ctxButton(`dp-ws-${id}`, `Context for ${name}`)}</h2>${body}</section>`;
   }).join('');
 
   const empty = !parts.length
     ? '<p class="empty">No work yet — ask your assistant to add a workstream, then its tasks.</p>'
-    : (!inbox && !sections ? '<p class="empty">Nothing open here.</p>' : '');
+    : '';
   const linkTo = (on) => {
     const query = new URLSearchParams({ ...(selected ? { ws: selected } : {}), ...(on ? { history: '1' } : {}) }).toString();
     return query ? `${base}?${query}` : base;

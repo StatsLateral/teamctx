@@ -92,6 +92,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `workstream_split` and `teamctx workstream suggest` / `suggest_workstream_splits`.
 
 ### Added
+- **A waiting contribution is decided in the chat first.** Sending something for
+  review now hands the assistant what it says and the tasks it would add, and tells
+  it to read both back and ask for approve or reject there; the web page is a second
+  view. Tasks that come with a brief are their own decision: `review_approve` refuses
+  an item that carries tasks until it is given `tasks: "include"` or `"leave_out"`,
+  and the refusal comes only after the manager check. The command line is unchanged.
+- **A workstream with no tasks is still on the page.** Overall Project lists every
+  workstream, and one with nothing open says "No tasks found in this workstream" with
+  a "Create new tasks" button. It opens that workstream's drawer with a prompt that
+  asks the assistant to propose tasks and add only the ones you choose. Before, a
+  project of new workstreams showed an empty page.
 - **A note that contradicts an assumption is put to the manager as evidence.**
   #120 says what rested on an assumption once it breaks; somebody still had to
   notice it broke, and that notice arrives as a meeting note or a document that

@@ -1191,12 +1191,13 @@ describe('the project page is one page', () => {
       expect(section(body, 'pricing')).toContain('</span>Product › Pricing<');
     });
 
-    it('leaves out a part with nothing open, and says so when the chosen part has nothing', async () => {
+    it('still lists a part with no tasks, says so, and offers to create some', async () => {
       repo.files.set('.teamctx/workstreams/tech.json', JSON.stringify({ id: 'tech', name: 'Tech', records: [], tasks: [] }));
       const all = await visit('/project/acme/ledger', MANAGER);
-      expect(section(all.body, 'tech')).toBeUndefined();
+      expect(section(all.body, 'tech')).toContain('No tasks found in this workstream.');
+      expect(section(all.body, 'tech')).toMatch(/data-panel="dp-ws-tech" data-intent="tasks">Create new tasks</);
       const tech = await visit('/project/acme/ledger?ws=tech', MANAGER);
-      expect(onPage(tech.body)).toContain('Nothing open here.');
+      expect(onPage(tech.body)).toContain('No tasks found in this workstream.');
     });
 
     it('gives each heading a context icon that opens that part\'s drawer', async () => {
