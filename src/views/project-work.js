@@ -138,9 +138,22 @@ function waitingItem({ q, view, origin, marked }) {
     ref, id: q.id, title, owner: view.owner, repo: view.repo,
     link: origin ? `${origin}/project/${view.owner}/${view.repo}?${new URLSearchParams({ ...(q.workstream ? { ws: q.workstream } : {}), item: q.id })}` : null,
   });
+  // How to decide it. In the assistant: the drawer's assistant row opens it with
+  // the item and the question (#159), so this only says so. On the command
+  // line: each command on its own line with a Copy button (#142). `label` is
+  // what a line shows, clipped to fit; `text` is what Copy takes, whole.
+  // The id is the item's own word for itself, read out of a file anybody with write
+  // access to the repository can edit, and Copy puts it where a terminal will run
+  // it. So a command is offered only for an id made of plain characters.
+  const plainId = /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(String(q.id));
   const decide = [
-    `Open your assistant with the icons below, or tell it: "Approve ${ref || 'this'}"${ref ? '' : ' (name it by what it says)'} with or without its tasks, or "Reject ${ref || 'this'}" with a reason.`,
-    `From the command line: teamctx review approve ${q.id}   or   teamctx review reject ${q.id}`,
+    { note: `Open your assistant with the icons below, or tell it: "Approve ${ref || 'this'}"${ref ? '' : ' (name it by what it says)'} with or without its tasks, or "Reject ${ref || 'this'}" with a reason.` },
+    ...(plainId ? [
+      { where: 'On the command line', label: `teamctx review approve ${q.id}`, text: `teamctx review approve ${q.id}` },
+      { where: 'On the command line', label: `teamctx review reject ${q.id} --reason "…"`, text: `teamctx review reject ${q.id} --reason "…"` },
+    ] : [
+      { note: 'The command line commands are not shown for this item, because its id has unusual characters in it. Use your assistant.' },
+    ]),
   ];
   const label = ref || title.slice(0, 40);
   const date = q.createdAt ? String(q.createdAt).slice(5, 10) : '';
