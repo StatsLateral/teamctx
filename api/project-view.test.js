@@ -1827,3 +1827,61 @@ describe('a task’s history', () => {
     expect(body).not.toMatch(/d-history[^;]*innerHTML/);
   });
 });
+
+/**
+ * Work sent back for a task, in the queue (#144): it reads as the task, with a
+ * line on what arrived, and the drawer says what approving it does.
+ */
+describe('work sent back for a task, waiting', () => {
+  const item = (body, id) => new RegExp(`<div class="q[^"]*" id="r-${id}"[\\s\\S]*?\\n</div>`).exec(body)?.[0];
+  const sub =(over = {}) => repo.files.set('.teamctx/queue/c-sub.json', JSON.stringify({
+    id: 'c-sub', status: 'pending', number: '1.1', author: 'Priya', source: 'mcp', createdAt: '2026-10-07T10:00:00.000Z',
+    workstream: 'product', summary: 'Draft, three tiers', submitted: 'Draft, three tiers', text: 'Here is the pricing page draft.',
+    forTask: 'pricing-page', operations: [], ...over,
+  }));
+
+  it('shows the task number and its exact title, then what was submitted', async () => {
+    sub();
+    const { body } = await visit('/project/acme/ledger', MANAGER);
+    const r = item(body, 'c-sub');
+    expect(r).toContain('<span class="num">1.1</span>');
+    expect(r).toContain('<button type="button" class="qmain">Draft the pricing page</button>');
+    expect(r).toContain('<span class="submitted">Submitted: Draft, three tiers</span>');
+    expect(r).toContain('data-changes-title="What was submitted"');
+    expect(r).toContain('data-approving="Accepts this for task 1.1 and marks the task done. Nothing is published or sent by this step."');
+    expect(r).toContain('Here is the pricing page draft.');
+    expect(r).not.toContain('task already done');
+  });
+
+  it('uses the same title as the task list, word for word', async () => {
+    sub();
+    const { body } = await visit('/project/acme/ledger?ws=product', MANAGER);
+    const listed = /<button type="button" class="item trow[^"]*" id="t-pricing-page"[\s\S]*?<span class="ttl">([^<]*)<\/span>/.exec(body)[1];
+    const queued = /<button type="button" class="qmain">([^<]*)<\/button>/.exec(item(body, 'c-sub'))[1];
+    expect(queued).toBe(listed);
+  });
+
+  it('flags a task already done, and says approving changes nothing else', async () => {
+    sub();
+    const product = JSON.parse(repo.files.get('.teamctx/workstreams/product.json'));
+    product.tasks[0].status = 'done';
+    repo.files.set('.teamctx/workstreams/product.json', JSON.stringify(product));
+    const r = item((await visit('/project/acme/ledger?history=1', MANAGER)).body, 'c-sub');
+    expect(r).toContain('<span class="chip warn">task already done</span>');
+    expect(r).toContain('data-approving="Task 1.1 is already done. Approving records this submission and changes nothing else."');
+  });
+
+  it('keeps a proposal that is not a task submission in its own words', async () => {
+    const r = item((await visit('/project/acme/ledger', MANAGER)).body, 'c-1');
+    expect(r).toContain('adds the pricing tiers');
+    expect(r).not.toContain('class="submitted"');
+    expect(r).not.toContain('data-approving');
+  });
+
+  it('switches the drawer headings for it, and back for anything else', async () => {
+    const { body } = await visit('/project/acme/ledger', MANAGER);
+    expect(body).toContain('id="d-changes-title">What it would change<');
+    expect(body).toContain("document.getElementById('d-changes-title').textContent = el.dataset.changesTitle || 'What it would change';");
+    expect(body).toContain('<p class="approving" id="d-approving" hidden></p>');
+  });
+});

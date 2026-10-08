@@ -75,6 +75,9 @@ const CSS = `
 .q .what{min-width:0}
 .qmain{display:block;width:100%;text-align:left;background:none;border:0;padding:0;font:inherit;font-weight:500;color:var(--ink);cursor:pointer;overflow-wrap:anywhere}
 .q:hover .qmain{text-decoration:underline}
+/* Work sent back for a task: what arrived, under the task's own title. */
+.q .submitted{grid-column:2;color:var(--soft);font-size:13px;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.approving{margin:0 0 .6rem;font-size:13px;line-height:1.5;color:var(--ink)}
 .q .sub{grid-column:2;display:flex;flex-wrap:wrap;gap:6px 8px;align-items:center;color:var(--soft);font-size:12.5px}
 .qicons{grid-column:3;grid-row:1 / span 2;align-self:center;display:flex;gap:6px}
 .qicon{width:34px;height:34px;display:grid;place-items:center;padding:0;border:1px solid var(--line);background:var(--card);border-radius:8px;color:var(--soft);cursor:pointer}
@@ -311,6 +314,11 @@ const SCRIPT = `
         });
         return list.children.length;
       };
+      // Work for a task shows what arrived, and what approving it does (#144).
+      document.getElementById('d-changes-title').textContent = el.dataset.changesTitle || 'What it would change';
+      var approving = document.getElementById('d-approving');
+      approving.textContent = el.dataset.approving || '';
+      approving.hidden = !el.dataset.approving;
       fill('d-changes', 'changes');
       document.getElementById('d-checks-wrap').hidden = !fill('d-checks', 'checks');
       // Each instruction on its own line with a Copy button, under where it is
@@ -576,13 +584,14 @@ ${note ? `<p class="note">${esc(note)}</p>` : ''}
         <ul class="plain history" id="d-history"></ul>
       </div>
       <div id="d-queue" hidden>
-        <div class="section-title">What it would change</div>
+        <div class="section-title" id="d-changes-title">What it would change</div>
         <ul class="plain" id="d-changes"></ul>
         <div id="d-checks-wrap" hidden>
           <div class="section-title">Check against what is already approved</div>
           <ul class="plain" id="d-checks"></ul>
         </div>
         <div class="section-title" id="d-decide-title">Decide</div>
+        <p class="approving" id="d-approving" hidden></p>
         <div class="decide" id="d-decide"></div>
       </div>
     </div>
