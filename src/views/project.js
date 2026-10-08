@@ -9,6 +9,12 @@ import { drawerPrompts } from '../prompts.js';
 /** Read-only project context, work and proposals, using one row layout. */
 
 const CSS = `
+/* Type and spacing follow the demo: 14px body at 1.45, a 28px title, a 19px goal.
+   The shared theme leaves the body at the browser's 16px, which made the waiting
+   items, the goal's why and everything in the drawer read a size larger than the
+   rows beside them. */
+body{font-size:14px;line-height:1.45}
+h1{font-size:28px;line-height:1.25;margin:0 0 .35rem}
 /* The header is three short lines, and the tree is what somebody came for:
    whether they manage the project is not news to them, and the space it took
    pushed the columns below where the eye lands. */
@@ -22,12 +28,12 @@ const CSS = `
    size and soft grey for the why. Three lines in all, so the CSS clamp below is
    the no-JavaScript answer (goal two lines, why one) and the script gives the
    why whatever the goal leaves. The stored text is never cut. */
-.goal-block{margin:0 0 1.25rem;max-width:none}
-.goal-text{font-family:var(--font-display);font-weight:500;font-size:1.35rem;line-height:1.3;color:var(--ink);margin:0 0 .3rem;
+.goal-block{margin:12px 0 26px;max-width:none}
+.goal-text{font-family:var(--font-display);font-weight:500;font-size:19px;line-height:1.4;color:var(--ink);margin:0 0 6px;
   overflow-wrap:anywhere;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
-.goal-why{font-size:1rem;line-height:1.45;color:var(--soft);margin:0;overflow-wrap:anywhere;
+.goal-why{font-size:14px;line-height:1.55;color:var(--soft);margin:0;overflow-wrap:anywhere;
   display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:1;overflow:hidden}
-.layout{display:grid;grid-template-columns:262px 1fr;gap:22px;align-items:start}
+.layout{display:grid;grid-template-columns:262px 1fr;gap:22px 34px;align-items:start}
 /* The left column is pinned and sized to the screen: the tree scrolls inside its
    own area and Settings stays at the foot, on screen however long the tree is.
    The script fits the height from where the column starts; this is the answer
@@ -150,6 +156,7 @@ const CSS = `
 /* The assistant block every drawer carries. */
 .assist{margin-top:1.4rem;padding-top:1rem;border-top:1px solid var(--line)}
 .amode{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--soft);margin:0 0 .7rem}
+.amode[hidden]{display:none}
 .assist .amode label{display:flex;align-items:center;gap:8px;margin:0;font-size:13px;font-weight:400;color:var(--soft);cursor:pointer}
 .assist .amode input[type=radio]{width:auto;margin:0;padding:0;flex:none;accent-color:var(--accent)}
 .chatrow{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
@@ -235,6 +242,13 @@ const SCRIPT = `
     document.getElementById('toast').textContent = '';
     document.getElementById('d-close').focus();
   };
+  // The assistant block says what it is for: asking about something, or deciding it.
+  function assistFor(deciding) {
+    document.getElementById('d-assist-title').textContent = deciding ? 'Decide in your assistant' : 'Ask in your assistant';
+    var modes = document.getElementById('d-amode');
+    modes.hidden = deciding;
+    if (deciding) modes.querySelector('input[value="connected"]').checked = true;
+  }
   function open(el) {
     opener = el;
     taskView.hidden = false;
@@ -291,10 +305,16 @@ const SCRIPT = `
     ctx.hidden = queued || !(ws && document.getElementById('dp-ws-' + ws));
     ctx.dataset.panel = 'dp-ws-' + ws;
     var scoped = forScope(ws ? 'ws:' + ws : 'project');
-    current = {
-      short: el.dataset.prompt,
-      full: scoped.full + '\\n---\\n' + (el.dataset.ask || '') + '\\nAnswer in plain language, from the context above only.\\n'
-    };
+    // A waiting item is decided, not asked about, and only an assistant that is
+    // connected to teamctx can approve anything, so it has one prompt and no
+    // paste mode.
+    assistFor(queued);
+    current = queued
+      ? { short: el.dataset.prompt, full: el.dataset.prompt }
+      : {
+        short: el.dataset.prompt,
+        full: scoped.full + '\\n---\\n' + (el.dataset.ask || '') + '\\nAnswer in plain language, from the context above only.\\n'
+      };
     showPrompt();
     reveal();
   }
@@ -303,6 +323,7 @@ const SCRIPT = `
     if (!panel) return;
     if (from) opener = from;
     taskView.hidden = true;
+    assistFor(false);
     panels.forEach(function (p) { p.hidden = p !== panel; });
     // The button under an empty part asks for help with its tasks; every other way
     // in is just to read the part's context.
