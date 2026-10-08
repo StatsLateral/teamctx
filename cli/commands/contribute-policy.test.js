@@ -30,6 +30,7 @@ vi.mock('../../src/storage.js', () => ({
   appendContribution: vi.fn(),
   writeRoleFile: vi.fn(),
   writeQueueItem: vi.fn(),
+  writeApproved: vi.fn(),
   readContributions: vi.fn(() => []),
   listWorkstreamIds: vi.fn(() => ['ops']),
 }));

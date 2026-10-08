@@ -1,6 +1,6 @@
 import {
   readProject, readConfig, writeConfig, withCounters, readTree, writeTree, writeTreeMd, writeRoleFile,
-  readQueueItem, deleteQueueItem, writeRejected, readContributions, listQueue,
+  readQueueItem, deleteQueueItem, writeRejected, writeApproved, readContributions, listQueue,
 } from '../../src/storage.js';
 import { applyQueueItem, buildRejected, canApprove, isLegacyManagerRef } from '../../src/review.js';
 import { isBrokenGate } from '../../src/manager-repair.js';
@@ -189,6 +189,12 @@ export async function approveReview({ id, replaces, teamctxDir, projectDir, acto
     rolesRegenerated.push(role.slug);
   }
 
+  // Who approved it, kept for the task history (#143): approving used to leave
+  // nothing behind but the commit message.
+  writeApproved({
+    id: item.id, author: item.author || null, source: item.source || null, workstream: targetId,
+    approvedBy: { key: approvedBy.key, name: approvedBy.name }, approvedAt: approvedBy.at,
+  }, teamctxDir);
   deleteQueueItem(item.id, teamctxDir);
 
   const note = item.tagged === 'decision' ? ' [decision]' : '';
@@ -231,7 +237,7 @@ export async function rejectReview({ id, reason, teamctxDir, projectDir, actor }
   try { item = readQueueItem(queueId, teamctxDir); }
   catch { throw new QueueItemNotFoundError(id); }
 
-  writeRejected(buildRejected(item, rejectedBy, reason), teamctxDir);
+  writeRejected(buildRejected(item, rejectedBy, reason, caller?.key || null), teamctxDir);
   deleteQueueItem(item.id, teamctxDir);
 
   await commitContext(

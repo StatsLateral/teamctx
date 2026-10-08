@@ -22,6 +22,7 @@ vi.mock('../src/storage.js', () => ({
   deleteQueueItem: vi.fn(),
   writeRejected: vi.fn(),
   writeQueueItem: vi.fn(),
+  writeApproved: vi.fn(),
   listSnapshots: vi.fn(() => []),
   readSnapshot: vi.fn(),
   writeSnapshot: vi.fn(),
