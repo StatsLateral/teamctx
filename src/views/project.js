@@ -143,6 +143,7 @@ const CSS = `
 /* The assistant block every drawer carries. */
 .assist{margin-top:1.4rem;padding-top:1rem;border-top:1px solid var(--line)}
 .amode{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--soft);margin:0 0 .7rem}
+.amode[hidden]{display:none}
 .assist .amode label{display:flex;align-items:center;gap:8px;margin:0;font-size:13px;font-weight:400;color:var(--soft);cursor:pointer}
 .assist .amode input[type=radio]{width:auto;margin:0;padding:0;flex:none;accent-color:var(--accent)}
 .chatrow{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
@@ -224,6 +225,13 @@ const SCRIPT = `
     document.getElementById('toast').textContent = '';
     document.getElementById('d-close').focus();
   };
+  // The assistant block says what it is for: asking about something, or deciding it.
+  function assistFor(deciding) {
+    document.getElementById('d-assist-title').textContent = deciding ? 'Decide in your assistant' : 'Ask in your assistant';
+    var modes = document.getElementById('d-amode');
+    modes.hidden = deciding;
+    if (deciding) modes.querySelector('input[value="connected"]').checked = true;
+  }
   function open(el) {
     opener = el;
     taskView.hidden = false;
@@ -264,10 +272,16 @@ const SCRIPT = `
     ctx.hidden = queued || !(ws && document.getElementById('dp-ws-' + ws));
     ctx.dataset.panel = 'dp-ws-' + ws;
     var scoped = forScope(ws ? 'ws:' + ws : 'project');
-    current = {
-      short: el.dataset.prompt,
-      full: scoped.full + '\\n---\\n' + (el.dataset.ask || '') + '\\nAnswer in plain language, from the context above only.\\n'
-    };
+    // A waiting item is decided, not asked about, and only an assistant that is
+    // connected to teamctx can approve anything, so it has one prompt and no
+    // paste mode.
+    assistFor(queued);
+    current = queued
+      ? { short: el.dataset.prompt, full: el.dataset.prompt }
+      : {
+        short: el.dataset.prompt,
+        full: scoped.full + '\\n---\\n' + (el.dataset.ask || '') + '\\nAnswer in plain language, from the context above only.\\n'
+      };
     showPrompt();
     reveal();
   }
@@ -276,6 +290,7 @@ const SCRIPT = `
     if (!panel) return;
     if (from) opener = from;
     taskView.hidden = true;
+    assistFor(false);
     panels.forEach(function (p) { p.hidden = p !== panel; });
     // The button under an empty part asks for help with its tasks; every other way
     // in is just to read the part's context.

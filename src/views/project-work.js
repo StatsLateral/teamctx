@@ -2,7 +2,7 @@ import { esc } from './theme.js';
 import { RECORD_TYPES, today } from '../model.js';
 import { contradictionLabel, evidenceLabel } from '../contradictions.js';
 import { describeChange } from '../change-labels.js';
-import { promptFor, escAttr, whoTouched } from './prompt-for.js';
+import { promptFor, decisionPrompt, escAttr, whoTouched } from './prompt-for.js';
 import { workstreamLocation } from './workstream-location.js';
 
 /**
@@ -132,12 +132,14 @@ function waitingItem({ q, view, origin, marked }) {
   const checks = checksOf(q);
   const changes = (Array.isArray(q.operations) ? q.operations : []).map(op => describeChange(op, tree)).filter(Boolean);
   const title = q.summary || changes[0] || '(no summary)';
-  const prompt = promptFor({
-    node: { id: q.id, text: title }, tier: 'review', where, isProject: !q.workstream, owner: view.owner, repo: view.repo, parent: null, pending: true,
+  // Deciding happens in the assistant, so what the drawer hands over is a
+  // request to show this item and ask, not a question about it.
+  const prompt = decisionPrompt({
+    ref, id: q.id, title, owner: view.owner, repo: view.repo,
     link: origin ? `${origin}/project/${view.owner}/${view.repo}?${new URLSearchParams({ ...(q.workstream ? { ws: q.workstream } : {}), item: q.id })}` : null,
   });
   const decide = [
-    `Tell your assistant: "Approve ${ref || 'this'}"${ref ? '' : ' (name it by what it says)'}, or "Reject ${ref || 'this'}" with a reason.`,
+    `Open your assistant with the icons below, or tell it: "Approve ${ref || 'this'}"${ref ? '' : ' (name it by what it says)'} with or without its tasks, or "Reject ${ref || 'this'}" with a reason.`,
     `From the command line: teamctx review approve ${q.id}   or   teamctx review reject ${q.id}`,
   ];
   const label = ref || title.slice(0, 40);
