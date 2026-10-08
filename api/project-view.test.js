@@ -1649,8 +1649,11 @@ describe('a task’s history', () => {
   it('says who added a task added directly, and someone to a member when off the roster', async () => {
     withProduct({ id: 'direct', key: '1.5', title: 'Added directly', owner: 'Priya', status: 'open', createdAt: '2026-10-08',
       addedBy: { key: 'git:maya@example.com', name: 'Maya' }, addedAt: '2026-10-08T09:00:00.000Z' });
-    const h = historyOf(row((await visit('/project/acme/ledger?ws=product', MANAGER)).body, 'direct'));
+    const direct = row((await visit('/project/acme/ledger?ws=product', MANAGER)).body, 'direct');
+    const h = historyOf(direct);
     expect(h).toEqual({ status: 'Added', lines: [{ date: '2026-10-08', at: '2026-10-08T09:00:00.000Z', who: 'Maya', agent: false, text: 'added it' }] });
+    // And the drawer's "Who wrote it" agrees, rather than saying nobody.
+    expect(direct).toContain('data-who="Maya"');
     withProduct({ id: 'direct', key: '1.5', title: 'Added directly', owner: 'Priya', status: 'open', createdAt: '2026-10-08',
       addedBy: { key: 'git:gone@example.com', name: 'Former Lead' }, addedAt: '2026-10-08T09:00:00.000Z' });
     await lend();
@@ -1666,6 +1669,11 @@ describe('a task’s history', () => {
     const { body } = await visit('/project/acme/ledger', MANAGER);
     const q = new RegExp('<div class="q[^"]*" id="r-c-1"[\\s\\S]*?\\n</div>').exec(body)[0];
     expect(historyOf(q)).toEqual({ status: 'Not approved yet', lines: [{ date: '2026-10-06', at: '2026-10-06T10:00:00.000Z', who: 'Priya', agent: false, text: 'submitted it through an assistant', waiting: true }] });
+  });
+
+  it('really hides what it hides, though the theme gives buttons and rows a display', async () => {
+    const { body } = await visit('/project/acme/ledger?ws=product', MANAGER);
+    expect(body).toContain('#d-history-earlier[hidden],.history li[hidden]{display:none}');
   });
 
   it('marks a done task for the drawer, which strikes its title through', async () => {

@@ -120,7 +120,11 @@ function taskRow({ t, view, origin, marked }) {
     node: { ...t, text: t.title }, tier: 'task', where, isProject: false, owner: view.owner, repo: view.repo, parent: null, pending: false,
     link: origin ? `${origin}/project/${view.owner}/${view.repo}?${new URLSearchParams({ ws: t.workstream, item: t.id })}` : null,
   });
+  // A task added directly has no contribution behind it; its history knows who
+  // added it, already filtered for this reader.
+  const addedBy = (t.history?.events || []).find(e => e.did === 'added' && e.by)?.by;
   const who = whoTouched(t, view.contributions || {});
+  if (!who.length && addedBy) who.push(addedBy);
   return `<button type="button" class="item trow${marked ? ' marked' : ''}${t.status === 'done' ? ' done' : ''}" id="t-${esc(t.id)}"
   data-text="${esc(t.title)}" data-kind="${esc(`Task${t.key ? ` ${t.key}` : ''}`)}" data-summary="" data-who="${esc(who.join(', '))}"
   data-review="" data-ws="${esc(t.workstream || '')}" data-ask="${escAttr(prompt.split('\n\n')[0])}" data-prompt="${escAttr(prompt)}"

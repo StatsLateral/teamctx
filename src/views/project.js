@@ -112,6 +112,10 @@ const CSS = `
 .history .hdate{font-family:var(--font-mono);font-size:11px;color:var(--faint);min-width:76px}
 .history .hwait{font-size:11px;color:var(--amber);background:var(--amber-soft);border-radius:99px;padding:0 7px}
 #d-history-earlier{margin:0 0 .4rem}
+/* The theme gives every button and these rows a display of their own, which
+   overrides the hidden attribute: the empty Show earlier button left a gap, and
+   the earlier lines it holds back stayed on screen. */
+#d-history-earlier[hidden],.history li[hidden]{display:none}
 #d-text.done{text-decoration:line-through;opacity:.75}
 .decide p{margin:0 0 .5rem;font-size:13px;line-height:1.5;color:var(--ink);overflow-wrap:anywhere}
 .decide code{font-family:var(--font-mono);font-size:12px}
