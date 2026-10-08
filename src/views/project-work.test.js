@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { workHtml } from './project-work.js';
+import { workHtml, treeHtml } from './project-work.js';
 import { panelsHtml } from './drawers.js';
 import { drawerPrompts } from '../prompts.js';
 import { decisionPrompt } from './prompt-for.js';
@@ -132,5 +132,32 @@ describe('deciding a waiting item in the assistant', () => {
     const lines = JSON.parse(attr(html, 'data-decide').replace(/&lt;/g, '<'));
     expect(lines[0]).toContain('"Approve 1.2"');
     expect(lines[0]).toMatch(/with or without its tasks/);
+  });
+});
+
+const LONG = 'Prepare the founder-profile opening LinkedIn text post for article #1: cheap AI prototypes create ongoing production ownership obligations, "quoted" & <tagged>';
+
+describe('long text is cut to a fixed row, with the whole of it a hover away', () => {
+  it('a task title carries its full text as a tooltip, escaped', () => {
+    const html = render(view({ tasks: { open: [task('t1', 'a', LONG)], done: [] } }));
+    const title = /<span class="ttl" title="([^"]*)"/.exec(html)?.[1];
+    expect(title).toBeTruthy();
+    expect(title).toContain('Prepare the founder-profile opening');
+    expect(title).toContain('&quot;quoted&quot; &amp; &lt;tagged&gt;');
+    expect(html).not.toContain('<tagged>');
+  });
+
+  it('a waiting item carries its full text as a tooltip', () => {
+    const html = render(view({ pending: [waiting({ summary: LONG })] }));
+    const title = /class="qmain" title="([^"]*)"/.exec(html)?.[1];
+    expect(title).toContain('Prepare the founder-profile opening');
+    expect(title).toContain('&lt;tagged&gt;');
+  });
+
+  it('a workstream in the tree carries its full name as a tooltip', () => {
+    const v = view({ workstreams: [ws('a', 1, 'AI Made Building Easy. It Didn\'t Make Ownership Cheap. "Really"')] });
+    const html = treeHtml({ view: v, selected: null, base: '/p' });
+    expect(html).toMatch(/class="node"[^>]*title="AI Made Building Easy\. It Didn&#39;t|class="node"[^>]*title="AI Made Building Easy\. It Didn't/);
+    expect(html).toContain('&quot;Really&quot;');
   });
 });
