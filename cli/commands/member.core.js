@@ -239,8 +239,43 @@ export async function setMemberWorkstreams({
   return { member: updated, workstreams: scope, ...git };
 }
 
+/**
+ * Mark a person on the roster as external, or put them back to regular.
+ *
+ * External is how the team page groups people: an advisor or contractor who
+ * shares some of the work, against the people the project belongs to. It changes
+ * how they are listed and nothing about what they may reach — that is scope, set
+ * on its own. A regular member carries no field at all. Agents are not people
+ * and are never external.
+ */
+export async function setMemberExternal({
+  ref, external = true, teamctxDir, projectDir, actor,
+} = {}) {
+  const config = readConfig(teamctxDir);
+  const resolved = actor || await resolveActor({ config, cwd: projectDir });
+  const displayName = await resolveDisplayName({ actor: resolved, config, teamctxDir });
+  assertManager(config, { actor: resolved, displayName });
+
+  const members = config.members || [];
+  const existing = findMember(members, ref);
+  if (!existing) throw new MemberNotFoundError(ref);
+  if (existing.kind === 'agent') throw new Error(`${existing.name} is an agent, not a person, so it is not external or regular.`);
+
+  const updated = { ...existing };
+  if (external) updated.external = true;
+  else delete updated.external;
+
+  writeConfig({ ...config, members: members.map(m => (m === existing ? updated : m)) }, teamctxDir);
+  const git = await commitAndPush(
+    config,
+    `member: ${updated.name} is ${external ? 'external' : 'a regular team member'} (by ${displayName})`,
+    projectDir, resolved,
+  );
+  return { member: updated, external: !!external, ...git };
+}
+
 export async function addMember({
-  ref, name, invite = false, permission = 'push', workstreams,
+  ref, name, invite = false, permission = 'push', workstreams, external = false,
   owner, repo, ghToken, teamctxDir, projectDir, actor,
 } = {}) {
   const config = readConfig(teamctxDir);
@@ -280,6 +315,9 @@ export async function addMember({
     // Absent rather than empty for a project-wide member, so a roster written
     // before scopes existed and one written after are the same shape.
     ...(scope ? { workstreams: scope } : {}),
+    // Absent for a regular member, for the same reason: an older roster and a
+    // newer one with nobody external are the same shape.
+    ...(external ? { external: true } : {}),
     // By address, like managers — see recordedKey.
     addedBy: recordedKey(resolved),
     addedAt: new Date().toISOString().slice(0, 10),

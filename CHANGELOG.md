@@ -85,6 +85,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `workstream_split` and `teamctx workstream suggest` / `suggest_workstream_splits`.
 
 ### Added
+- **My Team and Connected sources open drawers from Settings.** My Team lists team
+  members, agents and external talent in their own sections. A manager can list a
+  person as external (`member_external`, `teamctx member external`, or `external` on
+  `member_add`); a regular member stores nothing. Connected sources is a preview with
+  sample data and a notice that connectors are on the roadmap and open to contribute.
 - **A waiting item is decided from the drawer by opening your assistant.** The
   drawer's assistant icons carry a prompt to show the item, read back what it says
   and any tasks it would add, and ask approve or reject, with or without its tasks,

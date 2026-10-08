@@ -28,7 +28,7 @@ import {
   snapshotApproveCommand, snapshotRejectCommand, snapshotCurrentCommand,
 } from './commands/snapshot.js';
 import { setupCommand } from './commands/setup.js';
-import { memberAddCommand, memberListCommand, memberRmCommand, memberScopeCommand } from './commands/member.js';
+import { memberAddCommand, memberListCommand, memberRmCommand, memberScopeCommand, memberExternalCommand } from './commands/member.js';
 import { mcpCommand } from './commands/mcp.js';
 import { connectCommand } from './commands/connect.js';
 import { workstreamProposeCommand, workstreamListCommand, workstreamUseCommand, workstreamAddCommand } from './commands/workstream.js';
@@ -122,6 +122,9 @@ member.command('add <username-or-email>').description('Add someone to the projec
 member.command('scope <username-or-email>').description('Change which workstreams a member may reach (manager only)')
   .option('--workstream <id...>', 'Workstreams they may reach; omit to give them the whole project')
   .action(memberScopeCommand);
+member.command('external <username-or-email>').description('List a member as external (an advisor or contractor); --regular undoes it (manager only)')
+  .option('--regular', 'Put them back as a regular team member')
+  .action(memberExternalCommand);
 member.command('list').description('List project members').action(memberListCommand);
 member.command('rm <username-or-email>').description('Remove someone from the project roster (does not revoke GitHub access)')
   .action(memberRmCommand);
