@@ -2,7 +2,7 @@ import { esc } from './theme.js';
 import { RECORD_TYPES, today } from '../model.js';
 import { contradictionLabel, evidenceLabel } from '../contradictions.js';
 import { describeChange } from '../change-labels.js';
-import { promptFor, escAttr, whoTouched } from './prompt-for.js';
+import { promptFor, decisionPrompt, escAttr, whoTouched } from './prompt-for.js';
 import { workstreamLocation } from './workstream-location.js';
 import { historyStatus, historyLine } from '../task-history.js';
 
@@ -164,12 +164,14 @@ function waitingItem({ q, view, origin, marked }) {
   const checks = checksOf(q);
   const changes = (Array.isArray(q.operations) ? q.operations : []).map(op => describeChange(op, tree)).filter(Boolean);
   const title = q.summary || changes[0] || '(no summary)';
-  const prompt = promptFor({
-    node: { id: q.id, text: title }, tier: 'review', where, isProject: !q.workstream, owner: view.owner, repo: view.repo, parent: null, pending: true,
+  // Deciding happens in the assistant, so what the drawer hands over is a
+  // request to show this item and ask, not a question about it.
+  const prompt = decisionPrompt({
+    ref, id: q.id, title, owner: view.owner, repo: view.repo,
     link: origin ? `${origin}/project/${view.owner}/${view.repo}?${new URLSearchParams({ ...(q.workstream ? { ws: q.workstream } : {}), item: q.id })}` : null,
   });
   const decide = [
-    `Tell your assistant: "Approve ${ref || 'this'}"${ref ? '' : ' (name it by what it says)'}, or "Reject ${ref || 'this'}" with a reason.`,
+    `Open your assistant with the icons below, or tell it: "Approve ${ref || 'this'}"${ref ? '' : ' (name it by what it says)'} with or without its tasks, or "Reject ${ref || 'this'}" with a reason.`,
     `From the command line: teamctx review approve ${q.id}   or   teamctx review reject ${q.id}`,
   ];
   const label = ref || title.slice(0, 40);
@@ -218,17 +220,22 @@ export function workHtml({ view, selected, item, history, origin, base }) {
     const w = parts.find(p => p.id === id);
     if (!w) return '';
     const tasks = allTasks.filter(t => t.workstream === id && (t.status === 'open' || history || t.id === item));
-    if (!tasks.length) return '';
     // Inside a selected part, its own name; for the parts inside it, where they sit.
     const name = id === selected ? w.name : workstreamLocation(parts, id, view.project);
+    // A part with nothing open is still a part of the work. Left off the page, a
+    // project of new workstreams read as an empty one.
+    const body = tasks.length
+      ? `<div class="trows">${tasks.map(t => taskRow({ t, view, origin, marked: t.id === item })).join('')}</div>`
+      : `<div class="noTasks"><p class="empty">${allTasks.some(t => t.workstream === id)
+        ? 'No open tasks in this workstream.' : 'No tasks found in this workstream.'}</p>`
+        + `<button type="button" class="mk-tasks" data-panel="dp-ws-${esc(id)}" data-intent="tasks">Create new tasks</button></div>`;
     return `<section class="wsec" id="ws-${esc(id)}"><h2><span class="wsn">${esc(w.number ?? '')}</span>${esc(name)}`
-      + `${ctxButton(`dp-ws-${id}`, `Context for ${name}`)}</h2>`
-      + `<div class="trows">${tasks.map(t => taskRow({ t, view, origin, marked: t.id === item })).join('')}</div></section>`;
+      + `${ctxButton(`dp-ws-${id}`, `Context for ${name}`)}</h2>${body}</section>`;
   }).join('');
 
   const empty = !parts.length
     ? '<p class="empty">No work yet — ask your assistant to add a workstream, then its tasks.</p>'
-    : (!inbox && !sections ? '<p class="empty">Nothing open here.</p>' : '');
+    : '';
   const linkTo = (on) => {
     const query = new URLSearchParams({ ...(selected ? { ws: selected } : {}), ...(on ? { history: '1' } : {}) }).toString();
     return query ? `${base}?${query}` : base;

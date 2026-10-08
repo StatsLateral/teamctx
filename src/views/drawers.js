@@ -42,6 +42,7 @@ function workstreamPanel(view, w, onDay) {
   const groups = groupsHtml(contextGroups(view.trees?.[w.id]?.records, onDay));
   return `<section class="dpanel" id="dp-ws-${esc(w.id)}" data-scope="ws:${esc(w.id)}" data-title="Workstream ${esc(w.number ?? '')}" hidden>
     <p class="statement">${esc(w.name)}</p>
+    <p class="tasknote" data-for="tasks" hidden>Your assistant will look at what this part of the work already has and suggest tasks for you to choose from. Nothing is added until you say so. Pick your assistant below.</p>
     <div class="section-title">Context for this part of the work</div>
     ${groups || '<p class="muted">Nothing has been decided for this part of the work yet.</p>'}
     <p class="muted">The project context also applies.</p>
@@ -61,8 +62,8 @@ const button = (go, label, title, icon) => `<button type="button" class="chatico
  */
 export function assistantBlockHtml() {
   return `<section class="assist" aria-label="Work on this in your assistant">
-    <div class="section-title">Ask in your assistant</div>
-    <div class="amode" role="radiogroup" aria-label="How your assistant gets the context">
+    <div class="section-title" id="d-assist-title">Ask in your assistant</div>
+    <div class="amode" id="d-amode" role="radiogroup" aria-label="How your assistant gets the context">
       <label><input type="radio" name="amode" value="connected" checked> Assistant is connected to teamctx</label>
       <label><input type="radio" name="amode" value="paste"> Paste the context in</label>
     </div>
