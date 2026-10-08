@@ -1195,8 +1195,14 @@ export function makeHandlers(projectRoot) {
       // anything. So the link — or the reason there isn't one — travels with
       // the thing that creates the need for it.
       const link = await this.connectUrl();
+      // Two different things, and the assistant is told which is which: the
+      // connector address is pasted into an assistant and answers nothing to a
+      // browser, and the project page is the one to open. Called "a link" it was
+      // sent as one, and opened.
+      const page = await this.viewUrl({});
       const next = link.ok
-        ? ` Send them this link to join: ${link.url} — they add it as a custom connector and sign in.`
+        ? ` Give them two things. The connector address, ${link.url} — they paste it into their assistant (Claude, ChatGPT or Copilot) and add it as a custom connector, then sign in with the email they were added under; it is not a page to open.`
+          + (page.viewUrl ? ` And the project page, ${page.viewUrl} — that one they can open in a browser.` : '')
         : link.code === 'NO_DEPLOY_URL'
           ? ' This project has no deploy URL recorded, so the server could not build the link. '
             + 'You already have it: give them the address of the connector this conversation is using, '
@@ -1208,6 +1214,7 @@ export function makeHandlers(projectRoot) {
         ...r,
         connectUrl: link.ok ? link.url : null,
         connectUrlError: link.ok ? null : link.error,
+        ...(page.viewUrl ? { viewUrl: page.viewUrl } : {}),
         reportBack: `${r.member.name} added to the project${access}.${next}`,
       });
     },

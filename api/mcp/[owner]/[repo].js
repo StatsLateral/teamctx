@@ -7,6 +7,8 @@ import {
   readPersonalKey, readProjectKeys, pickProjectKey, recordConnectedProject,
 } from '../../../src/oauth/ai-keys.js';
 import { baseUrlFrom } from '../../../src/base-url.js';
+import { connectorAddressPage } from '../../../src/views/connect.js';
+import { mcpUrl } from '../../../src/views/mcp-url.js';
 import { readConfig } from '../../../src/storage.js';
 import { managersOf } from '../../../src/managers.js';
 import { resolveGoogleMember } from '../../../src/oauth/member-access.js';
@@ -83,6 +85,25 @@ export function primaryManagerKey({ projectKeys, config }) {
 }
 
 export default async function handler(req, res) {
+  // A person who was sent this address and opened it. It is meant for pasting
+  // into an assistant, which speaks to it by POST, so say what it is and where
+  // the project can be opened instead of answering with a line of JSON.
+  if (req.method === 'GET' && /\btext\/html\b/.test(String(req.headers?.accept || ''))) {
+    const owner = readParam(req, 'owner');
+    const repo = readParam(req, 'repo');
+    if (owner && repo) {
+      const origin = baseUrlFrom(req);
+      res.statusCode = 200;
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.setHeader('Cache-Control', 'no-store');
+      res.end(connectorAddressPage({
+        address: mcpUrl({ origin, owner, repo }),
+        projectUrl: `${origin}/project/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`,
+        project: `${owner}/${repo}`,
+      }));
+      return;
+    }
+  }
   if (req.method !== 'POST') {
     // This function is bundled separately from the one that serves
     // /oauth/status, so knowing that one is current says nothing about this one.

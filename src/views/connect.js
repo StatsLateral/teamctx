@@ -64,3 +64,33 @@ carry the same address.</p>
 authorised teamctx. To sign in as a different account, revoke teamctx under
 <a href="https://github.com/settings/applications" target="_blank" rel="noreferrer">GitHub &rarr; Authorized OAuth Apps</a> first.</p>`);
 };
+
+/**
+ * What somebody sees who opens a connector address in a browser.
+ *
+ * The address is for pasting into an assistant, which reaches it by POST; a
+ * browser's GET has nothing to show. So the page says what it is, shows it to
+ * copy, and links to the project page, which is the thing a person can open.
+ */
+export const connectorAddressPage = ({ address, projectUrl, project }) => shell('Connector address', `
+${navBar({ user: null, current: '/signin' })}
+<h1>This is a connector address</h1>
+<p>It is not a web page, so there is nothing to see here. It is what you paste into your
+assistant to connect it to <strong>${esc(project)}</strong>.</p>
+<section class="card">
+<h2>Paste it into your assistant</h2>
+<p class="muted">In Claude, ChatGPT or Copilot, add a <strong>custom connector</strong> and paste this
+address. When it asks you to sign in, use the email you were invited with.</p>
+<p><code id="addr">${esc(address)}</code></p>
+<p><button type="button" class="btn" id="copy">Copy the address</button> <span class="muted" id="copied" role="status"></span></p>
+</section>
+<section class="card">
+<h2>Or look at the project in your browser</h2>
+<p class="muted">Sign in with the same email to read the project's goal, work and team.</p>
+<p><a class="btn" href="${esc(projectUrl)}">Open the project</a></p>
+</section>`, {
+  script: `(function(){var b=document.getElementById('copy'),s=document.getElementById('copied'),t=document.getElementById('addr').textContent;
+b.addEventListener('click',function(){var done=function(){s.textContent='Copied.'};
+if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(t).then(done,function(){s.textContent='Select the address and copy it.'});}
+else{s.textContent='Select the address and copy it.';}});}());`,
+});
