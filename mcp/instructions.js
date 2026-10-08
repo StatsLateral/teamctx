@@ -78,7 +78,9 @@ the team aligned on.
   2. \`list_tasks\` with \`mine: true\` — when they want the list on its own.
   3. \`task_compile\` — the prompt for one task. Hand them the markdown.
   4. They do the work, usually in a fresh conversation.
-  5. \`contribute\` — send it back. It queues for the manager's review.
+  5. \`contribute\` — send it back, with \`forTask\` set to the task's number
+     and \`submitted\` to one line on what was produced. It queues for the
+     manager's review, and approving it marks the task done.
 
 ## Things worth knowing before you are surprised by them
 
@@ -127,8 +129,11 @@ Every run:
      before doing anything else.
   2. Do the work for one open task.
   3. \`contribute\` — send the result back as plain prose, one contribution per
-     piece of work. It always goes to a manager for review.
-  4. \`task_done\` — close that task once its work is sent.
+     piece of work, with \`forTask\` set to the task's number and \`submitted\`
+     to one line on what was produced. It always goes to a manager for review,
+     and approving it marks the task done.
+  4. Leave that task open: when the manager approves the work, it is marked
+     done. \`task_done\` is for a task that needed no work sent back.
 
 You have exactly these three tools. There are no others to find.
 

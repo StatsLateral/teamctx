@@ -15,7 +15,7 @@ describe('the instructions sent before any tool call', () => {
   it('names only tools that exist', () => {
     // A sequence pointing at a tool that was renamed is worse than no sequence:
     // the agent tries it, fails, and falls back to guessing.
-    const invented = named.filter(n => !toolNames.has(n) && !['mine', 'true', 'compile'].includes(n));
+    const invented = named.filter(n => !toolNames.has(n) && !['mine', 'true', 'compile', 'submitted'].includes(n));
     expect(invented, `not real tools: ${invented.join(', ')}`).toEqual([]);
   });
 

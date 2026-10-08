@@ -36,7 +36,7 @@ import {
 } from '../cli/commands/workstream.core.js';
 import { listRecords, getRecord } from '../cli/commands/records.core.js';
 import { assertJoinableContext } from '../src/context-gate.js';
-import { contributeCore } from '../cli/commands/contribute.core.js';
+import { contributeCore, findTaskFor, UnknownTaskError } from '../cli/commands/contribute.core.js';
 import { buildBrief } from '../cli/commands/brief.core.js';
 import {
   listTasksFiltered, getTask, addTask, setTaskStatus, assignTask, removeTask, compileTask,
@@ -254,6 +254,8 @@ export const TOOLS = [
         author: { type: 'string' },
         decision: { type: 'boolean' },
         apply: { type: 'boolean', description: 'Write immediately; skips the review queue' },
+        forTask: { type: 'string', description: "When this is the work for a task, the task's number (for example 1.2). It then waits for review as that task's work, and approving it marks the task done; nothing is added to the context." },
+        submitted: { type: 'string', description: 'With forTask: one line saying what was produced, for example "Draft post, 700 words".' },
       },
       required: ['text'], additionalProperties: false,
     },
@@ -670,6 +672,13 @@ export function reportBackContribute(r) {
       + " manager's alone. The contribution was kept and took the ordinary path, so tell the user"
       + ' where it went and do not call contribute again for the same text.'
     : '';
+  // Work for a task (#144) is about the task, so it is said that way.
+  if (r.forTask) {
+    const which = r.number ? `task ${r.number}` : 'the task';
+    return r.mode === 'applied'
+      ? `Tell the user: the work for ${which} was accepted and ${which} is marked done. Nothing was added to the context.${r.pushed ? ' Committed and pushed.' : ' Committed.'}`
+      : `Tell the user: the work for ${which} was sent for review (${r.id}). When the manager approves it, ${which} is marked done; nothing is added to the context.${r.applyRefused ? " `apply` is the manager's alone, so it took the ordinary path; do not send it again." : ''}`;
+  }
   if (r.mode === 'no-op') return `Tell the user: contribution logged for ${where} but the AI proposed no changes to the tree.${refused}`;
   if (r.mode === 'queued') return `Tell the user: contribution ${r.id}${r.number ? ` (item ${r.number})` : ''} queued for manager approval on ${where} (${r.operations.length} op${r.operations.length === 1 ? '' : 's'}). Manager must run \`teamctx review approve ${r.id}\` or call the review_approve tool.${(r.contradictions || []).map(c => ` ${contradictionLabel(c)}. Resolve with a replacement or reject; do not retry direct apply.`).join('')}${(r.operations || []).filter(o => o?.type === 'addEvidence').map(o => ` ${evidenceLabel(o)}. The manager decides whether it holds; nothing changes until they do.`).join('')}${refused}`;
   const keys = (r.tasks || []).map(x => x.key).filter(Boolean);
@@ -1498,9 +1507,19 @@ export function makeHandlers(projectRoot) {
 
     async contribute(args) {
       const teamctxDir = dir();
+      // Work for a task (#144): the task decides where it goes. One the caller
+      // cannot see is refused exactly like one that is not there.
+      let task = null;
+      if (args.forTask) {
+        task = findTaskFor(args.forTask, teamctxDir);
+        if (task) {
+          try { await targetWorkstream(teamctxDir, readConfig(teamctxDir), task.workstream); } catch { task = null; }
+        }
+        if (!task) throw new UnknownTaskError(args.forTask);
+      }
       // Worked out, and scope-checked, before anything is counted: a mistyped or
       // out-of-scope workstream must not spend an agent's daily limit.
-      const workstreamId = await targetWorkstream(teamctxDir, readConfig(teamctxDir), args.workstream);
+      const workstreamId = task ? task.workstream : await targetWorkstream(teamctxDir, readConfig(teamctxDir), args.workstream);
       if (agent) {
         if (args.apply) {
           throw new AgentRefusedError("An agent's work always goes to review. Send it without apply.", 'AGENT_ALWAYS_REVIEWED');
@@ -1526,6 +1545,7 @@ export function makeHandlers(projectRoot) {
         source: 'mcp',
         teamctxDir,
         projectDir: gitCwd,
+        ...(task ? { forTask: task.id, submitted: args.submitted } : {}),
       });
       // Where to go and look at it. Work that queued is waiting on somebody:
       // the manager is pointed at the queue, and everyone else at the part of
@@ -1792,6 +1812,8 @@ const AGENT_TOOL_DEFS = {
         text: { type: 'string', description: 'The work, in plain prose' },
         workstream: { type: 'string', description: "Which part of the project it belongs to. Omit for the agent's own." },
         decision: { type: 'boolean' },
+        forTask: { type: 'string', description: "When this is the work for a task, the task's number (for example 1.2). It then waits for review as that task's work, and approving it marks the task done; nothing is added to the context." },
+        submitted: { type: 'string', description: 'With forTask: one line saying what was produced, for example "Draft post, 700 words".' },
       },
       required: ['text'], additionalProperties: false,
     },
