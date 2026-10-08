@@ -29,7 +29,7 @@ h1{font-size:28px;line-height:1.25;margin:0 0 .35rem}
    the no-JavaScript answer (goal two lines, why one) and the script gives the
    why whatever the goal leaves. The stored text is never cut. */
 .goal-block{margin:12px 0 26px;max-width:none}
-.goal-text{font-family:var(--font-display);font-weight:500;font-size:19px;line-height:1.4;color:var(--ink);margin:0 0 6px;
+.goal-text{font-family:var(--font-display);font-weight:400;font-size:16px;line-height:1.45;color:var(--ink);margin:0 0 6px;
   overflow-wrap:anywhere;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
 .goal-why{font-size:14px;line-height:1.55;color:var(--soft);margin:0;overflow-wrap:anywhere;
   display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:1;overflow:hidden}
@@ -61,7 +61,9 @@ h1{font-size:28px;line-height:1.25;margin:0 0 .35rem}
 .node:hover{background:var(--accent-soft)}
 .node.on{background:var(--accent-soft);color:var(--accent);font-weight:600}
 .node .num{flex:none;width:14px;font-family:var(--font-mono);font-size:11px;color:var(--faint)}
-.node .nm{min-width:0;overflow-wrap:anywhere}
+/* A fixed row: two lines at most, the rest behind the tooltip and the part's own
+   heading once it is chosen. */
+.node .nm{min-width:0;overflow-wrap:anywhere;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
 .node .dot{flex:none;align-self:center;width:7px;height:7px;border-radius:50%;background:var(--amber)}
 .node .cnt{flex:none;margin-left:auto;font-family:var(--font-mono);font-size:11px;color:var(--faint)}
 .node.root{font-family:var(--font-display);font-weight:600;font-size:15px;padding-left:8px}
@@ -103,7 +105,7 @@ h1{font-size:28px;line-height:1.25;margin:0 0 .35rem}
 .q.marked{background:color-mix(in srgb,var(--amber) 10%,transparent);box-shadow:inset 3px 0 0 var(--amber)}
 .q .num{font-family:var(--font-mono);font-size:12px;color:var(--soft);padding-top:2px}
 .q .what{min-width:0}
-.qmain{display:block;width:100%;text-align:left;background:none;border:0;padding:0;font:inherit;font-weight:500;color:var(--ink);cursor:pointer;overflow-wrap:anywhere}
+.qmain{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;width:100%;text-align:left;background:none;border:0;padding:0;font:inherit;font-weight:500;color:var(--ink);cursor:pointer;overflow-wrap:anywhere}
 .q:hover .qmain{text-decoration:underline}
 .q .sub{grid-column:2;display:flex;flex-wrap:wrap;gap:6px 8px;align-items:center;color:var(--soft);font-size:12.5px}
 .qicons{grid-column:3;grid-row:1 / span 2;align-self:center;display:flex;gap:6px}
@@ -128,7 +130,7 @@ h1{font-size:28px;line-height:1.25;margin:0 0 .35rem}
   background:none;border:0;border-top:1px solid var(--line);border-radius:0;padding:9px 8px;font:inherit;color:inherit;cursor:pointer}
 .trow:hover{background:var(--accent-soft)}
 .trow .num{font-family:var(--font-mono);font-size:12px;color:var(--soft);padding-top:2px}
-.trow .ttl{min-width:0;font-size:14px;line-height:1.45;overflow-wrap:anywhere}
+.trow .ttl{min-width:0;font-size:14px;line-height:1.45;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .trow .own{min-width:0}
 .trow .clip{color:var(--faint);font-size:12px;white-space:nowrap}
 .trow.done .ttl{text-decoration:line-through}
@@ -154,6 +156,13 @@ h1{font-size:28px;line-height:1.25;margin:0 0 .35rem}
 #d-text.done{text-decoration:line-through;opacity:.75}
 .decide p{margin:0 0 .5rem;font-size:13px;line-height:1.5;color:var(--ink);overflow-wrap:anywhere}
 .decide code{font-family:var(--font-mono);font-size:12px}
+/* One instruction per line, its Copy button beside it; the text wraps first. */
+.decide .decide-where{margin:.6rem 0 .3rem;font-size:12px;color:var(--soft)}
+.decide-line{display:flex;align-items:center;gap:8px;margin:0 0 6px}
+/* What the line shows is clipped to one line here; Copy takes the whole text. */
+.decide-line code{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  background:var(--paper);border:1px solid var(--line);border-radius:6px;padding:5px 8px;color:var(--ink)}
+.decide-copy{flex:none;font-size:12px;padding:4px 10px;border-radius:6px}
 
 /* The drawer. */
 .drawer{position:fixed;top:0;right:0;height:100vh;width:min(520px,100vw);background:var(--card);
@@ -262,6 +271,10 @@ const SCRIPT = `
     return prompts.project;
   };
   var reveal = function () {
+    // Every opening starts at the top: the drawer kept its scroll, so after a
+    // Review click had gone down to Decide, the next item opened partway down.
+    // Only the Review icon then scrolls on, to the decision.
+    drawer.querySelector('.drawer-body').scrollTop = 0;
     drawer.classList.add('open'); backdrop.classList.add('on');
     drawer.setAttribute('aria-hidden', 'false');
     document.getElementById('toast').textContent = '';
@@ -346,10 +359,31 @@ const SCRIPT = `
       };
       fill('d-changes', 'changes');
       document.getElementById('d-checks-wrap').hidden = !fill('d-checks', 'checks');
+      // Each instruction on its own line with a Copy button, under where it is
+      // used. Built as text nodes: these are somebody else's words.
       var decide = document.getElementById('d-decide');
       decide.textContent = '';
+      var group = null;
       JSON.parse(el.dataset.decide || '[]').forEach(function (line) {
-        var p = document.createElement('p'); p.textContent = line; decide.appendChild(p);
+        // A line to read rather than copy: how to decide it in the assistant.
+        if (line.note) {
+          var note = document.createElement('p'); note.textContent = line.note; decide.appendChild(note);
+          return;
+        }
+        if (line.where !== group) {
+          group = line.where;
+          var head = document.createElement('p'); head.className = 'decide-where'; head.textContent = group;
+          decide.appendChild(head);
+        }
+        var row = document.createElement('div'); row.className = 'decide-line';
+        // The label is shown, clipped by CSS to fit; the whole text is copied.
+        var code = document.createElement('code'); code.textContent = line.label; code.title = line.label;
+        var copy = document.createElement('button');
+        copy.type = 'button'; copy.className = 'decide-copy'; copy.textContent = 'Copy';
+        copy.setAttribute('aria-label', 'Copy: ' + line.label);
+        copy.dataset.copy = line.text;
+        copy.dataset.label = line.label;
+        row.appendChild(code); row.appendChild(copy); decide.appendChild(row);
       });
     }
     document.getElementById('d-who').textContent = el.dataset.who || 'Nobody recorded.';
@@ -453,6 +487,18 @@ const SCRIPT = `
       if (!plan.copy) { go(); return; }
       toText(plan.copy).then(go, function () { say('Could not copy. Open "See the prompt first" and copy it from there.'); });
     });
+  });
+  // One listener for the Decide lines, which are rebuilt on every opening.
+  document.getElementById('d-decide').addEventListener('click', function (e) {
+    var b = e.target.closest('.decide-copy');
+    if (!b) return;
+    // Said on the button: the drawer's message line sits below the fold when
+    // Decide is on screen, so a copy there went unconfirmed.
+    toText(b.dataset.copy).then(function () {
+      say('Copied: ' + b.dataset.label);
+      b.textContent = 'Copied';
+      setTimeout(function () { b.textContent = 'Copy'; }, 2000);
+    }, function () { say('Could not copy. Select the line and copy it by hand.'); });
   });
   // Shared rows carry the text and prompt for their drawer.
   var statement = document.querySelector('.marked[data-prompt]');
