@@ -367,6 +367,23 @@ describe('the goal and why it matters, opening the page', () => {
     expect(block(body)).toContain('Reach ten enterprise pilots');
   });
 
+  it('shows the goal small and in a regular weight, so it reads as a summary and not a heading', async () => {
+    setGoal({ text: 'A goal', why: 'A why' });
+    const { body } = await visit('/project/acme/ledger', MANAGER);
+    expect(body).toMatch(/\.goal-text\{[^}]*font-size:16px/);
+    expect(body).toMatch(/\.goal-text\{[^}]*font-weight:400/);
+    // A weight that is not loaded is faked by the browser, which reads as bold.
+    expect(body).toMatch(/family=Fraunces:wght@400;500;600/);
+  });
+
+  it('cuts a row to a fixed height: tree names two lines, waiting items two, a task one', async () => {
+    setGoal({ text: 'A goal', why: 'A why' });
+    const { body } = await visit('/project/acme/ledger', MANAGER);
+    expect(body).toMatch(/\.node \.nm\{[^}]*-webkit-line-clamp:2/);
+    expect(body).toMatch(/\.qmain\{[^}]*-webkit-line-clamp:2/);
+    expect(body).toMatch(/\.trow \.ttl\{[^}]*white-space:nowrap[^}]*text-overflow:ellipsis/);
+  });
+
   it('is limited to three lines in all, the goal two at most and the why what is left', async () => {
     const { whyLinesLeft } = await import('../src/views/project.js');
     expect([1, 2, 3, 6].map(whyLinesLeft)).toEqual([2, 1, 1, 1]);
@@ -1315,7 +1332,7 @@ describe('the project page is one page', () => {
       }));
       const r = row((await visit('/project/acme/ledger', MANAGER)).body, 'pricing-page');
       expect(r).toContain('<span class="num">1.1</span>');
-      expect(r).toContain('<span class="ttl">Draft the pricing page</span>');
+      expect(r).toContain('<span class="ttl" title="Draft the pricing page">Draft the pricing page</span>');
       expect(r).toContain('👤 Priya');
       expect(r).toContain('<span class="clip" title="2 linked sources">📎 2</span>');
     });
@@ -1459,7 +1476,7 @@ describe('waiting on you', () => {
   it('gives an item its number, what it is, who sent it, where and when', async () => {
     const r = item((await visit('/project/acme/ledger', MANAGER)).body, 'c-1');
     expect(r).toContain('<span class="num">1.2</span>');
-    expect(r).toContain('<button type="button" class="qmain">adds the pricing tiers</button>');
+    expect(r).toContain('<button type="button" class="qmain" title="adds the pricing tiers">adds the pricing tiers</button>');
     expect(r).toContain('<span class="chip">👤 Priya</span>');
     expect(r).toContain('· Product');
   });
@@ -1607,7 +1624,7 @@ describe('waiting on you', () => {
 describe('arriving from a link', () => {
   it('opens the part of the work the link named', async () => {
     const { body } = await visit('/project/acme/ledger?ws=product', MANAGER);
-    expect(body).toMatch(/<a class="node on" href="\/project\/acme\/ledger\?ws=product" aria-current="page">/);
+    expect(body).toMatch(/<a class="node on" href="\/project\/acme\/ledger\?ws=product" title="Product" aria-current="page">/);
   });
 
   it('marks the task the link pointed at, by id, by number and by the task parameter', async () => {
