@@ -4,6 +4,7 @@ import { contradictionLabel, evidenceLabel } from '../contradictions.js';
 import { describeChange } from '../change-labels.js';
 import { promptFor, decisionPrompt, escAttr, whoTouched } from './prompt-for.js';
 import { workstreamLocation } from './workstream-location.js';
+import { historyStatus, historyLine } from '../task-history.js';
 
 /**
  * What the project page is about: the work, and what is waiting on the manager.
@@ -81,6 +82,32 @@ export const whoChip = (name, agents) => {
   return `<span class="chip${agent ? ' agent' : ''}">${agent ? '🤖' : '👤'} ${esc(name)}</span>`;
 };
 
+/**
+ * A task's history as the drawer shows it (#143): the status line, then one
+ * line per event — the date (exact time in the tooltip), who, and what
+ * happened. Plain data; the page writes it as text.
+ *
+ * Nobody named means one of two things, said differently: a name this reader
+ * may not see is "someone"; a fact recorded without anybody behind it (added
+ * before approvals were kept, let in by the review policy) names nobody at all.
+ */
+export function historyData(h, agents) {
+  if (!h) return null;
+  const agentNames = new Set((agents || []).map(a => a.name));
+  const silent = (e) => e.byPolicy || e.unrecorded;
+  return {
+    status: historyStatus(h),
+    lines: h.events.map(e => ({
+      date: e.at ? String(e.at).slice(0, 10) : '',
+      at: e.at || '',
+      who: e.by || (silent(e) ? null : 'someone'),
+      agent: Boolean(e.by && agentNames.has(e.by)),
+      text: historyLine(e),
+      ...(e.waiting ? { waiting: true } : {}),
+    })),
+  };
+}
+
 // ---- tasks ------------------------------------------------------------------
 
 const clip = (node) => {
@@ -94,10 +121,15 @@ function taskRow({ t, view, origin, marked }) {
     node: { ...t, text: t.title }, tier: 'task', where, isProject: false, owner: view.owner, repo: view.repo, parent: null, pending: false,
     link: origin ? `${origin}/project/${view.owner}/${view.repo}?${new URLSearchParams({ ws: t.workstream, item: t.id })}` : null,
   });
+  // A task added directly has no contribution behind it; its history knows who
+  // added it, already filtered for this reader.
+  const addedBy = (t.history?.events || []).find(e => e.did === 'added' && e.by)?.by;
   const who = whoTouched(t, view.contributions || {});
+  if (!who.length && addedBy) who.push(addedBy);
   return `<button type="button" class="item trow${marked ? ' marked' : ''}${t.status === 'done' ? ' done' : ''}" id="t-${esc(t.id)}"
   data-text="${esc(t.title)}" data-kind="${esc(`Task${t.key ? ` ${t.key}` : ''}`)}" data-summary="" data-who="${esc(who.join(', '))}"
-  data-review="" data-ws="${esc(t.workstream || '')}" data-ask="${escAttr(prompt.split('\n\n')[0])}" data-prompt="${escAttr(prompt)}">
+  data-review="" data-ws="${esc(t.workstream || '')}" data-ask="${escAttr(prompt.split('\n\n')[0])}" data-prompt="${escAttr(prompt)}"
+  ${t.status === 'done' ? 'data-done="1" ' : ''}data-history="${esc(JSON.stringify(historyData(t.history, view.agents)))}">
   <span class="num">${esc(t.key || '—')}</span><span class="ttl" title="${esc(t.title)}">${esc(t.title)}</span>
   <span class="own">${whoChip(t.owner, view.agents)}</span>${clip(t)}</button>`;
 }
@@ -161,6 +193,7 @@ function waitingItem({ q, view, origin, marked }) {
   data-summary="${esc(`Proposed by ${q.author || 'someone'}${VIA[q.source] ? ` ${VIA[q.source]}` : ''}${date ? ` on ${date}` : ''}.`)}"
   data-who="${esc(q.author || '')}" data-review="" data-ws="${esc(q.workstream || '')}" data-queue="1"
   data-changes="${esc(JSON.stringify(changes))}" data-checks="${esc(JSON.stringify(checks))}" data-decide="${esc(JSON.stringify(decide))}"
+  data-history="${esc(JSON.stringify(historyData(q.history, view.agents)))}"
   data-ask="${escAttr(prompt.split('\n\n')[0])}" data-prompt="${escAttr(prompt)}">
   <span class="num">${esc(ref || '—')}</span>
   <span class="what"><button type="button" class="qmain" title="${esc(title)}">${esc(title)}</button></span>

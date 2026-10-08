@@ -45,12 +45,14 @@ export function numberQueueItem({ operations, tree, nextKey, workstream, number 
   return { number: minted.key, nextKey: minted.counters };
 }
 
-export function buildRejected(item, rejectedBy, reason) {
+export function buildRejected(item, rejectedBy, reason, rejectedByKey = null) {
   return {
     ...item,
     status: 'rejected',
     rejectedAt: new Date().toISOString(),
     rejectedBy,
+    // The name can change; the key is who it was.
+    ...(rejectedByKey ? { rejectedByKey } : {}),
     reason: reason || null,
   };
 }

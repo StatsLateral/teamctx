@@ -1810,3 +1810,138 @@ describe('arriving from a link', () => {
     expect(body).not.toContain('alert(1)');
   });
 });
+
+/**
+ * A task's history (#143): who asked for it, who said yes, and when it was
+ * done, worked out by the server and carried on the row for the drawer.
+ */
+describe('a task’s history', () => {
+  const row = (body, id) => new RegExp(`<button type="button" class="item trow[^"]*" id="t-${id}"[\\s\\S]*?</button>`).exec(body)?.[0];
+  const unesc = (s) => s.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+  const historyOf = (html) => JSON.parse(unesc(/data-history="([^"]*)"/.exec(html)[1]));
+  const said = (h) => h.lines.map(l => [l.who, l.text, ...(l.waiting ? ['waiting'] : [])]);
+  const withProduct = (task) => repo.files.set('.teamctx/workstreams/product.json', JSON.stringify({ id: 'product', name: 'Product', records: [], tasks: [task] }));
+
+  beforeEach(() => {
+    repo.files.set('.teamctx/contributions.jsonl', [
+      JSON.stringify({ id: 'c-prod', author: 'Priya', source: 'mcp', ts: '2026-09-30T09:00:00.000Z', text: 'pricing notes', workstream: 'product' }),
+    ].join('\n'));
+    repo.files.set('.teamctx/approved/c-prod.json', JSON.stringify({ id: 'c-prod', approvedBy: { key: 'git:maya@example.com', name: 'Maya' }, approvedAt: '2026-09-30T10:00:00.000Z' }));
+    withProduct({
+      id: 'pricing-page', key: '1.1', title: 'Draft the pricing page', owner: 'Priya', status: 'done', doneAt: '2026-10-02',
+      sourceContributionIds: ['c-prod'],
+      statusLog: [{ did: 'completed', by: { key: 'agent:a1', name: 'Nightly report' }, at: '2026-10-02T08:00:00.000Z' }],
+    });
+  });
+
+  it('says who submitted it, who approved it and who finished it, oldest first', async () => {
+    const h = historyOf(row((await visit('/project/acme/ledger?ws=product&history=1', MANAGER)).body, 'pricing-page'));
+    expect(h.status).toBe('Approved');
+    expect(said(h)).toEqual([['Priya', 'submitted it through an assistant'], ['Maya', 'approved it'], ['Nightly report', 'marked it done']]);
+    expect(h.lines.map(l => l.date)).toEqual(['2026-09-30', '2026-09-30', '2026-10-02']);
+    expect(h.lines[1].at).toBe('2026-09-30T10:00:00.000Z');
+    expect(h.lines[2].agent).toBe(true);
+  });
+
+  it('shows the manager a change waiting for it, and one turned down', async () => {
+    repo.files.set('.teamctx/queue/c-edit.json', JSON.stringify({
+      id: 'c-edit', status: 'pending', author: 'Dev', source: 'cli', createdAt: '2026-10-05T09:00:00.000Z', summary: 'retitle', workstream: 'product',
+      operations: [{ type: 'editTask', id: 'pricing-page', title: 'Draft the pricing page again' }],
+    }));
+    repo.files.set('.teamctx/rejected/c-no.json', JSON.stringify({
+      id: 'c-no', author: 'Dev', source: 'cli', createdAt: '2026-10-03T09:00:00.000Z', rejectedBy: 'Maya', rejectedByKey: 'git:maya@example.com',
+      rejectedAt: '2026-10-04T09:00:00.000Z', reason: 'not now', operations: [{ type: 'removeTask', id: 'pricing-page' }],
+    }));
+    const h = historyOf(row((await visit('/project/acme/ledger?ws=product&history=1', MANAGER)).body, 'pricing-page'));
+    expect(h.status).toBe('Approved · a new submission is waiting');
+    expect(said(h).slice(3)).toEqual([
+      ['Dev', 'submitted it from the command line'], ['Maya', 'rejected it: not now'], ['Dev', 'submitted it from the command line', 'waiting'],
+    ]);
+  });
+
+  it('never shows a member what is waiting or what was turned down', async () => {
+    repo.files.set('.teamctx/queue/c-edit.json', JSON.stringify({
+      id: 'c-edit', status: 'pending', author: 'Dev', createdAt: '2026-10-05T09:00:00.000Z', workstream: 'product',
+      operations: [{ type: 'editTask', id: 'pricing-page', title: 'x' }],
+    }));
+    repo.files.set('.teamctx/rejected/c-no.json', JSON.stringify({
+      id: 'c-no', author: 'Dev', createdAt: '2026-10-03T09:00:00.000Z', rejectedBy: 'Maya', rejectedAt: '2026-10-04T09:00:00.000Z',
+      operations: [{ type: 'removeTask', id: 'pricing-page' }],
+    }));
+    await lend();
+    const h = historyOf(row((await visit('/project/acme/ledger?ws=product&history=1', MEMBER_GOOGLE)).body, 'pricing-page'));
+    expect(h.status).toBe('Approved');
+    expect(said(h)).toEqual([['Priya', 'submitted it through an assistant'], ['Maya', 'approved it'], ['Nightly report', 'marked it done']]);
+  });
+
+  it('shows a member someone for a name nobody on the roster answers to', async () => {
+    repo.files.set('.teamctx/approved/c-prod.json', JSON.stringify({ id: 'c-prod', approvedBy: { key: 'git:gone@example.com', name: 'Former Lead' }, approvedAt: '2026-09-30T10:00:00.000Z' }));
+    await lend();
+    const h = historyOf(row((await visit('/project/acme/ledger?ws=product&history=1', MEMBER_GOOGLE)).body, 'pricing-page'));
+    expect(said(h)[1]).toEqual(['someone', 'approved it']);
+    const manager = historyOf(row((await visit('/project/acme/ledger?ws=product&history=1', MANAGER)).body, 'pricing-page'));
+    expect(said(manager)[1]).toEqual(['Former Lead', 'approved it']);
+  });
+
+  it('says Added for a task from before any of this was recorded, naming nobody', async () => {
+    withProduct({ id: 'old', key: '1.4', title: 'An old task', owner: 'Priya', status: 'open', createdAt: '2026-08-01' });
+    const h = historyOf(row((await visit('/project/acme/ledger?ws=product', MANAGER)).body, 'old'));
+    expect(h).toEqual({ status: 'Added', lines: [{ date: '2026-08-01', at: '2026-08-01', who: null, agent: false, text: 'added to the plan' }] });
+  });
+
+  it('says who added a task added directly, and someone to a member when off the roster', async () => {
+    withProduct({ id: 'direct', key: '1.5', title: 'Added directly', owner: 'Priya', status: 'open', createdAt: '2026-10-08',
+      addedBy: { key: 'git:maya@example.com', name: 'Maya' }, addedAt: '2026-10-08T09:00:00.000Z' });
+    const direct = row((await visit('/project/acme/ledger?ws=product', MANAGER)).body, 'direct');
+    const h = historyOf(direct);
+    expect(h).toEqual({ status: 'Added', lines: [{ date: '2026-10-08', at: '2026-10-08T09:00:00.000Z', who: 'Maya', agent: false, text: 'added it' }] });
+    // And the drawer's "Who wrote it" agrees, rather than saying nobody.
+    expect(direct).toContain('data-who="Maya"');
+    withProduct({ id: 'direct', key: '1.5', title: 'Added directly', owner: 'Priya', status: 'open', createdAt: '2026-10-08',
+      addedBy: { key: 'git:gone@example.com', name: 'Former Lead' }, addedAt: '2026-10-08T09:00:00.000Z' });
+    await lend();
+    const m = historyOf(row((await visit('/project/acme/ledger?ws=product', MEMBER_GOOGLE)).body, 'direct'));
+    expect(m.lines[0]).toMatchObject({ who: 'someone', text: 'added it' });
+  });
+
+  it('shows something only in the queue as not approved yet', async () => {
+    repo.files.set('.teamctx/queue/c-1.json', JSON.stringify({
+      id: 'c-1', number: '1.2', status: 'pending', author: 'Priya', source: 'mcp', createdAt: '2026-10-06T10:00:00.000Z', summary: 'adds the pricing tiers', workstream: 'product',
+      operations: [{ type: 'addTask', title: 'Price the tiers' }],
+    }));
+    const { body } = await visit('/project/acme/ledger', MANAGER);
+    const q = new RegExp('<div class="q[^"]*" id="r-c-1"[\\s\\S]*?\\n</div>').exec(body)[0];
+    expect(historyOf(q)).toEqual({ status: 'Not approved yet', lines: [{ date: '2026-10-06', at: '2026-10-06T10:00:00.000Z', who: 'Priya', agent: false, text: 'submitted it through an assistant', waiting: true }] });
+  });
+
+  it('really hides what it hides, though the theme gives buttons and rows a display', async () => {
+    const { body } = await visit('/project/acme/ledger?ws=product', MANAGER);
+    expect(body).toContain('#d-history-earlier[hidden],.history li[hidden]{display:none}');
+  });
+
+  it('marks a done task for the drawer, which strikes its title through', async () => {
+    const { body } = await visit('/project/acme/ledger?ws=product&history=1', MANAGER);
+    expect(row(body, 'pricing-page')).toContain('data-done="1"');
+    expect(body).toMatch(/#d-text\.done\{text-decoration:line-through/);
+    expect(body).toContain("document.getElementById('d-text').classList.toggle('done', el.dataset.done === '1');");
+  });
+
+  it('writes the history as text, never as markup', async () => {
+    repo.files.set('.teamctx/contributions.jsonl', JSON.stringify({ id: 'c-prod', author: '<img src=x onerror=alert(1)>', source: 'mcp', ts: '2026-09-30T09:00:00.000Z' }));
+    const { body } = await visit('/project/acme/ledger?ws=product&history=1', MANAGER);
+    expect(row(body, 'pricing-page')).not.toContain('<img');
+    expect(body).toContain("var date = document.createElement('span');");
+    expect(body).not.toMatch(/d-history[^;]*innerHTML/);
+  });
+});
+
+describe('a task history built from files anybody with write access could have edited', () => {
+  it('survives an approval file that is not valid, empty, or not an object', async () => {
+    repo.files.set('.teamctx/approved/bad.json', '{not json');
+    repo.files.set('.teamctx/approved/null.json', 'null');
+    repo.files.set('.teamctx/approved/noid.json', JSON.stringify({ approvedAt: '2026-10-06' }));
+    const r = await visit('/project/acme/ledger', MANAGER);
+    expect(r.status).toBe(200);
+    expect(r.body).toContain('Draft the pricing page');
+  });
+});

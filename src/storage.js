@@ -293,6 +293,46 @@ export function listRejected(dir) {
     .sort((a, b) => (a.rejectedAt || '').localeCompare(b.rejectedAt || ''));
 }
 
+/**
+ * Approvals leave a file too (#143), so a task's history can say who approved
+ * a contribution and when. One small file per decision, beside `rejected/`,
+ * rather than a field stamped into `contributions.jsonl`: that log is
+ * append-only, and rewriting a line of it can lose a contribution appended at
+ * the same moment.
+ */
+export function writeApproved(record, dir) {
+  sanitizeQueueId(record?.id);
+  if (sessionWrite(ctxPath('approved', `${record.id}.json`), JSON.stringify(record, null, 2))) return;
+  const d = resolve(dir, 'approved');
+  mkdirSync(d, { recursive: true });
+  writeFileSync(join(d, `${record.id}.json`), JSON.stringify(record, null, 2));
+}
+
+/**
+ * Every recorded approval, keyed by contribution id.
+ *
+ * These are files in the repository, so a file that is not valid, or is not an
+ * object with an id, is skipped rather than allowed to take the page down.
+ */
+export function readApprovals(dir) {
+  const parse = (text) => { try { return JSON.parse(text); } catch { return null; } };
+  const entries = (records) => Object.fromEntries(records
+    .filter(r => r && typeof r === 'object' && typeof r.id === 'string')
+    .map(r => [r.id, r]));
+  const s = sessionListDir(ctxPath('approved'));
+  if (s !== null) {
+    return entries(s.filter(name => name.endsWith('.json'))
+      .map(name => getCurrentSession().read(ctxPath('approved', name)))
+      .filter(Boolean)
+      .map(f => parse(f.content)));
+  }
+  const d = resolve(dir, 'approved');
+  if (!existsSync(d)) return {};
+  return entries(readdirSync(d)
+    .filter(name => name.endsWith('.json'))
+    .map(name => parse(readFileSync(join(d, name), 'utf-8'))));
+}
+
 // ---- Snapshots ----
 
 export function snapshotsDir(dir) {

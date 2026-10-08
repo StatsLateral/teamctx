@@ -1,4 +1,4 @@
-import { readProject, readConfig, writeConfig, withCounters, readTree, writeTree, writeTreeMd, appendContribution, writeRoleFile, writeQueueItem, readContributions, listWorkstreamIds } from '../../src/storage.js';
+import { readProject, readConfig, writeConfig, withCounters, readTree, writeTree, writeTreeMd, appendContribution, writeRoleFile, writeQueueItem, writeApproved, readContributions, listWorkstreamIds } from '../../src/storage.js';
 import { resolveTarget, isProjectLevel } from '../../src/project-level.js';
 import { digestProject } from '../../src/tree-digest.js';
 import { touchedBy, applyOps } from '../../src/ops.js';
@@ -260,6 +260,15 @@ export async function contributeCore({
     writeRoleFile(role.slug, md, teamctxDir);
     rolesRegenerated.push(role.slug);
   }
+
+  // Applied without a queue: by the manager, who is the approver, or under the
+  // project's review policy, which approved it with nobody deciding (#143).
+  writeApproved({
+    id: contribution.id, author: actor, source, workstream: targetId,
+    approvedBy: mayApply ? { key: resolved.key || null, name: resolvedName } : null,
+    ...(mayApply ? {} : { by: 'policy' }),
+    approvedAt: new Date().toISOString(),
+  }, teamctxDir);
 
   const note = tagged === 'decision' ? ' [decision]' : '';
   const wsNote = isProjectLevel(targetId) ? '' : ` (${targetId})`;
