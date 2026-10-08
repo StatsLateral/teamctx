@@ -110,8 +110,9 @@ const CSS = `
 /* One instruction per line, its Copy button beside it; the text wraps first. */
 .decide .decide-where{margin:.6rem 0 .3rem;font-size:12px;color:var(--soft)}
 .decide-line{display:flex;align-items:center;gap:8px;margin:0 0 6px}
-.decide-line code{flex:1;min-width:0;overflow-wrap:anywhere;background:var(--paper);border:1px solid var(--line);
-  border-radius:6px;padding:5px 8px;color:var(--ink)}
+/* What the line shows is clipped to one line here; Copy takes the whole text. */
+.decide-line code{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  background:var(--paper);border:1px solid var(--line);border-radius:6px;padding:5px 8px;color:var(--ink)}
 .decide-copy{flex:none;font-size:12px;padding:4px 10px;border-radius:6px}
 
 /* The drawer. */
@@ -268,11 +269,13 @@ const SCRIPT = `
           decide.appendChild(head);
         }
         var row = document.createElement('div'); row.className = 'decide-line';
-        var code = document.createElement('code'); code.textContent = line.text;
+        // The label is shown, clipped by CSS to fit; the whole text is copied.
+        var code = document.createElement('code'); code.textContent = line.label; code.title = line.label;
         var copy = document.createElement('button');
         copy.type = 'button'; copy.className = 'decide-copy'; copy.textContent = 'Copy';
-        copy.setAttribute('aria-label', 'Copy: ' + line.text);
+        copy.setAttribute('aria-label', 'Copy: ' + line.label);
         copy.dataset.copy = line.text;
+        copy.dataset.label = line.label;
         row.appendChild(code); row.appendChild(copy); decide.appendChild(row);
       });
     }
@@ -368,7 +371,7 @@ const SCRIPT = `
     // Said on the button: the drawer's message line sits below the fold when
     // Decide is on screen, so a copy there went unconfirmed.
     toText(b.dataset.copy).then(function () {
-      say('Copied: ' + b.dataset.copy);
+      say('Copied: ' + b.dataset.label);
       b.textContent = 'Copied';
       setTimeout(function () { b.textContent = 'Copy'; }, 2000);
     }, function () { say('Could not copy. Select the line and copy it by hand.'); });

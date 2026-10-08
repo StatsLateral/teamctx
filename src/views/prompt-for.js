@@ -67,3 +67,48 @@ export function promptFor({ node, tier, where, isProject, owner, repo, link, par
  */
 export const escAttr = (v) => esc(v).replace(/\n/g, '&#10;');
 
+
+/**
+ * What to paste into a fresh chat to approve or reject a waiting contribution.
+ *
+ * In the same shape as `promptFor`: the request first, in the words a person
+ * would use, then everything the assistant has to do under a heading addressed
+ * to it. A bare "Approve 1.2" told a fresh chat nothing — which repository,
+ * that it is a teamctx review, which item, which tool — so it is all written
+ * here, and nothing is shortened: the page may clip what it shows, never what it
+ * copies.
+ *
+ * The item is named by its id, which every queued contribution has, and quoted
+ * by its summary so a person reading the prompt knows which one it is.
+ */
+export function decidePrompt({ action, id, summary, owner, repo, link }) {
+  const line = (...lines) => lines.filter(Boolean).join('\n');
+  const find = [
+    `- Confirm you are connected to the repository ${owner}/${repo}. get_connect_url returns a URL containing the owner and repo. If it is a different one, stop and tell me.`,
+    `- Find the contribution with id ${id} among the ones waiting for review (list_pending_reviews). If it is not there, it has already been decided: say so and stop.`,
+  ];
+  if (action === 'approve') {
+    return [
+      `Approve this contribution that is waiting for my review: "${summary}".`,
+      line(
+        'Instructions for the AI agent:',
+        ...find,
+        '- Before approving, tell me in plain words what it will change, and anything it should be checked against: a decision or rule it contradicts, evidence against an assumption, what rests on an assumption it breaks.',
+        '- If it contradicts a decision or rule already in place, ask me which one it replaces before approving. Do not choose for me.',
+        `- Then approve it with review_approve, id ${id}, and tell me what changed.`,
+        link ? `- The page it came from: ${link}` : '',
+      ),
+    ].join('\n\n');
+  }
+  return [
+    `Reject this contribution that is waiting for my review: "${summary}".`,
+    'Reason: <write your reason here>',
+    line(
+      'Instructions for the AI agent:',
+      ...find,
+      '- If the reason above is still "<write your reason here>", ask me for it. Do not make one up.',
+      `- Then reject it with review_reject, id ${id}, and that reason, and tell me it is done. Nothing in the team's context changes.`,
+      link ? `- The page it came from: ${link}` : '',
+    ),
+  ].join('\n\n');
+}

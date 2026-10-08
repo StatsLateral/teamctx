@@ -1448,27 +1448,47 @@ describe('waiting on you', () => {
 
   it('says how to decide it, in the assistant or on the command line, and has no approve or reject button', async () => {
     const { body } = await visit('/project/acme/ledger', MANAGER);
-    // Each one whole, on its own line, so it can be copied as it is (#142).
-    expect(dataOf(item(body, 'c-1'), 'decide')).toEqual([
-      { where: 'In your assistant', text: 'Approve 1.2' },
-      { where: 'In your assistant', text: 'Reject 1.2 because …' },
-      { where: 'On the command line', text: 'teamctx review approve c-1' },
-      { where: 'On the command line', text: 'teamctx review reject c-1 --reason "…"' },
+    // One line each, with what the line shows and what Copy takes (#142).
+    const lines = dataOf(item(body, 'c-1'), 'decide');
+    expect(lines.map(({ where, label }) => [where, label])).toEqual([
+      ['In your assistant', 'Approve 1.2'],
+      ['In your assistant', 'Reject 1.2, with a reason'],
+      ['On the command line', 'teamctx review approve c-1'],
+      ['On the command line', 'teamctx review reject c-1 --reason "…"'],
     ]);
+    expect(lines[2].text).toBe('teamctx review approve c-1');
+    expect(lines[3].text).toBe('teamctx review reject c-1 --reason "…"');
     expect(onPage(body)).not.toMatch(/>\s*(Approve|Reject)\b/);
     expect(body).toContain('id="d-decide-title">Decide<');
   });
 
-  it('names an item with no number by what it says, so the instruction still means something', async () => {
-    queue('c-unnumbered', { summary: 'An unnumbered proposal', workstream: null });
-    const lines = dataOf(item((await visit('/project/acme/ledger', MANAGER)).body, 'c-unnumbered'), 'decide');
-    expect(lines.map(l => l.text).slice(0, 2)).toEqual(['Approve "An unnumbered proposal"', 'Reject "An unnumbered proposal" because …']);
+  it('copies a whole prompt for the assistant: which repository, which item, which tool', async () => {
+    // A bare "Approve 1.2" told a fresh chat nothing. What is copied says it all.
+    const [approve, reject] = dataOf(item((await visit('/project/acme/ledger', MANAGER)).body, 'c-1'), 'decide');
+    expect(approve.text).toMatch(/^Approve this contribution that is waiting for my review: "adds the pricing tiers"\./);
+    for (const part of ['Instructions for the AI agent:', 'acme/ledger', 'id c-1', 'list_pending_reviews', 'review_approve, id c-1',
+      'ask me which one it replaces', 'review=c-1']) expect(approve.text).toContain(part);
+    expect(reject.text).toMatch(/^Reject this contribution that is waiting for my review: "adds the pricing tiers"\./);
+    for (const part of ['Reason: <write your reason here>', 'acme/ledger', 'review_reject, id c-1', 'ask me for it. Do not make one up'])
+      expect(reject.text).toContain(part);
   });
 
-  it('shortens a long summary in the instruction, so the line stays one thing to copy', async () => {
-    queue('c-long', { summary: 'x'.repeat(200), workstream: null });
-    const [approve] = dataOf(item((await visit('/project/acme/ledger', MANAGER)).body, 'c-long'), 'decide');
-    expect(approve.text).toBe(`Approve "${'x'.repeat(57)}…"`);
+  it('names an item with no number by what it says', async () => {
+    queue('c-unnumbered', { summary: 'An unnumbered proposal', workstream: null });
+    const lines = dataOf(item((await visit('/project/acme/ledger', MANAGER)).body, 'c-unnumbered'), 'decide');
+    expect(lines.map(l => l.label).slice(0, 2)).toEqual(['Approve "An unnumbered proposal"', 'Reject "An unnumbered proposal", with a reason']);
+  });
+
+  it('never shortens what is copied, however long; the page clips only what it shows', async () => {
+    const summary = 'x'.repeat(300);
+    queue('c-long', { summary, workstream: null });
+    const { body } = await visit('/project/acme/ledger', MANAGER);
+    const [approve, reject] = dataOf(item(body, 'c-long'), 'decide');
+    expect(approve.label).toBe(`Approve "${summary}"`);
+    expect(approve.text).toContain(`"${summary}"`);
+    expect(reject.text).toContain(`"${summary}"`);
+    expect(JSON.stringify([approve, reject])).not.toContain('…"');
+    expect(body).toMatch(/\.decide-line code\{[^}]*white-space:nowrap[^}]*text-overflow:ellipsis/);
   });
 
   it('escapes what somebody else wrote: the summary, the author, the changes and the conflicting record', async () => {
@@ -1583,22 +1603,27 @@ describe('waiting on you', () => {
       }
     });
 
-    it('lists each instruction with a Copy button that copies exactly that line', async () => {
+    it('lists each instruction with a Copy button that copies the whole of it', async () => {
       const page = await live();
       page.review.click();
       const lines = [...page.window.document.querySelectorAll('#d-decide .decide-line')];
       expect(lines.map(l => l.querySelector('code').textContent)).toEqual([
-        'Approve 1.2', 'Reject 1.2 because …', 'teamctx review approve c-1', 'teamctx review reject c-1 --reason "…"',
+        'Approve 1.2', 'Reject 1.2, with a reason', 'teamctx review approve c-1', 'teamctx review reject c-1 --reason "…"',
       ]);
       const buttons = lines.map(l => l.querySelector('button.decide-copy'));
       expect(new Set(buttons.map(b => b.getAttribute('aria-label'))).size).toBe(4);
+      // The assistant line shows a label and copies the whole prompt behind it.
+      buttons[0].click();
+      await new Promise(r => setTimeout(r, 0));
+      expect(page.copied[0]).toMatch(/^Approve this contribution that is waiting for my review: "adds the pricing tiers"\.[\s\S]*review_approve, id c-1/);
+      expect(page.$('#toast').textContent).toBe('Copied: Approve 1.2');
       buttons[2].click();
       await new Promise(r => setTimeout(r, 0));
-      expect(page.copied).toEqual(['teamctx review approve c-1']);
+      expect(page.copied[1]).toBe('teamctx review approve c-1');
       expect(page.$('#toast').textContent).toBe('Copied: teamctx review approve c-1');
       // Confirmed where the click was, since the message line can be off screen.
       expect(buttons[2].textContent).toBe('Copied');
-      expect(buttons[0].textContent).toBe('Copy');
+      expect(buttons[1].textContent).toBe('Copy');
     });
 
     it('writes the instructions as text, never as markup', async () => {
