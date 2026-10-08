@@ -250,8 +250,15 @@ export async function readProjectView({ owner, repo, user }) {
         name: m.name,
         email: m.email || null,
         on: m.workstreams?.length ? m.workstreams : null,
+        // How the team page groups them: set by a manager, absent for a regular member.
+        external: m.external === true,
+        manager: managerKeys(config).some(k => matchesActor(k, { key: m.key, email: m.email, login: m.login })),
       })),
-      agents: agents.map(a => ({ name: a.name, on: a.workstreams?.length ? a.workstreams : null })),
+      agents: agents.map(a => ({
+        name: a.name,
+        on: a.workstreams?.length ? a.workstreams : null,
+        addedAt: a.addedAt || null,
+      })),
       tasks: {
         open: tasks.filter(t => t.status === 'open'),
         done: tasks.filter(t => t.status === 'done'),

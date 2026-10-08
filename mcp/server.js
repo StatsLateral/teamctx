@@ -42,7 +42,7 @@ import { buildBrief } from '../cli/commands/brief.core.js';
 import {
   listTasksFiltered, getTask, addTask, setTaskStatus, assignTask, removeTask, compileTask,
 } from '../cli/commands/task.core.js';
-import { listMembers, addMember, removeMember, setMemberWorkstreams } from '../cli/commands/member.core.js';
+import { listMembers, addMember, removeMember, setMemberWorkstreams, setMemberExternal } from '../cli/commands/member.core.js';
 import { getConfig, setConfig, repairManagerGate, setReviewPolicy } from '../cli/commands/config.core.js';
 import { resolveActor } from '../src/actor.js';
 import { canApprove, managerKeys } from '../src/review.js';
@@ -523,6 +523,7 @@ export const TOOLS = [
           description: 'Workstreams they may reach. Omit for the whole project, which is the default.',
         },
         invite: { type: 'boolean', description: 'Also invite them to the GitHub repository' },
+        external: { type: 'boolean', description: 'List them as external (an advisor or contractor) rather than a regular team member. Changes how they are listed, not what they may reach.' },
         permission: { type: 'string', description: 'pull | triage | push | maintain | admin (default push)' },
       },
       required: ['ref'],
@@ -540,6 +541,18 @@ export const TOOLS = [
           type: 'array', items: { type: 'string' },
           description: 'Workstreams they may reach. Omit to clear the scope and return them to the whole project.',
         },
+      },
+      required: ['ref'], additionalProperties: false,
+    },
+  },
+  {
+    name: 'member_external',
+    description: RISKY + "lists an existing person as external (an advisor or contractor) or puts them back as a regular team member, and commits. Manager-gated against the authenticated caller. Changes how the team page groups them and nothing about what they may reach; that is `member_scope`. Agents are not people and cannot be marked." + REPORT,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ref: { type: 'string', description: 'GitHub username, email address, or the name they are on the roster under' },
+        external: { type: 'boolean', description: 'true (the default) to list them as external; false to make them a regular team member again' },
       },
       required: ['ref'], additionalProperties: false,
     },
@@ -1167,6 +1180,7 @@ export function makeHandlers(projectRoot) {
         ref: args.ref,
         name: args.name,
         workstreams: args.workstreams,
+        external: !!args.external,
         invite: !!args.invite,
         permission: args.permission || 'push',
         // Hosted requests carry the repo they are scoped to, and the caller's
@@ -1190,8 +1204,14 @@ export function makeHandlers(projectRoot) {
       // anything. So the link — or the reason there isn't one — travels with
       // the thing that creates the need for it.
       const link = await this.connectUrl();
+      // Two different things, and the assistant is told which is which: the
+      // connector address is pasted into an assistant and answers nothing to a
+      // browser, and the project page is the one to open. Called "a link" it was
+      // sent as one, and opened.
+      const page = await this.viewUrl({});
       const next = link.ok
-        ? ` Send them this link to join: ${link.url} — they add it as a custom connector and sign in.`
+        ? ` Give them two things. The connector address, ${link.url} — they paste it into their assistant (Claude, ChatGPT or Copilot) and add it as a custom connector, then sign in with the email they were added under; it is not a page to open.`
+          + (page.viewUrl ? ` And the project page, ${page.viewUrl} — that one they can open in a browser.` : '')
         : link.code === 'NO_DEPLOY_URL'
           ? ' This project has no deploy URL recorded, so the server could not build the link. '
             + 'You already have it: give them the address of the connector this conversation is using, '
@@ -1203,6 +1223,7 @@ export function makeHandlers(projectRoot) {
         ...r,
         connectUrl: link.ok ? link.url : null,
         connectUrlError: link.ok ? null : link.error,
+        ...(page.viewUrl ? { viewUrl: page.viewUrl } : {}),
         reportBack: `${r.member.name} added to the project${access}.${next}`,
       });
     },
@@ -1223,6 +1244,15 @@ export function makeHandlers(projectRoot) {
         ? ' Advisory for them: a GitHub collaborator holds a clone and reads every workstream in it.'
         : '';
       return textResult({ ...r, reportBack: `${r.member.name} is ${where}.${honest}` });
+    },
+
+    async member_external(args = {}) {
+      const external = args.external !== false;
+      const r = await setMemberExternal({ ref: args.ref, external, teamctxDir: dir(), projectDir: gitCwd });
+      return textResult({
+        ...r,
+        reportBack: `${r.member.name} is now ${external ? 'external' : 'a regular team member'}. What they may reach is unchanged.`,
+      });
     },
 
     async member_rm(args = {}) {
