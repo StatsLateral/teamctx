@@ -130,8 +130,8 @@ describe('deciding a waiting item in the assistant', () => {
   it('says in the Decide text that tasks can be approved with or without', () => {
     const html = render(view({ pending: [waiting()] }));
     const lines = JSON.parse(attr(html, 'data-decide').replace(/&lt;/g, '<'));
-    expect(lines[0]).toContain('"Approve 1.2"');
-    expect(lines[0]).toMatch(/with or without its tasks/);
+    expect(lines[0].note).toContain('"Approve 1.2"');
+    expect(lines[0].note).toMatch(/with or without its tasks/);
   });
 });
 

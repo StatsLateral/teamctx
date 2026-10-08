@@ -92,4 +92,3 @@ export function decisionPrompt({ ref, id, title, owner, repo, link }) {
  * line and decodes back to the newline the clipboard needs.
  */
 export const escAttr = (v) => esc(v).replace(/\n/g, '&#10;');
-
