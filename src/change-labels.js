@@ -19,3 +19,13 @@ export function describeChange(op, tree) {
     default: return null;
   }
 }
+
+/**
+ * Text somebody else wrote, made safe to place inside a sentence that tells an
+ * assistant what to do: one line, bounded, and quoted so it reads as the thing
+ * to show the person rather than as part of the instruction.
+ */
+export function asQuotedData(text, max = 240) {
+  const flat = String(text ?? '').replace(/\s+/g, ' ').replace(/["\u201c\u201d]/g, "'").trim();
+  return `"${flat.length > max ? `${flat.slice(0, max)}…` : flat}"`;
+}
