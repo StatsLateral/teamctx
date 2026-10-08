@@ -1,7 +1,7 @@
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import {
-  listMembers, addMember, removeMember, setMemberWorkstreams,
+  listMembers, addMember, removeMember, setMemberWorkstreams, setMemberExternal,
   MemberNotFoundError, MemberExistsError, InviteNeedsLoginError,
 } from './member.core.js';
 import { ManagerGateError } from './review.core.js';
@@ -115,6 +115,15 @@ export async function memberScopeCommand(ref, opts = {}) {
 ✓ ${m.name} is now on the whole project.`);
   printScope(m);
   console.log('');
+}
+
+export async function memberExternalCommand(ref, opts = {}) {
+  const external = !opts.regular;
+  let result;
+  try {
+    result = await setMemberExternal({ ref, external });
+  } catch (err) { reportAndExit(err); }
+  console.log(`\n✓ ${result.member.name} is now ${external ? 'external' : 'a regular team member'}.\n`);
 }
 
 export async function memberListCommand() {

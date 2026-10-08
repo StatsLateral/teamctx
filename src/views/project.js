@@ -65,7 +65,31 @@ h1{font-size:28px;line-height:1.25;margin:0 0 .35rem}
 .node .dot{flex:none;align-self:center;width:7px;height:7px;border-radius:50%;background:var(--amber)}
 .node .cnt{flex:none;margin-left:auto;font-family:var(--font-mono);font-size:11px;color:var(--faint)}
 .node.root{font-family:var(--font-display);font-weight:600;font-size:15px;padding-left:8px}
-.stline{margin:.35rem 0 0;font-size:13px;color:var(--soft)}
+.stlink{display:flex;align-items:baseline;gap:8px;width:100%;margin:.35rem 0 0;padding:0;background:none;border:0;font:inherit;font-size:14px;
+  color:var(--soft);text-align:left;text-decoration:underline;text-decoration-color:var(--line);text-underline-offset:3px;cursor:pointer}
+.stlink:hover,.stlink:focus-visible{color:var(--accent);text-decoration-color:var(--accent)}
+.stcnt{font-family:var(--font-mono);font-size:11px;color:var(--faint);text-decoration:none}
+/* The team drawer: one card per person or agent. */
+.tg{display:flex;align-items:center;gap:8px;font-family:var(--font-mono);font-size:11px;text-transform:uppercase;letter-spacing:.08em;
+  color:var(--faint);font-weight:500;margin:1.2rem 0 .5rem}
+.tg:first-child{margin-top:0}
+.pcard{border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--paper);padding:10px 12px;margin:0 0 8px}
+.pline{margin:6px 0 0;font-size:13px;color:var(--soft);overflow-wrap:anywhere}
+.pnote{font-size:13px;color:var(--soft);margin:1.2rem 0 0}
+.chip.ext{color:var(--ext,#9a4d00);background:var(--ext-soft,#fdf0dc)}
+/* The sources drawer: a preview, said first. */
+.notice{background:var(--amber-soft);color:var(--ink);border:1px solid color-mix(in srgb,var(--amber) 40%,transparent);border-radius:var(--radius-sm);
+  padding:10px 12px;margin:0 0 1rem;font-size:13px;line-height:1.5}
+.notice a{color:var(--accent)}
+.srcgroup{margin:0 0 1.2rem}
+.srcgroup .tg{margin-top:1rem}
+.mark{display:inline-grid;place-items:center;width:20px;height:20px;border:1px solid var(--line);border-radius:5px;background:var(--card);color:var(--soft);font-size:11px}
+.srcitems{list-style:none;margin:.4rem 0 0;padding:0}
+.srcitems li{padding:9px 0;border-top:1px solid var(--line)}
+.srcitems li:first-child{border-top:0}
+.srcitems strong{display:block;font-weight:600;font-size:14px;overflow-wrap:anywhere}
+.srcitems .m{display:block;margin-top:2px;font-size:12.5px;color:var(--soft)}
+.assist[hidden]{display:none}
 .chip{display:inline-flex;align-items:center;gap:4px;font-size:12px;line-height:1.5;padding:1px 9px;border-radius:99px;background:var(--grey-soft);color:var(--soft);white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis}
 .chip.agent{color:#5b61d6;background:color-mix(in srgb,#5b61d6 12%,transparent)}
 .chip.warn{color:var(--amber);background:var(--amber-soft)}
@@ -244,6 +268,7 @@ const SCRIPT = `
   };
   // The assistant block says what it is for: asking about something, or deciding it.
   function assistFor(deciding) {
+    document.getElementById('d-assist').hidden = false;
     document.getElementById('d-assist-title').textContent = deciding ? 'Decide in your assistant' : 'Ask in your assistant';
     var modes = document.getElementById('d-amode');
     modes.hidden = deciding;
@@ -329,6 +354,8 @@ const SCRIPT = `
     if (from) opener = from;
     taskView.hidden = true;
     assistFor(false);
+    // The team and the sources have nothing to ask an assistant about.
+    document.getElementById('d-assist').hidden = panel.hasAttribute('data-noassist');
     panels.forEach(function (p) { p.hidden = p !== panel; });
     // The button under an empty part asks for help with its tasks; every other way
     // in is just to read the part's context.
@@ -489,7 +516,6 @@ export const projectPage = ({ user, view, selected, item = null, note = null, or
   // edited. The team lines are counts for now; each joins as its data reaches the page.
   const people = (view.members || []).length;
   const agents = (view.agents || []).length;
-  const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
   const settings = (origin || people || agents) ? (() => {
     const parts = { origin, owner: view.owner, repo: view.repo };
     const full = origin ? mcpUrl(parts) : '';
@@ -503,8 +529,8 @@ export const projectPage = ({ user, view, selected, item = null, note = null, or
         </button>
       </div>
       <span class="sr-only" id="mcp-help">Add this as a custom connector in Claude, ChatGPT or Copilot</span>` : ''}
-      ${people ? `<p class="stline">${plural(people, 'team member')}</p>` : ''}
-      ${agents ? `<p class="stline">${plural(agents, 'agent')}</p>` : ''}
+      ${people || agents ? `<button type="button" class="stlink" data-panel="dp-team">My Team<span class="stcnt">${people + agents}</span></button>` : ''}
+      <button type="button" class="stlink" data-panel="dp-sources">Connected sources<span class="stcnt">roadmap</span></button>
     </section>`;
   })() : '';
 
