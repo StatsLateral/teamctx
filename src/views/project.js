@@ -365,8 +365,13 @@ const SCRIPT = `
   document.getElementById('d-decide').addEventListener('click', function (e) {
     var b = e.target.closest('.decide-copy');
     if (!b) return;
-    toText(b.dataset.copy).then(function () { say('Copied: ' + b.dataset.copy); },
-      function () { say('Could not copy. Select the line and copy it by hand.'); });
+    // Said on the button: the drawer's message line sits below the fold when
+    // Decide is on screen, so a copy there went unconfirmed.
+    toText(b.dataset.copy).then(function () {
+      say('Copied: ' + b.dataset.copy);
+      b.textContent = 'Copied';
+      setTimeout(function () { b.textContent = 'Copy'; }, 2000);
+    }, function () { say('Could not copy. Select the line and copy it by hand.'); });
   });
   // Shared rows carry the text and prompt for their drawer.
   var statement = document.querySelector('.marked[data-prompt]');

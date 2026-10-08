@@ -1596,6 +1596,9 @@ describe('waiting on you', () => {
       await new Promise(r => setTimeout(r, 0));
       expect(page.copied).toEqual(['teamctx review approve c-1']);
       expect(page.$('#toast').textContent).toBe('Copied: teamctx review approve c-1');
+      // Confirmed where the click was, since the message line can be off screen.
+      expect(buttons[2].textContent).toBe('Copied');
+      expect(buttons[0].textContent).toBe('Copy');
     });
 
     it('writes the instructions as text, never as markup', async () => {
