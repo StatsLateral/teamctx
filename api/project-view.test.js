@@ -558,11 +558,110 @@ describe('the Settings block', () => {
     expect(body).not.toContain('id="lane-pick"');
   });
 
-  it('counts the team and the agents beneath the address', async () => {
+  it('has no count lines under the address any more: My Team and Connected sources open drawers', async () => {
     const { body } = await visit('/project/acme/ledger', MANAGER);
     const settings = /<section class="settings"[\s\S]*?<\/section>/.exec(body)[0];
-    expect(settings).toContain('<p class="stline">2 team members</p>');
-    expect(settings).toContain('<p class="stline">1 agent</p>');
+    expect(settings).not.toContain('stline');
+    expect(settings).toMatch(/<button type="button" class="stlink" data-panel="dp-team">My Team/);
+    expect(settings).toMatch(/<button type="button" class="stlink" data-panel="dp-sources">Connected sources/);
+  });
+});
+
+describe('My Team', () => {
+  const withRoster = (members) => repo.files.set('.teamctx/config.json', JSON.stringify({
+    ...CONFIG, members,
+  }));
+  const team = (body) => /<section class="dpanel" id="dp-team"[\s\S]*?<\/section>/.exec(body)?.[0] || '';
+  const section = (html, title) => new RegExp(`<h3[^>]*>${title} · \\d+</h3>[\\s\\S]*?(?=<h3|$)`).exec(html)?.[0] || '';
+  const roster = [
+    { key: 'git:maya@example.com', name: 'Maya', email: 'maya@example.com' },
+    { key: 'git:priya@example.com', name: 'Priya', email: 'priya@example.com', workstreams: ['product'] },
+    { key: 'git:dana@example.com', name: 'Dana', email: 'dana@example.com', external: true, workstreams: ['tech'] },
+    { key: 'agent:a1', name: 'Nightly report', kind: 'agent', addedAt: '2026-10-07', workstreams: ['product', 'tech'] },
+  ];
+
+  it('lists team members, agents and external talent in their own sections', async () => {
+    withRoster(roster);
+    const html = team((await visit('/project/acme/ledger', MANAGER)).body);
+    expect(section(html, 'Team members')).toContain('Maya');
+    expect(section(html, 'Team members')).toContain('Priya');
+    expect(section(html, 'Agents')).toContain('Nightly report');
+    expect(section(html, 'External talent')).toContain('Dana');
+  });
+
+  it('keeps an external person out of the regular list, and a regular one out of external', async () => {
+    withRoster(roster);
+    const html = team((await visit('/project/acme/ledger', MANAGER)).body);
+    expect(section(html, 'Team members')).not.toContain('Dana');
+    expect(section(html, 'External talent')).not.toContain('Priya');
+    expect(section(html, 'Team members')).toContain('Team members · 2');
+    expect(section(html, 'External talent')).toContain('External talent · 1');
+  });
+
+  it('says who is a manager, and what each person or agent reaches', async () => {
+    withRoster(roster);
+    const html = team((await visit('/project/acme/ledger', MANAGER)).body);
+    expect(section(html, 'Team members')).toMatch(/Maya[\s\S]*Manager · whole project/);
+    expect(section(html, 'Team members')).toMatch(/Priya[\s\S]*Reaches Product/);
+    expect(section(html, 'External talent')).toMatch(/Dana[\s\S]*Reaches Tech/);
+    expect(section(html, 'Agents')).toMatch(/Added 2026-10-07 · reaches Product, Tech/);
+  });
+
+  it('shows no external section when nobody is external, and tells a manager how to add one', async () => {
+    withRoster(roster.filter(m => !m.external));
+    const html = team((await visit('/project/acme/ledger', MANAGER)).body);
+    expect(html).not.toContain('External talent');
+    expect(html).toContain('Make');
+    expect(html).toMatch(/tell your assistant/i);
+  });
+
+  it('does not tell somebody who is not the manager how to change the roster', async () => {
+    withRoster(roster);
+    const html = team((await visit('/project/acme/ledger', MEMBER_GOOGLE)).body);
+    expect(html).not.toMatch(/tell your assistant/i);
+  });
+
+  it('is a drawer of its own, without the assistant block', async () => {
+    const { body } = await visit('/project/acme/ledger', MANAGER);
+    expect(body).toMatch(/id="dp-team"[^>]*data-title="My Team"[^>]*data-noassist/);
+    expect(body).toMatch(/id="dp-sources"[^>]*data-title="Connected sources"[^>]*data-noassist/);
+  });
+
+  it('escapes what somebody wrote in a name', async () => {
+    const hostile = '<img src=x onerror="alert(1)">';
+    withRoster([{ key: 'git:evil@example.com', name: hostile, email: 'evil@example.com' }]);
+    const { body } = await visit('/project/acme/ledger', MANAGER);
+    expect(team(body)).not.toContain(hostile);
+    expect(team(body)).toContain('&lt;img src=x');
+  });
+});
+
+describe('Connected sources (roadmap preview)', () => {
+  const sources = (body) => /<section class="dpanel" id="dp-sources"[\s\S]*?<\/section>/.exec(body)?.[0] || '';
+
+  it('says plainly that it is sample data on the roadmap, and invites contributions', async () => {
+    const html = sources((await visit('/project/acme/ledger', MANAGER)).body);
+    expect(html).toMatch(/on the roadmap/i);
+    expect(html).toMatch(/sample data/i);
+    expect(html).toMatch(/contribut/i);
+    expect(html).toContain('https://github.com/StatsLateral/teamctx/issues');
+  });
+
+  it('shows a few connectors and what came from them, as the demo does', async () => {
+    const html = sources((await visit('/project/acme/ledger', MANAGER)).body);
+    expect((html.match(/class="srcgroup"/g) || []).length).toBeGreaterThanOrEqual(3);
+    expect(html).toMatch(/context items?/);
+  });
+
+  it('carries no real client names', async () => {
+    const html = sources((await visit('/project/acme/ledger', MANAGER)).body);
+    for (const name of ['Pycube', 'Henry Ford', 'BayCare', 'Baptist', 'UM Health']) expect(html).not.toContain(name);
+  });
+
+  it('marks the settings link as a preview too', async () => {
+    const { body } = await visit('/project/acme/ledger', MANAGER);
+    const settings = /<section class="settings"[\s\S]*?<\/section>/.exec(body)[0];
+    expect(settings).toMatch(/Connected sources[\s\S]*?roadmap/i);
   });
 });
 
