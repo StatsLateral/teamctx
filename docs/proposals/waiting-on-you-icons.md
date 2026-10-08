@@ -41,6 +41,11 @@ So this is the three missing pieces, not a rebuild.
 
 ### 1 · Decide: each instruction copyable
 
+> **Changed after #159.** #159 made the drawer's assistant row open the
+> assistant with a decide prompt, so the two assistant lines below were dropped
+> in favour of it. Decide keeps #159's sentence and the two command-line lines,
+> each with a Copy button.
+
 Today Decide is two sentences, with the commands inside them. A manager has to
 select the right part by hand. Instead, Decide lists the four things they can
 hand over, each on its own line with a **Copy** button:

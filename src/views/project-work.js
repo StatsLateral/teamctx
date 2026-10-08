@@ -2,7 +2,7 @@ import { esc } from './theme.js';
 import { RECORD_TYPES, today } from '../model.js';
 import { contradictionLabel, evidenceLabel } from '../contradictions.js';
 import { describeChange } from '../change-labels.js';
-import { promptFor, decidePrompt, decisionPrompt, escAttr, whoTouched } from './prompt-for.js';
+import { promptFor, decisionPrompt, escAttr, whoTouched } from './prompt-for.js';
 import { workstreamLocation } from './workstream-location.js';
 
 /**
@@ -138,16 +138,12 @@ function waitingItem({ q, view, origin, marked }) {
     ref, id: q.id, title, owner: view.owner, repo: view.repo,
     link: origin ? `${origin}/project/${view.owner}/${view.repo}?${new URLSearchParams({ ...(q.workstream ? { ws: q.workstream } : {}), item: q.id })}` : null,
   });
-  // What a manager can hand over, one per line, each with a Copy button
-  // (#142). `label` is what the line shows, and the page clips it to fit;
-  // `text` is what Copy puts on the clipboard, always whole. For the assistant
-  // that is a full prompt, since a bare "Approve 1.2" means nothing to a fresh
-  // chat; for the command line the command is already the whole thing.
-  const link = origin ? `${origin}/project/${view.owner}/${view.repo}?${new URLSearchParams({ ...(q.workstream ? { ws: q.workstream } : {}), review: q.id })}` : null;
-  const named = ref || `"${title}"`;
+  // How to decide it. In the assistant: the drawer's assistant row opens it with
+  // the item and the question (#159), so this only says so. On the command
+  // line: each command on its own line with a Copy button (#142). `label` is
+  // what a line shows, clipped to fit; `text` is what Copy takes, whole.
   const decide = [
-    { where: 'In your assistant', label: `Approve ${named}`, text: decidePrompt({ action: 'approve', id: q.id, summary: title, owner: view.owner, repo: view.repo, link }) },
-    { where: 'In your assistant', label: `Reject ${named}, with a reason`, text: decidePrompt({ action: 'reject', id: q.id, summary: title, owner: view.owner, repo: view.repo, link }) },
+    { note: `Open your assistant with the icons below, or tell it: "Approve ${ref || 'this'}"${ref ? '' : ' (name it by what it says)'} with or without its tasks, or "Reject ${ref || 'this'}" with a reason.` },
     { where: 'On the command line', label: `teamctx review approve ${q.id}`, text: `teamctx review approve ${q.id}` },
     { where: 'On the command line', label: `teamctx review reject ${q.id} --reason "…"`, text: `teamctx review reject ${q.id} --reason "…"` },
   ];

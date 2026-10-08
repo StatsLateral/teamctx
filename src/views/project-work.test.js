@@ -130,8 +130,7 @@ describe('deciding a waiting item in the assistant', () => {
   it('says in the Decide text that tasks can be approved with or without', () => {
     const html = render(view({ pending: [waiting()] }));
     const lines = JSON.parse(attr(html, 'data-decide').replace(/&lt;/g, '<'));
-    // Decide is copyable lines (#142); the approve prompt asks about the tasks.
-    expect(lines[0].label).toBe('Approve 1.2');
-    expect(lines[0].text).toMatch(/approve with them \(tasks: "include"\) or without them \(tasks: "leave_out"\)/);
+    expect(lines[0].note).toContain('"Approve 1.2"');
+    expect(lines[0].note).toMatch(/with or without its tasks/);
   });
 });

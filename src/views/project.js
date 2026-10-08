@@ -282,6 +282,11 @@ const SCRIPT = `
       decide.textContent = '';
       var group = null;
       JSON.parse(el.dataset.decide || '[]').forEach(function (line) {
+        // A line to read rather than copy: how to decide it in the assistant.
+        if (line.note) {
+          var note = document.createElement('p'); note.textContent = line.note; decide.appendChild(note);
+          return;
+        }
         if (line.where !== group) {
           group = line.where;
           var head = document.createElement('p'); head.className = 'decide-where'; head.textContent = group;
