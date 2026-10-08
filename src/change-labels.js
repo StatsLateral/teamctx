@@ -26,6 +26,12 @@ export function describeChange(op, tree) {
  * to show the person rather than as part of the instruction.
  */
 export function asQuotedData(text, max = 240) {
-  const flat = String(text ?? '').replace(/\s+/g, ' ').replace(/["\u201c\u201d]/g, "'").trim();
+  const flat = String(text ?? '')
+    // Control and invisible formatting characters (zero-width, bidi overrides) can hide where a quote ends.
+    .replace(/[\p{Cc}\p{Cf}\u2028\u2029]+/gu, ' ')
+    // Anything that could pass for a closing quote, or open a code span, becomes a plain apostrophe.
+    .replace(/["\u201c\u201d\u201e\u201f\u2033\u2036\u00ab\u00bb\u300c-\u300f\uff02`\\]/g, "'")
+    .replace(/\s+/g, ' ')
+    .trim();
   return `"${flat.length > max ? `${flat.slice(0, max)}…` : flat}"`;
 }
