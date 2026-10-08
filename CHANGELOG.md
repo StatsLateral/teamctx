@@ -77,6 +77,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   count, and a "Show history (N done)" link at the bottom. A waiting item's drawer
   says what it would change, what to check it against, and how to decide it in the
   assistant or on the command line. Settings also counts the team and agents.
+  In Decide, the `teamctx review approve` / `reject --reason` commands each sit
+  on their own line with a **Copy** button that says Copied when it is done;
+  deciding in the assistant goes through the drawer's assistant row. A line is
+  clipped to fit on screen; what is copied is never shortened. Every drawer
+  opens at the top; only the Review icon goes on to the decision (#142).
 - **Work sent back for a task is reviewed as that task's work (#144).**
   `contribute` takes `forTask` (the task's number) and `submitted` (one line on
   what was produced), for people and agents. It is not distilled and spends no AI
@@ -100,13 +105,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   is waiting and what was turned down are shown to the manager only, and a name
   nobody on the roster answers to reads "someone". A done task's title is struck
   through in the drawer, as it already was in the list.
-  Each way to decide is its own line with a **Copy** button that says Copied
-  when it is done: approve or reject in the assistant, each copying a whole
-  prompt (which repository, which item by id, what to check, and to ask for a
-  reason rather than invent one), and the `teamctx review approve` / `reject
-  --reason` commands. A line shows a short label, clipped to fit; what is
-  copied is never shortened. Every drawer opens at the top; only the Review icon
-  goes on to the decision (#142).
 - **The project page no longer lists decisions, rules, assumptions or
   exceptions.** It shows the work (tasks, by workstream) and, for the manager,
   what is waiting. Context is read through the assistant. Impact flags,

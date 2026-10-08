@@ -1449,47 +1449,28 @@ describe('waiting on you', () => {
 
   it('says how to decide it, in the assistant or on the command line, and has no approve or reject button', async () => {
     const { body } = await visit('/project/acme/ledger', MANAGER);
-    // One line each, with what the line shows and what Copy takes (#142).
+    // How to decide in the assistant, to read; each command on its own line,
+    // with what the line shows and what Copy takes (#142).
     const lines = dataOf(item(body, 'c-1'), 'decide');
-    expect(lines.map(({ where, label }) => [where, label])).toEqual([
-      ['In your assistant', 'Approve 1.2'],
-      ['In your assistant', 'Reject 1.2, with a reason'],
-      ['On the command line', 'teamctx review approve c-1'],
-      ['On the command line', 'teamctx review reject c-1 --reason "…"'],
+    expect(lines[0].note).toMatch(/^Open your assistant with the icons below, or tell it: "Approve 1\.2" with or without its tasks, or "Reject 1\.2" with a reason\.$/);
+    expect(lines.slice(1)).toEqual([
+      { where: 'On the command line', label: 'teamctx review approve c-1', text: 'teamctx review approve c-1' },
+      { where: 'On the command line', label: 'teamctx review reject c-1 --reason "…"', text: 'teamctx review reject c-1 --reason "…"' },
     ]);
-    expect(lines[2].text).toBe('teamctx review approve c-1');
-    expect(lines[3].text).toBe('teamctx review reject c-1 --reason "…"');
     expect(onPage(body)).not.toMatch(/>\s*(Approve|Reject)\b/);
     expect(body).toContain('id="d-decide-title">Decide<');
   });
 
-  it('copies a whole prompt for the assistant: which repository, which item, which tool', async () => {
-    // A bare "Approve 1.2" told a fresh chat nothing. What is copied says it all.
-    const [approve, reject] = dataOf(item((await visit('/project/acme/ledger', MANAGER)).body, 'c-1'), 'decide');
-    expect(approve.text).toMatch(/^Approve this contribution that is waiting for my review: "adds the pricing tiers"\./);
-    for (const part of ['Instructions for the AI agent:', 'acme/ledger', 'id c-1', 'list_pending_reviews', 'review_approve, id c-1',
-      'ask me which one it replaces', 'review=c-1']) expect(approve.text).toContain(part);
-    expect(reject.text).toMatch(/^Reject this contribution that is waiting for my review: "adds the pricing tiers"\./);
-    for (const part of ['Reason: <write your reason here>', 'acme/ledger', 'review_reject, id c-1', 'ask me for it. Do not make one up'])
-      expect(reject.text).toContain(part);
-  });
-
   it('names an item with no number by what it says', async () => {
     queue('c-unnumbered', { summary: 'An unnumbered proposal', workstream: null });
-    const lines = dataOf(item((await visit('/project/acme/ledger', MANAGER)).body, 'c-unnumbered'), 'decide');
-    expect(lines.map(l => l.label).slice(0, 2)).toEqual(['Approve "An unnumbered proposal"', 'Reject "An unnumbered proposal", with a reason']);
+    const [how] = dataOf(item((await visit('/project/acme/ledger', MANAGER)).body, 'c-unnumbered'), 'decide');
+    expect(how.note).toContain('"Approve this" (name it by what it says)');
   });
 
-  it('never shortens what is copied, however long; the page clips only what it shows', async () => {
-    const summary = 'x'.repeat(300);
-    queue('c-long', { summary, workstream: null });
+  it('clips a long command only on screen; Copy takes it whole', async () => {
     const { body } = await visit('/project/acme/ledger', MANAGER);
-    const [approve, reject] = dataOf(item(body, 'c-long'), 'decide');
-    expect(approve.label).toBe(`Approve "${summary}"`);
-    expect(approve.text).toContain(`"${summary}"`);
-    expect(reject.text).toContain(`"${summary}"`);
-    expect(JSON.stringify([approve, reject])).not.toContain('…"');
     expect(body).toMatch(/\.decide-line code\{[^}]*white-space:nowrap[^}]*text-overflow:ellipsis/);
+    expect(body).toContain('copy.dataset.copy = line.text;');
   });
 
   it('escapes what somebody else wrote: the summary, the author, the changes and the conflicting record', async () => {
@@ -1604,26 +1585,20 @@ describe('waiting on you', () => {
       }
     });
 
-    it('lists each instruction with a Copy button that copies the whole of it', async () => {
+    it('shows how to decide in the assistant, and copies each command whole', async () => {
       const page = await live();
       page.review.click();
+      expect(page.$('#d-decide p').textContent).toMatch(/^Open your assistant with the icons below/);
       const lines = [...page.window.document.querySelectorAll('#d-decide .decide-line')];
-      expect(lines.map(l => l.querySelector('code').textContent)).toEqual([
-        'Approve 1.2', 'Reject 1.2, with a reason', 'teamctx review approve c-1', 'teamctx review reject c-1 --reason "…"',
-      ]);
+      expect(lines.map(l => l.querySelector('code').textContent)).toEqual(['teamctx review approve c-1', 'teamctx review reject c-1 --reason "…"']);
       const buttons = lines.map(l => l.querySelector('button.decide-copy'));
-      expect(new Set(buttons.map(b => b.getAttribute('aria-label'))).size).toBe(4);
-      // The assistant line shows a label and copies the whole prompt behind it.
+      expect(new Set(buttons.map(b => b.getAttribute('aria-label'))).size).toBe(2);
       buttons[0].click();
       await new Promise(r => setTimeout(r, 0));
-      expect(page.copied[0]).toMatch(/^Approve this contribution that is waiting for my review: "adds the pricing tiers"\.[\s\S]*review_approve, id c-1/);
-      expect(page.$('#toast').textContent).toBe('Copied: Approve 1.2');
-      buttons[2].click();
-      await new Promise(r => setTimeout(r, 0));
-      expect(page.copied[1]).toBe('teamctx review approve c-1');
+      expect(page.copied).toEqual(['teamctx review approve c-1']);
       expect(page.$('#toast').textContent).toBe('Copied: teamctx review approve c-1');
       // Confirmed where the click was, since the message line can be off screen.
-      expect(buttons[2].textContent).toBe('Copied');
+      expect(buttons[0].textContent).toBe('Copied');
       expect(buttons[1].textContent).toBe('Copy');
     });
 
@@ -1632,9 +1607,8 @@ describe('waiting on you', () => {
       const page = await live();
       page.$('#r-c-evil .qicon[data-open="review"]').click();
       expect(page.$('#d-decide img')).toBeNull();
-      expect(page.$('#d-decide code').textContent).toContain('<img src=x');
       expect(page.window.pwned).toBeUndefined();
-    });
+  });
   });
 });
 
