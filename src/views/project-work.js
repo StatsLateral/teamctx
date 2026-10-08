@@ -1,6 +1,7 @@
 import { esc } from './theme.js';
-import { LABELS, RECORD_TYPES, today } from '../model.js';
+import { RECORD_TYPES, today } from '../model.js';
 import { contradictionLabel, evidenceLabel } from '../contradictions.js';
+import { describeChange } from '../change-labels.js';
 import { promptFor, escAttr, whoTouched } from './prompt-for.js';
 import { workstreamLocation } from './workstream-location.js';
 
@@ -103,22 +104,7 @@ function taskRow({ t, view, origin, marked }) {
 
 // ---- what is waiting --------------------------------------------------------
 
-/** One operation of a proposal, in the words a manager would use. */
-export function describeChange(op, tree) {
-  const text = (id) => (tree?.records || []).find(r => r.id === id)?.text;
-  const task = (id) => (tree?.tasks || []).find(t => t.id === id)?.title;
-  switch (op?.type) {
-    case 'setGoal': return `Set the goal: ${op.text}`;
-    case 'addRecord': return `Add: ${LABELS[op.record?.type] || 'Note:'} ${op.record?.text}`;
-    case 'editRecord': return `Reword ${text(op.id) ? `"${text(op.id)}"` : 'a record'}${op.changes?.text ? ` to: ${op.changes.text}` : ''}`;
-    case 'setRecordStatus': return `Mark ${text(op.id) ? `"${text(op.id)}"` : 'a record'} as ${op.status}`;
-    case 'addEvidence': return evidenceLabel(op);
-    case 'addTask': return `Add a task: ${op.title}`;
-    case 'editTask': return `Retitle ${task(op.id) ? `"${task(op.id)}"` : 'a task'} to: ${op.title}`;
-    case 'removeTask': return `Remove the task ${task(op.id) ? `"${task(op.id)}"` : ''}`.trim();
-    default: return null;
-  }
-}
+export { describeChange };
 
 /** What an approver should look at against what is already approved. */
 function checksOf(q) {
