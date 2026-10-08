@@ -42,6 +42,7 @@ function workstreamPanel(view, w, onDay) {
   const groups = groupsHtml(contextGroups(view.trees?.[w.id]?.records, onDay));
   return `<section class="dpanel" id="dp-ws-${esc(w.id)}" data-scope="ws:${esc(w.id)}" data-title="Workstream ${esc(w.number ?? '')}" hidden>
     <p class="statement">${esc(w.name)}</p>
+    <p class="tasknote" data-for="tasks" hidden>Your assistant will look at what this part of the work already has and suggest tasks for you to choose from. Nothing is added until you say so. Pick your assistant below.</p>
     <div class="section-title">Context for this part of the work</div>
     ${groups || '<p class="muted">Nothing has been decided for this part of the work yet.</p>'}
     <p class="muted">The project context also applies.</p>
