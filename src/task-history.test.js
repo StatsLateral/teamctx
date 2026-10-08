@@ -55,7 +55,7 @@ describe('a task’s history', () => {
 
   it('shows a completion with no recorded actor as done, by nobody named', () => {
     const h = taskHistory({ task: task({ status: 'done', doneAt: '2026-10-04' }), contributions: { c1 }, approvals: { c1: approvedC1 } });
-    expect(h.events.at(-1)).toEqual({ at: '2026-10-04', by: null, did: 'completed' });
+    expect(h.events.at(-1)).toEqual({ at: '2026-10-04', by: null, did: 'completed', unrecorded: true });
   });
 
   it('lists a rejected change with who turned it down and why', () => {

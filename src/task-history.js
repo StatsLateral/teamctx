@@ -75,7 +75,7 @@ export function taskHistory({
     if (s?.did === 'completed' || s?.did === 'reopened') events.push({ at: s.at || null, by: name(s.by?.name), did: s.did });
   }
   // Completed before anyone recorded who did it: the date, and nobody named.
-  if (!log.length && task?.status === 'done' && task.doneAt) events.push({ at: task.doneAt, by: null, did: 'completed' });
+  if (!log.length && task?.status === 'done' && task.doneAt) events.push({ at: task.doneAt, by: null, did: 'completed', unrecorded: true });
 
   // On the plan, but nothing says how it got there: one line, nothing invented.
   const known = events.some(e => (e.did === 'submitted' && !e.waiting) || e.did === 'approved');
