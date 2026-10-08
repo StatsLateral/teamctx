@@ -2,7 +2,7 @@ import {
   readProject, readConfig, writeConfig, withCounters, readTree, writeTree, writeTreeMd, writeRoleFile,
   readQueueItem, deleteQueueItem, writeRejected, writeApproved, readContributions, listQueue,
 } from '../../src/storage.js';
-import { applyQueueItem, buildRejected, canApprove, isLegacyManagerRef } from '../../src/review.js';
+import { applyQueueItem, applyTaskSubmission, buildRejected, canApprove, isLegacyManagerRef } from '../../src/review.js';
 import { isBrokenGate } from '../../src/manager-repair.js';
 import { serializeToMd, generateRoleFile } from '../../src/context.js';
 import { commitContext, pushContext } from '../../src/git.js';
@@ -151,6 +151,14 @@ export async function approveReview({ id, replaces, teamctxDir, projectDir, acto
   // Who approved a record travels with it, not only with the commit.
   const approvedBy = { key: caller?.key || null, name: who, at: new Date().toISOString() };
   const updated = withCounters(teamctxDir, current => {
+    // Work sent back for a task completes the task and writes no record (#144).
+    if (item.forTask) {
+      const { tree } = applyTaskSubmission(readTree(targetId, teamctxDir), item, {
+        by: { key: approvedBy.key, name: approvedBy.name }, at: approvedBy.at,
+      });
+      writeTree(targetId, tree, teamctxDir);
+      return tree;
+    }
     item = resolveContradictions(item, { replaces, config: current, teamctxDir });
     const { tree: applied, nextKey, dropped } = applyQueueItem(readTree(targetId, teamctxDir), item, { nextKey: current.nextKey, workstreamNumber: workstreamNumber(current, targetId) });
     assertConflictApplied(item, dropped);

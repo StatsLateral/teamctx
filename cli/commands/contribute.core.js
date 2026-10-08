@@ -1,4 +1,4 @@
-import { readProject, readConfig, writeConfig, withCounters, readTree, writeTree, writeTreeMd, appendContribution, writeRoleFile, writeQueueItem, writeApproved, readContributions, listWorkstreamIds } from '../../src/storage.js';
+import { readProject, readConfig, writeConfig, withCounters, readTree, writeTree, writeTreeMd, appendContribution, writeRoleFile, writeQueueItem, writeApproved, readContributions, listWorkstreamIds, listTasks } from '../../src/storage.js';
 import { resolveTarget, isProjectLevel } from '../../src/project-level.js';
 import { digestProject } from '../../src/tree-digest.js';
 import { touchedBy, applyOps } from '../../src/ops.js';
@@ -8,7 +8,7 @@ import { updateShared, generateRoleFile, serializeToMd } from '../../src/context
 import { commitContext, pushContext } from '../../src/git.js';
 import { UnknownWorkstreamError } from './role.core.js';
 import { assertManager } from './review.core.js';
-import { canApprove, numberQueueItem } from '../../src/review.js';
+import { canApprove, numberQueueItem, applyTaskSubmission } from '../../src/review.js';
 import { workstreamNumber } from '../../src/numbering.js';
 import { needsReview } from '../../src/review-policy.js';
 import { resolveActor } from '../../src/actor.js';
@@ -68,6 +68,77 @@ async function commitAndOptionallyPush(config, msg, projectDir) {
   catch (err) { return { pushed: false, pushError: err.message?.split('\n')[0] || err.stderr?.trim() || 'no remote?' }; }
 }
 
+/** A task to send work for that is not there — or not the caller's to see, said the same way. */
+export class UnknownTaskError extends Error {
+  constructor(handle) {
+    super(`There is no task "${handle}" in the parts of the project you can see. Check the number with list_tasks.`);
+    this.code = 'TASK_NOT_FOUND';
+  }
+}
+
+/** The task a number or an id names, or `null`. */
+export function findTaskFor(handle, teamctxDir) {
+  const h = String(handle || '').trim();
+  if (!h) return null;
+  return listTasks({}, teamctxDir).find(t => t.id === h || t.key === h) || null;
+}
+
+/**
+ * Work sent back for a task (#144).
+ *
+ * It is the task's work product, not context, so it is not distilled: no AI call,
+ * no proposed records. The text is kept as received and the sender's one line
+ * (`submitted`) is the summary. It waits for the manager under the task's own
+ * number; approving it completes the task (`applyTaskSubmission`). A manager's
+ * `apply` completes it at once, as it would apply any contribution.
+ */
+async function submitForTask({ forTask, submitted, text, author, apply, reviewRequired, source, teamctxDir, projectDir }) {
+  const config = readConfig(teamctxDir);
+  const task = findTaskFor(forTask, teamctxDir);
+  if (!task) throw new UnknownTaskError(forTask);
+  const resolved = await resolveActor({ config, cwd: projectDir });
+  const resolvedName = await resolveDisplayName({ actor: resolved, config, teamctxDir });
+  const actor = author || resolvedName;
+  const authorKey = author ? null : resolved.key;
+  const mayApply = Boolean(apply) && !reviewRequired && canApprove(config, { actor: resolved, displayName: resolvedName });
+  if (mayApply) assertManager(config, { actor: resolved, displayName: resolvedName });
+  const line = typeof submitted === 'string' ? submitted.trim().split('\n')[0].slice(0, 200) : '';
+  const contribution = {
+    ...newContribution({ text, author: actor, authorKey, tagged: null, source, workstream: task.workstream }),
+    forTask: task.id,
+    ...(line ? { submitted: line } : {}),
+  };
+  appendContribution(contribution, teamctxDir);
+  const summary = line || String(text).trim().split('\n')[0].slice(0, 200);
+  const base = { id: contribution.id, workstream: task.workstream, author: actor, source, summary, operations: [], forTask: task.id, number: task.key || null, dropped: [] };
+
+  if (!mayApply) {
+    writeQueueItem({
+      id: contribution.id, status: 'pending', createdAt: contribution.ts,
+      ...(task.key ? { number: task.key } : {}),
+      author: contribution.author, source, workstream: task.workstream,
+      text: contribution.text, tagged: null, summary, forTask: task.id, ...(line ? { submitted: line } : {}),
+      operations: [],
+    }, teamctxDir);
+    const { pushed, pushError } = await commitAndOptionallyPush(
+      config, `queue: ${actor} submission for task ${task.key || task.id} pending approval (${contribution.id})${sourceTrailer(source)}`, projectDir,
+    );
+    return { ...base, mode: 'queued', pushed, pushError, ...(apply ? { applyRefused: true } : {}) };
+  }
+
+  const by = { key: resolved.key || null, name: resolvedName };
+  const at = new Date().toISOString();
+  withCounters(teamctxDir, () => {
+    const { tree } = applyTaskSubmission(readTree(task.workstream, teamctxDir), { id: contribution.id, forTask: task.id }, { by, at });
+    writeTree(task.workstream, tree, teamctxDir);
+  });
+  writeApproved({ id: contribution.id, author: actor, source, workstream: task.workstream, approvedBy: by, approvedAt: at }, teamctxDir);
+  const { pushed, pushError } = await commitAndOptionallyPush(
+    config, `task: ${actor} submission completes ${task.key || task.id}${sourceTrailer(source)}`, projectDir,
+  );
+  return { ...base, mode: 'applied', pushed, pushError };
+}
+
 export async function contributeCore({
   text, author, workstreamId, decision = false, apply = false,
   source = 'cli', teamctxDir, projectDir,
@@ -84,8 +155,14 @@ export async function contributeCore({
   // duplicating the path is what let the terminal drift out of step with the
   // review policy and the project layer without anybody noticing.
   onProposed,
+  // Work sent back for a task (#144): the task's number or id, and one line on
+  // what was produced. Not distilled — see `submitForTask`.
+  forTask, submitted,
 } = {}) {
   if (!text) throw new Error('contribution text is required');
+  if (forTask) {
+    return submitForTask({ forTask, submitted, text, author, apply, reviewRequired, source, teamctxDir, projectDir });
+  }
   const config = readConfig(teamctxDir);
   // An explicit `author` still wins — scripts and imports rely on it. Otherwise
   // the contribution is attributed to whoever is actually calling, not to the
