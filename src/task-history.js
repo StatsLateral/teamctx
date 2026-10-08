@@ -46,6 +46,10 @@ export function taskHistory({
     at: at || null, by: name(item.author), did: 'submitted', via: via(item.author, item.source), contribution: item.id, ...extra,
   });
 
+  // Where it came from. A task added directly says so (`addedBy`), whatever is
+  // sent for it later; otherwise its own sources do, when they are on record. A
+  // rejected or waiting submission about it is never where it came from.
+  const sourced = !task?.addedBy && (task?.sourceContributionIds || []).some(id => contributions[id] || approvals[id]);
   for (const id of task?.sourceContributionIds || []) {
     const c = contributions[id];
     if (c) submitted({ ...c, id }, c.ts);
@@ -78,7 +82,7 @@ export function taskHistory({
   if (!log.length && task?.status === 'done' && task.doneAt) events.push({ at: task.doneAt, by: null, did: 'completed', unrecorded: true });
 
   // On the plan, but nothing says how it got there: one line, nothing invented.
-  const known = events.some(e => (e.did === 'submitted' && !e.waiting) || e.did === 'approved');
+  const known = sourced;
   // Added directly says who added it; one from before that was recorded names
   // nobody.
   if (task && !known) {
