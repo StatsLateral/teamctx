@@ -85,6 +85,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `workstream_split` and `teamctx workstream suggest` / `suggest_workstream_splits`.
 
 ### Added
+- **A waiting item is decided from the drawer by opening your assistant.** The
+  drawer's assistant icons carry a prompt to show the item, read back what it says
+  and any tasks it would add, and ask approve or reject, with or without its tasks,
+  before doing anything. The page stays read-only; there is no paste mode for this,
+  since only a connected assistant can approve.
 - **A waiting contribution is decided in the chat first.** Sending something for
   review now hands the assistant what it says and the tasks it would add, and tells
   it to read both back and ask for approve or reject there; the web page is a second

@@ -62,8 +62,8 @@ const button = (go, label, title, icon) => `<button type="button" class="chatico
  */
 export function assistantBlockHtml() {
   return `<section class="assist" aria-label="Work on this in your assistant">
-    <div class="section-title">Ask in your assistant</div>
-    <div class="amode" role="radiogroup" aria-label="How your assistant gets the context">
+    <div class="section-title" id="d-assist-title">Ask in your assistant</div>
+    <div class="amode" id="d-amode" role="radiogroup" aria-label="How your assistant gets the context">
       <label><input type="radio" name="amode" value="connected" checked> Assistant is connected to teamctx</label>
       <label><input type="radio" name="amode" value="paste"> Paste the context in</label>
     </div>
