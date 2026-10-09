@@ -6,6 +6,7 @@ import {
 import { applyQueueItem, applyTaskSubmission, buildRejected, canApprove, isLegacyManagerRef } from '../../src/review.js';
 import { isBrokenGate } from '../../src/manager-repair.js';
 import { serializeToMd, generateRoleFile } from '../../src/context.js';
+import { suggestNextSteps } from '../../src/ai.js';
 import { commitContext, pushContext } from '../../src/git.js';
 import { resolveActor } from '../../src/actor.js';
 import { resolveDisplayName } from '../../src/prefs.js';
@@ -245,12 +246,33 @@ export async function approveReview({ id, replaces, tasks, askAboutTasks = false
     catch (err) { pushError = err.message?.split('\n')[0] || 'no remote?'; }
   }
 
+  // Work for a task is in: what might follow it, for the approver to choose from
+  // (#144). Asked once the approval is written and pushed, so a slow or failed
+  // suggestion never holds up the decision. Nothing is created here.
+  let accepted = null;
+  if (item.forTask) {
+    const task = (updated.tasks || []).find(t => t.id === item.forTask) || null;
+    const active = (type) => [...(project?.records || []), ...(updated.records || [])]
+      .filter(r => r.type === type && r.status === 'active').map(r => r.text);
+    const nextSteps = task
+      ? await suggestNextSteps({
+        task, submitted: item.submitted, text: item.text,
+        where: workstreamDisplayName(targetId, updated, config),
+        rules: active('rule'), decisions: active('decision'),
+        people: (config.members || []).map(m => m.name).filter(Boolean),
+        config,
+      })
+      : [];
+    accepted = { task: task ? { id: task.id, key: task.key || null, title: task.title, workstream: targetId } : null, nextSteps };
+  }
+
   return {
     id: item.id,
     workstream: targetId,
     author: item.author,
     approvedBy: approvedBy.name,
     operations: item.operations || [],
+    ...(accepted || {}),
     ...(tasksLeftOut.length ? { tasksLeftOut } : {}),
     ...(item.contradictions?.length ? { contradictions: item.contradictions } : {}),
     rolesRegenerated,

@@ -54,6 +54,31 @@ export async function reviewApproveCommand(id, opts = {}) {
   } else {
     console.log('\n✓ Approved and committed. Run `git push` to share with your team.');
   }
+  if (result.task) printAccepted(result);
+}
+
+/**
+ * After accepting work for a task (#144): the task is done, and what the AI
+ * suggests might follow, each with the command that adds it. Nothing is added
+ * until one of those is run.
+ */
+export function acceptedLines({ task, nextSteps = [] }) {
+  // A title came from a model reading somebody's submitted work, and these lines
+  // are meant to be pasted into a shell. Single quotes, so nothing in it can run.
+  const sq = (v) => `'${String(v).replace(/'/g, `'\\''`)}'`;
+  const which = task.key || task.id;
+  const lines = [`  Task ${which} is marked done. Nothing was published or sent.`];
+  if (!nextSteps.length) return [...lines, '  No follow-on tasks suggested.', ''];
+  lines.push('', '  Suggested by AI as next steps. Nothing is added until you add one:');
+  for (const s of nextSteps) {
+    lines.push(`  - ${s.title}${s.owner ? ` (${s.owner})` : ''}`);
+    lines.push(`      teamctx task add ${sq(s.title)} --workstream ${sq(task.workstream)} --suggested-after ${sq(which)}${s.owner ? ` --owner ${sq(s.owner)}` : ''}`);
+  }
+  return [...lines, ''];
+}
+
+function printAccepted(result) {
+  for (const line of acceptedLines(result)) console.log(line);
 }
 
 export async function reviewRejectCommand(id, opts) {
