@@ -209,13 +209,18 @@ export async function addTask({
 } = {}) {
   const config = readConfig(teamctxDir);
   const targetWorkstream = await resolveTargetWorkstream(config, workstream, { teamctxDir, projectDir, actor });
-  const after = typeof suggestedAfter === 'string' && suggestedAfter.trim() ? suggestedAfter.trim() : null;
-  if (after) {
-    // A suggestion is added once. Pressing for it twice, from the chat or the
-    // command line, finds the task it already became.
+  let after = null;
+  if (typeof suggestedAfter === 'string' && suggestedAfter.trim()) {
+    // It names the task whose accepted work it came from, so that task must be
+    // there; kept by its number, which is what the history says.
+    const all = listTasks({}, teamctxDir);
+    const source = all.find(t => t.key === suggestedAfter.trim() || t.id === suggestedAfter.trim());
+    if (!source) throw new TaskNotFoundError(`There is no task "${suggestedAfter.trim()}" for this to follow from.`);
+    after = source.key || source.id;
+    // A suggestion is added once, wherever it was put. Asking for it twice, from
+    // the chat or the command line, finds the task it already became.
     const same = (s) => String(s).replace(/\s+/g, ' ').trim().toLowerCase();
-    const existing = listTasks({ workstream: targetWorkstream }, teamctxDir)
-      .find(t => t.suggestedAfter === after && same(t.title) === same(title));
+    const existing = all.find(t => t.suggestedAfter === after && same(t.title) === same(title));
     if (existing) throw new DuplicateSuggestionError(existing);
   }
   const me = await whoAmI({ config, teamctxDir, projectDir, actor });

@@ -2,7 +2,7 @@ import { readConfig } from '../../src/storage.js';
 import { currentIdentity } from '../identity.js';
 import {
   listTasksFiltered, getTask, addTask, setTaskStatus, assignTask, removeTask,
-  compileTask, TaskNotFoundError, UnknownTaskWorkstreamError, TaskWithoutWorkstreamError, UnknownRoleError,
+  compileTask, TaskNotFoundError, UnknownTaskWorkstreamError, TaskWithoutWorkstreamError, UnknownRoleError, DuplicateSuggestionError,
   slugify, uniqueTaskId,
 } from './task.core.js';
 
@@ -25,6 +25,7 @@ function reportAndExit(err) {
   if (err instanceof UnknownTaskWorkstreamError) fail(err.message, 'Run `teamctx workstream list`');
   if (err instanceof TaskWithoutWorkstreamError) fail(err.message, 'Run `teamctx workstream list`');
   if (err instanceof UnknownRoleError) fail(err.message, 'Run `teamctx role list`');
+  if (err instanceof DuplicateSuggestionError) fail(err.message, 'Run `teamctx task list --all` to see it');
   throw err;
 }
 

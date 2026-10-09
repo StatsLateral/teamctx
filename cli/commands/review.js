@@ -1,5 +1,6 @@
 import { listPendingReviews, approveReview, rejectReview, ManagerGateError, QueueItemNotFoundError } from './review.core.js';
 import { contradictionLabel, evidenceLabel, ContradictionResolutionError } from '../../src/contradictions.js';
+import { TaskSubmissionError } from '../../src/review.js';
 
 export async function reviewListCommand() {
   const queue = await listPendingReviews();
@@ -30,7 +31,8 @@ export async function reviewListCommand() {
 }
 
 function handleCliError(err) {
-  if (err instanceof ManagerGateError || err instanceof QueueItemNotFoundError || err instanceof ContradictionResolutionError) {
+  if (err instanceof ManagerGateError || err instanceof QueueItemNotFoundError || err instanceof ContradictionResolutionError
+    || err instanceof TaskSubmissionError) {
     console.error(`Error: ${err.message}`);
     process.exit(1);
   }

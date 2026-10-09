@@ -49,7 +49,9 @@ export function taskHistory({
   // Where it came from. A task added directly says so (`addedBy`), whatever is
   // sent for it later; otherwise its own sources do, when they are on record. A
   // rejected or waiting submission about it is never where it came from.
-  const sourced = !task?.addedBy && (task?.sourceContributionIds || []).some(id => contributions[id] || approvals[id]);
+  const forThis = (r) => Boolean(r?.forTask) && r.forTask === task?.id;
+  const sourced = !task?.addedBy && (task?.sourceContributionIds || [])
+    .some(id => (contributions[id] && !forThis(contributions[id])) || (approvals[id] && !forThis(approvals[id])));
   for (const id of task?.sourceContributionIds || []) {
     const c = contributions[id];
     if (c) submitted({ ...c, id }, c.ts);

@@ -149,6 +149,30 @@ describe('next steps after accepting work for a task', () => {
     expect(asked.people).toContain('Priya');
   });
 
+  it('asks for nothing, and says so, when the task was already done', async () => {
+    await as(manager, () => setTaskStatus({ id: theTask().id, status: 'done', teamctxDir: dir }));
+    const r = await send(member, { forTask: '1.1' });
+    const result = await as(manager, () => approveReview({ id: r.id, teamctxDir: dir }));
+    expect(result).toMatchObject({ alreadyDone: true, nextSteps: [] });
+    expect(suggestNextSteps).not.toHaveBeenCalled();
+    expect(reportBackAccepted(result)).toMatch(/was already done, so nothing else changed and no follow-on tasks were asked for/);
+    expect(acceptedLines(result)[0]).toBe('  Task 1.1 was already done: this work is recorded, and nothing else changed.');
+  });
+
+  it('keeps where an older task came from when work for it is approved', async () => {
+    // A task from before who added it was recorded: its history says Added.
+    const ws = readWorkstream('sales', dir);
+    ws.tasks = ws.tasks.map(t => { const { addedBy: _a, addedAt: _b, ...rest } = t; return rest; });
+    writeWorkstream('sales', ws, dir);
+    const r = await send(member, { forTask: '1.1' });
+    await as(manager, () => approveReview({ id: r.id, teamctxDir: dir }));
+    const contributions = Object.fromEntries(readContributions(dir).map(c => [c.id, c]));
+    const h = taskHistory({ task: theTask(), contributions, approvals: readApprovals(dir) });
+    expect(h.events.map(e => e.did)).toEqual(['added', 'submitted', 'approved', 'completed']);
+    expect(h.events[0]).toMatchObject({ unrecorded: true });
+    expect(readApprovals(dir)[r.id].forTask).toBe(theTask().id);
+  });
+
   it('asks for no suggestions for a contribution that is not work for a task', async () => {
     proposeDiff.mockResolvedValue({ summary: 'A decision', operations: [{ type: 'addRecord', record: { type: 'decision', text: 'Ship on Fridays' } }] });
     const r = await as(member, () => contributeCore({ text: 'We ship on Fridays.', workstreamId: 'sales', teamctxDir: dir }));
@@ -164,6 +188,18 @@ describe('next steps after accepting work for a task', () => {
     await expect(add()).rejects.toBeInstanceOf(DuplicateSuggestionError);
     await expect(as(manager, () => addTask({ title: '  publish the LAUNCH post on the blog ', workstream: 'sales', suggestedAfter: '1.1', teamctxDir: dir })))
       .rejects.toThrow(/already task 1\.2/);
+    // Put somewhere else, it is still the same suggestion.
+    writeConfig(makeConfig({
+      autoPush: false, members: [{ key: member.key, name: member.name, email: member.email }],
+      workstreams: [{ id: 'sales', number: 1, name: 'Sales' }, { id: 'ops', number: 2, name: 'Ops' }],
+      nextKey: { workstream: 3, tasks: { sales: 3 } },
+    }), dir);
+    writeWorkstream('ops', makeWorkstream('ops'), dir);
+    await expect(as(manager, () => addTask({ title: 'Publish the launch post on the blog', workstream: 'ops', suggestedAfter: '1.1', teamctxDir: dir })))
+      .rejects.toBeInstanceOf(DuplicateSuggestionError);
+    // And it must follow from a task that is there.
+    await expect(as(manager, () => addTask({ title: 'Something else', workstream: 'sales', suggestedAfter: '9.9', teamctxDir: dir })))
+      .rejects.toThrow(/no task "9\.9" for this to follow from/);
     // The same title on its own, not from a suggestion, is somebody's own call.
     await as(manager, () => addTask({ title: 'Publish the launch post on the blog', workstream: 'sales', teamctxDir: dir }));
     const h = taskHistory({ task: listTasks({}, dir).find(t => t.id === task.id) });

@@ -229,6 +229,7 @@ export async function approveReview({ id, replaces, tasks, askAboutTasks = false
   // nothing behind but the commit message.
   writeApproved({
     id: item.id, author: item.author || null, source: item.source || null, workstream: targetId,
+    ...(item.forTask ? { forTask: item.forTask } : {}),
     approvedBy: { key: approvedBy.key, name: approvedBy.name }, approvedAt: approvedBy.at,
   }, teamctxDir);
   deleteQueueItem(item.id, teamctxDir);
