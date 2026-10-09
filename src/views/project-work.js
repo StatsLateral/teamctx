@@ -55,7 +55,7 @@ export function treeHtml({ view, selected, base, onDay = today() }) {
   const node = (w) => {
     const ids = covered(parts, w.id);
     const kids = parts.filter(c => c.parent === w.id);
-    return `<li><a class="node${w.id === selected ? ' on' : ''}" href="${esc(href(w.id))}"${w.id === selected ? ' aria-current="page"' : ''}>`
+    return `<li><a class="node${w.id === selected ? ' on' : ''}" href="${esc(href(w.id))}" title="${esc(w.name)}"${w.id === selected ? ' aria-current="page"' : ''}>`
       + `<span class="num">${esc(w.number ?? '')}</span><span class="nm">${esc(w.name)}</span>${dot(ids, false)}<span class="cnt">${openIn(ids)}</span></a>`
       + `${kids.length ? `<ul>${kids.map(node).join('')}</ul>` : ''}</li>`;
   };
@@ -130,7 +130,7 @@ function taskRow({ t, view, origin, marked }) {
   data-text="${esc(t.title)}" data-kind="${esc(`Task${t.key ? ` ${t.key}` : ''}`)}" data-summary="" data-who="${esc(who.join(', '))}"
   data-review="" data-ws="${esc(t.workstream || '')}" data-ask="${escAttr(prompt.split('\n\n')[0])}" data-prompt="${escAttr(prompt)}"
   ${t.status === 'done' ? 'data-done="1" ' : ''}data-history="${esc(JSON.stringify(historyData(t.history, view.agents)))}">
-  <span class="num">${esc(t.key || '—')}</span><span class="ttl">${esc(t.title)}</span>
+  <span class="num">${esc(t.key || '—')}</span><span class="ttl" title="${esc(t.title)}">${esc(t.title)}</span>
   <span class="own">${whoChip(t.owner, view.agents)}</span>${clip(t)}</button>`;
 }
 
@@ -184,10 +184,18 @@ function waitingItem({ q, view, origin, marked }) {
   // the item and the question (#159), so this only says so. On the command
   // line: each command on its own line with a Copy button (#142). `label` is
   // what a line shows, clipped to fit; `text` is what Copy takes, whole.
+  // The id is the item's own word for itself, read out of a file anybody with write
+  // access to the repository can edit, and Copy puts it where a terminal will run
+  // it. So a command is offered only for an id made of plain characters.
+  const plainId = /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(String(q.id));
   const decide = [
     { note: `Open your assistant with the icons below, or tell it: "Approve ${ref || 'this'}"${ref ? '' : ' (name it by what it says)'} with or without its tasks, or "Reject ${ref || 'this'}" with a reason.` },
-    { where: 'On the command line', label: `teamctx review approve ${q.id}`, text: `teamctx review approve ${q.id}` },
-    { where: 'On the command line', label: `teamctx review reject ${q.id} --reason "…"`, text: `teamctx review reject ${q.id} --reason "…"` },
+    ...(plainId ? [
+      { where: 'On the command line', label: `teamctx review approve ${q.id}`, text: `teamctx review approve ${q.id}` },
+      { where: 'On the command line', label: `teamctx review reject ${q.id} --reason "…"`, text: `teamctx review reject ${q.id} --reason "…"` },
+    ] : [
+      { note: 'The command line commands are not shown for this item, because its id has unusual characters in it. Use your assistant.' },
+    ]),
   ];
   const label = ref || title.slice(0, 40);
   const date = q.createdAt ? String(q.createdAt).slice(5, 10) : '';
@@ -199,7 +207,7 @@ function waitingItem({ q, view, origin, marked }) {
   data-history="${esc(JSON.stringify(historyData(q.history, view.agents)))}"
   data-ask="${escAttr(prompt.split('\n\n')[0])}" data-prompt="${escAttr(prompt)}">
   <span class="num">${esc(ref || '—')}</span>
-  <span class="what"><button type="button" class="qmain">${esc(title)}</button></span>
+  <span class="what"><button type="button" class="qmain" title="${esc(title)}">${esc(title)}</button></span>
   <span class="qicons">
     <button type="button" class="qicon" data-open="view" aria-label="View ${esc(label)}" title="View details">${EYE}</button>
     <button type="button" class="qicon rv" data-open="review" aria-label="Review ${esc(label)}: approve or reject" title="Review: approve or reject">${REVIEW}</button>

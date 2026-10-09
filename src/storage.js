@@ -308,22 +308,29 @@ export function writeApproved(record, dir) {
   writeFileSync(join(d, `${record.id}.json`), JSON.stringify(record, null, 2));
 }
 
-/** Every recorded approval, keyed by contribution id. */
+/**
+ * Every recorded approval, keyed by contribution id.
+ *
+ * These are files in the repository, so a file that is not valid, or is not an
+ * object with an id, is skipped rather than allowed to take the page down.
+ */
 export function readApprovals(dir) {
+  const parse = (text) => { try { return JSON.parse(text); } catch { return null; } };
+  const entries = (records) => Object.fromEntries(records
+    .filter(r => r && typeof r === 'object' && typeof r.id === 'string')
+    .map(r => [r.id, r]));
   const s = sessionListDir(ctxPath('approved'));
   if (s !== null) {
-    return Object.fromEntries(s.filter(name => name.endsWith('.json'))
+    return entries(s.filter(name => name.endsWith('.json'))
       .map(name => getCurrentSession().read(ctxPath('approved', name)))
       .filter(Boolean)
-      .map(f => JSON.parse(f.content))
-      .map(r => [r.id, r]));
+      .map(f => parse(f.content)));
   }
   const d = resolve(dir, 'approved');
   if (!existsSync(d)) return {};
-  return Object.fromEntries(readdirSync(d)
+  return entries(readdirSync(d)
     .filter(name => name.endsWith('.json'))
-    .map(name => JSON.parse(readFileSync(join(d, name), 'utf-8')))
-    .map(r => [r.id, r]));
+    .map(name => parse(readFileSync(join(d, name), 'utf-8'))));
 }
 
 // ---- Snapshots ----

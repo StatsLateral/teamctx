@@ -15,7 +15,7 @@ import { runWithSession } from '../src/session-context.js';
  *
  * projectContext shape: { __backend:'github', owner, repo, ref?, ghToken }
  */
-export async function handleMcpHttp(req, res, projectContext) {
+export async function handleMcpHttp(req, res, { signInAgain, ...projectContext }) {
   const session = new GithubSession({
     owner: projectContext.owner,
     repo: projectContext.repo,
@@ -35,6 +35,11 @@ export async function handleMcpHttp(req, res, projectContext) {
     try {
       await session.prefetch();
     } catch (error) {
+      // GitHub has stopped accepting the sign-in this connection holds. A tool reply
+      // saying so reaches the person but never the client, which carries on sending
+      // the same dead token; a 401 is what makes it sign in again. Only when the
+      // caller supplied a way to do that, and only for this one answer.
+      if (signInAgain && githubStatusOf(error) === 401) return signInAgain(res);
       return refuseToolCalls(res, messages, explainGithubFailure(error, projectContext));
     }
   }
@@ -54,9 +59,11 @@ export async function handleMcpHttp(req, res, projectContext) {
  * Why GitHub would not let this person read the project, in words they can act
  * on. Only the status and GitHub's own short message are used, never the token.
  */
+const githubStatusOf = (error) => Number(/→\s*(\d{3})/.exec(String(error?.message || ''))?.[1]) || null;
+
 export function explainGithubFailure(error, { owner, repo }) {
   const text = String(error?.message || '');
-  const status = Number(/→\s*(\d{3})/.exec(text)?.[1]) || null;
+  const status = githubStatusOf(error);
   const what = `${owner}/${repo}`;
   if (status === 401) {
     return `GitHub rejected the sign-in teamctx holds for you (it has expired or been revoked), so ${what} could not be read. Disconnect and connect this server again.`;

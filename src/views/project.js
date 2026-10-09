@@ -29,7 +29,7 @@ h1{font-size:28px;line-height:1.25;margin:0 0 .35rem}
    the no-JavaScript answer (goal two lines, why one) and the script gives the
    why whatever the goal leaves. The stored text is never cut. */
 .goal-block{margin:12px 0 26px;max-width:none}
-.goal-text{font-family:var(--font-display);font-weight:500;font-size:19px;line-height:1.4;color:var(--ink);margin:0 0 6px;
+.goal-text{font-family:var(--font-display);font-weight:400;font-size:16px;line-height:1.45;color:var(--ink);margin:0 0 6px;
   overflow-wrap:anywhere;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
 .goal-why{font-size:14px;line-height:1.55;color:var(--soft);margin:0;overflow-wrap:anywhere;
   display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:1;overflow:hidden}
@@ -61,7 +61,9 @@ h1{font-size:28px;line-height:1.25;margin:0 0 .35rem}
 .node:hover{background:var(--accent-soft)}
 .node.on{background:var(--accent-soft);color:var(--accent);font-weight:600}
 .node .num{flex:none;width:14px;font-family:var(--font-mono);font-size:11px;color:var(--faint)}
-.node .nm{min-width:0;overflow-wrap:anywhere}
+/* A fixed row: two lines at most, the rest behind the tooltip and the part's own
+   heading once it is chosen. */
+.node .nm{min-width:0;overflow-wrap:anywhere;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
 .node .dot{flex:none;align-self:center;width:7px;height:7px;border-radius:50%;background:var(--amber)}
 .node .cnt{flex:none;margin-left:auto;font-family:var(--font-mono);font-size:11px;color:var(--faint)}
 .node.root{font-family:var(--font-display);font-weight:600;font-size:15px;padding-left:8px}
@@ -103,7 +105,7 @@ h1{font-size:28px;line-height:1.25;margin:0 0 .35rem}
 .q.marked{background:color-mix(in srgb,var(--amber) 10%,transparent);box-shadow:inset 3px 0 0 var(--amber)}
 .q .num{font-family:var(--font-mono);font-size:12px;color:var(--soft);padding-top:2px}
 .q .what{min-width:0}
-.qmain{display:block;width:100%;text-align:left;background:none;border:0;padding:0;font:inherit;font-weight:500;color:var(--ink);cursor:pointer;overflow-wrap:anywhere}
+.qmain{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;width:100%;text-align:left;background:none;border:0;padding:0;font:inherit;font-weight:500;color:var(--ink);cursor:pointer;overflow-wrap:anywhere}
 .q:hover .qmain{text-decoration:underline}
 /* Work sent back for a task: what arrived, under the task's own title. */
 .q .submitted{grid-column:2;color:var(--soft);font-size:13px;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
@@ -131,7 +133,7 @@ h1{font-size:28px;line-height:1.25;margin:0 0 .35rem}
   background:none;border:0;border-top:1px solid var(--line);border-radius:0;padding:9px 8px;font:inherit;color:inherit;cursor:pointer}
 .trow:hover{background:var(--accent-soft)}
 .trow .num{font-family:var(--font-mono);font-size:12px;color:var(--soft);padding-top:2px}
-.trow .ttl{min-width:0;font-size:14px;line-height:1.45;overflow-wrap:anywhere}
+.trow .ttl{min-width:0;font-size:14px;line-height:1.45;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .trow .own{min-width:0}
 .trow .clip{color:var(--faint);font-size:12px;white-space:nowrap}
 .trow.done .ttl{text-decoration:line-through}

