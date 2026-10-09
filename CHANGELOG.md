@@ -102,6 +102,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `workstream_split` and `teamctx workstream suggest` / `suggest_workstream_splits`.
 
 ### Added
+- **Slack threads as connected sources (#169).** `teamctx import --from slack`
+  now records each thread under Slack with its permalink (built from the
+  workspace address Slack gives once per run) and a title naming the channel and
+  day, never a message. A thread an assistant passes with `contribute` is
+  recorded the same way, with no Slack credential held by teamctx.
 - **Connected sources are real (#168).** When something an assistant read in a
   connected tool (Slack, Notion, Google Drive, SharePoint, Dropbox, Coda) reaches
   the project, a reference to it is kept in `.teamctx/sources/`: the tool, a
