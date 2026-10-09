@@ -16,7 +16,7 @@
 const VIA = { mcp: 'assistant', cli: 'cli', web: 'web' };
 
 /** Does this queued or rejected item propose a change to this task? */
-export const touchesTask = (item, taskId) => (Array.isArray(item?.operations) ? item.operations : [])
+export const touchesTask = (item, taskId) => item?.forTask === taskId || (Array.isArray(item?.operations) ? item.operations : [])
   .some(op => ['editTask', 'removeTask'].includes(op?.type) && op.id === taskId);
 
 /**
@@ -49,7 +49,9 @@ export function taskHistory({
   // Where it came from. A task added directly says so (`addedBy`), whatever is
   // sent for it later; otherwise its own sources do, when they are on record. A
   // rejected or waiting submission about it is never where it came from.
-  const sourced = !task?.addedBy && (task?.sourceContributionIds || []).some(id => contributions[id] || approvals[id]);
+  const forThis = (r) => Boolean(r?.forTask) && r.forTask === task?.id;
+  const sourced = !task?.addedBy && (task?.sourceContributionIds || [])
+    .some(id => (contributions[id] && !forThis(contributions[id])) || (approvals[id] && !forThis(approvals[id])));
   for (const id of task?.sourceContributionIds || []) {
     const c = contributions[id];
     if (c) submitted({ ...c, id }, c.ts);
@@ -87,7 +89,7 @@ export function taskHistory({
   // nobody.
   if (task && !known) {
     events.unshift(task.addedBy
-      ? { at: task.addedAt || task.createdAt || null, by: name(task.addedBy.name), did: 'added' }
+      ? { at: task.addedAt || task.createdAt || null, by: name(task.addedBy.name), did: 'added', ...(task.suggestedAfter ? { suggestedAfter: task.suggestedAfter } : {}) }
       : { at: task.createdAt || null, by: null, did: 'added', unrecorded: true });
   }
 
@@ -115,7 +117,8 @@ export function historyLine(e) {
     case 'rejected': return `rejected it${e.reason ? `: ${e.reason}` : ''}`;
     case 'completed': return 'marked it done';
     case 'reopened': return 'reopened it';
-    case 'added': return e.unrecorded ? 'added to the plan' : 'added it';
+    case 'added': return e.unrecorded ? 'added to the plan'
+      : e.suggestedAfter ? `added it, suggested by AI after ${e.suggestedAfter} was approved` : 'added it';
     default: return '';
   }
 }

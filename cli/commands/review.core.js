@@ -3,9 +3,10 @@ import {
   readProject, readConfig, writeConfig, withCounters, readTree, writeTree, writeTreeMd, writeRoleFile,
   readQueueItem, deleteQueueItem, writeRejected, writeApproved, readContributions, listQueue,
 } from '../../src/storage.js';
-import { applyQueueItem, buildRejected, canApprove, isLegacyManagerRef } from '../../src/review.js';
+import { applyQueueItem, applyTaskSubmission, buildRejected, canApprove, isLegacyManagerRef } from '../../src/review.js';
 import { isBrokenGate } from '../../src/manager-repair.js';
 import { serializeToMd, generateRoleFile } from '../../src/context.js';
+import { suggestNextSteps } from '../../src/ai.js';
 import { commitContext, pushContext } from '../../src/git.js';
 import { resolveActor } from '../../src/actor.js';
 import { resolveDisplayName } from '../../src/prefs.js';
@@ -174,7 +175,18 @@ export async function approveReview({ id, replaces, tasks, askAboutTasks = false
   }
   // Who approved a record travels with it, not only with the commit.
   const approvedBy = { key: caller?.key || null, name: who, at: new Date().toISOString() };
+  // Whether accepting work for a task completed it, or found it already done.
+  let taskCompleted = false;
   const updated = withCounters(teamctxDir, current => {
+    // Work sent back for a task completes the task and writes no record (#144).
+    if (item.forTask) {
+      const { tree, completed } = applyTaskSubmission(readTree(targetId, teamctxDir), item, {
+        by: { key: approvedBy.key, name: approvedBy.name }, at: approvedBy.at,
+      });
+      taskCompleted = completed;
+      writeTree(targetId, tree, teamctxDir);
+      return tree;
+    }
     item = resolveContradictions(item, { replaces, config: current, teamctxDir });
     const { tree: applied, nextKey, dropped } = applyQueueItem(readTree(targetId, teamctxDir), item, { nextKey: current.nextKey, workstreamNumber: workstreamNumber(current, targetId) });
     assertConflictApplied(item, dropped);
@@ -217,6 +229,7 @@ export async function approveReview({ id, replaces, tasks, askAboutTasks = false
   // nothing behind but the commit message.
   writeApproved({
     id: item.id, author: item.author || null, source: item.source || null, workstream: targetId,
+    ...(item.forTask ? { forTask: item.forTask } : {}),
     approvedBy: { key: approvedBy.key, name: approvedBy.name }, approvedAt: approvedBy.at,
   }, teamctxDir);
   deleteQueueItem(item.id, teamctxDir);
@@ -237,12 +250,44 @@ export async function approveReview({ id, replaces, tasks, askAboutTasks = false
     catch (err) { pushError = err.message?.split('\n')[0] || 'no remote?'; }
   }
 
+  // Work for a task is in: what might follow it, for the approver to choose from
+  // (#144). Asked once the approval is written and pushed, so a slow or failed
+  // suggestion never holds up the decision. Nothing is created here.
+  let accepted = null;
+  if (item.forTask) {
+    const task = (updated.tasks || []).find(t => t.id === item.forTask) || null;
+    // What applies here: the project, every part above this one, and this part.
+    const records = [project, ...(chain || []).filter(w => w.id !== targetId), updated].flatMap(t => t?.records || [])
+      .filter(r => r?.status === 'active');
+    const of = (type) => records.filter(r => r.type === type);
+    const ruleText = (id) => of('rule').find(r => r.id === id)?.text;
+    // A task that was already done has nothing new following from it: this work
+    // is recorded, and nothing is asked of the model.
+    const nextSteps = task && taskCompleted
+      ? await suggestNextSteps({
+        task, submitted: item.submitted, text: item.text,
+        where: workstreamDisplayName(targetId, updated, config),
+        rules: of('rule').map(r => r.text),
+        exceptions: of('exception').map(x => (ruleText(x.links?.bends) ? `${x.text} (bends: ${ruleText(x.links.bends)})` : x.text)),
+        decisions: of('decision').map(r => r.text),
+        people: (config.members || []).map(m => m.name).filter(Boolean),
+        config,
+      })
+      : [];
+    accepted = {
+      task: task ? { id: task.id, key: task.key || null, title: task.title, workstream: targetId } : null,
+      ...(taskCompleted ? {} : { alreadyDone: true }),
+      nextSteps,
+    };
+  }
+
   return {
     id: item.id,
     workstream: targetId,
     author: item.author,
     approvedBy: approvedBy.name,
     operations: item.operations || [],
+    ...(accepted || {}),
     ...(tasksLeftOut.length ? { tasksLeftOut } : {}),
     ...(item.contradictions?.length ? { contradictions: item.contradictions } : {}),
     rolesRegenerated,

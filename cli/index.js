@@ -164,6 +164,7 @@ const task = program.command('task').description('Track tasks and compile AI-rea
 task.command('add <title>').description('Add a new task (default owner: you, default workstream: active)')
   .option('--owner <name>', 'Assign to someone other than yourself')
   .option('--workstream <id>', 'Target workstream (default: active)')
+  .option('--suggested-after <task>', 'Added from the AI suggestions shown after approving work for this task')
   .action(taskAddCommand);
 task.command('list').description('List tasks (defaults to open tasks in active workstream)')
   .option('--status <state>', 'Filter by status (open|done)')

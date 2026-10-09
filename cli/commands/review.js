@@ -1,5 +1,6 @@
 import { listPendingReviews, approveReview, rejectReview, ManagerGateError, QueueItemNotFoundError } from './review.core.js';
 import { contradictionLabel, evidenceLabel, ContradictionResolutionError } from '../../src/contradictions.js';
+import { TaskSubmissionError } from '../../src/review.js';
 
 export async function reviewListCommand() {
   const queue = await listPendingReviews();
@@ -30,7 +31,8 @@ export async function reviewListCommand() {
 }
 
 function handleCliError(err) {
-  if (err instanceof ManagerGateError || err instanceof QueueItemNotFoundError || err instanceof ContradictionResolutionError) {
+  if (err instanceof ManagerGateError || err instanceof QueueItemNotFoundError || err instanceof ContradictionResolutionError
+    || err instanceof TaskSubmissionError) {
     console.error(`Error: ${err.message}`);
     process.exit(1);
   }
@@ -54,6 +56,32 @@ export async function reviewApproveCommand(id, opts = {}) {
   } else {
     console.log('\n✓ Approved and committed. Run `git push` to share with your team.');
   }
+  if (result.task) printAccepted(result);
+}
+
+/**
+ * After accepting work for a task (#144): the task is done, and what the AI
+ * suggests might follow, each with the command that adds it. Nothing is added
+ * until one of those is run.
+ */
+export function acceptedLines({ task, nextSteps = [], alreadyDone = false }) {
+  // A title came from a model reading somebody's submitted work, and these lines
+  // are meant to be pasted into a shell. Single quotes, so nothing in it can run.
+  const sq = (v) => `'${String(v).replace(/'/g, `'\\''`)}'`;
+  const which = task.key || task.id;
+  if (alreadyDone) return [`  Task ${which} was already done: this work is recorded, and nothing else changed.`, ''];
+  const lines = [`  Task ${which} is marked done. Nothing was published or sent.`];
+  if (!nextSteps.length) return [...lines, '  No follow-on tasks suggested.', ''];
+  lines.push('', '  Suggested by AI as next steps. Nothing is added until you add one:');
+  for (const s of nextSteps) {
+    lines.push(`  - ${s.title}${s.owner ? ` (${s.owner})` : ''}`);
+    lines.push(`      teamctx task add ${sq(s.title)} --workstream ${sq(task.workstream)} --suggested-after ${sq(which)}${s.owner ? ` --owner ${sq(s.owner)}` : ''}`);
+  }
+  return [...lines, ''];
+}
+
+function printAccepted(result) {
+  for (const line of acceptedLines(result)) console.log(line);
 }
 
 export async function reviewRejectCommand(id, opts) {

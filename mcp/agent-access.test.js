@@ -97,7 +97,7 @@ describe('what an agent is shown', () => {
 
   it('describes contribute without apply or author, which it cannot use', () => {
     const contribute = toolsFor(ROOT).find(t => t.name === 'contribute');
-    expect(Object.keys(contribute.inputSchema.properties)).toEqual(['text', 'workstream', 'decision']);
+    expect(Object.keys(contribute.inputSchema.properties)).toEqual(['text', 'workstream', 'decision', 'forTask', 'submitted']);
   });
 
   it('leaves a person\'s list untouched', () => {
@@ -240,5 +240,38 @@ describe('the store the limit is kept in', () => {
     const root = { ...ROOT, agent: { ...AGENT, dailyLimit: 1 } };
     await kvSet(keys.agentDaily('a1', new Date().toISOString().slice(0, 10)), 1);
     expect(text(await asAgent(session, 'contribute', { text: 'x' }, root))).toMatch(/daily limit/);
+  });
+});
+
+/**
+ * Work sent back for a task (#144), by an agent on the hosted connector: it
+ * waits as that task's work, no AI call is spent, and a task in a part the agent
+ * is not on is refused exactly like one that does not exist.
+ */
+describe('an agent sending work back for a task', () => {
+  const scopedTo = (ids) => baseConfig({ members: [{ key: 'agent:a1', name: 'Nightly report', kind: 'agent', workstreams: ids }] });
+  const withHiringTask = (session) => session.write('.teamctx/workstreams/hiring.json', JSON.stringify({
+    id: 'hiring', name: 'Hiring', records: [], tasks: [{ id: 'interview-loop', key: '2.1', title: 'Interview loop', status: 'open', createdAt: '2026-09-01' }],
+  }));
+
+  it('waits for review as the task’s work, under its number, and spends no AI call', async () => {
+    const session = fakeSession();
+    const r = await asAgent(session, 'contribute', { text: 'Numbers for last night.', forTask: '1.1', submitted: 'Nightly numbers, 3 charts' });
+    const result = json(r);
+    expect(result).toMatchObject({ mode: 'queued', forTask: 'nightly-numbers', number: '1.1', summary: 'Nightly numbers, 3 charts' });
+    expect(updateShared).not.toHaveBeenCalled();
+    const queued = JSON.parse(session.file(`.teamctx/queue/${result.id}.json`));
+    expect(queued).toMatchObject({ forTask: 'nightly-numbers', number: '1.1', workstream: 'pricing', author: 'Nightly report', operations: [] });
+    expect(result.reportBack).toMatch(/work for task 1\.1 was sent for review .* task 1\.1 is marked done; nothing is added to the context/);
+  });
+
+  it('refuses a task in a part it is not on exactly like one that does not exist', async () => {
+    const session = fakeSession(scopedTo(['pricing']));
+    withHiringTask(session);
+    const hidden = text(await asAgent(session, 'contribute', { text: 'x', forTask: '2.1' }));
+    const missing = text(await asAgent(session, 'contribute', { text: 'x', forTask: '9.9' }));
+    expect(hidden).toContain('There is no task "2.1" in the parts of the project you can see');
+    expect(missing).toContain('There is no task "9.9" in the parts of the project you can see');
+    expect(session.listDir('.teamctx/queue')).toEqual([]);
   });
 });

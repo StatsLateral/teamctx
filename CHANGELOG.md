@@ -77,6 +77,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   count, and a "Show history (N done)" link at the bottom. A waiting item's drawer
   says what it would change, what to check it against, and how to decide it in the
   assistant or on the command line. Settings also counts the team and agents.
+- **Work sent back for a task is reviewed as that task's work (#144).**
+  `contribute` takes `forTask` (the task's number) and `submitted` (one line on
+  what was produced), for people and agents. It is not distilled and spends no AI
+  call; it waits under the task's own number and title with a "Submitted: …"
+  line, and the drawer shows what was submitted and what approving does.
+  Approving it marks the task done, by the approver, and writes no record; a
+  second submission for a task already done only records what arrived;
+  rejecting leaves the task open with the reason. A task the caller cannot see
+  is refused like one that is not there. Agents are told to leave the task open
+  for the approval to close. After approving, the AI suggests follow-on tasks
+  (at most five, worded as work a person would pick up, none when nothing
+  follows or there is no AI key); the assistant offers each and adds only the
+  ones you pick, and `review approve` prints the command for each. A task added
+  this way says in its history that it was suggested after the task was
+  approved, and the same suggestion cannot be added twice. The page stays
+  read-only.
 - **A task's drawer shows its history (#143).** Under the details: "Approved",
   "Approved · a new submission is waiting", "Not approved yet" or "Added", then
   one line per event, oldest first — who submitted or added it and how, who approved or

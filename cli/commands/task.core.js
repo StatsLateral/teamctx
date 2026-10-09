@@ -194,11 +194,35 @@ export function getTask({ id, teamctxDir } = {}) {
 
 // ---- writes -------------------------------------------------------------
 
+/** The same follow-on suggestion, added a second time. */
+export class DuplicateSuggestionError extends Error {
+  constructor(existing) {
+    super(`That suggestion is already task ${existing.key || existing.id}. Nothing was added.`);
+    this.code = 'DUPLICATE_SUGGESTION';
+  }
+}
+
 export async function addTask({
   title, owner, workstream, teamctxDir, projectDir, actor,
+  // The task whose accepted work the AI suggested this from (#144): its number.
+  suggestedAfter,
 } = {}) {
   const config = readConfig(teamctxDir);
   const targetWorkstream = await resolveTargetWorkstream(config, workstream, { teamctxDir, projectDir, actor });
+  let after = null;
+  if (typeof suggestedAfter === 'string' && suggestedAfter.trim()) {
+    // It names the task whose accepted work it came from, so that task must be
+    // there; kept by its number, which is what the history says.
+    const all = listTasks({}, teamctxDir);
+    const source = all.find(t => t.key === suggestedAfter.trim() || t.id === suggestedAfter.trim());
+    if (!source) throw new TaskNotFoundError(`There is no task "${suggestedAfter.trim()}" for this to follow from.`);
+    after = source.key || source.id;
+    // A suggestion is added once, wherever it was put. Asking for it twice, from
+    // the chat or the command line, finds the task it already became.
+    const same = (s) => String(s).replace(/\s+/g, ' ').trim().toLowerCase();
+    const existing = all.find(t => t.suggestedAfter === after && same(t.title) === same(title));
+    if (existing) throw new DuplicateSuggestionError(existing);
+  }
   const me = await whoAmI({ config, teamctxDir, projectDir, actor });
 
   const resolvedActor = actor || await resolveActor({ config, cwd: projectDir });
@@ -217,6 +241,7 @@ export async function addTask({
     // no contribution behind it to say so.
     addedBy: { key: resolvedActor.key || null, name: me },
     addedAt: new Date().toISOString(),
+    ...(after ? { suggestedAfter: after } : {}),
     doneAt: null,
     compiledAt: null,
   };

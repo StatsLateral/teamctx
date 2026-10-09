@@ -160,10 +160,20 @@ const VIA = { mcp: 'through an assistant', cli: 'from the command line', web: 'o
 function waitingItem({ q, view, origin, marked }) {
   const tree = q.workstream ? view.trees?.[q.workstream] : view.projectTree;
   const where = q.workstream ? workstreamLocation(view.workstreams, q.workstream, view.project) : (view.project || 'Overall project');
-  const ref = q.number || null;
+  // Work sent back for a task reads as that task (#144): its number and its own
+  // title, word for word as in the task list, and a line on what arrived.
+  const task = q.forTask ? [...(view.tasks?.open || []), ...(view.tasks?.done || [])].find(t => t.id === q.forTask) : null;
+  const ref = (task && task.key) || q.number || null;
   const checks = checksOf(q);
-  const changes = (Array.isArray(q.operations) ? q.operations : []).map(op => describeChange(op, tree)).filter(Boolean);
-  const title = q.summary || changes[0] || '(no summary)';
+  const changes = q.forTask
+    ? [q.text || q.submitted || q.summary || '']
+    : (Array.isArray(q.operations) ? q.operations : []).map(op => describeChange(op, tree)).filter(Boolean);
+  const title = (task && task.title) || q.summary || changes[0] || '(no summary)';
+  const taskDone = task?.status === 'done';
+  const forWhich = ref ? `task ${ref}` : 'the task';
+  const approving = !q.forTask ? ''
+    : taskDone ? `${forWhich.charAt(0).toUpperCase()}${forWhich.slice(1)} is already done. Approving records this submission and changes nothing else.`
+      : `Accepts this for ${forWhich} and marks the task done. Nothing is published or sent by this step.`;
   // Deciding happens in the assistant, so what the drawer hands over is a
   // request to show this item and ask, not a question about it.
   const prompt = decisionPrompt({
@@ -193,6 +203,7 @@ function waitingItem({ q, view, origin, marked }) {
   data-summary="${esc(`Proposed by ${q.author || 'someone'}${VIA[q.source] ? ` ${VIA[q.source]}` : ''}${date ? ` on ${date}` : ''}.`)}"
   data-who="${esc(q.author || '')}" data-review="" data-ws="${esc(q.workstream || '')}" data-queue="1"
   data-changes="${esc(JSON.stringify(changes))}" data-checks="${esc(JSON.stringify(checks))}" data-decide="${esc(JSON.stringify(decide))}"
+  ${q.forTask ? `data-changes-title="What was submitted" data-approving="${esc(approving)}" ` : ''}
   data-history="${esc(JSON.stringify(historyData(q.history, view.agents)))}"
   data-ask="${escAttr(prompt.split('\n\n')[0])}" data-prompt="${escAttr(prompt)}">
   <span class="num">${esc(ref || '—')}</span>
@@ -201,6 +212,7 @@ function waitingItem({ q, view, origin, marked }) {
     <button type="button" class="qicon" data-open="view" aria-label="View ${esc(label)}" title="View details">${EYE}</button>
     <button type="button" class="qicon rv" data-open="review" aria-label="Review ${esc(label)}: approve or reject" title="Review: approve or reject">${REVIEW}</button>
   </span>
+  ${q.forTask ? `<span class="submitted">Submitted: ${esc(q.submitted || q.summary || '')}${taskDone ? ' <span class="chip warn">task already done</span>' : ''}</span>` : ''}
   <span class="sub">${whoChip(q.author, view.agents)}<span class="where">· ${esc(where)}${date ? ` · ${esc(date)}` : ''}</span>${checks.length ? `<span class="chip warn">⚠ ${checks.length} to check against the record</span>` : ''}</span>
 </div>`;
 }

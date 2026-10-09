@@ -212,6 +212,9 @@ export async function readProjectView({ owner, repo, user }) {
         number: q.number || null,
         author: q.author,
         summary: q.summary,
+        // Work sent back for a task (#144): which task, the sender's one line, and
+        // the work as it arrived.
+        ...(q.forTask ? { forTask: q.forTask, submitted: q.submitted || null, text: q.text || '' } : {}),
         createdAt: q.createdAt || null,
         source: q.source || null,
         operations: q.operations || [],

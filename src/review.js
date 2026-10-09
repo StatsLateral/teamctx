@@ -1,6 +1,36 @@
 import { applyOps } from './ops.js';
 import { mintTaskKey } from './numbering.js';
 
+/** A task submission whose task is no longer there to accept it. */
+export class TaskSubmissionError extends Error {
+  constructor(message) { super(message); this.name = 'TaskSubmissionError'; }
+}
+
+/**
+ * Accept work sent back for a task (#144): the submission joins the task's
+ * sources and the task is marked done, by whoever approved it and when. No
+ * record is written — a draft is work product, not context. A task that is
+ * already done only gains the submission, so a second submission for it records
+ * what arrived and changes nothing else.
+ *
+ * Returns `{ tree, completed }`; `completed` is false when it was already done.
+ */
+export function applyTaskSubmission(tree, item, { by = null, at = new Date().toISOString() } = {}) {
+  const tasks = Array.isArray(tree?.tasks) ? tree.tasks : [];
+  const task = tasks.find(t => t.id === item.forTask);
+  if (!task) throw new TaskSubmissionError(`The task this was sent for (${item.forTask}) is not there any more. Reject the submission, or send it again for another task.`);
+  const sources = [...(task.sourceContributionIds || [])];
+  if (!sources.includes(item.id)) sources.push(item.id);
+  const already = task.status === 'done';
+  const next = already
+    ? { ...task, sourceContributionIds: sources }
+    : {
+      ...task, sourceContributionIds: sources, status: 'done', doneAt: String(at).slice(0, 10), doneBy: by,
+      statusLog: [...(Array.isArray(task.statusLog) ? task.statusLog : []), { did: 'completed', by, at }],
+    };
+  return { tree: { ...tree, tasks: tasks.map(t => (t.id === task.id ? next : t)) }, completed: !already };
+}
+
 /**
  * Apply what a queued contribution proposed, now that somebody has approved it.
  *

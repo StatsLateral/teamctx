@@ -43,6 +43,7 @@ These are **contributor-facing write-ups** for the larger items on the
 | [Project context as a layer workstreams inherit](project-context-layer.md) | Structured workstreams · Managers in control | Large (a new tree, every compile path, a migration) |
 | [Nobody is brought onto an empty project](member-context-gate.md) | Managers in control | Small (one check, two call sites) |
 | [Task history](task-history.md) | Managers in control | Medium (three stored facts, one derived list, one drawer section) |
+| [Task submissions in the review queue](task-submissions.md) | Managers in control | Medium (a field on contributions, one approval path, row wording) |
 | [Finish the Waiting on you icons](waiting-on-you-icons.md) | Managers in control | Small (copy buttons, scroll reset, DOM tests) |
 
 
