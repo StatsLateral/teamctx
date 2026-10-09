@@ -233,6 +233,68 @@ describe('fetch', () => {
   });
 });
 
+/**
+ * Each thread's link, for its Connected sources reference (#169): built from
+ * the workspace's address, asked of Slack once per run.
+ */
+describe('the link to a thread', () => {
+  const replies = ok({ messages: [{ user: 'U1', text: 'pricing: per seat' }] });
+  const slackSays = (authTest) => vi.fn(async (url) => {
+    const method = String(url).split('/api/')[1];
+    calls.push(method);
+    return method === 'auth.test' ? authTest : replies;
+  });
+
+  it('is the thread permalink in this workspace', async () => {
+    globalThis.fetch = slackSays(ok({ url: 'https://acme.slack.com/', team: 'Acme' }));
+    const doc = await slack.fetch(authed(), { channel: 'C0421ABCD', ts: '1699887654.123456' });
+    expect(doc.url).toBe('https://acme.slack.com/archives/C0421ABCD/p1699887654123456');
+  });
+
+  it('asks Slack for the workspace once in a run, however many threads', async () => {
+    globalThis.fetch = slackSays(ok({ url: 'https://acme.enterprise.slack.com/' }));
+    const a = authed();
+    await slack.fetch(a, { channel: 'C1', ts: '1.1' });
+    const second = await slack.fetch(a, { channel: 'C2', ts: '2.2' });
+    expect(calls.filter(m => m === 'auth.test')).toHaveLength(1);
+    expect(second.url).toBe('https://acme.enterprise.slack.com/archives/C2/p22');
+  });
+
+  it('is left out when Slack will not say, or says something that is not a Slack address', async () => {
+    globalThis.fetch = slackSays(err('missing_scope'));
+    expect((await slack.fetch(authed(), { channel: 'C1', ts: '1.1' })).url).toBeUndefined();
+    for (const odd of ['https://evil.example/', 'http://acme.slack.com/', 'https://acme.slack.com.evil.example/', 'javascript:alert(1)']) {
+      globalThis.fetch = slackSays(ok({ url: odd }));
+      const doc = await slack.fetch(authed(), { channel: 'C1', ts: '1.1' });
+      expect(doc.url, odd).toBeUndefined();
+      expect(doc.text).toBe('@alice: pricing: per seat');
+    }
+  });
+
+  it('comes with a title for the reference that names the channel and day, not a message', async () => {
+    globalThis.fetch = vi.fn(async (url) => {
+      const method = String(url).split('/api/')[1];
+      if (method === 'conversations.info') return ok({ channel: { name: 'pricing' } });
+      return method === 'auth.test' ? ok({ url: 'https://acme.slack.com/' }) : replies;
+    });
+    const doc = await slack.fetch(authed(), { channel: 'C1', ts: '1699887654.123456' });
+    expect(doc.sourceTitle).toBe('#pricing thread, 2023-11-13');
+    expect(doc.sourceTitle).not.toContain('per seat');
+    // The review queue keeps the thread's own words as the document's title.
+    expect(doc.title).toContain('pricing: per seat');
+  });
+
+  it('says only "Slack thread" when the channel will not give its name', async () => {
+    globalThis.fetch = slackSays(ok({ url: 'https://acme.slack.com/' }));
+    const doc = await slack.fetch(authed(), { channel: 'C1', ts: '1699887654.123456' });
+    expect(doc.sourceTitle).toBe('Slack thread, 2023-11-13');
+  });
+
+  it('is built the way Slack builds its own', () => {
+    expect(slack.permalinkFor('https://acme.slack.com', 'C1', '1700000000.000100')).toBe('https://acme.slack.com/archives/C1/p1700000000000100');
+  });
+});
+
 describe('errors and limits', () => {
   it('turns a Slack error code into something actionable', async () => {
     globalThis.fetch = vi.fn(async () => err('missing_scope'));

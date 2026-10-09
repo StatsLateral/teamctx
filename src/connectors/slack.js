@@ -238,9 +238,59 @@ export async function fetch(a, ref) {
   for await (const page of paged(a.token, 'conversations.replies', { channel: ref.channel, ts: ref.ts, limit: 200 })) {
     messages.push(...(page.messages || []));
   }
+  const base = await workspaceUrl(a);
+  const channel = await channelName(a, ref.channel);
   return {
     id: `slack:${ref.channel}/${permalinkTs(ref.ts)}`,
     title: titleFrom(messages[0]?.text, users),
     text: renderThread(messages, users),
+    // For its Connected sources reference (#169): where the thread lives, and a
+    // title that says which thread without quoting anybody's message, since a
+    // reference never carries the contents.
+    ...(base ? { url: permalinkFor(base, ref.channel, ref.ts) } : {}),
+    sourceTitle: `${channel ? `#${channel}` : 'Slack'} thread, ${new Date(Number(String(ref.ts).split('.')[0]) * 1000).toISOString().slice(0, 10)}`,
   };
 }
+
+/**
+ * A channel's name, asked once per channel per run. `channels:read` may not be
+ * granted, and a private channel may not answer: then there is no name, and the
+ * reference says "Slack thread" instead.
+ */
+async function channelName(a, channel) {
+  a.channels ??= new Map();
+  if (a.channels.has(channel)) return a.channels.get(channel);
+  let name = null;
+  try {
+    const r = await call(a.token, 'conversations.info', { channel });
+    name = typeof r.channel?.name === 'string' && /^[\w.-]{1,80}$/.test(r.channel.name) ? r.channel.name : null;
+  } catch { /* no name; said without one */ }
+  a.channels.set(channel, name);
+  return name;
+}
+
+// ---- links -------------------------------------------------------------
+
+/** A workspace's own address, as Slack gives it: one or more labels on slack.com. */
+const WORKSPACE_URL = /^https:\/\/[a-z0-9-]+(?:\.[a-z0-9-]+)*\.slack\.com\/?$/i;
+
+/**
+ * The workspace's address, asked of Slack once per run (`auth.test` returns it)
+ * and kept on the auth object. A thread's link is built from it the way Slack
+ * builds its own permalinks. Anything that is not a slack.com address, or a
+ * call that fails, means no link: the reference is still kept, by the thread's
+ * id, and an import never fails over a link.
+ */
+async function workspaceUrl(a) {
+  if (a.teamUrl !== undefined) return a.teamUrl;
+  try {
+    const r = await call(a.token, 'auth.test', {});
+    a.teamUrl = typeof r.url === 'string' && WORKSPACE_URL.test(r.url) ? r.url.replace(/\/?$/, '/') : null;
+  } catch {
+    a.teamUrl = null;
+  }
+  return a.teamUrl;
+}
+
+/** Slack's permalink for a message: the workspace, the channel, and p + its ts without the dot. */
+export const permalinkFor = (workspace, channel, ts) => `${workspace.replace(/\/?$/, '/')}archives/${channel}/${permalinkTs(ts)}`;
