@@ -315,23 +315,34 @@ export function writeApproved(record, dir) {
  * object with an id, is skipped rather than allowed to take the page down.
  */
 export function readApprovals(dir) {
-  const parse = (text) => { try { return JSON.parse(text); } catch { return null; } };
-  const entries = (records) => Object.fromEntries(records
-    .filter(r => r && typeof r === 'object' && typeof r.id === 'string')
-    .map(r => [r.id, r]));
-  const s = sessionListDir(ctxPath('approved'));
-  if (s !== null) {
-    return entries(s.filter(name => name.endsWith('.json'))
-      .map(name => getCurrentSession().read(ctxPath('approved', name)))
-      .filter(Boolean)
-      .map(f => parse(f.content)));
-  }
-  const d = resolve(dir, 'approved');
-  if (!existsSync(d)) return {};
-  return entries(readdirSync(d)
-    .filter(name => name.endsWith('.json'))
-    .map(name => parse(readFileSync(join(d, name), 'utf-8'))));
+  return byId(readJsonDir('approved', dir));
 }
+
+/**
+ * Every JSON object with a string id in one `.teamctx/<name>/` folder. These are
+ * files anybody with write access to the repository can edit, so one that is
+ * not valid, or is not an object with an id, is skipped rather than allowed to
+ * take a page down.
+ */
+function readJsonDir(name, dir) {
+  const parse = (text) => { try { return JSON.parse(text); } catch { return null; } };
+  const ok = (r) => r && typeof r === 'object' && typeof r.id === 'string';
+  const s = sessionListDir(ctxPath(name));
+  if (s !== null) {
+    return s.filter(n => n.endsWith('.json'))
+      .map(n => getCurrentSession().read(ctxPath(name, n)))
+      .filter(Boolean)
+      .map(f => parse(f.content))
+      .filter(ok);
+  }
+  const d = resolve(dir, name);
+  if (!existsSync(d)) return [];
+  return readdirSync(d).filter(n => n.endsWith('.json'))
+    .map(n => parse(readFileSync(join(d, n), 'utf-8')))
+    .filter(ok);
+}
+
+const byId = (records) => Object.fromEntries(records.map(r => [r.id, r]));
 
 // ---- Connected sources (#168) ----
 
@@ -360,22 +371,18 @@ export function writeSourceRef(record, dir) {
  * access to the repository can edit, and the page must not fall over on one.
  */
 export function readSourceRefs(dir) {
+  return byId(readJsonDir('sources', dir));
+}
+
+/** One source reference by id, or `null`: what recording an item reads, rather than all of them. */
+export function readSourceRef(id, dir) {
+  sanitizeSourceId(id);
   const parse = (text) => { try { return JSON.parse(text); } catch { return null; } };
-  const entries = (records) => Object.fromEntries(records
-    .filter(r => r && typeof r === 'object' && typeof r.id === 'string')
-    .map(r => [r.id, r]));
-  const s = sessionListDir(ctxPath('sources'));
-  if (s !== null) {
-    return entries(s.filter(name => name.endsWith('.json'))
-      .map(name => getCurrentSession().read(ctxPath('sources', name)))
-      .filter(Boolean)
-      .map(f => parse(f.content)));
-  }
-  const d = resolve(dir, 'sources');
-  if (!existsSync(d)) return {};
-  return entries(readdirSync(d)
-    .filter(name => name.endsWith('.json'))
-    .map(name => parse(readFileSync(join(d, name), 'utf-8'))));
+  const ok = (r) => (r && typeof r === 'object' && r.id === id ? r : null);
+  const fromSession = sessionRead(ctxPath('sources', `${id}.json`));
+  if (fromSession !== undefined) return fromSession === null ? null : ok(parse(fromSession));
+  const p = join(resolve(dir, 'sources'), `${id}.json`);
+  return existsSync(p) ? ok(parse(readFileSync(p, 'utf-8'))) : null;
 }
 
 // ---- Snapshots ----

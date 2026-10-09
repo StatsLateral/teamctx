@@ -14,7 +14,7 @@
  * `teamctx import`.
  */
 import { createHash } from 'crypto';
-import { readSourceRefs, writeSourceRef } from './storage.js';
+import { readSourceRef, writeSourceRef } from './storage.js';
 
 /** The tools a reference can name, as the drawer shows them. */
 export const CONNECTORS = {
@@ -42,8 +42,12 @@ export const SUMMARY_MAX = 400;
 /** How many references one contribution can carry. */
 export const SOURCES_PER_CONTRIBUTION = 20;
 
-/** A query parameter whose name says it may carry a credential. */
-const SECRET_PARAM = /token|key|secret|sig|signature|password|passwd|pwd|auth|code|credential|session|cookie/i;
+/**
+ * A query parameter that carries a credential, matched by its whole name: a
+ * substring match also took `rlkey` (Dropbox) and `resourcekey` (Drive), which a
+ * shared link needs in order to open.
+ */
+const SECRET_PARAM = /^(?:access_?token|id_?token|refresh_?token|token|auth|authorization|code|key|api_?key|secret|client_?secret|sig|signature|password|passwd|pwd|credential|session|sessionid|sid|jwt|x-amz-(?:signature|credential|security-token)|x-goog-(?:signature|credential))$|_token$/i;
 
 const oneLine = (v, max) => String(v ?? '').replace(/[\p{Cc}\p{Cf}]+/gu, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
 
@@ -67,7 +71,7 @@ export function cleanLink(link) {
   url.password = '';
   for (const name of [...url.searchParams.keys()]) if (SECRET_PARAM.test(name)) url.searchParams.delete(name);
   // A fragment can carry a token too (implicit OAuth puts one there).
-  if (SECRET_PARAM.test(url.hash)) url.hash = '';
+  if (/token|code=|secret|signature|password/i.test(url.hash)) url.hash = '';
   return url.toString().slice(0, 2000);
 }
 
@@ -78,70 +82,101 @@ export function sourceId(connector, handle) {
 
 /**
  * Turn what arrived into the fields a reference keeps, or `null` when there is
- * nothing to point at (no link and no title). Only these four fields are read:
+ * nothing to point at (no link and no title). Only these fields are read:
  * anything else that came with it, a body or a token included, is never looked
  * at, so it can never be written.
+ *
+ * Its id comes from the link, else the tool's own id for the item (`itemId`, as
+ * an importer knows it), and only last from its title, so two different items
+ * that happen to share a title stay two references whenever either is known.
  */
 export function cleanRef(input) {
   if (!input || typeof input !== 'object') return null;
   const connector = connectorKey(input.connector);
   const link = cleanLink(input.link);
   const title = oneLine(input.title, TITLE_MAX);
+  const itemId = oneLine(input.itemId, 200) || null;
   const summary = oneLine(input.summary, SUMMARY_MAX);
   if (!link && !title) return null;
-  return { id: sourceId(connector, link || title.toLowerCase()), connector, title: title || link, link, summary };
+  const handle = link || (itemId ? `id:${itemId}` : `title:${title.toLowerCase()}`);
+  return { id: sourceId(connector, handle), connector, title: title || link, link, ...(itemId ? { itemId } : {}), summary };
 }
 
-/** One thing a reference feeds: a contribution in a part of the work, and its task. */
-const sameFeed = (a, b) => a.contribution === b.contribution && (a.task || null) === (b.task || null);
+/** Who brought it, as recorded: a name and the key behind it. */
+const person = (by) => (by ? { name: oneLine(by.name, 120), key: by.key || null } : null);
 
 /**
- * Record these references as feeding `feed` (`{ workstream, contribution,
- * task? }`). A reference already on record is updated rather than added again:
- * it was read again, so `lastReadAt`, its title and summary refresh, and the
- * new feed joins the old ones. Returns the ids written.
+ * Record these references as feeding one contribution (`feed`: `{ workstream,
+ * contribution, task? }`).
+ *
+ * What a contribution said about an item, who brought it and when are kept on
+ * that feed, not on the item: so an item cited again never loses what an earlier
+ * contribution said about it, and a reader who may see only some of its feeds
+ * sees only what those said. The item keeps what is true of it in every case:
+ * its tool, link, id and title. `summary` is the contribution's own, used for an
+ * item that came without one. Only the files for these items are read, never
+ * every reference. Returns the ids written.
  */
-export function recordSources(refs, { by = null, at = new Date().toISOString(), feed, via = 'assistant', dir } = {}) {
+export function recordSources(refs, { by = null, at = new Date().toISOString(), feed, via = 'assistant', summary = '', dir } = {}) {
   const list = (Array.isArray(refs) ? refs : []).slice(0, SOURCES_PER_CONTRIBUTION).map(cleanRef).filter(Boolean);
-  if (!list.length) return [];
-  const existing = readSourceRefs(dir);
+  if (!list.length || !feed?.contribution) return [];
   const written = [];
   for (const ref of list) {
     if (written.includes(ref.id)) continue;
-    const old = existing[ref.id];
-    const feeds = Array.isArray(old?.feeds) ? old.feeds.filter(f => f && typeof f === 'object') : [];
-    const next = {
-      ...ref,
-      title: ref.title || old?.title || '',
-      summary: ref.summary || old?.summary || '',
-      by: old?.by || (by ? { name: oneLine(by.name, 120), key: by.key || null } : null),
-      firstReadAt: old?.firstReadAt || at,
-      lastReadAt: at,
-      lastBy: by ? { name: oneLine(by.name, 120), key: by.key || null } : old?.lastBy || null,
-      via: old?.via && old.via !== via ? 'both' : via,
-      feeds: feed && !feeds.some(f => sameFeed(f, feed)) ? [...feeds, cleanFeed(feed)] : feeds,
+    const old = readSourceRef(ref.id, dir);
+    const feeds = (Array.isArray(old?.feeds) ? old.feeds : [])
+      .filter(f => f && typeof f === 'object' && !sameFeed(f, feed));
+    const entry = {
+      workstream: feed.workstream ?? null,
+      contribution: String(feed.contribution),
+      ...(feed.task ? { task: feed.task } : {}),
+      at,
+      by: person(by),
+      summary: ref.summary || oneLine(summary, SUMMARY_MAX),
+      via,
     };
-    writeSourceRef(next, dir);
+    const { summary: _s, ...item } = ref;
+    writeSourceRef({
+      ...item,
+      title: ref.title || old?.title || '',
+      firstReadAt: old?.firstReadAt || at,
+      feeds: [...feeds, entry],
+    }, dir);
     written.push(ref.id);
   }
   return written;
 }
 
-function cleanFeed({ workstream = null, contribution = null, task = null } = {}) {
-  return { workstream: workstream ?? null, contribution: contribution ?? null, ...(task ? { task } : {}) };
-}
+/** One thing a reference feeds: a contribution, and its task. */
+const sameFeed = (a, b) => String(a.contribution) === String(b.contribution) && (a.task || null) === (b.task || null);
 
 /**
- * The references a reader may see, each with only the feeds they may see.
+ * The references a reader may see, each with only the feeds they may see, and
+ * what to show of it taken from those feeds alone.
  *
- * `canSee(workstream)` says whether a part of the work is in their scope; the
- * project itself (`null`) is for everyone with access. A reference left with no
- * feed this reader can see is not shown to them at all, so its title and link
- * never reach them.
+ * - `canSee(workstream)`: is that part of the work in their scope (the project
+ *   itself, `null`, is for everyone with access).
+ * - `counts(feed)`: does that feed's contribution count for this reader, for
+ *   example only approved ones for a member, and waiting ones too for a manager.
+ *
+ * A reference left with no feed is not shown at all, so its title and link never
+ * reach the reader. Its summary, who brought it and when are the latest visible
+ * feed's, never one from a part of the work the reader cannot see.
  */
-export function visibleSources(records, canSee = () => true) {
+export function visibleSources(records, { canSee = () => true, counts = () => true } = {}) {
   return Object.values(records || {})
-    .map(r => ({ ...r, feeds: (Array.isArray(r.feeds) ? r.feeds : []).filter(f => f && (f.workstream == null || canSee(f.workstream))) }))
+    .map(r => {
+      const feeds = (Array.isArray(r.feeds) ? r.feeds : [])
+        .filter(f => f && typeof f === 'object' && (f.workstream == null || canSee(f.workstream)) && counts(f))
+        .sort((a, b) => String(a.at || '').localeCompare(String(b.at || '')));
+      const latest = feeds[feeds.length - 1];
+      return {
+        id: r.id, connector: r.connector, title: r.title, link: r.link ?? null, feeds,
+        summary: [...feeds].reverse().find(f => f.summary)?.summary || '',
+        lastReadAt: latest?.at || null,
+        by: latest?.by || null,
+      };
+    })
     .filter(r => r.feeds.length)
     .sort((a, b) => String(b.lastReadAt || '').localeCompare(String(a.lastReadAt || '')));
 }

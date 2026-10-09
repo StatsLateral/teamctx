@@ -689,15 +689,18 @@ describe('Connected sources, with nothing recorded yet', () => {
  */
 describe('Connected sources, recorded', () => {
   const sources = (body) => /<section class="dpanel" id="dp-sources"[\s\S]*?<\/section>/.exec(body)?.[0] || '';
-  const ref = (id, over) => repo.files.set(`.teamctx/sources/${id}.json`, JSON.stringify({
-    id, connector: 'slack', title: 'Pricing thread', link: 'https://acme.slack.com/archives/C1/p1', summary: 'Agreed seat pricing',
-    by: { name: 'Priya' }, lastBy: { name: 'Priya' }, firstReadAt: '2026-10-08T09:00:00.000Z', lastReadAt: '2026-10-09T09:00:00.000Z',
-    via: 'assistant', feeds: [{ workstream: 'product', contribution: 'c-prod', task: 'pricing-page' }], ...over,
+  const priya = { name: 'Priya', key: 'git:priya@example.com' };
+  const feed = (over = {}) => ({ workstream: 'product', contribution: 'c-prod', task: 'pricing-page', at: '2026-10-09T09:00:00.000Z', by: priya, summary: 'Agreed seat pricing', via: 'assistant', ...over });
+  const ref = (id, over = {}) => repo.files.set(`.teamctx/sources/${id}.json`, JSON.stringify({
+    id, connector: 'slack', title: 'Pricing thread', link: 'https://acme.slack.com/archives/C1/p1', firstReadAt: '2026-10-08T09:00:00.000Z',
+    feeds: [feed()], ...over,
   }));
+  const approve = (id) => repo.files.set(`.teamctx/approved/${id}.json`, JSON.stringify({ id, approvedBy: { name: 'Maya' }, approvedAt: '2026-10-09T10:00:00.000Z' }));
+  beforeEach(() => { approve('c-prod'); approve('c-x'); approve('c-tech'); });
 
   it('lists them by tool, each linked, with when, who and what it feeds, and drops the sample', async () => {
     ref('aaaaaaaa01');
-    ref('aaaaaaaa02', { connector: 'notion', title: 'Launch checklist', link: 'https://www.notion.so/x', feeds: [{ workstream: null, contribution: 'c-x' }] });
+    ref('aaaaaaaa02', { connector: 'notion', title: 'Launch checklist', link: 'https://www.notion.so/x', feeds: [feed({ workstream: null, contribution: 'c-x', task: undefined })] });
     const html = sources((await visit('/project/acme/ledger', MANAGER)).body);
     expect(html).not.toMatch(/Nothing is connected yet|sample data/i);
     expect(html).toMatch(/Slack · 1[\s\S]*Notion · 1/);
@@ -713,17 +716,41 @@ describe('Connected sources, recorded', () => {
     expect(settings).toMatch(/Connected sources<span class="stcnt">1<\/span>/);
   });
 
-  it('shows a member only what feeds the parts they are on', async () => {
-    ref('aaaaaaaa01');
-    ref('aaaaaaaa03', { title: 'Uptime runbook', feeds: [{ workstream: 'tech', contribution: 'c-tech' }] });
+  it('shows a member only what feeds the parts they are on, and only what those feeds said', async () => {
+    // The same thread, also cited in a part this member is not on, by somebody else, later.
+    ref('aaaaaaaa01', { feeds: [feed(), feed({ workstream: 'tech', contribution: 'c-tech', task: undefined, at: '2026-10-12T09:00:00.000Z', by: { name: 'Dev', key: 'git:dev@example.com' }, summary: 'Uptime incident notes' })] });
+    ref('aaaaaaaa03', { title: 'Uptime runbook', feeds: [feed({ workstream: 'tech', contribution: 'c-tech', task: undefined })] });
     await lend();
-    const { body } = await visit('/project/acme/ledger', MEMBER_GOOGLE);
-    expect(sources(body)).toContain('Pricing thread');
-    expect(body).not.toContain('Uptime runbook');
+    const html = sources((await visit('/project/acme/ledger', MEMBER_GOOGLE)).body);
+    expect(html).toContain('Pricing thread');
+    expect(html).toMatch(/Read 2026-10-09 by Priya/);
+    for (const hidden of ['Uptime runbook', 'Uptime incident notes', 'Dev', 'Tech']) expect(html).not.toContain(hidden);
+  });
+
+  it('shows a member nothing still waiting for review, or turned down; a manager sees what waits, marked', async () => {
+    repo.files.set('.teamctx/queue/c-wait.json', JSON.stringify({ id: 'c-wait', status: 'pending', author: 'Priya', summary: 'proposal', workstream: 'product' }));
+    ref('aaaaaaaa05', { title: 'Budget cut draft', feeds: [feed({ contribution: 'c-wait', task: undefined, summary: 'Cut the budget 40%' })] });
+    ref('aaaaaaaa06', { title: 'Turned down idea', feeds: [feed({ contribution: 'c-gone', task: undefined, summary: 'Rejected plan' })] });
+    await lend();
+    const member = sources((await visit('/project/acme/ledger', MEMBER_GOOGLE)).body);
+    for (const hidden of ['Budget cut draft', 'Cut the budget', 'Turned down idea', 'Rejected plan']) expect(member).not.toContain(hidden);
+    const manager = sources((await visit('/project/acme/ledger', MANAGER)).body);
+    expect(manager).toMatch(/Budget cut draft[\s\S]*Product · waiting for review/);
+    expect(manager).not.toContain('Turned down idea');
+  });
+
+  it('names who brought it as the roster has them, not as they typed it', async () => {
+    ref('aaaaaaaa07', { feeds: [feed({ by: { name: 'Maya (Manager)', key: 'git:priya@example.com' } })] });
+    ref('aaaaaaaa08', { title: 'From nobody we know', feeds: [feed({ by: { name: 'Totally The CEO', key: 'git:stranger@example.com' } })] });
+    const html = sources((await visit('/project/acme/ledger', MANAGER)).body);
+    expect(html).not.toContain('Maya (Manager)');
+    expect(html).not.toContain('Totally The CEO');
+    expect(html).toMatch(/by Priya/);
+    expect(html).toMatch(/From nobody we know[\s\S]*by someone/);
   });
 
   it('writes what somebody else recorded as text, and never links anything but http(s)', async () => {
-    ref('aaaaaaaa04', { title: '<img src=x onerror=alert(1)>', link: 'javascript:alert(1)', summary: '<b>hi</b>' });
+    ref('aaaaaaaa04', { title: '<img src=x onerror=alert(1)>', link: 'javascript:alert(1)', feeds: [feed({ summary: '<b>hi</b>' })] });
     const html = sources((await visit('/project/acme/ledger', MANAGER)).body);
     expect(html).not.toContain('<img src=x');
     expect(html).not.toContain('javascript:');

@@ -72,6 +72,26 @@ export function resolveProjectDir(argv = process.argv.slice(2), env = process.en
 const RISKY = '⚠ RISKY: ';
 const REPORT = ' The client should report the returned reportBack string to the user after calling.';
 
+/**
+ * What a contribution was drawn from (#168), as both contribute tools take it:
+ * one entry per item read in a connected tool, links and one-line summaries only.
+ */
+const SOURCES_INPUT = {
+  type: 'array',
+  maxItems: 20,
+  description: "What you read to write this, when it came from one of the person's connected tools (Slack, Notion, Google Drive, SharePoint, Dropbox, Coda or another): one entry per item. Link and a one-line summary only, never its contents, and never a link that carries a token. The manager sees these as the project's connected sources.",
+  items: {
+    type: 'object',
+    properties: {
+      connector: { type: 'string', description: 'The tool: slack, notion, gdrive, m365, dropbox, coda, or its name' },
+      title: { type: 'string', description: 'What the item is called: a channel thread, page, file or doc title' },
+      link: { type: 'string', description: 'Its https link' },
+      summary: { type: 'string', description: 'One line on what it says' },
+    },
+    additionalProperties: false,
+  },
+};
+
 export const TOOLS = [
   // Tier 0 — read-only
   {
@@ -255,21 +275,7 @@ export const TOOLS = [
         author: { type: 'string' },
         decision: { type: 'boolean' },
         apply: { type: 'boolean', description: 'Write immediately; skips the review queue' },
-        sources: {
-          type: 'array',
-          maxItems: 20,
-          description: "What you read to write this, when it came from one of the person's connected tools (Slack, Notion, Google Drive, SharePoint, Dropbox, Coda or another): one entry per item. Link and a one-line summary only, never its contents, and never a link that carries a token. The manager sees these as the project's connected sources.",
-          items: {
-            type: 'object',
-            properties: {
-              connector: { type: 'string', description: 'The tool: slack, notion, gdrive, m365, dropbox, coda, or its name' },
-              title: { type: 'string', description: 'What the item is called: a channel thread, page, file or doc title' },
-              link: { type: 'string', description: 'Its https link' },
-              summary: { type: 'string', description: 'One line on what it says' },
-            },
-            additionalProperties: false,
-          },
-        },
+        sources: SOURCES_INPUT,
       },
       required: ['text'], additionalProperties: false,
     },
@@ -1866,21 +1872,7 @@ const AGENT_TOOL_DEFS = {
         text: { type: 'string', description: 'The work, in plain prose' },
         workstream: { type: 'string', description: "Which part of the project it belongs to. Omit for the agent's own." },
         decision: { type: 'boolean' },
-        sources: {
-          type: 'array',
-          maxItems: 20,
-          description: "What you read to write this, when it came from one of the person's connected tools (Slack, Notion, Google Drive, SharePoint, Dropbox, Coda or another): one entry per item. Link and a one-line summary only, never its contents, and never a link that carries a token. The manager sees these as the project's connected sources.",
-          items: {
-            type: 'object',
-            properties: {
-              connector: { type: 'string', description: 'The tool: slack, notion, gdrive, m365, dropbox, coda, or its name' },
-              title: { type: 'string', description: 'What the item is called: a channel thread, page, file or doc title' },
-              link: { type: 'string', description: 'Its https link' },
-              summary: { type: 'string', description: 'One line on what it says' },
-            },
-            additionalProperties: false,
-          },
-        },
+        sources: SOURCES_INPUT,
       },
       required: ['text'], additionalProperties: false,
     },

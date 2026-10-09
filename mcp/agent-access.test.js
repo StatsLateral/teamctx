@@ -261,8 +261,7 @@ describe('a contribution that says what it was drawn from', () => {
     const ref = JSON.parse(session.file(`.teamctx/sources/${names[0]}`));
     expect(ref).toMatchObject({
       connector: 'gdrive', title: 'Nightly metrics sheet', link: 'https://docs.google.com/spreadsheets/d/abc/edit?usp=sharing',
-      summary: 'Sheet the numbers come from', via: 'assistant', by: { name: 'Nightly report' },
-      feeds: [{ workstream: 'pricing', contribution: r.id }],
+      feeds: [{ workstream: 'pricing', contribution: r.id, summary: 'Sheet the numbers come from', via: 'assistant', by: { name: 'Nightly report' } }],
     });
     const raw = session.file(`.teamctx/sources/${names[0]}`);
     expect(raw).not.toContain('SECRET');

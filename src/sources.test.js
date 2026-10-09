@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync, readdirSync, readFileSync } from 'fs';
+import { mkdtempSync, rmSync, readdirSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { cleanRef, cleanLink, connectorKey, recordSources, visibleSources, sourceId, TITLE_MAX, SUMMARY_MAX } from './sources.js';
-import { readSourceRefs } from './storage.js';
+import { readSourceRefs, readApprovals } from './storage.js';
 
 let dir;
 beforeEach(() => { dir = mkdtempSync(join(tmpdir(), 'teamctx-sources-')); });
@@ -32,6 +32,13 @@ describe('a source reference', () => {
     expect(cleanRef('slack')).toBeNull();
   });
 
+  it('keeps two items that share a title apart when the tool says they are different', () => {
+    const a = cleanRef({ connector: 'notion', title: 'Meeting notes', itemId: 'notion:1' });
+    const b = cleanRef({ connector: 'notion', title: 'Meeting notes', itemId: 'notion:2' });
+    expect(a.id).not.toBe(b.id);
+    expect(a.itemId).toBe('notion:1');
+  });
+
   it('knows the tools by the names an assistant uses, and puts the rest under other', () => {
     expect(['Google Drive', 'SharePoint', 'OneDrive', 'Microsoft 365', 'NOTION', 'coda', 'Jira'].map(connectorKey))
       .toEqual(['gdrive', 'm365', 'm365', 'm365', 'notion', 'coda', 'other']);
@@ -39,10 +46,17 @@ describe('a source reference', () => {
 });
 
 describe('a link that is safe to keep', () => {
-  it('drops a user, a password and any parameter that looks like a credential', () => {
-    expect(cleanLink('https://bob:hunter2@docs.example.com/d/1?usp=sharing&access_token=abc&X-Amz-Signature=zz&sig=1&code=9&rlkey=q'))
+  it('drops a user, a password and any parameter that carries a credential', () => {
+    expect(cleanLink('https://bob:hunter2@docs.example.com/d/1?usp=sharing&access_token=abc&X-Amz-Signature=zz&sig=1&code=9&refresh_token=r'))
       .toBe('https://docs.example.com/d/1?usp=sharing');
     expect(cleanLink('https://app.example.com/cb#access_token=abc')).toBe('https://app.example.com/cb');
+  });
+
+  it('keeps what a shared link needs to open', () => {
+    const dropbox = 'https://www.dropbox.com/scl/fi/x/doc.pdf?rlkey=abc&dl=0';
+    const drive = 'https://drive.google.com/file/d/1x/view?resourcekey=0-abc';
+    expect(cleanLink(dropbox)).toBe(dropbox);
+    expect(cleanLink(drive)).toBe(drive);
   });
 
   it('refuses anything that is not http or https', () => {
@@ -51,28 +65,30 @@ describe('a link that is safe to keep', () => {
 });
 
 describe('recording references', () => {
-  it('writes one file per item, with who brought it, when, and what it feeds', () => {
+  it('writes one file per item; who brought it, when and what it said go on the feed', () => {
     const [id] = recordSources([thread], { by: maya, at: '2026-10-09T09:00:00.000Z', feed: { workstream: 'sales', contribution: 'c1' }, dir });
-    const r = readSourceRefs(dir)[id];
-    expect(r).toMatchObject({
-      connector: 'slack', title: thread.title, link: thread.link, by: maya, via: 'assistant',
-      firstReadAt: '2026-10-09T09:00:00.000Z', lastReadAt: '2026-10-09T09:00:00.000Z',
-      feeds: [{ workstream: 'sales', contribution: 'c1' }],
+    expect(readSourceRefs(dir)[id]).toEqual({
+      id, connector: 'slack', title: thread.title, link: thread.link, firstReadAt: '2026-10-09T09:00:00.000Z',
+      feeds: [{ workstream: 'sales', contribution: 'c1', at: '2026-10-09T09:00:00.000Z', by: maya, summary: 'Agreed seat pricing', via: 'assistant' }],
     });
   });
 
-  it('updates an item read again, adding what it feeds and never repeating it', () => {
+  it('adds what an item read again feeds, and never loses what an earlier contribution said', () => {
     recordSources([thread], { by: maya, at: '2026-10-09T09:00:00.000Z', feed: { workstream: 'sales', contribution: 'c1' }, dir });
-    const [id] = recordSources([{ ...thread, summary: 'Seat pricing, revised' }], {
-      by: { name: 'Dev' }, at: '2026-10-10T09:00:00.000Z', via: 'import', feed: { workstream: 'ops', contribution: 'c2', task: 't9' }, dir,
+    const [id] = recordSources([{ ...thread, summary: undefined }], {
+      by: { name: 'Dev', key: 'git:dev@x' }, at: '2026-10-10T09:00:00.000Z', via: 'import', summary: 'A plan about something else',
+      feed: { workstream: 'ops', contribution: 'c2', task: 't9' }, dir,
     });
+    // The same contribution again replaces its own feed rather than adding one.
     recordSources([thread], { by: maya, at: '2026-10-11T09:00:00.000Z', feed: { workstream: 'ops', contribution: 'c2', task: 't9' }, dir });
-    const all = readSourceRefs(dir);
-    expect(Object.keys(all)).toEqual([id]);
-    expect(all[id]).toMatchObject({
-      firstReadAt: '2026-10-09T09:00:00.000Z', lastReadAt: '2026-10-11T09:00:00.000Z', by: maya, via: 'both', summary: 'Agreed seat pricing',
-      feeds: [{ workstream: 'sales', contribution: 'c1' }, { workstream: 'ops', contribution: 'c2', task: 't9' }],
-    });
+    const r = readSourceRefs(dir)[id];
+    expect(r.firstReadAt).toBe('2026-10-09T09:00:00.000Z');
+    expect(r.feeds.map(f => [f.contribution, f.summary])).toEqual([['c1', 'Agreed seat pricing'], ['c2', 'Agreed seat pricing']]);
+  });
+
+  it('takes the contribution summary only for an item that brought none', () => {
+    const [id] = recordSources([{ connector: 'notion', title: 'Plan' }], { summary: 'What the contribution says', feed: { contribution: 'c1' }, dir });
+    expect(readSourceRefs(dir)[id].feeds[0].summary).toBe('What the contribution says');
   });
 
   it('never writes a body or a secret it was handed', () => {
@@ -82,27 +98,47 @@ describe('recording references', () => {
     for (const leak of ['xoxb-123', 'BODY-OF-THE-THREAD', 'pw-1']) expect(written).not.toContain(leak);
   });
 
-  it('records nothing for a list that is not one, and caps how many one contribution can carry', () => {
+  it('records nothing without a contribution to feed, or for a list that is not one, and caps a contribution at twenty', () => {
+    expect(recordSources([thread], { feed: {}, dir })).toEqual([]);
     expect(recordSources('slack', { feed: { contribution: 'c' }, dir })).toEqual([]);
     const many = Array.from({ length: 40 }, (_, i) => ({ connector: 'notion', title: `Page ${i}` }));
     expect(recordSources(many, { feed: { contribution: 'c' }, dir })).toHaveLength(20);
   });
 });
 
-describe('who sees a reference', () => {
+describe('who sees what of a reference', () => {
+  const f = (workstream, contribution, at, summary, name = 'Maya') => ({ workstream, contribution, at, summary, by: { name, key: `k:${name}` } });
   const records = {
-    a: { id: 'a', title: 'Sales thread', lastReadAt: '2026-10-09', feeds: [{ workstream: 'sales', contribution: 'c1' }, { workstream: 'ops', contribution: 'c2' }] },
-    b: { id: 'b', title: 'Ops doc', lastReadAt: '2026-10-10', feeds: [{ workstream: 'ops', contribution: 'c3' }] },
-    c: { id: 'c', title: 'Project brief', lastReadAt: '2026-10-08', feeds: [{ workstream: null, contribution: 'c4' }] },
+    a: { id: 'a', title: 'Sales thread', feeds: [f('sales', 'c1', '2026-10-09', 'Sales view'), f('reorg', 'c2', '2026-10-12', 'Reorg plan, secret', 'Boss')] },
+    b: { id: 'b', title: 'Ops doc', feeds: [f('ops', 'c3', '2026-10-10', 'Ops')] },
+    c: { id: 'c', title: 'Project brief', feeds: [f(null, 'c4', '2026-10-08', 'Brief')] },
   };
 
-  it('shows a reader only what feeds the parts they can see, newest first', () => {
-    const seen = visibleSources(records, ws => ws === 'sales');
+  it('shows a reader only what feeds their parts, and only what those feeds said', () => {
+    const seen = visibleSources(records, { canSee: ws => ws === 'sales' });
     expect(seen.map(r => r.id)).toEqual(['a', 'c']);
-    expect(seen[0].feeds).toEqual([{ workstream: 'sales', contribution: 'c1' }]);
+    expect(seen[0]).toMatchObject({ summary: 'Sales view', lastReadAt: '2026-10-09', by: { name: 'Maya' } });
+    expect(JSON.stringify(seen)).not.toMatch(/Reorg|Boss|secret/);
   });
 
-  it('shows everything to a reader who can see everything', () => {
-    expect(visibleSources(records).map(r => r.id)).toEqual(['b', 'a', 'c']);
+  it('counts only the feeds the caller says count', () => {
+    const seen = visibleSources(records, { counts: x => x.contribution !== 'c3' });
+    expect(seen.map(r => r.id)).toEqual(['a', 'c']);
+  });
+
+  it('shows everything, newest first, to a reader who can see everything', () => {
+    const seen = visibleSources(records);
+    expect(seen.map(r => r.id)).toEqual(['a', 'b', 'c']);
+    expect(seen[0]).toMatchObject({ summary: 'Reorg plan, secret', lastReadAt: '2026-10-12' });
+  });
+});
+
+describe('reading the folders anybody with write access can edit', () => {
+  it('skips a file that is not valid, or not an object with an id', () => {
+    mkdirSync(join(dir, 'approved'), { recursive: true });
+    writeFileSync(join(dir, 'approved', 'bad.json'), '{nope');
+    writeFileSync(join(dir, 'approved', 'null.json'), 'null');
+    writeFileSync(join(dir, 'approved', 'ok.json'), JSON.stringify({ id: 'c1', approvedAt: 'x' }));
+    expect(Object.keys(readApprovals(dir))).toEqual(['c1']);
   });
 });

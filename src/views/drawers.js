@@ -117,7 +117,7 @@ function sourceItem(src) {
     ? `<a href="${esc(src.link)}" target="_blank" rel="noopener noreferrer">${esc(src.title || src.link)}</a>`
     : esc(src.title);
   const when = src.lastReadAt ? String(src.lastReadAt).slice(0, 10) : '';
-  const feeds = src.feeds.map(f => `<span class="chip">${esc(f.task ? `${f.task} · ${f.where}` : f.where)}</span>`).join(' ');
+  const feeds = src.feeds.map(f => `<span class="chip">${esc(f.task ? `${f.task} · ${f.where}` : f.where)}${f.waiting ? ' · waiting for review' : ''}</span>`).join(' ');
   return `<li><strong>${title}</strong>
         ${src.summary ? `<span class="m">${esc(src.summary)}</span>` : ''}
         <span class="m">${when ? `Read ${esc(when)}` : 'Read'}${src.by ? ` by ${esc(src.by)}` : ''} · feeds ${feeds}</span></li>`;
