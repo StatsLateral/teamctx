@@ -62,11 +62,12 @@ export async function reviewApproveCommand(id, opts = {}) {
  * suggests might follow, each with the command that adds it. Nothing is added
  * until one of those is run.
  */
-export function acceptedLines({ task, nextSteps = [] }) {
+export function acceptedLines({ task, nextSteps = [], alreadyDone = false }) {
   // A title came from a model reading somebody's submitted work, and these lines
   // are meant to be pasted into a shell. Single quotes, so nothing in it can run.
   const sq = (v) => `'${String(v).replace(/'/g, `'\\''`)}'`;
   const which = task.key || task.id;
+  if (alreadyDone) return [`  Task ${which} was already done: this work is recorded, and nothing else changed.`, ''];
   const lines = [`  Task ${which} is marked done. Nothing was published or sent.`];
   if (!nextSteps.length) return [...lines, '  No follow-on tasks suggested.', ''];
   lines.push('', '  Suggested by AI as next steps. Nothing is added until you add one:');

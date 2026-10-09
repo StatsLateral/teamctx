@@ -699,6 +699,9 @@ function readBackQueued(r) {
  */
 export function reportBackAccepted(r) {
   const which = r.task.key ? `task ${r.task.key}` : 'the task';
+  if (r.alreadyDone) {
+    return `Tell the user: the work for ${which} was accepted and recorded. ${which.charAt(0).toUpperCase()}${which.slice(1)} was already done, so nothing else changed and no follow-on tasks were asked for.${r.pushed ? ' Pushed.' : ''}`;
+  }
   const done = `Tell the user: the work for ${which} was accepted and ${which} is marked done. Nothing was added to the context and nothing was published or sent.${r.pushed ? ' Pushed.' : ''}`;
   const steps = Array.isArray(r.nextSteps) ? r.nextSteps : [];
   if (!steps.length) return `${done} No follow-on tasks were suggested.`;

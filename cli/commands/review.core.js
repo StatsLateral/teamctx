@@ -175,12 +175,15 @@ export async function approveReview({ id, replaces, tasks, askAboutTasks = false
   }
   // Who approved a record travels with it, not only with the commit.
   const approvedBy = { key: caller?.key || null, name: who, at: new Date().toISOString() };
+  // Whether accepting work for a task completed it, or found it already done.
+  let taskCompleted = false;
   const updated = withCounters(teamctxDir, current => {
     // Work sent back for a task completes the task and writes no record (#144).
     if (item.forTask) {
-      const { tree } = applyTaskSubmission(readTree(targetId, teamctxDir), item, {
+      const { tree, completed } = applyTaskSubmission(readTree(targetId, teamctxDir), item, {
         by: { key: approvedBy.key, name: approvedBy.name }, at: approvedBy.at,
       });
+      taskCompleted = completed;
       writeTree(targetId, tree, teamctxDir);
       return tree;
     }
@@ -252,18 +255,29 @@ export async function approveReview({ id, replaces, tasks, askAboutTasks = false
   let accepted = null;
   if (item.forTask) {
     const task = (updated.tasks || []).find(t => t.id === item.forTask) || null;
-    const active = (type) => [...(project?.records || []), ...(updated.records || [])]
-      .filter(r => r.type === type && r.status === 'active').map(r => r.text);
-    const nextSteps = task
+    // What applies here: the project, every part above this one, and this part.
+    const records = [project, ...(chain || []).filter(w => w.id !== targetId), updated].flatMap(t => t?.records || [])
+      .filter(r => r?.status === 'active');
+    const of = (type) => records.filter(r => r.type === type);
+    const ruleText = (id) => of('rule').find(r => r.id === id)?.text;
+    // A task that was already done has nothing new following from it: this work
+    // is recorded, and nothing is asked of the model.
+    const nextSteps = task && taskCompleted
       ? await suggestNextSteps({
         task, submitted: item.submitted, text: item.text,
         where: workstreamDisplayName(targetId, updated, config),
-        rules: active('rule'), decisions: active('decision'),
+        rules: of('rule').map(r => r.text),
+        exceptions: of('exception').map(x => (ruleText(x.links?.bends) ? `${x.text} (bends: ${ruleText(x.links.bends)})` : x.text)),
+        decisions: of('decision').map(r => r.text),
         people: (config.members || []).map(m => m.name).filter(Boolean),
         config,
       })
       : [];
-    accepted = { task: task ? { id: task.id, key: task.key || null, title: task.title, workstream: targetId } : null, nextSteps };
+    accepted = {
+      task: task ? { id: task.id, key: task.key || null, title: task.title, workstream: targetId } : null,
+      ...(taskCompleted ? {} : { alreadyDone: true }),
+      nextSteps,
+    };
   }
 
   return {
