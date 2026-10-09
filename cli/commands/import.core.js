@@ -29,7 +29,10 @@ async function collect({ from, selector, cwd, since, env = process.env }) {
       { ...raw, id: raw?.id ?? item.id, source: connector.name },
       {},
     );
-    if (document) documents.push(document);
+    // The item's link, for its reference (#168): from what was fetched, or from
+    // what the listing said, which is where Drive and Coda keep it.
+    const url = [raw?.url, item?.ref?.url, item?.url].find(u => typeof u === 'string' && u);
+    if (document) documents.push(url ? { ...document, url } : document);
     else skipped.push(skip);
   }
   return { documents, skipped };
@@ -100,6 +103,10 @@ export async function importDocuments({
         // A snapshot, not the live array: passing the mutable one would mean
         // each document sees whatever later documents go on to add.
         avoid: [...proposed],
+        // What it was drawn from, for the Connected sources drawer (#168). A
+        // local file is not a connected tool, so only a connector's documents
+        // leave one; the summary is the contribution's own.
+        ...(from !== 'folder' ? { sources: [{ connector: from, title: doc.title, link: doc.url, itemId: doc.id }], sourcesVia: 'import' } : {}),
         teamctxDir,
         projectDir,
       });

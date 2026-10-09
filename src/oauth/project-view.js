@@ -1,6 +1,7 @@
 import { GithubSession } from '../adapters/github.js';
 import { runWithSession } from '../session-context.js';
-import { readConfig, readProject, readWorkstream, listTasks, readContributions, readApprovals, listRejected } from '../storage.js';
+import { readConfig, readProject, readWorkstream, listTasks, readContributions, readApprovals, listRejected, readSourceRefs } from '../storage.js';
+import { visibleSources } from '../sources.js';
 import { taskHistory, touchesTask } from '../task-history.js';
 import { listAllWorkstreams } from '../../cli/commands/workstream.core.js';
 import { listMembers, memberByEmail } from '../../cli/commands/member.core.js';
@@ -228,6 +229,35 @@ export async function readProjectView({ owner, repo, user }) {
       }))
       : null;
 
+    // What the project was drawn from (#168), for the Connected sources drawer.
+    // A feed counts once its contribution is approved, as the queue is the
+    // manager's: a member sees nothing of what is still waiting or was turned
+    // down, and a manager sees what is waiting, marked as such. Only feeds in
+    // this reader's parts are kept, and what is shown of a reference comes from
+    // those alone. A name is shown as the roster has it for the key that wrote
+    // it, so a name somebody typed for themselves is not taken at its word.
+    const waitingIds = new Set(queued.map(q => q.id));
+    const nameByKey = new Map([...members, ...agents].filter(m => m.key).map(m => [m.key, m.name]));
+    const whoBrought = (by) => (!by ? null
+      : nameByKey.get(by.key) || (managerSet.has(by.key) ? by.name : 'someone'));
+    const connectedSources = () => visibleSources(readSourceRefs(), {
+      canSee: ws => inScope(allowed, resolveTarget(ws)),
+      counts: f => Boolean(approvals[f.contribution]) || waitingIds.has(f.contribution),
+    }).map(r => ({
+      id: r.id,
+      connector: typeof r.connector === 'string' ? r.connector : 'other',
+      title: String(r.title || ''),
+      link: typeof r.link === 'string' && /^https?:\/\//i.test(r.link) ? r.link : null,
+      summary: String(r.summary || ''),
+      lastReadAt: r.lastReadAt || null,
+      by: whoBrought(r.by),
+      feeds: r.feeds.map(f => ({
+        where: workstreamLocation(workstreams, resolveTarget(f.workstream), config.project),
+        task: f.task ? (allTasks.find(t => t.id === f.task)?.key || null) : null,
+        ...(waitingIds.has(f.contribution) && !approvals[f.contribution] ? { waiting: true } : {}),
+      })),
+    }));
+
     return {
       project: config.project,
       owner,
@@ -261,6 +291,11 @@ export async function readProjectView({ owner, repo, user }) {
         done: tasks.filter(t => t.status === 'done'),
       },
       pending,
+      // What the project was drawn from (#168), for the Connected sources
+      // drawer: only references that feed a part of the work this reader can
+      // see, each with only those feeds. Built field by field, so nothing else
+      // in the record reaches the page.
+      sources: connectedSources(),
     };
   });
 }

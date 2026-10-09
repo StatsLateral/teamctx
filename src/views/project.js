@@ -591,7 +591,7 @@ export const projectPage = ({ user, view, selected, item = null, note = null, or
       </div>
       <span class="sr-only" id="mcp-help">Add this as a custom connector in Claude, ChatGPT or Copilot</span>` : ''}
       ${people || agents ? `<button type="button" class="stlink" data-panel="dp-team">My Team<span class="stcnt">${people + agents}</span></button>` : ''}
-      <button type="button" class="stlink" data-panel="dp-sources">Connected sources<span class="stcnt">roadmap</span></button>
+      <button type="button" class="stlink" data-panel="dp-sources">Connected sources<span class="stcnt">${(view.sources || []).length || 'none yet'}</span></button>
     </section>`;
   })() : '';
 

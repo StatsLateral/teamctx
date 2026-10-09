@@ -11,6 +11,7 @@ import { assertManager } from './review.core.js';
 import { canApprove, numberQueueItem } from '../../src/review.js';
 import { workstreamNumber } from '../../src/numbering.js';
 import { needsReview } from '../../src/review-policy.js';
+import { recordSources } from '../../src/sources.js';
 import { resolveActor } from '../../src/actor.js';
 import { resolveActiveWorkstream, resolveDisplayName } from '../../src/prefs.js';
 import { comparisonRecords, comparisonFingerprint } from '../../src/contradictions.js';
@@ -84,6 +85,10 @@ export async function contributeCore({
   // duplicating the path is what let the terminal drift out of step with the
   // review policy and the project layer without anybody noticing.
   onProposed,
+  // What this was drawn from (#168): `[{ connector, title, link, summary }]`,
+  // kept as references, never as contents. `sourcesVia` says how they came:
+  // through the person's assistant, or through `teamctx import`.
+  sources, sourcesVia = 'assistant',
 } = {}) {
   if (!text) throw new Error('contribution text is required');
   const config = readConfig(teamctxDir);
@@ -151,6 +156,21 @@ export async function contributeCore({
     }
   }
   const { summary, operations, dropped = [], contradictions = [] } = proposal;
+  // What it was drawn from leaves a trace once it actually reaches the project
+  // (queued or applied), written just before that commit, so a contribution
+  // that is discarded, changes nothing, or fails a check leaves none. A
+  // reference with no summary of its own takes the contribution's.
+  const noteSources = () => {
+    if (!Array.isArray(sources) || !sources.length) return;
+    recordSources(sources, {
+      by: { name: actor, key: authorKey || resolved.key || null },
+      at: contribution.ts,
+      feed: { workstream: targetId, contribution: contribution.id },
+      via: sourcesVia,
+      summary,
+      dir: teamctxDir,
+    });
+  };
   // Reasons only: what the AI proposed that did not validate, so the caller can
   // say what was left out without the raw operation travelling any further.
   const droppedReasons = dropped.map(d => ({ reason: d.reason }));
@@ -211,6 +231,7 @@ export async function contributeCore({
         ...(droppedReasons.length ? { dropped: droppedReasons } : {}),
       }, teamctxDir);
     });
+    noteSources();
     const { pushed, pushError } = await commitAndOptionallyPush(
       config,
       `queue: ${actor} submission pending approval (${contribution.id})${sourceTrailer(source)}`,
@@ -272,6 +293,7 @@ export async function contributeCore({
 
   const note = tagged === 'decision' ? ' [decision]' : '';
   const wsNote = isProjectLevel(targetId) ? '' : ` (${targetId})`;
+  noteSources();
   const { pushed, pushError } = await commitAndOptionallyPush(
     config,
     `context: ${actor} contribution${note}${wsNote}${sourceTrailer(source)}`,
