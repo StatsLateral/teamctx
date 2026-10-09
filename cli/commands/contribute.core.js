@@ -156,18 +156,21 @@ export async function contributeCore({
     }
   }
   const { summary, operations, dropped = [], contradictions = [] } = proposal;
-  // It reached the project, so what it was drawn from leaves a trace, written
-  // with the rest of this contribution. A reference with no summary of its own
-  // takes the contribution's.
-  if (Array.isArray(sources) && sources.length) {
-    recordSources(sources.map(s => (s && typeof s === 'object' && !s.summary ? { ...s, summary } : s)), {
+  // What it was drawn from leaves a trace once it actually reaches the project
+  // (queued or applied), written just before that commit, so a contribution
+  // that is discarded, changes nothing, or fails a check leaves none. A
+  // reference with no summary of its own takes the contribution's.
+  const noteSources = () => {
+    if (!Array.isArray(sources) || !sources.length) return;
+    recordSources(sources, {
       by: { name: actor, key: authorKey || resolved.key || null },
       at: contribution.ts,
       feed: { workstream: targetId, contribution: contribution.id },
       via: sourcesVia,
+      summary,
       dir: teamctxDir,
     });
-  }
+  };
   // Reasons only: what the AI proposed that did not validate, so the caller can
   // say what was left out without the raw operation travelling any further.
   const droppedReasons = dropped.map(d => ({ reason: d.reason }));
@@ -228,6 +231,7 @@ export async function contributeCore({
         ...(droppedReasons.length ? { dropped: droppedReasons } : {}),
       }, teamctxDir);
     });
+    noteSources();
     const { pushed, pushError } = await commitAndOptionallyPush(
       config,
       `queue: ${actor} submission pending approval (${contribution.id})${sourceTrailer(source)}`,
@@ -289,6 +293,7 @@ export async function contributeCore({
 
   const note = tagged === 'decision' ? ' [decision]' : '';
   const wsNote = isProjectLevel(targetId) ? '' : ` (${targetId})`;
+  noteSources();
   const { pushed, pushError } = await commitAndOptionallyPush(
     config,
     `context: ${actor} contribution${note}${wsNote}${sourceTrailer(source)}`,

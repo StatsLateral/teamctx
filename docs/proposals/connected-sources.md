@@ -19,13 +19,22 @@ One file per item, `.teamctx/sources/<id>.json`, so two people recording at once
 never touch the same line:
 
 ```
-{ id, connector, title, link, summary, by: { name, key }, firstReadAt, lastReadAt,
-  feeds: [{ workstream, contribution, task? }], via: 'assistant' | 'import' }
+{ id, connector, title, link, itemId?, firstReadAt,
+  feeds: [{ workstream, contribution, task?, at, by: { name, key }, summary, via }] }
 ```
 
-- `id` is a hash of the connector and the link (or the tool's own item id), so
-  the same item read again updates its record: `lastReadAt`, title and summary
-  refresh, and what it feeds is added to, never duplicated.
+- `id` is a hash of the connector and the link, else the tool's own item id,
+  and only last the title. The same item read again gains a feed; two items
+  that share a title stay apart whenever either is known.
+- **What a contribution said about the item, who brought it and when live on
+  its feed**, not on the item. So an item cited again never loses what an
+  earlier contribution said, and a reader who can see only some feeds sees only
+  what those said. (Changed after code review: the first version kept one
+  summary and one name per item, which the latest citation, in any part of the
+  work, overwrote.)
+- **Written only once its contribution reaches the project** (queued or
+  applied), just before that commit. A discarded or empty contribution leaves
+  none.
 - `connector` is one of `slack`, `notion`, `gdrive`, `m365`, `dropbox`, `coda`,
   or `other`.
 - **Nothing that could carry a secret or a body is kept:**
@@ -55,6 +64,12 @@ A reference is shown only for the parts of the work a reader can see:
 - feeds outside their scope are dropped
 - a reference with none left is not shown
 - project-level feeds are visible to everyone with access
+- a feed counts once its contribution is approved; the queue is the manager's,
+  so a manager also sees feeds still waiting (marked as waiting), and nobody
+  sees one that was turned down
+- its summary, read date and who brought it come only from those visible feeds
+- who brought it is shown as the roster names that key, or "someone"; a name
+  the caller typed for themselves is never taken at its word
 
 ### The drawer
 
