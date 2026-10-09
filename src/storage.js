@@ -333,6 +333,51 @@ export function readApprovals(dir) {
     .map(name => parse(readFileSync(join(d, name), 'utf-8'))));
 }
 
+// ---- Connected sources (#168) ----
+
+/** A source reference's id: a hash, so only hex ever names a file. */
+function sanitizeSourceId(id) {
+  if (!/^[a-f0-9]{8,64}$/.test(String(id || ''))) throw new Error(`not a source reference id: "${id}"`);
+}
+
+/**
+ * One reference per file, `.teamctx/sources/<id>.json`, so two people
+ * recording at once never write the same line. Links and summaries only — see
+ * `src/sources.js`, which is the one place a record is built.
+ */
+export function writeSourceRef(record, dir) {
+  sanitizeSourceId(record?.id);
+  const body = JSON.stringify(record, null, 2);
+  if (sessionWrite(ctxPath('sources', `${record.id}.json`), body)) return;
+  const d = resolve(dir, 'sources');
+  mkdirSync(d, { recursive: true });
+  writeFileSync(join(d, `${record.id}.json`), body);
+}
+
+/**
+ * Every recorded source reference, keyed by id. A file that is not valid JSON,
+ * or not an object with an id, is skipped: these are files anybody with write
+ * access to the repository can edit, and the page must not fall over on one.
+ */
+export function readSourceRefs(dir) {
+  const parse = (text) => { try { return JSON.parse(text); } catch { return null; } };
+  const entries = (records) => Object.fromEntries(records
+    .filter(r => r && typeof r === 'object' && typeof r.id === 'string')
+    .map(r => [r.id, r]));
+  const s = sessionListDir(ctxPath('sources'));
+  if (s !== null) {
+    return entries(s.filter(name => name.endsWith('.json'))
+      .map(name => getCurrentSession().read(ctxPath('sources', name)))
+      .filter(Boolean)
+      .map(f => parse(f.content)));
+  }
+  const d = resolve(dir, 'sources');
+  if (!existsSync(d)) return {};
+  return entries(readdirSync(d)
+    .filter(name => name.endsWith('.json'))
+    .map(name => parse(readFileSync(join(d, name), 'utf-8'))));
+}
+
 // ---- Snapshots ----
 
 export function snapshotsDir(dir) {
