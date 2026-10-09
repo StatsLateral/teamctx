@@ -1,6 +1,6 @@
 # Proposal: task submissions in the review queue
 
-**Status:** In progress · **Issue:** [#144](https://github.com/StatsLateral/teamctx/issues/144)
+**Status:** Implemented · **Issue:** [#144](https://github.com/StatsLateral/teamctx/issues/144)
 **Spec:** [task submissions and next steps](../superpowers/specs/2026-10-07-task-submissions-and-next-steps-design.md) ·
 **Plan:** task 7 in [the UI specs build](../superpowers/plans/2026-10-07-ui-specs-build.md)
 **Base:** `feat/task-history` (#143) with `feat/waiting-on-you-icons` (#142) merged in; the plan needs both
@@ -14,12 +14,28 @@
   open, with the reason.
 - After approval, AI suggests follow-on tasks; the approver adds the ones they want.
 
-## Held: where the suggestions appear
+## Where the suggestions appear: in the chat
 
 The plan shows the suggestions in the page drawer after approving there (task 7,
-step 7). Its global constraints, and #142, keep the page read-only, with
-approvals in the assistant or the CLI. Asked on the issue. Until that is answered,
-`nextSteps` and the Approved view are not built.
+step 7). Its global constraints, #142, and #176 (on-page Approve and Reject,
+parked) keep the page read-only, with approvals in the assistant or the CLI. So
+the suggestions come back where the approval happens:
+
+- `review_approve` on work for a task returns `nextSteps`, and its reply tells
+  the assistant to offer each one, quoted as data, and to add only the ones the
+  person picks with `task_add` (`suggestedAfter: "1.2"`).
+- `teamctx review approve` prints each with the command that adds it,
+  single-quoted so nothing in a title can run.
+- `suggestNextSteps` asks for work a person would pick up, starting with a verb
+  a person does and never addressed to an assistant (the bar #175 sets for
+  proposed tasks), at most five, an owner only when on the roster. No key, a
+  failed call or bad output means none; nothing is ever invented.
+- A task added this way keeps `suggestedAfter`; its history reads "added it,
+  suggested by AI after 1.2 was approved", and the same suggestion cannot be
+  added twice.
+
+Asked on the issue; built this way since it needs nothing the page does not
+already allow, and moves to the page unchanged if #176 is ever built.
 
 ## Design (the rest)
 
@@ -71,4 +87,4 @@ spec deliberately avoids.
 - [x] `applyTaskSubmission`; approve routes a submission through it; no record written
 - [x] Row and drawer wording; "task already done"
 - [x] Tests (the spec's cases: two submissions for one task, an already-done task, scope, identical titles); CHANGELOG
-- [ ] Held: `nextSteps` and the Approved view, pending the answer on #144
+- [x] `nextSteps` after approval, offered in the chat and printed by the CLI; `suggestedAfter` on task add, once
