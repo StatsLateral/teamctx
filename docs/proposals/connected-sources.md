@@ -1,6 +1,6 @@
 # Proposal: connected sources
 
-**Status:** In progress · **Issue:** [#168](https://github.com/StatsLateral/teamctx/issues/168)
+**Status:** Implemented · **Issue:** [#168](https://github.com/StatsLateral/teamctx/issues/168)
 (the base for #169–#174, one per tool) · **Base:** `main`
 
 ## What the issue asks
@@ -77,8 +77,8 @@ A reference is shown only for the parts of the work a reader can see:
 
 ## Plan
 
-- [ ] `src/sources.js`: the record, its clean-up (no secret, no body), upsert, and scope
-- [ ] Route 1: `sources` on `contribute` (people and agents)
-- [ ] Route 2: `teamctx import` records a reference per document
-- [ ] Page data and the drawer; the Settings count
-- [ ] Tests: shape, scope, no secret or file body ever written; CHANGELOG
+- [x] `src/sources.js`: the record, its clean-up (no secret, no body), upsert, and scope
+- [x] Route 1: `sources` on `contribute` (people and agents)
+- [x] Route 2: `teamctx import` records a reference per document
+- [x] Page data and the drawer; the Settings count
+- [x] Tests: shape, scope, no secret or file body ever written; CHANGELOG
