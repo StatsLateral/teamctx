@@ -281,6 +281,7 @@ export const TOOLS = [
       properties: {
         title: { type: 'string' },
         owner: { type: 'string', description: 'Defaults to the calling user' },
+        suggestedAfter: { type: 'string', description: "Only when adding one of the follow-on tasks review_approve suggested: the number of the task whose work was approved. Its history then says so, and the same suggestion cannot be added twice." },
         workstream: { type: 'string', description: 'The workstream id. A task always belongs to one, never to the project itself. Defaults to the active workstream, or to the only one if the project has just one. A project with none needs workstream_add first.' },
         compile: { type: 'boolean', description: 'Also compile the prompt (AI call)' },
         role: { type: 'string', description: 'With compile:true, frame the prompt for this role slug' },
@@ -1305,6 +1306,7 @@ export function makeHandlers(projectRoot) {
       const added = await addTask({
         title: args.title,
         owner: args.owner,
+        suggestedAfter: args.suggestedAfter,
         workstream,
         teamctxDir,
         projectDir: gitCwd,

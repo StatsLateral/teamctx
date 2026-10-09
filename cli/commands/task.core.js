@@ -194,11 +194,30 @@ export function getTask({ id, teamctxDir } = {}) {
 
 // ---- writes -------------------------------------------------------------
 
+/** The same follow-on suggestion, added a second time. */
+export class DuplicateSuggestionError extends Error {
+  constructor(existing) {
+    super(`That suggestion is already task ${existing.key || existing.id}. Nothing was added.`);
+    this.code = 'DUPLICATE_SUGGESTION';
+  }
+}
+
 export async function addTask({
   title, owner, workstream, teamctxDir, projectDir, actor,
+  // The task whose accepted work the AI suggested this from (#144): its number.
+  suggestedAfter,
 } = {}) {
   const config = readConfig(teamctxDir);
   const targetWorkstream = await resolveTargetWorkstream(config, workstream, { teamctxDir, projectDir, actor });
+  const after = typeof suggestedAfter === 'string' && suggestedAfter.trim() ? suggestedAfter.trim() : null;
+  if (after) {
+    // A suggestion is added once. Pressing for it twice, from the chat or the
+    // command line, finds the task it already became.
+    const same = (s) => String(s).replace(/\s+/g, ' ').trim().toLowerCase();
+    const existing = listTasks({ workstream: targetWorkstream }, teamctxDir)
+      .find(t => t.suggestedAfter === after && same(t.title) === same(title));
+    if (existing) throw new DuplicateSuggestionError(existing);
+  }
   const me = await whoAmI({ config, teamctxDir, projectDir, actor });
 
   const resolvedActor = actor || await resolveActor({ config, cwd: projectDir });
@@ -217,6 +236,7 @@ export async function addTask({
     // no contribution behind it to say so.
     addedBy: { key: resolvedActor.key || null, name: me },
     addedAt: new Date().toISOString(),
+    ...(after ? { suggestedAfter: after } : {}),
     doneAt: null,
     compiledAt: null,
   };

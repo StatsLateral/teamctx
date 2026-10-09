@@ -87,7 +87,7 @@ export function taskHistory({
   // nobody.
   if (task && !known) {
     events.unshift(task.addedBy
-      ? { at: task.addedAt || task.createdAt || null, by: name(task.addedBy.name), did: 'added' }
+      ? { at: task.addedAt || task.createdAt || null, by: name(task.addedBy.name), did: 'added', ...(task.suggestedAfter ? { suggestedAfter: task.suggestedAfter } : {}) }
       : { at: task.createdAt || null, by: null, did: 'added', unrecorded: true });
   }
 
@@ -115,7 +115,8 @@ export function historyLine(e) {
     case 'rejected': return `rejected it${e.reason ? `: ${e.reason}` : ''}`;
     case 'completed': return 'marked it done';
     case 'reopened': return 'reopened it';
-    case 'added': return e.unrecorded ? 'added to the plan' : 'added it';
+    case 'added': return e.unrecorded ? 'added to the plan'
+      : e.suggestedAfter ? `added it, suggested by AI after ${e.suggestedAfter} was approved` : 'added it';
     default: return '';
   }
 }

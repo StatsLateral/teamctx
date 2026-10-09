@@ -43,7 +43,7 @@ function reportGit(result, successLine) {
 export async function taskAddCommand(title, opts = {}) {
   let result;
   try {
-    result = await addTask({ title, owner: opts.owner, workstream: opts.workstream });
+    result = await addTask({ title, owner: opts.owner, workstream: opts.workstream, suggestedAfter: opts.suggestedAfter });
   } catch (err) { reportAndExit(err); }
 
   const { task } = result;
