@@ -97,7 +97,7 @@ describe('what an agent is shown', () => {
 
   it('describes contribute without apply or author, which it cannot use', () => {
     const contribute = toolsFor(ROOT).find(t => t.name === 'contribute');
-    expect(Object.keys(contribute.inputSchema.properties)).toEqual(['text', 'workstream', 'decision']);
+    expect(Object.keys(contribute.inputSchema.properties)).toEqual(['text', 'workstream', 'decision', 'sources']);
   });
 
   it('leaves a person\'s list untouched', () => {
@@ -240,5 +240,38 @@ describe('the store the limit is kept in', () => {
     const root = { ...ROOT, agent: { ...AGENT, dailyLimit: 1 } };
     await kvSet(keys.agentDaily('a1', new Date().toISOString().slice(0, 10)), 1);
     expect(text(await asAgent(session, 'contribute', { text: 'x' }, root))).toMatch(/daily limit/);
+  });
+});
+
+/**
+ * What a contribution was drawn from (#168), through the hosted connector: the
+ * assistant passes references with its contribution, and they land in the
+ * team's repository as links and summaries, never contents or credentials.
+ */
+describe('a contribution that says what it was drawn from', () => {
+  it('leaves a reference in the repository, feeding where the contribution went', async () => {
+    const session = fakeSession();
+    const r = json(await asAgent(session, 'contribute', {
+      text: 'Nightly numbers are up 4%.',
+      workstream: 'pricing',
+      sources: [{ connector: 'Google Drive', title: 'Nightly metrics sheet', link: 'https://docs.google.com/spreadsheets/d/abc/edit?usp=sharing&access_token=ya29.SECRET', summary: 'Sheet the numbers come from', text: 'ROW1,ROW2' }],
+    }));
+    const names = session.listDir('.teamctx/sources');
+    expect(names).toHaveLength(1);
+    const ref = JSON.parse(session.file(`.teamctx/sources/${names[0]}`));
+    expect(ref).toMatchObject({
+      connector: 'gdrive', title: 'Nightly metrics sheet', link: 'https://docs.google.com/spreadsheets/d/abc/edit?usp=sharing',
+      summary: 'Sheet the numbers come from', via: 'assistant', by: { name: 'Nightly report' },
+      feeds: [{ workstream: 'pricing', contribution: r.id }],
+    });
+    const raw = session.file(`.teamctx/sources/${names[0]}`);
+    expect(raw).not.toContain('SECRET');
+    expect(raw).not.toContain('ROW1');
+  });
+
+  it('records nothing when no sources are given', async () => {
+    const session = fakeSession();
+    await asAgent(session, 'contribute', { text: 'Nightly numbers are up 4%.' });
+    expect(session.listDir('.teamctx/sources')).toEqual([]);
   });
 });

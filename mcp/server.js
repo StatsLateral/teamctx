@@ -255,6 +255,21 @@ export const TOOLS = [
         author: { type: 'string' },
         decision: { type: 'boolean' },
         apply: { type: 'boolean', description: 'Write immediately; skips the review queue' },
+        sources: {
+          type: 'array',
+          maxItems: 20,
+          description: "What you read to write this, when it came from one of the person's connected tools (Slack, Notion, Google Drive, SharePoint, Dropbox, Coda or another): one entry per item. Link and a one-line summary only, never its contents, and never a link that carries a token. The manager sees these as the project's connected sources.",
+          items: {
+            type: 'object',
+            properties: {
+              connector: { type: 'string', description: 'The tool: slack, notion, gdrive, m365, dropbox, coda, or its name' },
+              title: { type: 'string', description: 'What the item is called: a channel thread, page, file or doc title' },
+              link: { type: 'string', description: 'Its https link' },
+              summary: { type: 'string', description: 'One line on what it says' },
+            },
+            additionalProperties: false,
+          },
+        },
       },
       required: ['text'], additionalProperties: false,
     },
@@ -1583,6 +1598,7 @@ export function makeHandlers(projectRoot) {
         source: 'mcp',
         teamctxDir,
         projectDir: gitCwd,
+        ...(Array.isArray(args.sources) ? { sources: args.sources } : {}),
       });
       // Where to go and look at it. Work that queued is waiting on somebody:
       // the manager is pointed at the queue, and everyone else at the part of
@@ -1850,6 +1866,21 @@ const AGENT_TOOL_DEFS = {
         text: { type: 'string', description: 'The work, in plain prose' },
         workstream: { type: 'string', description: "Which part of the project it belongs to. Omit for the agent's own." },
         decision: { type: 'boolean' },
+        sources: {
+          type: 'array',
+          maxItems: 20,
+          description: "What you read to write this, when it came from one of the person's connected tools (Slack, Notion, Google Drive, SharePoint, Dropbox, Coda or another): one entry per item. Link and a one-line summary only, never its contents, and never a link that carries a token. The manager sees these as the project's connected sources.",
+          items: {
+            type: 'object',
+            properties: {
+              connector: { type: 'string', description: 'The tool: slack, notion, gdrive, m365, dropbox, coda, or its name' },
+              title: { type: 'string', description: 'What the item is called: a channel thread, page, file or doc title' },
+              link: { type: 'string', description: 'Its https link' },
+              summary: { type: 'string', description: 'One line on what it says' },
+            },
+            additionalProperties: false,
+          },
+        },
       },
       required: ['text'], additionalProperties: false,
     },
