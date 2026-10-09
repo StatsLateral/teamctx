@@ -1,6 +1,7 @@
 import { GithubSession } from '../adapters/github.js';
 import { runWithSession } from '../session-context.js';
-import { readConfig, readProject, readWorkstream, listTasks, readContributions, readApprovals, listRejected } from '../storage.js';
+import { readConfig, readProject, readWorkstream, listTasks, readContributions, readApprovals, listRejected, readSourceRefs } from '../storage.js';
+import { visibleSources } from '../sources.js';
 import { taskHistory, touchesTask } from '../task-history.js';
 import { listAllWorkstreams } from '../../cli/commands/workstream.core.js';
 import { listMembers, memberByEmail } from '../../cli/commands/member.core.js';
@@ -261,6 +262,23 @@ export async function readProjectView({ owner, repo, user }) {
         done: tasks.filter(t => t.status === 'done'),
       },
       pending,
+      // What the project was drawn from (#168), for the Connected sources
+      // drawer: only references that feed a part of the work this reader can
+      // see, each with only those feeds. Built field by field, so nothing else
+      // in the record reaches the page.
+      sources: visibleSources(readSourceRefs(), ws => inScope(allowed, resolveTarget(ws))).map(r => ({
+        id: r.id,
+        connector: typeof r.connector === 'string' ? r.connector : 'other',
+        title: String(r.title || ''),
+        link: typeof r.link === 'string' && /^https?:\/\//i.test(r.link) ? r.link : null,
+        summary: String(r.summary || ''),
+        lastReadAt: r.lastReadAt || null,
+        by: r.lastBy?.name || r.by?.name || null,
+        feeds: r.feeds.map(f => ({
+          where: workstreamLocation(workstreams, resolveTarget(f.workstream), config.project),
+          task: f.task ? (allTasks.find(t => t.id === f.task)?.key || null) : null,
+        })),
+      })),
     };
   });
 }

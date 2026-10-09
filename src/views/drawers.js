@@ -1,6 +1,7 @@
 import { esc } from './theme.js';
 import { contextGroups } from '../prompts.js';
 import { SAMPLE_SOURCES, ISSUES_URL } from './sources-sample.js';
+import { CONNECTORS } from '../sources.js';
 import { CLAUDE_ICON, CHATGPT_ICON, COPILOT_ICON, COPY_ICON } from './assistant-icons.js';
 
 /**
@@ -95,28 +96,67 @@ function teamPanel(view) {
   </section>`;
 }
 
-/**
- * The connected sources, as a preview. It is sample data and says so first:
- * connectors are on the roadmap and open for anyone to build.
- */
-function sourcesPanel() {
-  const groups = SAMPLE_SOURCES.map(src => `<div class="srcgroup">
+/** The sample the drawer showed before anything was recorded, still labelled as sample. */
+function sampleGroups() {
+  return SAMPLE_SOURCES.map(src => `<div class="srcgroup">
       <h3 class="tg"><span class="mark" aria-hidden="true">${esc(src.mark)}</span>${esc(src.name)} · ${src.items.length}</h3>
       <p class="muted">${esc(src.about)}</p>
       <ul class="srcitems">${src.items.map(it => `<li><strong>${esc(it.title)}</strong>
         <span class="m">${esc(it.meta)} · on ${it.tasks.map(t => `<span class="chip">${esc(t)}</span>`).join(' ')} · ${it.context} context item${it.context === 1 ? '' : 's'}</span></li>`).join('')}</ul>
     </div>`).join('');
-  return `<section class="dpanel" id="dp-sources" data-scope="project" data-title="Connected sources" data-noassist hidden>
-    <p class="notice"><strong>On the roadmap.</strong> Connecting your tools to teamctx is not built yet, and everything below is sample data showing where it is headed. Each connector is an open issue, and contributions are welcome: <a href="${ISSUES_URL}" target="_blank" rel="noopener">pick one up on GitHub</a>.</p>
+}
+
+/**
+ * One recorded reference: its title, linked when it has a link, a line on what it
+ * says, when it was last read and by whom, and what it feeds. Everything in it was
+ * written by somebody's assistant or an importer, so all of it is escaped, and a
+ * link goes out with nothing of this page attached.
+ */
+function sourceItem(src) {
+  const title = src.link
+    ? `<a href="${esc(src.link)}" target="_blank" rel="noopener noreferrer">${esc(src.title || src.link)}</a>`
+    : esc(src.title);
+  const when = src.lastReadAt ? String(src.lastReadAt).slice(0, 10) : '';
+  const feeds = src.feeds.map(f => `<span class="chip">${esc(f.task ? `${f.task} · ${f.where}` : f.where)}</span>`).join(' ');
+  return `<li><strong>${title}</strong>
+        ${src.summary ? `<span class="m">${esc(src.summary)}</span>` : ''}
+        <span class="m">${when ? `Read ${esc(when)}` : 'Read'}${src.by ? ` by ${esc(src.by)}` : ''} · feeds ${feeds}</span></li>`;
+}
+
+/**
+ * What the project draws on (#168): the references recorded when what somebody's
+ * assistant read in a connected tool, or what `teamctx import` brought in, reached
+ * the project. Grouped by tool. With none recorded it says so, and keeps the
+ * sample below as a picture of what it will hold.
+ */
+function sourcesPanel(view) {
+  const sources = Array.isArray(view?.sources) ? view.sources : [];
+  const intro = '<p class="muted">teamctx keeps links and short summaries, never copies of your files. Each app stays where it is. Detail is handled by your assistant or an agent, not shown here.</p>';
+  if (!sources.length) {
+    return `<section class="dpanel" id="dp-sources" data-scope="project" data-title="Connected sources" data-noassist hidden>
+    <p class="notice"><strong>Nothing is connected yet.</strong> When your assistant sends something it read in Slack, Notion, Google Drive, SharePoint, Dropbox or Coda, or <code>teamctx import</code> brings it in, it is listed here. Below is sample data showing what that looks like. Each tool is an open issue, and contributions are welcome: <a href="${ISSUES_URL}" target="_blank" rel="noopener">pick one up on GitHub</a>.</p>
     <p class="statement">What the project can draw on</p>
-    <p class="muted">teamctx keeps links and short summaries, never copies of your files. Each app stays where it is; when a page changes, the summary here is refreshed. Detail is handled by your assistant or an agent, not shown here.</p>
+    ${intro}
+    ${sampleGroups()}
+  </section>`;
+  }
+  const groups = Object.entries(CONNECTORS)
+    .map(([key, tool]) => ({ tool, items: sources.filter(s => (CONNECTORS[s.connector] ? s.connector : 'other') === key) }))
+    .filter(g => g.items.length)
+    .map(({ tool, items }) => `<div class="srcgroup">
+      <h3 class="tg"><span class="mark" aria-hidden="true">${esc(tool.mark)}</span>${esc(tool.name)} · ${items.length}</h3>
+      <ul class="srcitems">${items.map(sourceItem).join('')}</ul>
+    </div>`).join('');
+  return `<section class="dpanel" id="dp-sources" data-scope="project" data-title="Connected sources" data-noassist hidden>
+    <p class="statement">What the project draws on</p>
+    ${intro}
     ${groups}
   </section>`;
 }
 
 /** One panel for the project and one for each workstream the reader can see, then the team and the sources. */
 export function panelsHtml({ view, onDay }) {
-  return [projectPanel(view, onDay), ...(view.workstreams || []).map(w => workstreamPanel(view, w, onDay)), teamPanel(view), sourcesPanel()].join('\n');
+  return [projectPanel(view, onDay), ...(view.workstreams || []).map(w => workstreamPanel(view, w, onDay)), teamPanel(view), sourcesPanel(view)].join('\n');
 }
 
 const button = (go, label, title, icon) => `<button type="button" class="chatico" data-go="${go}" aria-label="${esc(label)}" title="${esc(title)}">${icon}</button>`;

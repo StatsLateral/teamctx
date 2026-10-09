@@ -654,12 +654,12 @@ describe('My Team', () => {
   });
 });
 
-describe('Connected sources (roadmap preview)', () => {
+describe('Connected sources, with nothing recorded yet', () => {
   const sources = (body) => /<section class="dpanel" id="dp-sources"[\s\S]*?<\/section>/.exec(body)?.[0] || '';
 
-  it('says plainly that it is sample data on the roadmap, and invites contributions', async () => {
+  it('says plainly that nothing is connected, labels the sample as sample, and invites contributions', async () => {
     const html = sources((await visit('/project/acme/ledger', MANAGER)).body);
-    expect(html).toMatch(/on the roadmap/i);
+    expect(html).toMatch(/Nothing is connected yet/);
     expect(html).toMatch(/sample data/i);
     expect(html).toMatch(/contribut/i);
     expect(html).toContain('https://github.com/StatsLateral/teamctx/issues');
@@ -676,10 +676,67 @@ describe('Connected sources (roadmap preview)', () => {
     for (const name of ['Pycube', 'Henry Ford', 'BayCare', 'Baptist', 'UM Health']) expect(html).not.toContain(name);
   });
 
-  it('marks the settings link as a preview too', async () => {
+  it('says on the settings link that none are recorded yet', async () => {
     const { body } = await visit('/project/acme/ledger', MANAGER);
     const settings = /<section class="settings"[\s\S]*?<\/section>/.exec(body)[0];
-    expect(settings).toMatch(/Connected sources[\s\S]*?roadmap/i);
+    expect(settings).toMatch(/Connected sources<span class="stcnt">none yet<\/span>/);
+  });
+});
+
+/**
+ * Connected sources once something is recorded (#168): the references, grouped
+ * by tool, only for the parts of the work the reader can see.
+ */
+describe('Connected sources, recorded', () => {
+  const sources = (body) => /<section class="dpanel" id="dp-sources"[\s\S]*?<\/section>/.exec(body)?.[0] || '';
+  const ref = (id, over) => repo.files.set(`.teamctx/sources/${id}.json`, JSON.stringify({
+    id, connector: 'slack', title: 'Pricing thread', link: 'https://acme.slack.com/archives/C1/p1', summary: 'Agreed seat pricing',
+    by: { name: 'Priya' }, lastBy: { name: 'Priya' }, firstReadAt: '2026-10-08T09:00:00.000Z', lastReadAt: '2026-10-09T09:00:00.000Z',
+    via: 'assistant', feeds: [{ workstream: 'product', contribution: 'c-prod', task: 'pricing-page' }], ...over,
+  }));
+
+  it('lists them by tool, each linked, with when, who and what it feeds, and drops the sample', async () => {
+    ref('aaaaaaaa01');
+    ref('aaaaaaaa02', { connector: 'notion', title: 'Launch checklist', link: 'https://www.notion.so/x', feeds: [{ workstream: null, contribution: 'c-x' }] });
+    const html = sources((await visit('/project/acme/ledger', MANAGER)).body);
+    expect(html).not.toMatch(/Nothing is connected yet|sample data/i);
+    expect(html).toMatch(/Slack · 1[\s\S]*Notion · 1/);
+    expect(html).toContain('<a href="https://acme.slack.com/archives/C1/p1" target="_blank" rel="noopener noreferrer">Pricing thread</a>');
+    expect(html).toContain('Agreed seat pricing');
+    expect(html).toMatch(/Read 2026-10-09 by Priya · feeds <span class="chip">1\.1 · Product<\/span>/);
+    expect(html).toMatch(/Launch checklist[\s\S]*feeds <span class="chip">Ledger<\/span>/);
+  });
+
+  it('counts them on the settings link', async () => {
+    ref('aaaaaaaa01');
+    const settings = /<section class="settings"[\s\S]*?<\/section>/.exec((await visit('/project/acme/ledger', MANAGER)).body)[0];
+    expect(settings).toMatch(/Connected sources<span class="stcnt">1<\/span>/);
+  });
+
+  it('shows a member only what feeds the parts they are on', async () => {
+    ref('aaaaaaaa01');
+    ref('aaaaaaaa03', { title: 'Uptime runbook', feeds: [{ workstream: 'tech', contribution: 'c-tech' }] });
+    await lend();
+    const { body } = await visit('/project/acme/ledger', MEMBER_GOOGLE);
+    expect(sources(body)).toContain('Pricing thread');
+    expect(body).not.toContain('Uptime runbook');
+  });
+
+  it('writes what somebody else recorded as text, and never links anything but http(s)', async () => {
+    ref('aaaaaaaa04', { title: '<img src=x onerror=alert(1)>', link: 'javascript:alert(1)', summary: '<b>hi</b>' });
+    const html = sources((await visit('/project/acme/ledger', MANAGER)).body);
+    expect(html).not.toContain('<img src=x');
+    expect(html).not.toContain('javascript:');
+    expect(html).toContain('&lt;img src=x onerror=alert(1)&gt;');
+    expect(html).toContain('&lt;b&gt;hi&lt;/b&gt;');
+  });
+
+  it('survives a reference file that is not valid', async () => {
+    repo.files.set('.teamctx/sources/broken.json', '{nope');
+    repo.files.set('.teamctx/sources/nullish.json', 'null');
+    const r = await visit('/project/acme/ledger', MANAGER);
+    expect(r.status).toBe(200);
+    expect(sources(r.body)).toMatch(/Nothing is connected yet/);
   });
 });
 
