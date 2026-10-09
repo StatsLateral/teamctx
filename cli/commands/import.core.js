@@ -29,7 +29,9 @@ async function collect({ from, selector, cwd, since, env = process.env }) {
       { ...raw, id: raw?.id ?? item.id, source: connector.name },
       {},
     );
-    if (document) documents.push(document);
+    // A connector that knows the item's link passes it as `url`; it goes with
+    // the document only so its reference can point back at it (#168).
+    if (document) documents.push(typeof raw?.url === 'string' ? { ...document, url: raw.url } : document);
     else skipped.push(skip);
   }
   return { documents, skipped };
@@ -100,6 +102,10 @@ export async function importDocuments({
         // A snapshot, not the live array: passing the mutable one would mean
         // each document sees whatever later documents go on to add.
         avoid: [...proposed],
+        // What it was drawn from, for the Connected sources drawer (#168). A
+        // local file is not a connected tool, so only a connector's documents
+        // leave one; the summary is the contribution's own.
+        ...(from !== 'folder' ? { sources: [{ connector: from, title: doc.title, link: doc.url }], sourcesVia: 'import' } : {}),
         teamctxDir,
         projectDir,
       });
