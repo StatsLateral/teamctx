@@ -167,6 +167,26 @@ export function parseSelector(input) {
   throw new Error(`not a Notion page link or id: "${s}"`);
 }
 
+/**
+ * The one link for a page, however it was copied (#170). The API's url carries
+ * the title (`…/Launch-checklist-<id>`), so it changes when the page is renamed;
+ * "Copy link" adds the workspace and `?pvs=4`; a link to a block on it adds
+ * `#<block>`; a page opened over a database view sits in `?p=`. All are the
+ * same page, so all become `https://www.notion.so/<id>`, which opens for anyone
+ * it is shared with, and the page is recorded once. A published `notion.site`
+ * address is the public one and is kept, as is anything that is not a link to
+ * a Notion page.
+ */
+export function pageLink(link) {
+  let url;
+  try { url = new URL(link); } catch { return link; }
+  if (url.protocol !== 'https:' || !/^(www\.)?notion\.so$/i.test(url.hostname)) return link;
+  const peek = /^[0-9a-f]{32}$/i.test(undash(url.searchParams.get('p') || '')) && undash(url.searchParams.get('p'));
+  const last = url.pathname.replace(/\/$/, '').split('/').pop();
+  const id = peek || /(?:^|-)([0-9a-f]{32})$/i.exec(last)?.[1] || (/^[0-9a-f-]{36}$/i.test(last) && undash(last));
+  return id && /^[0-9a-f]{32}$/i.test(id) ? `https://www.notion.so/${id.toLowerCase()}` : link;
+}
+
 /** Construct only as a fallback; the API hands back a real `url` when we have
  *  the page object, and a link nobody can open is decoration. */
 const pageUrl = (page, id) => page?.url || `https://www.notion.so/${undash(id)}`;
