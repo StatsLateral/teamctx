@@ -1,6 +1,6 @@
 # Proposal: Notion as a connected source
 
-**Status:** Proposed · **Issue:** [#170](https://github.com/StatsLateral/teamctx/issues/170)
+**Status:** Implemented, except the tasks it feeds (after #184) · **Issue:** [#170](https://github.com/StatsLateral/teamctx/issues/170)
 · **Base:** `feat/connected-sources` (#168, PR #185)
 
 ## What the issue asks
@@ -50,11 +50,11 @@ kept: never page contents, never a credential.
 
 ## Plan
 
-- [ ] Notion page link to its canonical link, used for the id and the stored
+- [x] Notion page link to its canonical link, used for the id and the stored
       link; tests for the API url, renamed, "Copy link", block anchor, dashed
       id, `notion.site` and non-Notion links
-- [ ] A changed page, imported again, shows one reference with the new summary
-- [ ] `sources` guidance for Notion; test that the schema says it
-- [ ] End to end test (import and assistant)
+- [x] A changed page, imported again, shows one reference with the new summary
+- [x] `sources` guidance for Notion; test that the schema says it
+- [x] End to end test (import and assistant)
 - [ ] After #184: record sources on the `forTask` path, with the task
-- [ ] CHANGELOG
+- [x] CHANGELOG
