@@ -1,6 +1,6 @@
 # Proposal: Slack as a connected source
 
-**Status:** Proposed · **Issue:** [#169](https://github.com/StatsLateral/teamctx/issues/169)
+**Status:** Implemented, except the tasks it feeds (after #184) · **Issue:** [#169](https://github.com/StatsLateral/teamctx/issues/169)
 · **Base:** `feat/connected-sources` (#168, PR #185)
 
 ## What the issue asks
@@ -46,8 +46,8 @@ are kept: never messages, never a credential.
 
 ## Plan
 
-- [ ] Slack link to thread permalink, used for the id and the stored link; tests
+- [x] Slack link to thread permalink, used for the id and the stored link; tests
       for parent, "Copy link", reply and non-Slack links
-- [ ] `sources` guidance for Slack; test that the schema says it
+- [x] `sources` guidance for Slack; test that the schema says it
 - [ ] After #184: record sources on the `forTask` path, with the task
-- [ ] CHANGELOG
+- [x] CHANGELOG
