@@ -294,3 +294,21 @@ async function workspaceUrl(a) {
 
 /** Slack's permalink for a message: the workspace, the channel, and p + its ts without the dot. */
 export const permalinkFor = (workspace, channel, ts) => `${workspace.replace(/\/?$/, '/')}archives/${channel}/${permalinkTs(ts)}`;
+
+/**
+ * The one link for a thread, however it was copied (#169). The importer builds
+ * `…/archives/C1/p<ts>`; Slack's "Copy link" on the parent adds
+ * `?thread_ts=…&cid=C1`, and on a reply points at the reply with the parent's
+ * ts in `thread_ts`. All three are the same thread, so all three become the
+ * parent's permalink and are recorded once. Anything that is not a link to a
+ * Slack message comes back as it was.
+ */
+export function threadPermalink(link) {
+  let url;
+  try { url = new URL(link); } catch { return link; }
+  const path = /^\/archives\/([A-Z0-9]+)\/(p\d{7,})\/?$/i.exec(url.pathname);
+  if (url.protocol !== 'https:' || !/(^|\.)slack\.com$/i.test(url.hostname) || !path) return link;
+  const parent = url.searchParams.get('thread_ts');
+  const ts = parent && /^\d{1,12}\.\d{1,8}$/.test(parent) ? permalinkTs(parent) : path[2];
+  return `https://${url.hostname}/archives/${path[1]}/${ts}`;
+}

@@ -84,7 +84,7 @@ describe('a Slack thread passed by the person’s assistant', () => {
     }));
     const [ref] = Object.values(readSourceRefs(dir));
     expect(ref).toMatchObject({
-      connector: 'slack', title: '#pricing: seats vs teams', link: 'https://acme.slack.com/archives/C0SALES/p1700000000000100?t=xoxp-LEAK',
+      connector: 'slack', title: '#pricing: seats vs teams', link: 'https://acme.slack.com/archives/C0SALES/p1700000000000100',
       feeds: [{ contribution: r.id, summary: 'Decided per-seat pricing', via: 'assistant' }],
     });
     // No Slack call is made on this route: teamctx holds no Slack credential.

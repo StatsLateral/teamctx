@@ -295,6 +295,38 @@ describe('the link to a thread', () => {
   });
 });
 
+describe('one link per thread', () => {
+  const parent = 'https://acme.slack.com/archives/C1/p1700000000000100';
+
+  it('is the parent permalink however the thread was copied', () => {
+    for (const copied of [
+      parent,
+      `${parent}/`,
+      `${parent}?thread_ts=1700000000.000100&cid=C1`,
+      'https://acme.slack.com/archives/C1/p1700000555000200?thread_ts=1700000000.000100&cid=C1',
+    ]) expect(slack.threadPermalink(copied), copied).toBe(parent);
+  });
+
+  it('keeps an enterprise workspace address', () => {
+    expect(slack.threadPermalink('https://acme.enterprise.slack.com/archives/C1/p1700000000000100?cid=C1'))
+      .toBe('https://acme.enterprise.slack.com/archives/C1/p1700000000000100');
+  });
+
+  it('leaves alone what is not a link to a Slack message', () => {
+    for (const other of [
+      'https://acme.slack.com/archives/C1',
+      'https://acme.slack.com.evil.example/archives/C1/p1700000000000100?x=1',
+      'https://notion.so/archives/C1/p1700000000000100?thread_ts=1.1',
+      'http://acme.slack.com/archives/C1/p1700000000000100?thread_ts=1700000000.000100',
+      'not a link',
+    ]) expect(slack.threadPermalink(other), other).toBe(other);
+  });
+
+  it('ignores a thread_ts that is not a Slack timestamp', () => {
+    expect(slack.threadPermalink(`${parent}?thread_ts=../../x`)).toBe(parent);
+  });
+});
+
 describe('errors and limits', () => {
   it('turns a Slack error code into something actionable', async () => {
     globalThis.fetch = vi.fn(async () => err('missing_scope'));
