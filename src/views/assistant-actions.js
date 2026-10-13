@@ -24,16 +24,21 @@
  */
 export const assistantPlan = (kind, mode, prompts) => {
   const paste = mode === 'paste';
+  // The prompt carries how to turn the connector on for every chatbot, so that
+  // one copied by hand works anywhere. A link opens one chatbot, so it carries
+  // only that one's steps, which keeps it short enough for the address.
+  const only = (name) => prompts.short.split('\n')
+    .filter(line => !/^(Claude|ChatGPT|Copilot): /.test(line) || line.startsWith(`${name}: `)).join('\n');
   const text = paste ? prompts.full : prompts.short;
   if (kind === 'claude') {
     return paste
       ? { copy: prompts.full, open: 'https://claude.ai/new', toast: 'Prompt copied. Paste it into Claude.' }
-      : { open: `https://claude.ai/new?q=${encodeURIComponent(prompts.short)}` };
+      : { open: `https://claude.ai/new?q=${encodeURIComponent(only('Claude'))}` };
   }
   if (kind === 'chatgpt') {
     return paste
       ? { copy: prompts.full, open: 'https://chatgpt.com/', toast: 'Prompt copied. Paste it into ChatGPT.' }
-      : { open: `https://chatgpt.com/?q=${encodeURIComponent(prompts.short)}` };
+      : { open: `https://chatgpt.com/?q=${encodeURIComponent(only('ChatGPT'))}` };
   }
   if (kind === 'copilot') {
     return { copy: text, open: 'https://copilot.microsoft.com/', toast: 'Prompt copied. Paste it into Copilot.' };

@@ -58,3 +58,26 @@ describe('the function the page script is built from', () => {
     expect(rebuilt('claude', 'connected', prompts)).toEqual(assistantPlan('claude', 'connected', prompts));
   });
 });
+
+describe('a link carries only its own chatbot\'s connector steps', () => {
+  const steps = {
+    short: ['Tell me about it.', 'Claude: add it in Customize.', 'ChatGPT: add it in Settings.', 'Copilot: cannot.', 'Menu names change.'].join('\n'),
+    full: 'everything',
+  };
+  const asked = (kind) => new URL(assistantPlan(kind, 'connected', steps).open).searchParams.get('q');
+
+  it('Claude\'s link has Claude\'s steps and no others', () => {
+    expect(asked('claude')).toContain('Claude: add it in Customize.');
+    expect(asked('claude')).not.toMatch(/ChatGPT:|Copilot:/);
+    expect(asked('claude')).toContain('Menu names change.');
+  });
+
+  it('ChatGPT\'s link has ChatGPT\'s steps and no others', () => {
+    expect(asked('chatgpt')).toContain('ChatGPT: add it in Settings.');
+    expect(asked('chatgpt')).not.toMatch(/Claude:|Copilot:/);
+  });
+
+  it('what is copied by hand keeps all of them, since it can be pasted anywhere', () => {
+    expect(assistantPlan('copilot', 'connected', steps).copy).toContain('Claude: add it in Customize.');
+  });
+});
