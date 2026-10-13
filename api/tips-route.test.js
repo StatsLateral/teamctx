@@ -28,3 +28,11 @@ describe('GET /tips', () => {
     expect(res.headers.get('location')).toBe(`/signin?returnTo=${encodeURIComponent('/tips')}`);
   });
 });
+
+describe('GET /project/:owner/:repo/contributions', () => {
+  it('sends a signed-out visitor to sign in, and back with the grouping', async () => {
+    const res = await fetch(`${base}/project/acme/gtm/contributions?group=person`, { redirect: 'manual' });
+    expect(res.status).toBe(303);
+    expect(res.headers.get('location')).toBe(`/signin?returnTo=${encodeURIComponent('/project/acme/gtm/contributions?group=person')}`);
+  });
+});

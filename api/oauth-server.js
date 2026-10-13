@@ -18,7 +18,7 @@ import { lendDecision } from '../src/oauth/lend-decision.js';
 import { GithubSession, listUserOrgs, createRepo, slugifyProjectName, suggestAvailableName, listPushableRepos, repoExistence } from '../src/adapters/github.js';
 import { runWithSession } from '../src/session-context.js';
 import { initProject } from '../cli/commands/init.core.js';
-import { readProjectView, ProjectViewError } from '../src/oauth/project-view.js';
+import { readProjectView, readContributionsView, ProjectViewError } from '../src/oauth/project-view.js';
 import { TOOLS, callTool } from '../mcp/server.js';
 import { baseUrlFrom } from '../src/base-url.js';
 import { resolveKey } from '../src/numbering.js';
@@ -30,6 +30,7 @@ import { settingsPage } from '../src/views/settings.js';
 import { projectsPage } from '../src/views/projects.js';
 import { projectPage } from '../src/views/project.js';
 import { tipsPage } from '../src/views/tips.js';
+import { contributionsPage } from '../src/views/contributions.js';
 import { choosePage, signInPage, lendsNothing } from '../src/views/connect.js';
 import { homePage } from '../src/views/home.js';
 import { newProjectPage, newProjectSuccessPage, newProjectRetryPage } from '../src/views/new-project.js';
@@ -1345,6 +1346,25 @@ app.get('/project/:owner/:repo', async (req, res) => {
     // An old-format project is not a failure of this server: say what to do.
     const status = e.code === 'LEGACY_FORMAT' ? 409 : denied ? 403 : 500;
     res.status(status).send(errorPage(e.message));
+  }
+});
+
+/**
+ * Every contribution to a project, latest first, by date or by contributor.
+ * The manager's: see readContributionsView.
+ */
+app.get('/project/:owner/:repo/contributions', async (req, res) => {
+  const user = await currentUser(req);
+  const owner = String(req.params.owner || '');
+  const repo = String(req.params.repo || '');
+  const by = req.query.group === 'person' ? 'person' : 'date';
+  if (!user) return signInFor(res, `/project/${owner}/${repo}/contributions${by === 'person' ? '?group=person' : ''}`);
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  try {
+    res.send(contributionsPage({ user, view: await readContributionsView({ owner, repo, user }), by }));
+  } catch (e) {
+    const denied = e instanceof ProjectViewError || e.code === 'MEMBER_ACCESS_DENIED';
+    res.status(e.code === 'LEGACY_FORMAT' ? 409 : denied ? 403 : 500).send(errorPage(e.message));
   }
 });
 

@@ -82,7 +82,14 @@ function membersOn(members, id) {
   return members.filter(m => !m.workstreams?.length || m.workstreams.includes(id));
 }
 
-export async function readProjectView({ owner, repo, user }) {
+/**
+ * Open a project as somebody, and run `body` inside it.
+ *
+ * Every page that reads a project starts the same way: a credential, the
+ * repository, who this person has proved they are, and the checks that decide
+ * whether they may look at all. Kept in one place so a new page cannot skip one.
+ */
+async function openProject({ owner, repo, user }, body) {
   const { ghToken, actor, checkRoster } = await accessFor({ owner, repo, user });
   const session = new GithubSession({ owner, repo, ghToken });
   try {
@@ -116,7 +123,12 @@ export async function readProjectView({ owner, repo, user }) {
         + 'Ask the manager to add that exact address, or sign in with the one they invited.');
     }
     const allowed = scopeFor(config, actor, { isManager });
+    return body({ config, actor, isManager, allowed });
+  });
+}
 
+export async function readProjectView({ owner, repo, user }) {
+  return openProject({ owner, repo, user }, async ({ config, actor, isManager, allowed }) => {
     const members = listMembers({}).filter(m => m.kind !== 'agent');
     const agents = listMembers({}).filter(m => m.kind === 'agent');
     const everyPart = await listAllWorkstreams({});
@@ -265,6 +277,42 @@ export async function readProjectView({ owner, repo, user }) {
   });
 }
 
+
+/**
+ * Every contribution the project has received, newest first, and where each stands.
+ *
+ * What the page groups and shows is a flat list; this settles the one thing a
+ * list from the log cannot say on its own, which is what became of each — taken
+ * into the shared context, turned down, or still waiting for the manager.
+ *
+ * The manager's alone. The log holds what people typed, across every part of the
+ * work, and the queue and the turned-down items are already the manager's to see;
+ * a page listing all of it for anybody else would be a way round that.
+ */
+export async function readContributionsView({ owner, repo, user }) {
+  return openProject({ owner, repo, user }, async ({ config, isManager }) => {
+    if (!isManager) throw new ProjectViewError('Only the manager of this project can see all of its contributions.');
+    const parts = await listAllWorkstreams({});
+    const approvals = readApprovals();
+    const rejected = new Set(listRejected().map(r => r.id));
+    const waiting = new Set((await listPendingReviews({})).map(q => q.id));
+    const status = (c) => (approvals[c.id] ? 'taken in'
+      : rejected.has(c.id) ? 'turned down'
+        : waiting.has(c.id) ? 'waiting' : 'logged');
+    const contributions = readContributions()
+      .map(c => ({
+        id: c.id,
+        at: c.ts || null,
+        author: c.author || 'Unknown',
+        text: String(c.text || ''),
+        source: c.source || null,
+        where: workstreamLocation(parts, resolveTarget(c.workstream), config.project),
+        status: status(c),
+      }))
+      .sort((a, b) => String(b.at || '').localeCompare(String(a.at || '')));
+    return { project: config.project, owner, repo, contributions };
+  });
+}
 
 /**
  * The contributions the given trees point at.
