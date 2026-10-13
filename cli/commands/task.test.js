@@ -20,6 +20,8 @@ vi.mock('../../src/storage.js', () => ({
   writeTaskFile: vi.fn(),
   taskFilePath: vi.fn(id => `/fake/tasks/${id}.md`),
   taskFileExists: vi.fn(() => false),
+  listOutputs: vi.fn(() => []),
+  writeOutput: vi.fn(),
 }));
 
 vi.mock('../../src/context.js', () => ({

@@ -6,6 +6,7 @@ import {
   readProject, readConfig, readTree, listTasks, readTask, writeTask, deleteTask,
   readWorkstream, readContributions,
   writeTaskFile, readTaskFile, taskFilePath, taskFileExists,
+  writeOutput, listOutputs,
 } from '../../src/storage.js';
 import { compileTaskPrompt } from '../../src/context.js';
 import { commitContext, pushContext } from '../../src/git.js';
@@ -183,12 +184,41 @@ export function listTasksFiltered({
   };
 }
 
-export function getTask({ id, teamctxDir } = {}) {
+/**
+ * The most that one output may hold. Refused above it, never cut short: a
+ * silently shortened draft is worse than one that was not saved.
+ */
+export const MAX_OUTPUT_CHARS = 50_000;
+
+/**
+ * One task, with what has been produced on it (#197).
+ *
+ * `outputs` is the latest in full and the earlier ones as a list without their
+ * text, so a long history does not grow what an assistant is handed; ask for
+ * one by id with `output` to open it. `null` when nothing was saved.
+ */
+export function getTask({ id, output, teamctxDir } = {}) {
   const { task, workstream } = findTask(id, teamctxDir);
-  return {
+  const saved = listOutputs(task.id, teamctxDir);
+  const base = {
     ...task,
     workstream,
     promptPath: taskFileExists(task.id, teamctxDir) ? taskFilePath(task.id, teamctxDir) : null,
+  };
+  if (output) {
+    const found = saved.find(o => o.id === output);
+    if (!found) throw new Error(`no output "${output}" on task ${task.key || task.id}`);
+    return { ...base, outputs: summarise(saved), output: found };
+  }
+  return { ...base, outputs: summarise(saved) };
+}
+
+function summarise(saved) {
+  if (!saved.length) return null;
+  const latest = saved[saved.length - 1];
+  return {
+    latest,
+    earlier: saved.slice(0, -1).map(o => ({ id: o.id, title: o.title, author: o.author, at: o.at, state: o.state })),
   };
 }
 
@@ -225,6 +255,49 @@ export async function addTask({
   const wsLabel = ` [workstream: ${targetWorkstream}]`;
   const git = await commitAndPush(config, `task: add ${id} by ${me}${wsLabel}`, projectDir);
   return { task, ...git };
+}
+
+/**
+ * Save something somebody produced on a task, word for word.
+ *
+ * Not a change to the project: nothing here is queued or needs approving, the
+ * task is not touched, and no one is asked a question. Submitting the work for
+ * approval is a separate step. An output is never edited; working on one
+ * further saves a new output with `basedOn` pointing back at it.
+ */
+export async function saveOutput({
+  id, body, title, prompt, notes, basedOn, source, teamctxDir, projectDir, actor,
+} = {}) {
+  const config = readConfig(teamctxDir);
+  const { task } = findTask(id, teamctxDir);
+  const text = typeof body === 'string' ? body : '';
+  if (!text.trim()) throw new Error('the output is empty: there is nothing to save');
+  if (text.length > MAX_OUTPUT_CHARS) {
+    throw new Error(`the output is too long to save (${text.length} characters; the most is ${MAX_OUTPUT_CHARS}). Save it in parts.`);
+  }
+  const saved = listOutputs(task.id, teamctxDir);
+  if (basedOn && !saved.some(o => o.id === basedOn)) {
+    throw new Error(`no output "${basedOn}" on task ${task.key || task.id} to build on`);
+  }
+  const resolved = actor || await resolveActor({ config, cwd: projectDir });
+  const me = await resolveDisplayName({ actor: resolved, config, teamctxDir });
+  const firstLine = text.trim().split('\n')[0].trim();
+  const output = {
+    id: `o-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
+    task: task.id,
+    title: (typeof title === 'string' && title.trim() ? title.trim() : firstLine).slice(0, 120),
+    body: text,
+    author: { key: resolved?.key || null, name: me },
+    source: source || null,
+    at: new Date().toISOString(),
+    prompt: typeof prompt === 'string' && prompt.trim() ? prompt : null,
+    notes: typeof notes === 'string' && notes.trim() ? notes : null,
+    basedOn: basedOn || null,
+    state: 'working',
+  };
+  writeOutput(output, teamctxDir);
+  const git = await commitAndPush(config, `output: ${me} saved ${output.id} on ${task.id}`, projectDir);
+  return { output, task, ...git };
 }
 
 export async function setTaskStatus({
