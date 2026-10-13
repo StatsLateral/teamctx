@@ -175,8 +175,8 @@ function waitingItem({ q, view, origin, marked }) {
   const where = q.workstream ? workstreamLocation(view.workstreams, q.workstream, view.project) : (view.project || 'Overall project');
   const ref = q.number || null;
   const checks = checksOf(q);
-  // Work submitted for a task changes no part of the context: approving accepts
-  // it and marks the task done. The work itself is shown beside, in full.
+  // Accepting work submitted for a task marks the task done and records the
+  // acceptance in the context. The work itself is shown beside, in full.
   const outputs = q.forTask && Array.isArray(q.submittedOutputs)
     ? q.submittedOutputs.map(o => ({ title: o.title || '', body: o.body || '', notes: o.notes || null, prompt: o.prompt || null }))
     : [];

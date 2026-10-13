@@ -13,7 +13,7 @@ vi.mock('../src/context.js', async (orig) => ({
 }));
 
 const { makeHandlers, callTool } = await import('./server.js');
-const { runWithSession } = await import('../src/session-context.js');
+const { runWithSession, getCurrentSession } = await import('../src/session-context.js');
 const { runWithActor } = await import('../src/actor.js');
 const { __resetMemory } = await import('../src/oauth/kv.js');
 
@@ -86,6 +86,9 @@ describe('the whole flow, through the assistant', () => {
       });
       expect(accepted.reportBack).toMatch(/accepted/);
       expect(accepted.reportBack).toMatch(/closed/);
+      // The picked fact is in the part's own tree, not only in the log.
+      const tree = JSON.parse(getCurrentSession().read('.teamctx/workstreams/finance.json').content);
+      expect(tree.records.some(r => r.text === 'Posts go out on Fridays')).toBe(true);
 
       // The person with work in progress is told what changed before carrying on.
       const picked = await as(PRIYA, () => call('get_task', { id: publish.id }));
@@ -99,6 +102,29 @@ describe('the whole flow, through the assistant', () => {
       await pause();
       await as(PRIYA, () => call('task_output', { id: publish.id, body: 'Publishing plan v2' }));
       expect((await as(PRIYA, () => call('get_task', { id: publish.id }))).changedSince).toBeNull();
+    });
+  });
+
+  it('accepts with no picks when facts is not a list, and quotes what it could not apply', async () => {
+    await flow(async ({ call, as }) => {
+      const a = (await call('task_add', { title: 'Draft A', workstream: 'finance' })).task;
+      const b = (await call('task_add', { title: 'Draft B', workstream: 'finance' })).task;
+      for (const t of [a, b]) {
+        await as(PRIYA, () => call('task_output', { id: t.id, body: 'Work', title: 'D' }));
+        await as(PRIYA, () => call('task_submit', { id: t.id }));
+        await pause();
+      }
+      const { pending } = await call('list_pending_reviews', {});
+      const first = await call('review_approve', { id: pending[0].id, facts: 'Posts go out on Fridays' });
+      expect(first.reportBack).toMatch(/accepted/);
+      expect(first.reportBack).not.toMatch(/Not applied/);
+
+      // An assumption with no owner is dropped, and the reason reaches the assistant as quoted data.
+      const second = await call('review_approve', {
+        id: pending[1].id,
+        facts: [{ type: 'assumption', text: 'Readers like Fridays' }],
+      });
+      expect(second.reportBack).toMatch(/Not applied: "/);
     });
   });
 });
