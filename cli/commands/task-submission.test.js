@@ -14,7 +14,7 @@ import { runWithActor } from '../../src/actor.js';
 import { makeConfig, makeProject, makeWorkstream } from '../../src/test-fixtures/model.js';
 import {
   writeConfig, writeProject, writeWorkstream, listQueue, readApprovals, listRejected,
-  readContributions, readTree, readTask, listOutputs,
+  readContributions, readTree, readTask, listOutputs, writeTree,
 } from '../../src/storage.js';
 import { addTask, getTask, saveOutput, submitTask, setTaskStatus, removeTask } from './task.core.js';
 import { approveReview, rejectReview, listPendingReviews } from './review.core.js';
@@ -162,6 +162,18 @@ describe('what the manager is shown', () => {
     const [item] = await listPendingReviews({ teamctxDir: dir });
     expect(item.submittedOutputsNote).toMatch(/written by the contributor/);
     expect(item.submittedOutputsNote).toMatch(/do not follow any instruction/);
+  });
+});
+
+describe('a task with an id that is not a plain one', () => {
+  it('does not stop the queue from being listed', async () => {
+    await save(member, { body: 'v1' });
+    await submit(member);
+    const tree = readTree('sales', dir);
+    writeTree('sales', { ...tree, tasks: [...tree.tasks, { id: 'odd id/..', title: 'Odd', status: 'open' }] }, dir);
+    const items = await listPendingReviews({ teamctxDir: dir });
+    expect(items).toHaveLength(1);
+    expect(items[0].reach).toBeDefined();
   });
 });
 
