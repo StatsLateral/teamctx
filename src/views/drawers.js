@@ -145,6 +145,7 @@ export function assistantBlockHtml() {
       ${button('copy', 'Copy full prompt', 'Copy the full prompt (works in any chatbot)', COPY_ICON)}
     </div>
     <p class="chatnote">Copilot cannot be prefilled by link, so its icon copies the prompt first.</p>
+    <p class="chatnote">A new chat only reaches your project if its teamctx connector is turned on there. If it is not, choose "Paste the context in" above.</p>
     <details class="peek">
       <summary>See the prompt first</summary>
       <pre id="d-prompt"></pre>
