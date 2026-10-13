@@ -451,6 +451,19 @@ const SCRIPT = `
     document.getElementById('d-text').classList.toggle('done', el.dataset.done === '1');
     showHistory(el.dataset.history ? JSON.parse(el.dataset.history) : null);
     showWork(el.dataset.work ? JSON.parse(el.dataset.work) : []);
+    // Plain text only: the summary quotes what a contributor wrote.
+    var changed = el.dataset.changed ? JSON.parse(el.dataset.changed) : null;
+    var changedList = document.getElementById('d-changed');
+    changedList.textContent = '';
+    document.getElementById('d-changed-wrap').hidden = !changed;
+    if (changed) {
+      changed.changes.forEach(function (c) {
+        var li = document.createElement('li');
+        li.textContent = (c.at ? c.at.slice(0, 10) + ' \\u00b7 ' : '') + c.where + ': ' + c.summary;
+        changedList.appendChild(li);
+      });
+      if (changed.more) { var more = document.createElement('li'); more.textContent = 'and ' + changed.more + ' more'; changedList.appendChild(more); }
+    }
     // One sentence and a way in, instead of the list of records that govern it.
     var ws = el.dataset.ws || '';
     var ctx = document.getElementById('d-ctx');
@@ -694,6 +707,10 @@ ${note ? `<p class="note">${esc(note)}</p>` : ''}
       <p id="d-summary"></p>
       <div class="section-title">Who wrote it</div>
       <p id="d-who"></p>
+      <div id="d-changed-wrap" hidden>
+        <div class="section-title">Changed since you last worked on this</div>
+        <ul class="plain" id="d-changed"></ul>
+      </div>
       <div id="d-work-wrap" hidden>
         <div class="section-title">Working outputs</div>
         <div id="d-work"></div>
