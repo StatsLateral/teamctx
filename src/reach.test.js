@@ -55,6 +55,16 @@ describe('reachOf', () => {
   });
 });
 
+describe('project-level tasks', () => {
+  const projectTask = task('p1', '4.1', null, { compiledAt: 'x' });
+  it('are reached by a change to the project', () => {
+    expect(reach({ treeId: null, tasks: [projectTask] }).inProgress.map(t => t.key)).toEqual(['4.1']);
+  });
+  it('are not reached by a change to a workstream', () => {
+    expect(reach({ tasks: [projectTask] }).inProgress).toEqual([]);
+  });
+});
+
 describe('reachLines', () => {
   it('says each of the three things in a line', () => {
     expect(reachLines(reach())).toEqual([

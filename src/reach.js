@@ -1,4 +1,5 @@
 import { descendantsOf } from './model.js';
+import { isProjectLevel } from './project-level.js';
 import { asQuotedData } from './change-labels.js';
 
 /**
@@ -26,8 +27,10 @@ export function reachOf({ operations, treeId, config, tasks, hasWork, exclude = 
       tasks: ops.filter(o => TASK_OPS.has(o?.type)).length,
     },
     inheritedBy: below.map(id => ({ id, name: nameOf(id) })),
+    // Project-level tasks carry no workstream, so a change to the project has to
+    // ask for them explicitly.
     inProgress: (tasks || [])
-      .filter(t => t.status !== 'done' && t.id !== exclude && scope.has(t.workstream) && hasWork(t))
+      .filter(t => t.status !== 'done' && t.id !== exclude && (scope.has(t.workstream) || (treeId == null && isProjectLevel(t.workstream))) && hasWork(t))
       .map(t => ({ id: t.id, key: t.key || null, title: t.title })),
   };
 }

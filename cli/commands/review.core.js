@@ -107,7 +107,18 @@ export class AmbiguousQueueNumberError extends Error {
 export async function listPendingReviews({ teamctxDir } = {}) {
   const config = readConfig(teamctxDir);
   const tasks = listTasks({}, teamctxDir);
-  const hasWork = (t) => Boolean(t.compiledAt) || listOutputs(t.id, teamctxDir).length > 0;
+  // Asked once per task per call: every pending item looks at the same tasks.
+  const worked = new Map();
+  const hasWork = (t) => {
+    if (t.compiledAt) return true;
+    if (!worked.has(t.id)) {
+      let n = 0;
+      // Task ids come from hand-editable files; one odd id must not block the queue.
+      try { n = listOutputs(t.id, teamctxDir).length; } catch { /* no outputs to read */ }
+      worked.set(t.id, n > 0);
+    }
+    return worked.get(t.id);
+  };
   return listQueue(teamctxDir).map(item => {
     let out = item;
     if (item.forTask && Array.isArray(item.outputs)) {
