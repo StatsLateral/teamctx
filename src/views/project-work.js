@@ -162,7 +162,14 @@ function waitingItem({ q, view, origin, marked }) {
   const where = q.workstream ? workstreamLocation(view.workstreams, q.workstream, view.project) : (view.project || 'Overall project');
   const ref = q.number || null;
   const checks = checksOf(q);
-  const changes = (Array.isArray(q.operations) ? q.operations : []).map(op => describeChange(op, tree)).filter(Boolean);
+  // Work submitted for a task changes no part of the context: approving accepts
+  // it and marks the task done. The work itself is shown beside, in full.
+  const outputs = q.forTask && Array.isArray(q.submittedOutputs)
+    ? q.submittedOutputs.map(o => ({ title: o.title || '', body: o.body || '', notes: o.notes || null, prompt: o.prompt || null }))
+    : [];
+  const changes = q.forTask
+    ? ['Accepts the submitted work and marks the task done. Nothing is added to the project\'s context.']
+    : (Array.isArray(q.operations) ? q.operations : []).map(op => describeChange(op, tree)).filter(Boolean);
   const title = q.summary || changes[0] || '(no summary)';
   // Deciding happens in the assistant, so what the drawer hands over is a
   // request to show this item and ask, not a question about it.
@@ -192,7 +199,7 @@ function waitingItem({ q, view, origin, marked }) {
   return `<div class="q${marked ? ' marked' : ''}" id="r-${esc(q.id)}" data-text="${esc(title)}" data-kind="${esc(`Waiting on you${ref ? ` · ${ref}` : ''}`)}"
   data-summary="${esc(`Proposed by ${q.author || 'someone'}${VIA[q.source] ? ` ${VIA[q.source]}` : ''}${date ? ` on ${date}` : ''}.`)}"
   data-who="${esc(q.author || '')}" data-review="" data-ws="${esc(q.workstream || '')}" data-queue="1"
-  data-changes="${esc(JSON.stringify(changes))}" data-checks="${esc(JSON.stringify(checks))}" data-decide="${esc(JSON.stringify(decide))}"
+  data-changes="${esc(JSON.stringify(changes))}" data-outputs="${esc(JSON.stringify(outputs))}" data-checks="${esc(JSON.stringify(checks))}" data-decide="${esc(JSON.stringify(decide))}"
   data-history="${esc(JSON.stringify(historyData(q.history, view.agents)))}"
   data-ask="${escAttr(prompt.split('\n\n')[0])}" data-prompt="${escAttr(prompt)}">
   <span class="num">${esc(ref || '—')}</span>

@@ -6,7 +6,7 @@ import {
   readProject, readConfig, readTree, listTasks, readTask, writeTask, deleteTask,
   readWorkstream, readContributions,
   writeTaskFile, readTaskFile, taskFilePath, taskFileExists,
-  writeOutput, listOutputs,
+  writeOutput, listOutputs, appendContribution, writeQueueItem, readApprovals, listQueue,
 } from '../../src/storage.js';
 import { compileTaskPrompt } from '../../src/context.js';
 import { commitContext, pushContext } from '../../src/git.js';
@@ -199,7 +199,7 @@ export const MAX_OUTPUT_CHARS = 50_000;
  */
 export function getTask({ id, output, teamctxDir } = {}) {
   const { task, workstream } = findTask(id, teamctxDir);
-  const saved = listOutputs(task.id, teamctxDir);
+  const saved = withStates(listOutputs(task.id, teamctxDir), teamctxDir);
   const base = {
     ...task,
     workstream,
@@ -211,6 +211,19 @@ export function getTask({ id, output, teamctxDir } = {}) {
     return { ...base, outputs: summarise(saved), output: found };
   }
   return { ...base, outputs: summarise(saved) };
+}
+
+/**
+ * Where each output stands, worked out rather than stored: an output is written
+ * once and never changed, so what became of it is read off what exists. Accepted
+ * once an approval names it; submitted while a queue item names it; otherwise
+ * working, which is also where a rejected one goes back to.
+ */
+function withStates(saved, teamctxDir) {
+  if (!saved.length) return saved;
+  const accepted = new Set(Object.values(readApprovals(teamctxDir)).flatMap(a => (Array.isArray(a.outputs) ? a.outputs : [])));
+  const waiting = new Set(listQueue(teamctxDir).flatMap(q => (Array.isArray(q.outputs) ? q.outputs : [])));
+  return saved.map(o => ({ ...o, state: accepted.has(o.id) ? 'accepted' : waiting.has(o.id) ? 'submitted' : 'working' }));
 }
 
 function summarise(saved) {
@@ -257,6 +270,14 @@ export async function addTask({
   return { task, ...git };
 }
 
+// Outputs are ordered by when they were saved, so two saved in the same
+// millisecond must not tie: the later one would be "latest" only by luck.
+let lastStamp = 0;
+function nextStamp() {
+  lastStamp = Math.max(Date.now(), lastStamp + 1);
+  return lastStamp;
+}
+
 /**
  * Save something somebody produced on a task, word for word.
  *
@@ -282,14 +303,15 @@ export async function saveOutput({
   const resolved = actor || await resolveActor({ config, cwd: projectDir });
   const me = await resolveDisplayName({ actor: resolved, config, teamctxDir });
   const firstLine = text.trim().split('\n')[0].trim();
+  const stamp = nextStamp();
   const output = {
-    id: `o-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
+    id: `o-${stamp.toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
     task: task.id,
     title: (typeof title === 'string' && title.trim() ? title.trim() : firstLine).slice(0, 120),
     body: text,
     author: { key: resolved?.key || null, name: me },
     source: source || null,
-    at: new Date().toISOString(),
+    at: new Date(stamp).toISOString(),
     prompt: typeof prompt === 'string' && prompt.trim() ? prompt : null,
     notes: typeof notes === 'string' && notes.trim() ? notes : null,
     basedOn: basedOn || null,
@@ -298,6 +320,64 @@ export async function saveOutput({
   writeOutput(output, teamctxDir);
   const git = await commitAndPush(config, `output: ${me} saved ${output.id} on ${task.id}`, projectDir);
   return { output, task, ...git };
+}
+
+/**
+ * Put outputs in front of the manager for approval.
+ *
+ * Deliberately not `contribute`: nothing here is read by an AI and turned into
+ * records. What the manager is asked about is the outputs themselves, and what
+ * the line on the queue says is built from their titles, so it cannot claim
+ * anything the person did not. The item is for the task, so it waits under the
+ * task's own number. Approving it is a separate act (`approveReview`).
+ *
+ * `outputs` is a list of output ids, `'all'`, or absent for the latest.
+ */
+export async function submitTask({
+  id, outputs, message, source, teamctxDir, projectDir, actor,
+} = {}) {
+  const config = readConfig(teamctxDir);
+  const { task } = findTask(id, teamctxDir);
+  const saved = listOutputs(task.id, teamctxDir);
+  if (!saved.length) throw new Error(`nothing saved on task ${task.key || task.id} to submit: save the work as an output first`);
+  let chosen;
+  if (outputs === 'all') chosen = saved;
+  else if (Array.isArray(outputs) && outputs.length) {
+    chosen = outputs.map(oid => {
+      const found = saved.find(o => o.id === oid);
+      if (!found) throw new Error(`no output "${oid}" on task ${task.key || task.id}`);
+      return found;
+    });
+  } else chosen = [saved[saved.length - 1]];
+
+  const resolved = actor || await resolveActor({ config, cwd: projectDir });
+  const me = await resolveDisplayName({ actor: resolved, config, teamctxDir });
+  const summary = `Submitted: ${chosen.map(o => o.title).join('; ')}`;
+  const said = typeof message === 'string' && message.trim() ? message.trim() : null;
+  const src = source || 'cli';
+  const contribution = {
+    id: `${src === 'mcp' ? 'mcp' : 'c'}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    ts: new Date().toISOString(),
+    author: me,
+    ...(resolved?.key ? { authorKey: resolved.key } : {}),
+    text: said || summary,
+    tagged: null,
+    source: src,
+    workstream: task.workstream,
+    status: 'logged',
+    forTask: task.id,
+  };
+  appendContribution(contribution, teamctxDir);
+  writeQueueItem({
+    id: contribution.id, status: 'pending', createdAt: contribution.ts,
+    ...(task.key ? { number: task.key } : {}),
+    author: me, source: src, workstream: task.workstream,
+    text: contribution.text, tagged: null, summary, operations: [],
+    forTask: task.id, outputs: chosen.map(o => o.id),
+  }, teamctxDir);
+  const trailer = src === 'cli' ? '' : `\n\nSource: ${src}`;
+  const git = await commitAndPush(config, `queue: ${me} submission for ${task.id} pending approval (${contribution.id})${trailer}`, projectDir);
+  return { id: contribution.id, mode: 'queued', number: task.key || null, outputs: chosen.map(o => o.id), summary, task, ...git };
 }
 
 export async function setTaskStatus({

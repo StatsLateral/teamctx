@@ -141,6 +141,10 @@ h1{font-size:28px;line-height:1.25;margin:0 0 .35rem}
 .empty{color:var(--faint);font-style:italic;font-size:13px;padding:14px;border:1px dashed var(--line);border-radius:var(--radius-sm);text-align:center}
 .stale-note{background:var(--amber-soft);color:var(--amber);font-size:12px;padding:6px 8px;border-radius:6px;margin:0 0 10px}
 .plain{margin:0 0 1rem;padding-left:1.1rem}
+.out{border:1px solid var(--line, #ddd);border-radius:6px;padding:8px 10px;margin:0 0 10px}
+.out .otitle{font-weight:600;margin:0 0 4px;overflow-wrap:anywhere}
+.out .obody{white-space:pre-wrap;line-height:1.5;margin:0;overflow-wrap:anywhere}
+.out .onote{font-size:12px;color:var(--muted, #666);margin:6px 0 0;white-space:pre-wrap;overflow-wrap:anywhere}
 .plain li{margin:0 0 .4rem;line-height:1.45;overflow-wrap:anywhere}
 /* A task's history: the date, who, what happened, one line each. */
 .hstatus{margin:0 0 .4rem;font-size:13px;color:var(--ink);font-weight:600}
@@ -359,6 +363,19 @@ const SCRIPT = `
         return list.children.length;
       };
       fill('d-changes', 'changes');
+      // The submitted work, whole. Built as text nodes: it is somebody else's words.
+      var outs = JSON.parse(el.dataset.outputs || '[]');
+      var outBox = document.getElementById('d-outputs');
+      outBox.textContent = '';
+      document.getElementById('d-outputs-wrap').hidden = !outs.length;
+      outs.forEach(function (o) {
+        var card = document.createElement('div'); card.className = 'out';
+        var t = document.createElement('p'); t.className = 'otitle'; t.textContent = o.title; card.appendChild(t);
+        var b = document.createElement('p'); b.className = 'obody'; b.textContent = o.body; card.appendChild(b);
+        if (o.notes) { var n = document.createElement('p'); n.className = 'onote'; n.textContent = 'Notes: ' + o.notes; card.appendChild(n); }
+        if (o.prompt) { var q = document.createElement('p'); q.className = 'onote'; q.textContent = 'Asked: ' + o.prompt; card.appendChild(q); }
+        outBox.appendChild(card);
+      });
       document.getElementById('d-checks-wrap').hidden = !fill('d-checks', 'checks');
       // Each instruction on its own line with a Copy button, under where it is
       // used. Built as text nodes: these are somebody else's words.
@@ -641,6 +658,10 @@ ${note ? `<p class="note">${esc(note)}</p>` : ''}
         <ul class="plain history" id="d-history"></ul>
       </div>
       <div id="d-queue" hidden>
+        <div id="d-outputs-wrap" hidden>
+          <div class="section-title">What was submitted</div>
+          <div id="d-outputs"></div>
+        </div>
         <div class="section-title">What it would change</div>
         <ul class="plain" id="d-changes"></ul>
         <div id="d-checks-wrap" hidden>
