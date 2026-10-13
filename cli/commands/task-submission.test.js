@@ -166,16 +166,15 @@ describe('what the manager is shown', () => {
 });
 
 describe('approving a task submission', () => {
-  it('accepts the outputs and marks the task done, writing no record and not touching its title', async () => {
+  it('accepts the outputs and marks the task done, without touching its title', async () => {
     await save(member, { body: 'v1' });
     const r = await submit(member);
-    const treeBefore = readTree('sales', dir);
     const out = await as(manager, () => approveReview({ id: r.id, teamctxDir: dir }));
     expect(out.id).toBe(r.id);
     const after = readTask(task.id, dir).task;
     expect(after.title).toBe('Draft the post');
     expect(after).toMatchObject({ status: 'done', doneBy: { key: 'git:manager@x', name: 'Manager' } });
-    expect(readTree('sales', dir).records).toEqual(treeBefore.records);
+    expect(readTree('sales', dir).records).toHaveLength(1);
     expect(listQueue(dir)).toEqual([]);
   });
 
