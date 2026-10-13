@@ -40,7 +40,7 @@ import { assertJoinableContext } from '../src/context-gate.js';
 import { contributeCore } from '../cli/commands/contribute.core.js';
 import { buildBrief } from '../cli/commands/brief.core.js';
 import {
-  listTasksFiltered, getTask, addTask, setTaskStatus, assignTask, removeTask, compileTask,
+  listTasksFiltered, getTask, saveOutput, addTask, setTaskStatus, assignTask, removeTask, compileTask,
 } from '../cli/commands/task.core.js';
 import { listMembers, addMember, removeMember, setMemberWorkstreams, setMemberExternal } from '../cli/commands/member.core.js';
 import { getConfig, setConfig, repairManagerGate, setReviewPolicy } from '../cli/commands/config.core.js';
@@ -234,11 +234,31 @@ export const TOOLS = [
   },
   {
     name: 'get_task',
-    description: 'Return one task by its number (such as 3.2), its id, or a unique id prefix: title, owner, status, workstream, created/done/compiled timestamps, and the prompt file path if one has been compiled. Read-only. Use task_compile to get the prompt text itself.',
+    description: 'Return one task by its number (such as 3.2), its id, or a unique id prefix: title, owner, status, workstream, created/done/compiled timestamps, and the prompt file path if one has been compiled. Also `outputs`: what people have already produced on this task (null if nothing), with the latest in full and the earlier ones as a list. **Start from the latest output when the person carries on with the task**, rather than from the bare title; pass `output` to open an earlier one in full. Read-only. Use task_compile to get the prompt text itself.',
     inputSchema: {
       type: 'object',
-      properties: { id: { type: 'string', description: 'Task number such as 3.2, task id, or a unique prefix of one' } },
+      properties: {
+        id: { type: 'string', description: 'Task number such as 3.2, task id, or a unique prefix of one' },
+        output: { type: 'string', description: 'The id of an earlier output on this task, to read it in full' },
+      },
       required: ['id'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'task_output',
+    description: "**Save what the person has produced on a task, word for word** (a draft, a plan, an analysis), so they and anyone else who picks the task up can carry on from it. Reach for it whenever the person says they are happy to keep it, or finishes a round of work, not only at the end. This is not a submission: nothing is queued, nobody is asked to approve it, and the project and the task are untouched. Pass the output itself as `body`, unabridged and unsummarised. Never describe it, shorten it, or say it is approved, final or done; it is a working output until the manager says otherwise. If this carries on from an earlier output, pass that output's id as `basedOn`. Refused above the length limit rather than cut short. Returns { output }.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: 'Task number such as 3.2, task id, or a unique prefix of one' },
+        body: { type: 'string', description: 'The output itself, in full' },
+        title: { type: 'string', description: 'A short label for the list, such as "Draft 2, trimmed to 150 words"' },
+        prompt: { type: 'string', description: 'What the person asked for that produced this' },
+        notes: { type: 'string', description: "The person's own notes on it, kept apart from the output" },
+        basedOn: { type: 'string', description: 'The id of the output this carries on from' },
+      },
+      required: ['id', 'body'],
       additionalProperties: false,
     },
   },
@@ -1283,7 +1303,22 @@ export function makeHandlers(projectRoot) {
     async get_task(args = {}) {
       const teamctxDir = dir();
       await assertTaskInScope(teamctxDir, args.id);
-      return textResult(getTask({ id: args.id, teamctxDir }));
+      return textResult(getTask({ id: args.id, output: args.output, teamctxDir }));
+    },
+
+    async task_output(args = {}) {
+      const teamctxDir = dir();
+      await assertTaskInScope(teamctxDir, args.id);
+      const r = await saveOutput({
+        id: args.id, body: args.body, title: args.title, prompt: args.prompt, notes: args.notes,
+        basedOn: args.basedOn, source: 'mcp', teamctxDir, projectDir: gitCwd,
+      });
+      const link = await this.viewUrl({ task: r.task.id });
+      return textResult({
+        ...r,
+        ...link,
+        reportBack: withLink(`Saved as a working output on task ${r.task.key || r.task.id}. Nothing was sent for approval.`, link),
+      });
     },
 
     async task_add(args = {}) {
