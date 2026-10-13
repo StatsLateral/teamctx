@@ -86,7 +86,7 @@ export const TOOLS = [
   },
   {
     name: 'get_workstream',
-    description: "Fetch a single workstream tree by id. Omit the id for the project's own tree — the base every workstream inherits, and where a project with no workstreams keeps everything. Returns `viewUrl`, the page where this can be read — always end your reply with it, on its own line, as a plain URL. `view` carries the ids it was built from (owner, repo and the ws/item/task/review it names), so a link can still be assembled from the project address if you need to. When `viewUrl` is null there is no address recorded for this project: say that rather than inventing one, and `viewUrlError` says why.",
+    description: "Fetch a single workstream tree by id. Omit the id for the project's own tree — the base every workstream inherits, and where a project with no workstreams keeps everything. Returns `viewUrl`, the page where this can be read — always end your reply with it, on its own line, as a plain URL, and directly beneath it `tipsUrl` (the Tips & Tricks page), also on its own line as a plain URL. Give `tipsUrl` every time, even when `viewUrl` is null. `view` carries the ids it was built from (owner, repo and the ws/item/task/review it names), so a link can still be assembled from the project address if you need to. When `viewUrl` is null there is no address recorded for this project: say that rather than inventing one, and `viewUrlError` says why.",
     inputSchema: {
       type: 'object',
       properties: { id: { type: 'string' } },
@@ -153,12 +153,12 @@ export const TOOLS = [
   },
   {
     name: 'my_brief',
-    description: "**Call this first, and answer \"what should I work on?\", \"what are my tasks?\", \"where am I?\" or \"how do I get started?\" with this one call.** A member's status, their tasks and the context behind them, together: their open tasks grouped by where the work sits, the compiled context for the part of the project they are on (the project's goals with their workstream's beneath them), and their role. Prefer it over list_tasks and get_status when somebody is asking about their own work — those answer a narrower question and leave out the context. Read it before contributing, marking anything done, or proposing changes; it is what stops an assistant acting on a project it has not read. Knows who is calling, so never ask them their name; takes no arguments. Read-only, and spends no AI call. Returns `viewUrl`, the page where this can be read — always end your reply with it, on its own line, as a plain URL. `view` carries the ids it was built from (owner, repo and the ws/item/task/review it names), so a link can still be assembled from the project address if you need to. When `viewUrl` is null there is no address recorded for this project: say that rather than inventing one, and `viewUrlError` says why.",
+    description: "**Call this first, and answer \"what should I work on?\", \"what are my tasks?\", \"where am I?\" or \"how do I get started?\" with this one call.** A member's status, their tasks and the context behind them, together: their open tasks grouped by where the work sits, the compiled context for the part of the project they are on (the project's goals with their workstream's beneath them), and their role. Prefer it over list_tasks and get_status when somebody is asking about their own work — those answer a narrower question and leave out the context. Read it before contributing, marking anything done, or proposing changes; it is what stops an assistant acting on a project it has not read. Knows who is calling, so never ask them their name; takes no arguments. Read-only, and spends no AI call. Returns `viewUrl`, the page where this can be read — always end your reply with it, on its own line, as a plain URL, and directly beneath it `tipsUrl` (the Tips & Tricks page), also on its own line as a plain URL. Give `tipsUrl` every time, even when `viewUrl` is null. `view` carries the ids it was built from (owner, repo and the ws/item/task/review it names), so a link can still be assembled from the project address if you need to. When `viewUrl` is null there is no address recorded for this project: say that rather than inventing one, and `viewUrlError` says why.",
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
   },
   {
     name: 'get_status',
-    description: "**Call this first when you do not know where you are.** Answers who is calling, which project, whether it is set up at all, and whether the caller is the manager — all in one read. `managerGateBroken: true` means the gate is a display name nobody can match, so every approval on this project is already failing — tell the user plainly and offer repair_manager_gate if they set the project up. Returns project name, provider, model, manager identity, workstreams with why-counts, roles, contribution/decision totals. `me` and `activeWorkstream` are the calling user's, not the project defaults. Read-only. Returns `viewUrl`, the page where this can be read — always end your reply with it, on its own line, as a plain URL. `view` carries the ids it was built from (owner, repo and the ws/item/task/review it names), so a link can still be assembled from the project address if you need to. When `viewUrl` is null there is no address recorded for this project: say that rather than inventing one, and `viewUrlError` says why.",
+    description: "**Call this first when you do not know where you are.** Answers who is calling, which project, whether it is set up at all, and whether the caller is the manager — all in one read. `managerGateBroken: true` means the gate is a display name nobody can match, so every approval on this project is already failing — tell the user plainly and offer repair_manager_gate if they set the project up. Returns project name, provider, model, manager identity, workstreams with why-counts, roles, contribution/decision totals. `me` and `activeWorkstream` are the calling user's, not the project defaults. Read-only. Returns `viewUrl`, the page where this can be read — always end your reply with it, on its own line, as a plain URL, and directly beneath it `tipsUrl` (the Tips & Tricks page), also on its own line as a plain URL. Give `tipsUrl` every time, even when `viewUrl` is null. `view` carries the ids it was built from (owner, repo and the ws/item/task/review it names), so a link can still be assembled from the project address if you need to. When `viewUrl` is null there is no address recorded for this project: say that rather than inventing one, and `viewUrlError` says why.",
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
   },
   {
@@ -246,7 +246,7 @@ export const TOOLS = [
   // Tier 1 — additive writes
   {
     name: 'contribute',
-    description: "**This is how anything gets into the shared context — there is no separate import step.** Reach for it both when a manager tells you what the project is about and when somebody sends finished work back. Defaults to enqueueing for the manager's review, so tell the user it was sent for review, not that it was added. **The exception is the manager's first contribution**: when get_status shows hasContext:false it lands on its own, since nobody else could review it. apply:true writes immediately and is the manager's alone, never for bulk content such as a long conversation or a document, which is exactly what review is for; asking for it without being the manager is not an error and loses nothing, the contribution simply takes the ordinary path and `applyRefused` says the flag was not honoured, so report where it went rather than sending the same text again. The AI classifies what it holds into the goal and why it matters, decisions, rules, allowed exceptions, assumptions and tasks, with the reason for each in its detail; `dropped` lists anything it proposed that was incomplete (for example an assumption with no owner) — say what was left out. Returns { id, mode: \"queued\"|\"applied\"|\"no-op\", summary, operations, reportBack }. Returns `viewUrl`, the page where this can be read — always end your reply with it, on its own line, as a plain URL. `view` carries the ids it was built from (owner, repo and the ws/item/task/review it names), so a link can still be assembled from the project address if you need to. When `viewUrl` is null there is no address recorded for this project: say that rather than inventing one, and `viewUrlError` says why.",
+    description: "**This is how anything gets into the shared context — there is no separate import step.** Reach for it both when a manager tells you what the project is about and when somebody sends finished work back. Defaults to enqueueing for the manager's review, so tell the user it was sent for review, not that it was added. **The exception is the manager's first contribution**: when get_status shows hasContext:false it lands on its own, since nobody else could review it. apply:true writes immediately and is the manager's alone, never for bulk content such as a long conversation or a document, which is exactly what review is for; asking for it without being the manager is not an error and loses nothing, the contribution simply takes the ordinary path and `applyRefused` says the flag was not honoured, so report where it went rather than sending the same text again. The AI classifies what it holds into the goal and why it matters, decisions, rules, allowed exceptions, assumptions and tasks, with the reason for each in its detail; `dropped` lists anything it proposed that was incomplete (for example an assumption with no owner) — say what was left out. Returns { id, mode: \"queued\"|\"applied\"|\"no-op\", summary, operations, reportBack }. Returns `viewUrl`, the page where this can be read — always end your reply with it, on its own line, as a plain URL, and directly beneath it `tipsUrl` (the Tips & Tricks page), also on its own line as a plain URL. Give `tipsUrl` every time, even when `viewUrl` is null. `view` carries the ids it was built from (owner, repo and the ws/item/task/review it names), so a link can still be assembled from the project address if you need to. When `viewUrl` is null there is no address recorded for this project: say that rather than inventing one, and `viewUrlError` says why.",
     inputSchema: {
       type: 'object',
       properties: {
@@ -273,7 +273,7 @@ export const TOOLS = [
 
   {
     name: 'task_add',
-    description: '**Reach for this to turn what a manager wants into work somebody can pick up.** Creates a task and commits it; defaults to the caller as owner and their active workstream. Set compile:true to compile its prompt in the same call — the compiled prompt is the thing a person actually acts on, so this is usually what you want. It spends an AI call, so confirm the title with the user first; the result then carries the compiled markdown. Returns `viewUrl`, the page where this can be read — always end your reply with it, on its own line, as a plain URL. `view` carries the ids it was built from (owner, repo and the ws/item/task/review it names), so a link can still be assembled from the project address if you need to. When `viewUrl` is null there is no address recorded for this project: say that rather than inventing one, and `viewUrlError` says why.',
+    description: '**Reach for this to turn what a manager wants into work somebody can pick up.** Creates a task and commits it; defaults to the caller as owner and their active workstream. Set compile:true to compile its prompt in the same call — the compiled prompt is the thing a person actually acts on, so this is usually what you want. It spends an AI call, so confirm the title with the user first; the result then carries the compiled markdown. Returns `viewUrl`, the page where this can be read — always end your reply with it, on its own line, as a plain URL, and directly beneath it `tipsUrl` (the Tips & Tricks page), also on its own line as a plain URL. Give `tipsUrl` every time, even when `viewUrl` is null. `view` carries the ids it was built from (owner, repo and the ws/item/task/review it names), so a link can still be assembled from the project address if you need to. When `viewUrl` is null there is no address recorded for this project: say that rather than inventing one, and `viewUrlError` says why.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -289,7 +289,7 @@ export const TOOLS = [
   },
   {
     name: 'task_done',
-    description: 'Mark a task done and commit. Returns unchanged:true without committing if it was already done. Returns `viewUrl`, the page where this can be read — always end your reply with it, on its own line, as a plain URL. `view` carries the ids it was built from (owner, repo and the ws/item/task/review it names), so a link can still be assembled from the project address if you need to. When `viewUrl` is null there is no address recorded for this project: say that rather than inventing one, and `viewUrlError` says why.',
+    description: 'Mark a task done and commit. Returns unchanged:true without committing if it was already done. Returns `viewUrl`, the page where this can be read — always end your reply with it, on its own line, as a plain URL, and directly beneath it `tipsUrl` (the Tips & Tricks page), also on its own line as a plain URL. Give `tipsUrl` every time, even when `viewUrl` is null. `view` carries the ids it was built from (owner, repo and the ws/item/task/review it names), so a link can still be assembled from the project address if you need to. When `viewUrl` is null there is no address recorded for this project: say that rather than inventing one, and `viewUrlError` says why.',
     inputSchema: {
       type: 'object',
       properties: { id: { type: 'string' } },
@@ -309,7 +309,7 @@ export const TOOLS = [
   },
   {
     name: 'task_assign',
-    description: 'Reassign a task to a different owner and commit. Returns `viewUrl`, the page where this can be read — always end your reply with it, on its own line, as a plain URL. `view` carries the ids it was built from (owner, repo and the ws/item/task/review it names), so a link can still be assembled from the project address if you need to. When `viewUrl` is null there is no address recorded for this project: say that rather than inventing one, and `viewUrlError` says why.',
+    description: 'Reassign a task to a different owner and commit. Returns `viewUrl`, the page where this can be read — always end your reply with it, on its own line, as a plain URL, and directly beneath it `tipsUrl` (the Tips & Tricks page), also on its own line as a plain URL. Give `tipsUrl` every time, even when `viewUrl` is null. `view` carries the ids it was built from (owner, repo and the ws/item/task/review it names), so a link can still be assembled from the project address if you need to. When `viewUrl` is null there is no address recorded for this project: say that rather than inventing one, and `viewUrlError` says why.',
     inputSchema: {
       type: 'object',
       properties: { id: { type: 'string' }, owner: { type: 'string' } },
@@ -615,7 +615,7 @@ function withLink(text, link) {
       : text;
   }
   const tips = link.tipsUrl
-    ? ` Then, on its own line beneath it, give the Tips & Tricks page: ${link.tipsUrl}`
+    ? ` Then, directly beneath it on its own line, the Tips & Tricks page: ${link.tipsUrl}`
     : '';
   return `${text} You must end your reply with this link, on its own line, as a plain URL: ${link.viewUrl}${tips}`;
 }
@@ -1958,8 +1958,12 @@ function stampViewUrl(result, projectRoot, name) {
   const rest = result.content.slice(1);
   const already = rest.some(c => c?.type === 'text' && typeof c.text === 'string' && c.text.includes(url));
   const body = [{ ...first, text: JSON.stringify(next, null, 2) }, ...rest];
-  if (!already) body.push({ type: 'text', text: `View it here: ${url}` });
-  if (tipsUrl) body.push({ type: 'text', text: `Tips & Tricks: ${tipsUrl}` });
+  // One block, the two links on adjacent lines: as separate blocks a client
+  // rendered the first and dropped the second.
+  const tipsAlready = !tipsUrl || rest.some(c => c?.type === 'text' && typeof c.text === 'string' && c.text.includes(tipsUrl));
+  if (!already || !tipsAlready) {
+    body.push({ type: 'text', text: [`View it here: ${url}`, tipsUrl ? `Tips & Tricks: ${tipsUrl}` : ''].filter(Boolean).join('\n') });
+  }
   return { ...result, content: body };
 }
 
