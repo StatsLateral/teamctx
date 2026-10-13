@@ -41,6 +41,7 @@ Three things follow:
 - Backfilling history. Changes made before this ships have no entry and flag nothing.
 - Notifying people (#182), automatically updating tasks, or removing accepted tasks (#202).
 - New CLI options. Accepting from the command line still updates the context, without picks.
+- Scaling to Slack-volume context (100s of messages an hour, mapped to each member's tasks). A pressure test found what would need to change; it is parked as #206. The log's file layout and the shape of `reach` are the two things most worth getting right now.
 
 ## Design
 
