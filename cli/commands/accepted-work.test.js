@@ -14,6 +14,7 @@ import {
 } from '../../src/storage.js';
 import { addTask, saveOutput, submitTask, removeTask } from './task.core.js';
 import { approveReview } from './review.core.js';
+import { listPendingReviews } from './review.core.js';
 import { callClaude } from '../../src/ai.js';
 
 vi.mock('../../src/git.js', () => ({ commitContext: vi.fn(async () => ({ committed: true })), pushContext: vi.fn() }));
@@ -105,6 +106,8 @@ describe('accepting a task submission', () => {
     const r = await submit(member);
     await as(manager, () => approveReview({ id: r.id, teamctxDir: dir, askAboutTasks: true, taskChanges: [{ type: 'addTask', title: 'Publish the post' }] }));
     expect(readTree('sales', dir).tasks.map(t => t.title)).toContain('Publish the post');
+    const keys = readTree('sales', dir).tasks.map(t => t.key);
+    expect(new Set(keys).size).toBe(keys.length);
   });
 
   it('still accepts when a picked fact is invalid, and says what was dropped and why', async () => {
@@ -219,6 +222,46 @@ describe('accepting a task submission', () => {
     }] }, dir);
     await as(manager, () => approveReview({ id: r.id, teamctxDir: dir }));
     expect(readTree('sales', dir).records.filter(x => x.attachedTo?.id === task.id)).toHaveLength(1);
+  });
+
+  it('does not add a picked fact or follow-on task twice when an earlier attempt already wrote them', async () => {
+    await save(member, { body: 'v1' });
+    const r = await submit(member);
+    const tree = readTree('sales', dir);
+    writeTree('sales', {
+      ...tree,
+      records: [...tree.records, {
+        id: 'rec-fact', type: 'decision', text: 'Posts go out on Fridays', detail: '', status: 'active', owner: null,
+        attachedTo: null, links: { restsOn: [] }, sourceContributionIds: [r.id], createdBy: r.id,
+      }],
+      tasks: [...tree.tasks, {
+        id: 'task-left', key: '1.9', title: 'Publish the post', owner: null, status: 'open',
+        sourceContributionIds: [r.id], createdBy: r.id,
+      }],
+    }, dir);
+    const out = await as(manager, () => approveReview({
+      id: r.id, teamctxDir: dir,
+      facts: [{ type: 'decision', text: 'Posts go out on Fridays' }],
+      taskChanges: [{ type: 'addTask', title: 'Publish the post' }],
+    }));
+    const after = readTree('sales', dir);
+    expect(after.records.filter(x => x.text === 'Posts go out on Fridays')).toHaveLength(1);
+    expect(after.tasks.filter(t => t.title === 'Publish the post')).toHaveLength(1);
+    expect(out.dropped).toHaveLength(2);
+    expect(out.dropped.every(d => /earlier attempt/i.test(d.reason))).toBe(true);
+  });
+
+  it('says a second submission for an accepted task adds nothing, when the manager is asked', async () => {
+    await save(member, { body: 'v1' });
+    const first = await submit(member);
+    await save(member, { body: 'v2' });
+    await submit(member);
+    const [waiting] = await listPendingReviews({ teamctxDir: dir });
+    expect(waiting.reachLines[0]).toMatch(/^Adds 1 record/);
+    await as(manager, () => approveReview({ id: waiting.id, teamctxDir: dir }));
+    const [second] = await listPendingReviews({ teamctxDir: dir });
+    expect(second.id).not.toBe(first.id);
+    expect(second.reachLines[0]).toMatch(/^Adds nothing/);
   });
 
   it('treats picks that are not lists as nothing picked', async () => {

@@ -24,7 +24,7 @@ const reach = (over = {}) => reachOf({
 describe('reachOf', () => {
   it('counts what is added, and names the parts that inherit it', () => {
     const r = reach();
-    expect(r.adds).toEqual({ label: 'Launch', records: 1, tasks: 0 });
+    expect(r.adds).toEqual({ label: 'Launch', records: 1, tasks: 0, recordsAdded: 1, recordsChanged: 0, tasksAdded: 0, tasksChanged: 0 });
     expect(r.inheritedBy).toEqual([{ id: 'sales', name: 'Sales' }]);
   });
 
@@ -45,7 +45,17 @@ describe('reachOf', () => {
 
   it('counts task changes separately from record changes', () => {
     const r = reach({ operations: [{ type: 'addTask', title: 'a' }, { type: 'editTask', id: 't1', title: 'b' }, { type: 'setGoal', text: 'g' }] });
-    expect(r.adds).toMatchObject({ records: 1, tasks: 2 });
+    expect(r.adds).toMatchObject({ records: 1, tasks: 2, tasksAdded: 1, tasksChanged: 1 });
+  });
+
+  it('counts edits, status changes and evidence as changes to records, not additions', () => {
+    const r = reach({ operations: [
+      { type: 'addRecord', record: { type: 'decision', text: 'x' } },
+      { type: 'editRecord', id: 'a', changes: { text: 'y' } },
+      { type: 'setRecordStatus', id: 'b', status: 'retired' },
+    ] });
+    expect(r.adds).toMatchObject({ recordsAdded: 1, recordsChanged: 2, records: 3 });
+    expect(reachLines(r)[0]).toBe('Adds 1 record and changes 2 records to "Launch".');
   });
 
   it('has nothing to say for a part nothing inherits from and nobody is working in', () => {

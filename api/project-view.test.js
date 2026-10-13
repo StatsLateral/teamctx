@@ -2127,7 +2127,7 @@ describe('what changed since a task was last worked on', () => {
   it('flags a task that was worked on, with where the change was', async () => {
     await lend();
     const view = await readProjectView({ owner: 'acme', repo: 'ledger', user: MEMBER_GOOGLE });
-    expect(taskOf(view, 'pricing-page').changedSince.changes[0].where).toBe('Ledger');
+    expect(taskOf(view, 'pricing-page').changedSince.changes[0].where).toBe('"Ledger"');
   });
 
   it('flags nothing on a task nobody touched', async () => {

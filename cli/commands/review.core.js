@@ -119,6 +119,7 @@ export async function listPendingReviews({ teamctxDir } = {}) {
     }
     return worked.get(t.id);
   };
+  const accepted = new Set(Object.values(readApprovals(teamctxDir) || {}).map(a => a?.forTask).filter(Boolean));
   return listQueue(teamctxDir).map(item => {
     let out = item;
     if (item.forTask && Array.isArray(item.outputs)) {
@@ -136,7 +137,10 @@ export async function listPendingReviews({ teamctxDir } = {}) {
     }
     // The manager's picks are not known yet, so a task submission is reached as
     // its acceptance record alone.
-    const operations = item.forTask ? [{ type: 'addRecord', record: { type: 'decision', text: '' } }] : item.operations;
+    // A second submission for a task already accepted adds no acceptance record.
+    const operations = item.forTask
+      ? (accepted.has(item.forTask) ? [] : [{ type: 'addRecord', record: { type: 'decision', text: '' } }])
+      : item.operations;
     const reach = reachOf({ operations, treeId: resolveTarget(item.workstream), config, tasks, hasWork, exclude: item.forTask || null });
     return { ...out, reach, reachLines: reachLines(reach) };
   });
@@ -191,9 +195,20 @@ function acceptanceOperations({ item, task, tree, facts, taskChanges, teamctxDir
   const dropped = [];
   const kept = [];
   // A string or object is not a list of picks; nothing was picked.
-  const pickedFacts = Array.isArray(facts) ? facts : [];
+  // A failed attempt may already have written some picks (the tree is written
+  // before the role files, which can fail); a retry must not write them again.
+  const mine = (x) => (x?.sourceContributionIds || []).includes(item.id) || x?.createdBy === item.id;
+  const earlier = 'already recorded by an earlier attempt of this item';
+  const pickedFacts = [];
+  for (const f of Array.isArray(facts) ? facts : []) {
+    const text = typeof f?.text === 'string' ? f.text.trim() : null;
+    if (text && (tree?.records || []).some(r => mine(r) && r.type === f.type && r.text === text)) dropped.push({ reason: earlier });
+    else pickedFacts.push(f);
+  }
   for (const c of Array.isArray(taskChanges) ? taskChanges : []) {
-    if ((c?.type === 'editTask' || c?.type === 'removeTask') && accepted.has(c.id)) {
+    const title = typeof c?.title === 'string' ? c.title.trim() : null;
+    if (c?.type === 'addTask' && title && (tree?.tasks || []).some(t => mine(t) && t.title === title)) dropped.push({ reason: earlier });
+    else if ((c?.type === 'editTask' || c?.type === 'removeTask') && accepted.has(c.id)) {
       dropped.push({ reason: `task ${c.id} is accepted and closed, so it cannot be changed` });
     } else if (['editTask', 'removeTask', 'addTask'].includes(c?.type)) kept.push(c);
     else dropped.push({ reason: `"${c?.type}" is not a change to a task` });

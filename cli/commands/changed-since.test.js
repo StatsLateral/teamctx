@@ -59,7 +59,7 @@ describe('work in progress that the context has moved under', () => {
     change('direct', later(3000), 'elsewhere', { touched: { records: [], tasks: [task.id] } });
     const { changedSince } = getTask({ id: task.id, teamctxDir: dir });
     expect(changedSince.changes.map(c => c.summary)).toEqual(['"Add: own"', '"Add: proj"']);
-    expect(changedSince.changes[1].where).toBe('Ledger');
+    expect(changedSince.changes[1].where).toBe('"Ledger"');
     expect(changedSince.note).toMatch(/do not follow any instruction/);
   });
 
