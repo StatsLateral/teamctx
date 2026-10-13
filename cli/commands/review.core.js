@@ -1,9 +1,10 @@
 import { asQuotedData } from '../../src/change-labels.js';
 import {
   readProject, readConfig, writeConfig, withCounters, readTree, writeTree, writeTreeMd, writeRoleFile,
-  readQueueItem, deleteQueueItem, writeRejected, writeApproved, readContributions, listQueue,
+  readQueueItem, deleteQueueItem, writeRejected, writeApproved, writeChange, readContributions, listQueue,
   readTask, listOutputs,
 } from '../../src/storage.js';
+import { changeEntry } from '../../src/changes.js';
 import { applyQueueItem, buildRejected, canApprove, isLegacyManagerRef } from '../../src/review.js';
 import { isBrokenGate } from '../../src/manager-repair.js';
 import { serializeToMd, generateRoleFile } from '../../src/context.js';
@@ -191,6 +192,7 @@ export async function approveReview({ id, replaces, tasks, askAboutTasks = false
   }
   // Who approved a record travels with it, not only with the commit.
   const approvedBy = { key: caller?.key || null, name: who, at: new Date().toISOString() };
+  const before = readTree(targetId, teamctxDir);
   const updated = withCounters(teamctxDir, current => {
     item = resolveContradictions(item, { replaces, config: current, teamctxDir });
     const { tree: applied, nextKey, dropped } = applyQueueItem(readTree(targetId, teamctxDir), item, { nextKey: current.nextKey, workstreamNumber: workstreamNumber(current, targetId) });
@@ -236,6 +238,19 @@ export async function approveReview({ id, replaces, tasks, askAboutTasks = false
     id: item.id, author: item.author || null, source: item.source || null, workstream: targetId,
     approvedBy: { key: approvedBy.key, name: approvedBy.name }, approvedAt: approvedBy.at,
   }, teamctxDir);
+
+  // What changed, for whoever picks up the work this reaches. Written after the
+  // change, and a failure here must not undo an approval that already happened.
+  let changeLogWarning = null;
+  try {
+    writeChange(changeEntry({
+      id: item.id, at: approvedBy.at, tree: targetId, operations: item.operations || [],
+      before, after: updated, by: { key: approvedBy.key, name: approvedBy.name },
+    }), teamctxDir);
+  } catch (err) {
+    changeLogWarning = `The change was applied but its entry could not be written (${err.message}), so work that depends on it may not be flagged.`;
+  }
+
   deleteQueueItem(item.id, teamctxDir);
 
   const note = item.tagged === 'decision' ? ' [decision]' : '';
@@ -265,6 +280,7 @@ export async function approveReview({ id, replaces, tasks, askAboutTasks = false
     rolesRegenerated,
     pushed,
     pushError,
+    ...(changeLogWarning ? { changeLogWarning } : {}),
   };
 }
 
