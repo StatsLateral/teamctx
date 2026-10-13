@@ -708,7 +708,7 @@ ${note ? `<p class="note">${esc(note)}</p>` : ''}
       <div class="section-title">Who wrote it</div>
       <p id="d-who"></p>
       <div id="d-changed-wrap" hidden>
-        <div class="section-title">Changed since you last worked on this</div>
+        <div class="section-title">Changed since this was last worked on</div>
         <ul class="plain" id="d-changed"></ul>
       </div>
       <div id="d-work-wrap" hidden>

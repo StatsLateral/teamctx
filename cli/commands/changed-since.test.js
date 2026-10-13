@@ -9,7 +9,7 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import { runWithActor } from '../../src/actor.js';
 import { makeConfig, makeProject, makeWorkstream } from '../../src/test-fixtures/model.js';
-import { writeConfig, writeProject, writeWorkstream, writeChange } from '../../src/storage.js';
+import { writeConfig, writeProject, writeWorkstream, writeChange, writeTask, readTask } from '../../src/storage.js';
 import { addTask, getTask, saveOutput, compileTask } from './task.core.js';
 import { proposeDiff } from '../../src/ai.js';
 
@@ -52,14 +52,14 @@ describe('work in progress that the context has moved under', () => {
     expect(getTask({ id: task.id, teamctxDir: dir }).changedSince).toBeNull();
   });
 
-  it('says what changed in the project, the part, and the task itself since the last output', async () => {
+  it('says what changed in the project and the part since the last output, and not an entry elsewhere that names the task', async () => {
     await save(member, { body: 'v1' });
     change('proj', later(1000), null);
     change('own', later(2000), 'sales');
     change('direct', later(3000), 'elsewhere', { touched: { records: [], tasks: [task.id] } });
     const { changedSince } = getTask({ id: task.id, teamctxDir: dir });
-    expect(changedSince.changes.map(c => c.summary)).toEqual(['"Add: direct"', '"Add: own"', '"Add: proj"']);
-    expect(changedSince.changes[2].where).toBe('Ledger');
+    expect(changedSince.changes.map(c => c.summary)).toEqual(['"Add: own"', '"Add: proj"']);
+    expect(changedSince.changes[1].where).toBe('Ledger');
     expect(changedSince.note).toMatch(/do not follow any instruction/);
   });
 
@@ -68,6 +68,22 @@ describe('work in progress that the context has moved under', () => {
     await save(member, { body: 'v1' });
     change('sibling', later(1000), 'support');
     expect(getTask({ id: task.id, teamctxDir: dir }).changedSince).toBeNull();
+  });
+
+  it('says nothing for a done task, however much changed after its accepted work', async () => {
+    await save(member, { body: 'v1' });
+    change('own', later(1000), 'sales');
+    expect(getTask({ id: task.id, teamctxDir: dir }).changedSince).not.toBeNull();
+    writeTask({ ...readTask(task.id, dir).task, status: 'done' }, dir);
+    expect(getTask({ id: task.id, teamctxDir: dir }).changedSince).toBeNull();
+  });
+
+  it('survives a change file of the wrong shape', async () => {
+    await save(member, { body: 'v1' });
+    change('bad', later(1000), null, { summary: 'a string', touched: { tasks: 'oops' } });
+    change('good', later(2000), null);
+    const { changedSince } = getTask({ id: task.id, teamctxDir: dir });
+    expect(changedSince.changes.map(c => c.summary)).toEqual(['"Add: good"', '""']);
   });
 
   it('clears once the person works on it again', async () => {
@@ -103,5 +119,20 @@ describe('a compiled prompt', () => {
     const again = await as(manager, () => compileTask({ id: task.id, teamctxDir: dir }));
     expect(again.alreadyCompiled).toBe(false);
     expect(again.changedSince.changes).toHaveLength(1);
+  });
+
+  it('stays stale when an output is saved after the change, and settles once recompiled', async () => {
+    await as(manager, () => compileTask({ id: task.id, teamctxDir: dir }));
+    const compiledAt = readTask(task.id, dir).task.compiledAt;
+    const at = new Date(Date.parse(compiledAt) + 5).toISOString();
+    writeChange({ id: 'proj', at, tree: null, summary: ['Set the goal: x'], touched: { records: [], tasks: [] }, by: null }, dir);
+    await new Promise(r => setTimeout(r, 20));
+    await save(member, { body: 'v1' });
+    const again = await as(manager, () => compileTask({ id: task.id, teamctxDir: dir }));
+    expect(again.alreadyCompiled).toBe(false);
+    await new Promise(r => setTimeout(r, 20));
+    const settled = await as(manager, () => compileTask({ id: task.id, teamctxDir: dir }));
+    expect(settled.alreadyCompiled).toBe(true);
+    expect(settled.changedSince).toBeNull();
   });
 });

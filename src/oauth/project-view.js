@@ -239,11 +239,14 @@ export async function readProjectView({ owner, repo, user }) {
           // Only the project, the ancestors, the own part and changes touching
           // this task: a sibling part's changes are not this reader's to see.
           changedSince: (() => {
+            // In progress means not done: an accepted task's own accepted work
+            // would otherwise flag it for good.
+            if (t.status === 'done') return null;
             const since = lastActivity({ outputs: saved, task: t });
             if (!since) return null;
             const ws = resolveTarget(t.workstream);
             const trees = [null, ...(ws ? [...ancestorsOf(config, ws), ws] : [])];
-            const found = changesReaching({ entries: allChanges, trees, taskId: t.id, since });
+            const found = changesReaching({ entries: allChanges, trees, since });
             return found.changes.length ? changedSummary(found, labelFor(config)) : null;
           })(),
         };

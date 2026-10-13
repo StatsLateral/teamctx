@@ -2141,6 +2141,34 @@ describe('what changed since a task was last worked on', () => {
     expect(JSON.stringify(view)).not.toContain('secret tech plan');
   });
 
+  it('does not count an entry in another part that names the task', async () => {
+    repo.files.set('.teamctx/changes/2099-02-01T000000000Z-forged.json', JSON.stringify({
+      id: 'forged', at: '2099-02-01T00:00:00.000Z', tree: 'tech', summary: ['Add: forged tech text'], touched: { records: [], tasks: ['pricing-page'] }, by: null,
+    }));
+    await lend();
+    const view = await readProjectView({ owner: 'acme', repo: 'ledger', user: MEMBER_GOOGLE });
+    expect(JSON.stringify(view)).not.toContain('forged tech text');
+  });
+
+  it('flags nothing on a done task', async () => {
+    const f = '.teamctx/workstreams/product.json';
+    repo.files.set(f, repo.files.get(f).replace('"status":"open"', '"status":"done"'));
+    await lend();
+    const view = await readProjectView({ owner: 'acme', repo: 'ledger', user: MEMBER_GOOGLE });
+    expect(taskOf(view, 'pricing-page').status).toBe('done');
+    expect(taskOf(view, 'pricing-page').changedSince).toBeNull();
+  });
+
+  it('survives a change file of the wrong shape', async () => {
+    repo.files.set('.teamctx/changes/2099-03-01T000000000Z-bad.json', JSON.stringify({
+      id: 'bad', at: '2099-03-01T00:00:00.000Z', tree: null, summary: 'a string', touched: { tasks: 'pricing-page' },
+    }));
+    repo.files.set('.teamctx/changes/2099-03-02T000000000Z-bad2.json', JSON.stringify({ id: 'bad2', at: 'soon', tree: 4, summary: { a: 1 } }));
+    await lend();
+    const view = await readProjectView({ owner: 'acme', repo: 'ledger', user: MEMBER_GOOGLE });
+    expect(taskOf(view, 'pricing-page').changedSince.changes.length).toBeGreaterThan(0);
+  });
+
   describe('in the drawer', () => {
     async function drawer(taskId) {
       const path = '/project/acme/ledger?ws=product';
@@ -2164,6 +2192,8 @@ describe('what changed since a task was last worked on', () => {
       const doc = await drawer('pricing-page');
       expect(doc.getElementById('d-changed-wrap').hidden).toBe(false);
       expect(doc.getElementById('d-changed').textContent).toContain('"Set the goal: x"');
+      expect(doc.getElementById('d-changed').textContent).toContain('Add: <b>bold</b>');
+      expect(doc.getElementById('d-changed-wrap').textContent).toContain('Changed since this was last worked on');
       expect(doc.getElementById('d-changed').innerHTML).not.toContain('<b>');
     });
 
