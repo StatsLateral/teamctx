@@ -214,12 +214,14 @@ export const MAX_OUTPUT_CHARS = 50_000;
  * count are the project, every ancestor and the task's own part.
  */
 function changedSinceFor(task, saved, teamctxDir) {
+  // In progress means not done; a closed task's accepted work is not news.
+  if (task.status === 'done') return null;
   const since = lastActivity({ outputs: saved, task });
   if (!since) return null;
   const config = readConfig(teamctxDir) || {};
   const ws = resolveTarget(task.workstream);
   const trees = [null, ...(ws ? [...ancestorsOf(config, ws), ws] : [])];
-  const found = changesReaching({ entries: listChanges({ after: since }, teamctxDir), trees, taskId: task.id, since });
+  const found = changesReaching({ entries: listChanges({ after: since }, teamctxDir), trees, since });
   if (!found.changes.length) return null;
   return changedSummary(found, labelFor(config));
 }
@@ -489,12 +491,16 @@ export async function compileTask({
   const workstream = readTree(wsId, teamctxDir);
   const currentHash = contextHash(workstream);
   // The fingerprint covers only the task's own part, so a change in the project
-  // or an ancestor would leave a stale prompt looking current. An odd task id
-  // must not stop a compile, hence the guard.
-  let flag = null;
-  try { flag = changedSinceFor(task, listOutputs(task.id, teamctxDir), teamctxDir); } catch { flag = null; }
+  // or an ancestor would leave a stale prompt looking current. Staleness is
+  // judged from the compile time alone: saving an output afterwards must not
+  // hide that the prompt predates a change.
+  const staleFlag = changedSinceFor(task, [], teamctxDir);
+  // An odd task id must not stop a compile, hence the guard on this read only.
+  let saved = [];
+  try { saved = listOutputs(task.id, teamctxDir); } catch { saved = []; }
+  const flag = changedSinceFor(task, saved, teamctxDir) || staleFlag;
 
-  if (!force && !flag && taskFileExists(task.id, teamctxDir) && task.compiledFromHash === currentHash) {
+  if (!force && !staleFlag && taskFileExists(task.id, teamctxDir) && task.compiledFromHash === currentHash) {
     return {
       task,
       role: roleSlug || null,

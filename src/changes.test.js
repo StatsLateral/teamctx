@@ -54,10 +54,10 @@ describe('changesReaching', () => {
     entry('sibling', '2026-10-13T00:00:00.000Z', 'support'),
     entry('direct', '2026-10-14T00:00:00.000Z', 'support', ['t1']),
   ];
-  const find = (over = {}) => changesReaching({ entries, trees: [null, 'launch', 'sales'], taskId: 't1', since: '2026-10-05T00:00:00.000Z', ...over });
+  const find = (over = {}) => changesReaching({ entries, trees: [null, 'launch', 'sales'], since: '2026-10-05T00:00:00.000Z', ...over });
 
-  it('takes the project, the ancestors, the own workstream and anything that touched the task, newest first', () => {
-    expect(find().changes.map(e => e.id)).toEqual(['direct', 'own', 'parent', 'proj']);
+  it('takes the project, the ancestors and the own workstream, newest first, and not an entry elsewhere that names the task', () => {
+    expect(find().changes.map(e => e.id)).toEqual(['own', 'parent', 'proj']);
   });
 
   it('leaves out a sibling workstream and anything older than the last activity', () => {
@@ -68,13 +68,35 @@ describe('changesReaching', () => {
 
   it('shows the five newest and counts the rest', () => {
     const many = Array.from({ length: 8 }, (_, i) => entry(`e${i}`, `2026-10-1${i}T00:00:00.000Z`, 'sales'));
-    const r = changesReaching({ entries: many, trees: ['sales'], taskId: 'tx', since: '2026-10-01T00:00:00.000Z' });
+    const r = changesReaching({ entries: many, trees: ['sales'], since: '2026-10-01T00:00:00.000Z' });
     expect(r.changes).toHaveLength(SHOWN);
     expect(r.more).toBe(3);
   });
 
   it('finds nothing for a task with no last activity', () => {
     expect(find({ since: null })).toEqual({ changes: [], more: 0 });
+  });
+
+  it('survives entries of the wrong shape, ignoring or normalising them', () => {
+    const bad = [
+      { id: 'str', at: '2026-10-12T00:00:00.000Z', tree: null, summary: 'just a string', touched: { tasks: 't1' } },
+      { id: 'obj', at: '2026-10-12T00:00:01.000Z', tree: 'sales', summary: ['ok', 7, null], touched: { tasks: { a: 1 } } },
+      { id: 'when', at: '2026-10-12', tree: null, summary: ['x'] },
+      { id: 'when2', at: 'not a time', tree: null, summary: ['x'] },
+      { id: 'num', at: '2026-10-12T00:00:02.000Z', tree: 5, summary: ['x'] },
+      null, 'text',
+    ];
+    const r = find({ entries: bad });
+    expect(r.changes.map(e => e.id)).toEqual(['num', 'obj', 'str']);
+    expect(r.changes.find(e => e.id === 'str').summary).toEqual([]);
+    expect(r.changes.find(e => e.id === 'obj').summary).toEqual(['ok']);
+    expect(find({ entries: 'nope' }).changes).toEqual([]);
+    expect(() => changedSummary(r, labelFor({}))).not.toThrow();
+  });
+
+  it('does not match a task id as a substring of a string', () => {
+    const e = { id: 'x', at: '2026-10-12T00:00:00.000Z', tree: 'support', summary: ['x'], touched: { tasks: 'xt1x' } };
+    expect(find({ entries: [e] }).changes).toEqual([]);
   });
 
   it('ignores an entry without a time', () => {
