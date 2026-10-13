@@ -121,7 +121,7 @@ The review drawer shows, for a task submission:
 - the "Checked against what is already approved" section as today, now run on the output's
   text, so a problem like a misdescribed example is flagged against the project's own context.
 
-Decisions, as in #144, with one addition:
+Decisions, as in #144:
 
 - **Approve**: the chosen outputs become `accepted`, the task is done (or kept open if the
   manager chooses; open question 1 of #144), and the history records it. Nothing is written
