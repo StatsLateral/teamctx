@@ -8,6 +8,7 @@ import { writeConfig, writeProject, writeWorkstream, listChanges } from '../../s
 import * as storage from '../../src/storage.js';
 import { contributeCore } from './contribute.core.js';
 import { approveReview } from './review.core.js';
+import { addTask } from './task.core.js';
 import { proposeDiff } from '../../src/ai.js';
 
 vi.mock('../../src/git.js', () => ({ commitContext: vi.fn(async () => ({ committed: true })), pushContext: vi.fn() }));
@@ -64,6 +65,42 @@ describe('the change log', () => {
     const spy = vi.spyOn(storage, 'writeChange').mockImplementation(() => { throw new Error('disk full'); });
     try {
       const r = await as(manager, () => approveReview({ id: queued.id, teamctxDir: dir }));
+      expect(r.changeLogWarning).toMatch(/disk full/);
+      expect(storage.readTree('sales', dir).records).toHaveLength(1);
+    } finally { spy.mockRestore(); }
+  });
+
+  it('writes the entry for a direct apply from only the operations that were applied', async () => {
+    // A task the proposal edits that goes away while the AI is being asked: the
+    // check passes against the earlier read, and the apply drops the edit.
+    const gone = (await as(manager, () => addTask({ title: 'Old title', workstream: 'sales', teamctxDir: dir }))).task;
+    proposeDiff.mockImplementation(async () => {
+      const t = storage.readTree('sales', dir);
+      storage.writeTree('sales', { ...t, tasks: t.tasks.filter(x => x.id !== gone.id) }, dir);
+      return {
+        summary: 'Two things',
+        operations: [
+          { type: 'addRecord', record: { type: 'decision', text: 'Ship on Friday' } },
+          { type: 'editTask', id: gone.id, title: 'New title for the gone task' },
+        ],
+      };
+    });
+    const r = await as(manager, () => contributeCore({ text: 'x', teamctxDir: dir, workstreamId: 'sales', apply: true }));
+    expect(r.mode).toBe('applied');
+    expect(r.dropped).toHaveLength(1);
+    const [e] = listChanges({}, dir);
+    const written = storage.readTree('sales', dir).records;
+    expect(e.summary.join('\n')).toContain('Ship on Friday');
+    expect(e.summary.join('\n')).not.toContain('New title for the gone task');
+    expect(e.touched.records).toEqual(written.map(x => x.id));
+    expect(e.touched.tasks).not.toContain(gone.id);
+  });
+
+  it('does not undo a direct apply when the entry cannot be written, and says so', async () => {
+    const spy = vi.spyOn(storage, 'writeChange').mockImplementation(() => { throw new Error('disk full'); });
+    try {
+      const r = await as(manager, () => contributeCore({ text: 'x', teamctxDir: dir, workstreamId: 'sales', apply: true }));
+      expect(r.mode).toBe('applied');
       expect(r.changeLogWarning).toMatch(/disk full/);
       expect(storage.readTree('sales', dir).records).toHaveLength(1);
     } finally { spy.mockRestore(); }

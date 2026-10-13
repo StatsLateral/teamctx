@@ -91,7 +91,7 @@ export function changedSummary({ changes, more }, labelOf) {
   return {
     changes: (changes || []).map(normalise).filter(Boolean).map(e => ({
       at: e.at,
-      where: labelOf(e.tree),
+      where: asQuotedData(labelOf(e.tree), 60),
       summary: asQuotedData(e.summary.join('; '), 300),
     })),
     more,

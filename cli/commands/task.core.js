@@ -213,15 +213,18 @@ export const MAX_OUTPUT_CHARS = 50_000;
  * `null`). A task nobody has touched has nothing to go stale. The trees that
  * count are the project, every ancestor and the task's own part.
  */
-function changedSinceFor(task, saved, teamctxDir) {
+function changedSinceFor(task, saved, teamctxDir, read = {}) {
   // In progress means not done; a closed task's accepted work is not news.
   if (task.status === 'done') return null;
   const since = lastActivity({ outputs: saved, task });
   if (!since) return null;
-  const config = readConfig(teamctxDir) || {};
+  // A caller asking twice (compile does) passes `read` so config and the log are
+  // read once; changesReaching applies `since` itself.
+  const config = (read.config ??= readConfig(teamctxDir) || {});
   const ws = resolveTarget(task.workstream);
   const trees = [null, ...(ws ? [...ancestorsOf(config, ws), ws] : [])];
-  const found = changesReaching({ entries: listChanges({ after: since }, teamctxDir), trees, since });
+  const entries = read.entries ?? (read.entries = listChanges({}, teamctxDir));
+  const found = changesReaching({ entries, trees, since });
   if (!found.changes.length) return null;
   return changedSummary(found, labelFor(config));
 }
@@ -494,11 +497,12 @@ export async function compileTask({
   // or an ancestor would leave a stale prompt looking current. Staleness is
   // judged from the compile time alone: saving an output afterwards must not
   // hide that the prompt predates a change.
-  const staleFlag = changedSinceFor(task, [], teamctxDir);
+  const read = {};
+  const staleFlag = changedSinceFor(task, [], teamctxDir, read);
   // An odd task id must not stop a compile, hence the guard on this read only.
   let saved = [];
   try { saved = listOutputs(task.id, teamctxDir); } catch { saved = []; }
-  const flag = changedSinceFor(task, saved, teamctxDir) || staleFlag;
+  const flag = changedSinceFor(task, saved, teamctxDir, read) || staleFlag;
 
   if (!force && !staleFlag && taskFileExists(task.id, teamctxDir) && task.compiledFromHash === currentHash) {
     return {

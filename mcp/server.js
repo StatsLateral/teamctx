@@ -756,7 +756,7 @@ export function reportBackContribute(r) {
   if (r.mode === 'no-op') return `Tell the user: contribution logged for ${where} but the AI proposed no changes to the tree.${refused}`;
   if (r.mode === 'queued') return `Tell the user: contribution ${r.id}${r.number ? ` (item ${r.number})` : ''} queued for manager approval on ${where} (${r.operations.length} op${r.operations.length === 1 ? '' : 's'}). Manager must run \`teamctx review approve ${r.id}\` or call the review_approve tool.${readBackQueued(r)}${(r.contradictions || []).map(c => ` ${contradictionLabel(c)}. Resolve with a replacement or reject; do not retry direct apply.`).join('')}${(r.operations || []).filter(o => o?.type === 'addEvidence').map(o => ` ${evidenceLabel(o)}. The manager decides whether it holds; nothing changes until they do.`).join('')}${refused}`;
   const keys = (r.tasks || []).map(x => x.key).filter(Boolean);
-  const applied = `Tell the user: contribution ${r.id} applied to ${where} (${r.operations.length} op${r.operations.length === 1 ? '' : 's'})${r.rolesRegenerated?.length ? `, regenerated roles: ${r.rolesRegenerated.join(', ')}` : ''}${r.pushed ? ', committed and pushed' : ', committed'}.${keys.length ? ` Tasks: ${keys.join(', ')}.` : ''}${refused}`;
+  const applied = `Tell the user: contribution ${r.id} applied to ${where} (${r.operations.length} op${r.operations.length === 1 ? '' : 's'})${r.rolesRegenerated?.length ? `, regenerated roles: ${r.rolesRegenerated.join(', ')}` : ''}${r.pushed ? ', committed and pushed' : ', committed'}.${keys.length ? ` Tasks: ${keys.join(', ')}.` : ''}${refused}${r.changeLogWarning ? ` ${r.changeLogWarning}` : ''}`;
   if (!r.founding) return applied;
   // The project's context started here, out of a conversation the person is
   // about to leave. Read it back while they can still correct it — this is the
@@ -1785,7 +1785,7 @@ export function makeHandlers(projectRoot) {
       }
       const reportBack = `Tell the user: approved contribution ${r.id} by ${r.author} on ${targetLabel(r.workstream, readConfig(dir()).project)} (${r.operations.length} op${r.operations.length === 1 ? '' : 's'}${r.rolesRegenerated.length ? `, regenerated roles: ${r.rolesRegenerated.join(', ')}` : ''}${r.pushed ? ', pushed' : ''}).`;
       const leftOut = r.tasksLeftOut?.length ? ` Left out ${r.tasksLeftOut.length} proposed task${r.tasksLeftOut.length === 1 ? '' : 's'}: ${r.tasksLeftOut.map(t => t.title).join('; ')}.` : '';
-      return textResult({ ...r, ...(impact ? { impact } : {}), reportBack: reportBack + leftOut + sayImpact(impact) });
+      return textResult({ ...r, ...(impact ? { impact } : {}), reportBack: reportBack + leftOut + (r.changeLogWarning ? ` ${r.changeLogWarning}` : '') + sayImpact(impact) });
     },
 
     async review_reject({ id, reason }) {
