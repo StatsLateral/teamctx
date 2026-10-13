@@ -21,12 +21,23 @@ import { isActive, today } from './model.js';
  *          for "there is none".
  */
 
+/**
+ * The first thing a connected prompt asks of the assistant.
+ *
+ * A new chat opened from a link does not necessarily have the project's
+ * connector turned on, and an assistant with no teamctx tools used to say it
+ * could not check, then offer to write something from the wording alone — which
+ * is the guess the prompt exists to prevent. So the missing connector is named as
+ * what is wrong, with the two ways out, and nothing is answered around it.
+ */
+export const connectCheck = (owner, repo) => `- Confirm you are connected to the repository ${owner}/${repo}. get_connect_url returns a URL containing the owner and repo. If it is a different one, stop and tell me, rather than answering from the project you are connected to. If you have no teamctx tools in this chat at all, do not guess and do not offer to answer from the wording above: say in a sentence or two that the teamctx connector for ${owner}/${repo} is not turned on in this chat, and that I can turn it on here, or go back to the page and choose "Paste the context in".`;
+
 export function connectedPrompt({ owner, repo, subject, scope }) {
   return [
     `Tell me about ${subject}.`,
     '',
     'Instructions for the AI agent:',
-    `- Confirm you are connected to the repository ${owner}/${repo}. get_connect_url returns a URL containing the owner and repo. If it is a different one, stop and tell me, rather than answering from the project you are connected to.`,
+    connectCheck(owner, repo),
     `- Use the teamctx connector to fetch the current approved context for ${scope} and answer from it.`,
     `- Keep to ${scope}. Do not summarise other parts of the project unless I ask.`,
     '- Answer in plain language, the way a colleague would. Where something has not been decided yet, say so and move on.',
@@ -48,7 +59,7 @@ function tasksPrompts({ label, owner, repo, full }) {
       taskAsk(label),
       '',
       'Instructions for the AI agent:',
-      `- Confirm you are connected to the repository ${owner}/${repo}. get_connect_url returns a URL containing the owner and repo. If it is a different one, stop and tell me, rather than answering from the project you are connected to.`,
+      connectCheck(owner, repo),
       `- Use the teamctx connector to fetch the current approved context for ${label} and the project context it inherits.`,
       ...TASK_STEPS,
     ].join('\n'),
