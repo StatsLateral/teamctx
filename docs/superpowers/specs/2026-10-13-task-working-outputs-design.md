@@ -1,7 +1,7 @@
 # Working outputs: what a person produces on a task, kept, iterated and submitted
 
 **Date:** 2026-10-13
-**Status:** Design agreed in conversation; spec pending review
+**Status:** Design agreed in conversation, open questions decided 2026-10-13; spec pending review
 **Builds on:** [task submissions and next steps](2026-10-07-task-submissions-and-next-steps-design.md) (#144, not yet built), [task history](2026-10-07-task-history-design.md), [context in the assistant](2026-10-07-context-in-the-assistant-design.md)
 
 ## Problem
