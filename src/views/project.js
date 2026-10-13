@@ -141,6 +141,14 @@ h1{font-size:28px;line-height:1.25;margin:0 0 .35rem}
 .empty{color:var(--faint);font-style:italic;font-size:13px;padding:14px;border:1px dashed var(--line);border-radius:var(--radius-sm);text-align:center}
 .stale-note{background:var(--amber-soft);color:var(--amber);font-size:12px;padding:6px 8px;border-radius:6px;margin:0 0 10px}
 .plain{margin:0 0 1rem;padding-left:1.1rem}
+.wout{border:1px solid var(--line, #ddd);border-radius:6px;margin:0 0 8px}
+.wout summary{cursor:pointer;padding:8px 10px;line-height:1.4;overflow-wrap:anywhere}
+.wout .wbody{white-space:pre-wrap;line-height:1.5;margin:0;padding:0 10px 8px;overflow-wrap:anywhere}
+.wout .wnote{font-size:12px;color:var(--muted, #666);margin:0;padding:0 10px 8px;white-space:pre-wrap;overflow-wrap:anywhere}
+.wout .wstate{font-size:12px;margin-left:6px;color:var(--muted, #666)}
+.wout .wstate.waiting{color:var(--amber)}
+.wout .wstate.accepted{color:var(--green, #2a7)}
+.wout.turned summary{border-left:3px solid var(--amber)}
 .out{border:1px solid var(--line, #ddd);border-radius:6px;padding:8px 10px;margin:0 0 10px}
 .out .otitle{font-weight:600;margin:0 0 4px;overflow-wrap:anywhere}
 .out .obody{white-space:pre-wrap;line-height:1.5;margin:0;overflow-wrap:anywhere}
@@ -325,6 +333,34 @@ const SCRIPT = `
       earlier.textContent = 'Show earlier (' + hidden + ')';
     }
   }
+  // What has been produced on a task: newest first, each one opening to its
+  // whole text. Text nodes throughout: these are somebody else's words.
+  var STATE_WORDS = { working: 'working', submitted: 'waiting for the manager', accepted: 'accepted' };
+  function showWork(items) {
+    var wrap = document.getElementById('d-work-wrap');
+    var box = document.getElementById('d-work');
+    box.textContent = '';
+    wrap.hidden = !items.length;
+    items.forEach(function (o, i) {
+      var d = document.createElement('details'); d.className = 'wout' + (o.turnedDown ? ' turned' : '');
+      if (i === 0) d.open = true;
+      var sum = document.createElement('summary');
+      sum.appendChild(document.createTextNode(o.title));
+      var meta = document.createElement('span'); meta.className = 'wstate' + (o.state === 'submitted' ? ' waiting' : o.state === 'accepted' ? ' accepted' : '');
+      meta.textContent = (o.mine ? 'you' : o.author) + (o.at ? ' \\u00b7 ' + o.at.slice(0, 10) : '') + ' \\u00b7 ' + (STATE_WORDS[o.state] || o.state);
+      sum.appendChild(meta);
+      d.appendChild(sum);
+      if (o.turnedDown) {
+        var td = document.createElement('p'); td.className = 'wnote';
+        td.textContent = 'Turned down' + (o.turnedDown.reason ? ': ' + o.turnedDown.reason : '. No reason was given.');
+        d.appendChild(td);
+      }
+      var body = document.createElement('p'); body.className = 'wbody'; body.textContent = o.body; d.appendChild(body);
+      if (o.notes) { var n = document.createElement('p'); n.className = 'wnote'; n.textContent = 'Notes: ' + o.notes; d.appendChild(n); }
+      if (o.prompt) { var q = document.createElement('p'); q.className = 'wnote'; q.textContent = 'Asked: ' + o.prompt; d.appendChild(q); }
+      box.appendChild(d);
+    });
+  }
   document.getElementById('d-history-earlier').addEventListener('click', function () {
     document.querySelectorAll('#d-history li.earlier').forEach(function (li) { li.hidden = false; });
     this.hidden = true;
@@ -408,6 +444,7 @@ const SCRIPT = `
     // A done task reads as done here too.
     document.getElementById('d-text').classList.toggle('done', el.dataset.done === '1');
     showHistory(el.dataset.history ? JSON.parse(el.dataset.history) : null);
+    showWork(el.dataset.work ? JSON.parse(el.dataset.work) : []);
     // One sentence and a way in, instead of the list of records that govern it.
     var ws = el.dataset.ws || '';
     var ctx = document.getElementById('d-ctx');
@@ -651,6 +688,10 @@ ${note ? `<p class="note">${esc(note)}</p>` : ''}
       <p id="d-summary"></p>
       <div class="section-title">Who wrote it</div>
       <p id="d-who"></p>
+      <div id="d-work-wrap" hidden>
+        <div class="section-title">Working outputs</div>
+        <div id="d-work"></div>
+      </div>
       <div id="d-history-wrap" hidden>
         <div class="section-title">History</div>
         <p class="hstatus" id="d-history-status"></p>

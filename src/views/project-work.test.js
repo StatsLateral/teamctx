@@ -137,6 +137,29 @@ describe('deciding a waiting item in the assistant', () => {
 
 const LONG = 'Prepare the founder-profile opening LinkedIn text post for article #1: cheap AI prototypes create ongoing production ownership obligations, "quoted" & <tagged>';
 
+describe('the working outputs on a task', () => {
+  const withOutputs = () => ({
+    ...task('t1', 'a', 'Draft the post'),
+    outputs: [
+      { id: 'o2', title: 'Draft 2', body: 'Second.\n\nPara.', notes: 'Trim', prompt: 'Shorter', basedOn: 'o1', at: '2026-10-11T10:00:00Z', state: 'submitted', author: 'Priya', mine: true, turnedDown: null },
+      { id: 'o1', title: 'Draft 1', body: 'First.', notes: null, prompt: null, basedOn: null, at: '2026-10-10T10:00:00Z', state: 'working', author: 'Priya', mine: true, turnedDown: { reason: 'Too long', at: '2026-10-10T12:00:00Z' } },
+    ],
+  });
+  const work = (html) => JSON.parse(attr(html, 'data-work'));
+
+  it('puts them on the task row for the drawer, in full', () => {
+    const html = render(view({ tasks: { open: [withOutputs()], done: [] } }), 'a');
+    expect(work(html)).toHaveLength(2);
+    expect(work(html)[0]).toMatchObject({ id: 'o2', title: 'Draft 2', body: 'Second.\n\nPara.', state: 'submitted', author: 'Priya', mine: true });
+    expect(work(html)[1].turnedDown).toEqual({ reason: 'Too long', at: '2026-10-10T12:00:00Z' });
+  });
+
+  it('carries an empty list for a task with none, and for one the payload gave no list for', () => {
+    const html = render(view({ tasks: { open: [task('t1', 'a', 'Draft the post')], done: [] } }), 'a');
+    expect(work(html)).toEqual([]);
+  });
+});
+
 describe('work submitted for a task', () => {
   const submitted = () => waiting({
     number: '1.4', summary: 'Submitted: Draft 2', operations: [], forTask: 't-post',

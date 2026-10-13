@@ -110,6 +110,19 @@ export function historyData(h, agents) {
 
 // ---- tasks ------------------------------------------------------------------
 
+/**
+ * What the drawer needs of a task's working outputs: each one whole, since the
+ * drawer is where it is read. Built field by field, so nothing else on an
+ * output reaches the page.
+ */
+function workData(outputs) {
+  return (Array.isArray(outputs) ? outputs : []).map(o => ({
+    id: o.id, title: o.title || '', body: o.body || '', notes: o.notes || null, prompt: o.prompt || null,
+    basedOn: o.basedOn || null, at: o.at || null, state: o.state, author: o.author || 'someone', mine: Boolean(o.mine),
+    turnedDown: o.turnedDown ? { reason: o.turnedDown.reason || null, at: o.turnedDown.at || null } : null,
+  }));
+}
+
 const clip = (node) => {
   const n = (node.sourceContributionIds || []).length;
   return n ? `<span class="clip" title="${n} linked source${n === 1 ? '' : 's'}">📎 ${n}</span>` : '<span class="clip"></span>';
@@ -129,7 +142,7 @@ function taskRow({ t, view, origin, marked }) {
   return `<button type="button" class="item trow${marked ? ' marked' : ''}${t.status === 'done' ? ' done' : ''}" id="t-${esc(t.id)}"
   data-text="${esc(t.title)}" data-kind="${esc(`Task${t.key ? ` ${t.key}` : ''}`)}" data-summary="" data-who="${esc(who.join(', '))}"
   data-review="" data-ws="${esc(t.workstream || '')}" data-ask="${escAttr(prompt.split('\n\n')[0])}" data-prompt="${escAttr(prompt)}"
-  ${t.status === 'done' ? 'data-done="1" ' : ''}data-history="${esc(JSON.stringify(historyData(t.history, view.agents)))}">
+  ${t.status === 'done' ? 'data-done="1" ' : ''}data-work="${esc(JSON.stringify(workData(t.outputs)))}" data-history="${esc(JSON.stringify(historyData(t.history, view.agents)))}">
   <span class="num">${esc(t.key || '—')}</span><span class="ttl" title="${esc(t.title)}">${esc(t.title)}</span>
   <span class="own">${whoChip(t.owner, view.agents)}</span>${clip(t)}</button>`;
 }
