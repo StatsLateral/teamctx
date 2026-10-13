@@ -181,7 +181,7 @@ function waitingItem({ q, view, origin, marked }) {
     ? q.submittedOutputs.map(o => ({ title: o.title || '', body: o.body || '', notes: o.notes || null, prompt: o.prompt || null }))
     : [];
   const changes = q.forTask
-    ? ['Accepts the submitted work and marks the task done. Nothing is added to the project\'s context.']
+    ? ['Accepting it marks the task done and closes it. Nothing is added to the project\'s context. Feedback instead leaves the task open.']
     : (Array.isArray(q.operations) ? q.operations : []).map(op => describeChange(op, tree)).filter(Boolean);
   const title = q.summary || changes[0] || '(no summary)';
   // Deciding happens in the assistant, so what the drawer hands over is a
@@ -189,6 +189,7 @@ function waitingItem({ q, view, origin, marked }) {
   const prompt = decisionPrompt({
     ref, id: q.id, title, owner: view.owner, repo: view.repo,
     link: origin ? `${origin}/project/${view.owner}/${view.repo}?${new URLSearchParams({ ...(q.workstream ? { ws: q.workstream } : {}), item: q.id })}` : null,
+    forTask: Boolean(q.forTask),
   });
   // How to decide it. In the assistant: the drawer's assistant row opens it with
   // the item and the question (#159), so this only says so. On the command
@@ -199,7 +200,9 @@ function waitingItem({ q, view, origin, marked }) {
   // it. So a command is offered only for an id made of plain characters.
   const plainId = /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(String(q.id));
   const decide = [
-    { note: `Open your assistant with the icons below, or tell it: "Approve ${ref || 'this'}"${ref ? '' : ' (name it by what it says)'} with or without its tasks, or "Reject ${ref || 'this'}" with a reason.` },
+    q.forTask
+      ? { note: `Open your assistant with the icons below, or tell it: "Accept ${ref || 'this'}", or "Feedback ${ref || 'this'}" saying what to change. The task stays open until you accept.` }
+      : { note: `Open your assistant with the icons below, or tell it: "Approve ${ref || 'this'}"${ref ? '' : ' (name it by what it says)'} with or without its tasks, or "Reject ${ref || 'this'}" with a reason.` },
     ...(plainId ? [
       { where: 'On the command line', label: `teamctx review approve ${q.id}`, text: `teamctx review approve ${q.id}` },
       { where: 'On the command line', label: `teamctx review reject ${q.id} --reason "…"`, text: `teamctx review reject ${q.id} --reason "…"` },

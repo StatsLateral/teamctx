@@ -1,3 +1,4 @@
+import { statusWordsIn } from './status-words.js';
 import { randomBytes } from 'crypto';
 import { validateRecord, today } from './model.js';
 import { mintTaskKey, normalizeCounters, isTaskKey } from './numbering.js';
@@ -278,7 +279,16 @@ export function applyOps(tree, ops, contributionId, {
   each(of('editTask'), (t, o) => {
     if (!t.tasks.some(x => x.id === o.id)) { dropped.push({ op: o, reason: `no task "${o.id}"` }); return t; }
     if (typeof o.title !== 'string' || !o.title.trim()) { dropped.push({ op: o, reason: 'task title is empty' }); return t; }
-    return { ...t, tasks: t.tasks.map(x => x.id === o.id ? { ...withSource(x, contributionId), title: o.title.trim() } : x) };
+    // A title says what the work is. Progress ("draft complete, ready for review")
+    // belongs in what was produced on the task and in its state, and a title that
+    // grows a status is no longer the instruction somebody picked the task up by.
+    const was = t.tasks.find(x => x.id === o.id).title.trim();
+    const now = o.title.trim();
+    if (now.length > was.length && now.startsWith(was) && statusWordsIn(now.slice(was.length)).length) {
+      dropped.push({ op: o, reason: 'a task\'s title says what the work is, not how far it has got' });
+      return t;
+    }
+    return { ...t, tasks: t.tasks.map(x => x.id === o.id ? { ...withSource(x, contributionId), title: now } : x) };
   });
   // Evidence is kept only beside a proposed break of the same assumption, and it
   // lands on a broken one as readily as an active one — so which of the two

@@ -2096,7 +2096,7 @@ describe('working outputs on a task', () => {
       const [second, first] = d.all('#d-work details');
       expect(second.querySelector('.wstate').textContent).toMatch(/waiting for the manager$/);
       expect(first.classList.contains('turned')).toBe(true);
-      expect(first.textContent).toContain('Turned down: Shorten the opening');
+      expect(first.textContent).toContain('Feedback: Shorten the opening');
     });
 
     it('shows no section for a task with nothing produced on it', async () => {
