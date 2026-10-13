@@ -38,7 +38,7 @@ on them, which is what this spec adds.
 3. Saving work is **not** a context change and needs no approval. Submitting for approval is a
    separate, deliberate step, and the person chooses **which outputs** go (one, several or all).
 4. The manager reviews the **actual outputs**, and their assistant can help them reach a useful
-   response (approve, or send back with notes the contributor can act on).
+   response (approve, or reject with a reason the contributor can act on).
 5. The AI never states a status nobody gave it ("approved", "settled", "closed").
 
 ## Non-goals
@@ -66,7 +66,7 @@ A working output belongs to one task. It holds:
 | `prompt` | The instruction the person gave that produced it, so the next round can see what was asked. |
 | `basedOn` | The id of the output this one was iterated from, or none. |
 | `notes` | Reviewer or author notes that came with it (the "can be trimmed to about 150 words"). Kept separate from `body`. |
-| `state` | `working`, `submitted`, `accepted`, `sent back`. |
+| `state` | `working`, `submitted`, `accepted`. |
 
 **Append-only.** An output is never edited in place. Iterating makes a new output with
 `basedOn` pointing at the one it came from. This keeps the history honest (what was produced,
@@ -86,7 +86,6 @@ this order:
 2. the context that applies to it, as today,
 3. **the working outputs**: the latest in full, and the earlier ones as a list (title, author,
    date, state) that the assistant can open if asked,
-4. any note the manager left when they sent an output back.
 
 So "continue", "trim it to 150 words" and "go back to the first version" all work without the
 person pasting anything. A new output made this way sets `basedOn` to the one it started from.
@@ -127,17 +126,13 @@ Decisions, as in #144, with one addition:
 - **Approve**: the chosen outputs become `accepted`, the task is done (or kept open if the
   manager chooses; open question 1 of #144), and the history records it. Nothing is written
   into the context as a record.
-- **Send back, with a note**: the new way to say "not approved yet". The outputs become
-  `sent back`, the task stays open, and the note is attached to the outputs so the person
-  sees it the next time they pick the task up. It is a pause, not a verdict: the person
-  carries on from the same outputs and submits again when ready. People may also talk it
-  through outside teamctx; the note is what the record keeps.
-- **Reject** is left exactly as it works today. This spec does not change it; "send back" is
-  what a task submission uses when it is not approved yet.
+- **Reject** is left exactly as it works today. This spec adds no new decision. The person
+  can keep working on the same outputs and submit again; any back-and-forth happens outside
+  teamctx, or through the reject reason as now.
 - **Manager's assistant helps with the response.** In "Review with AI" the assistant is given
   the outputs themselves, the task and the context. It can summarise what is good and what is
   not, point to the lines that disagree with the project's context, and **draft the reason**
-  for sending back, written so the contributor can act on it. The manager edits and sends it;
+  for rejecting, written so the contributor can act on it. The manager edits and sends it;
   the assistant never decides.
 
 A manager can also add an output to a task (an edited version, a counter-draft). It is a
@@ -172,7 +167,7 @@ what the person said and what was attached:
   that task.
 - **A member's view of their own work**: today a member sees none of their waiting items. With
   outputs, a member always sees their own outputs and their state, and sees the manager's
-  note when one is sent back. They still do not see other people's waiting items; the
+  reason when one is rejected. They still do not see other people's waiting items; the
   manager's queue stays the manager's.
 
 ## Existing open source first
@@ -196,7 +191,7 @@ what the person said and what was attached:
 - `cli/commands/contribute.core.js`: for a `forTask` submission, attach the outputs and skip the
   step that turns the text into records. Records come only from separate proposals.
 - `src/ai.js`: the wording rule (section 5); the review step receives the outputs.
-- `src/review.js`: approving or sending back a `forTask` submission sets the outputs' states and
+- `src/review.js`: approving or rejecting a `forTask` submission sets the outputs' states and
   the task's state, as in #144.
 - `src/oauth/project-view.js` and the views: Working outputs in the task drawer; a member's own
   outputs; the output text in the manager's review drawer.
@@ -212,7 +207,7 @@ what the person said and what was attached:
 - Submitting one of three outputs queues the item with that output attached verbatim and the
   other two still `working`.
 - **No record is written** by approving a task submission; the task's title is unchanged.
-- Sending back with a note leaves the task open and the note visible on the output; the person can submit the same outputs again. Reject behaves as before.
+- Rejecting leaves the task open, as before; the person can submit the same outputs again.
 - The AI wording rule: a summary for a "for review" submission contains none of the banned
   status words; a summary that claims the task will close is rejected unless approval does close it.
 - The real case as a fixture: a post with reviewer notes, submitted "for review", produces a
@@ -224,7 +219,7 @@ what the person said and what was attached:
 
 1. **Visibility:** a working output is visible to everyone who can see the task, before it is
    submitted.
-2. **Not approving:** the state is **send back** (a pause with a note), not reject, which reads
-   as ambiguous. Reject is left as it is for now. Conversation outside teamctx is expected.
+2. **Not approving:** no new state. Reject is left as it is for now, and conversation outside
+   teamctx is expected.
 3. **Manager's own outputs:** a manager can accept an output they wrote without a second approval.
 4. **Retention:** old outputs are kept, for auditing.
