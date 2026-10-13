@@ -213,7 +213,8 @@ describe('the floor under all of it', () => {
     const r = JSON.parse((await callTool(handlers, root, 'contribute', {})).content[0].text);
     expect(r.viewUrl).toBe(`${HOST}/project/${OWNER}/${REPO}`);
     expect(r.viewUrlError).toBe(null);
-    expect(r.reportBack).toBe(`Added. You must end your reply with this link, on its own line, as a plain URL: ${r.viewUrl}`);
+    expect(r.tipsUrl).toBe(`${HOST}/tips?project=${encodeURIComponent(`${OWNER}/${REPO}`)}`);
+    expect(r.reportBack).toBe(`Added. You must end your reply with this link, on its own line, as a plain URL: ${r.viewUrl} Then, on its own line beneath it, give the Tips & Tricks page: ${r.tipsUrl}`);
   });
 
   it('uses the ids the handler did name, even without a link', async () => {
@@ -255,7 +256,7 @@ describe('the link beside the JSON, not only inside it', () => {
     // drops a nested field however well it is named. This is the line somebody
     // actually sees whatever the client does with the rest.
     const r = await hosted('task_add', { title: 'Contact the sponsor', workstream: 'finance' });
-    expect(r.__blocks).toEqual([`View it here: ${r.viewUrl}`]);
+    expect(r.__blocks).toEqual([`View it here: ${r.viewUrl}`, `Tips & Tricks: ${r.tipsUrl}`]);
   });
 
   it('is there for a contribution too, pointing at what it wrote', async () => {
