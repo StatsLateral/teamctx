@@ -1,5 +1,6 @@
 import { descendantsOf } from './model.js';
 import { isProjectLevel } from './project-level.js';
+import { inScope } from './member-scope.js';
 import { asQuotedData } from './change-labels.js';
 
 /**
@@ -31,7 +32,22 @@ export function reachOf({ operations, treeId, config, tasks, hasWork, exclude = 
     // ask for them explicitly.
     inProgress: (tasks || [])
       .filter(t => t.status !== 'done' && t.id !== exclude && (scope.has(t.workstream) || (treeId == null && isProjectLevel(t.workstream))) && hasWork(t))
-      .map(t => ({ id: t.id, key: t.key || null, title: t.title })),
+      .map(t => ({ id: t.id, key: t.key || null, title: t.title, workstream: t.workstream ?? null })),
+  };
+}
+
+/**
+ * The part of a reach a scoped caller may see. A project-level change reaches
+ * every part, and the lines name tasks and parts; a caller scoped to some
+ * workstreams must not learn the titles of the others. A manager is never
+ * scoped, so no scope means no limit.
+ */
+export function limitReach(reach, allowed) {
+  if (!allowed) return reach;
+  return {
+    ...reach,
+    inheritedBy: reach.inheritedBy.filter(p => allowed.includes(p.id)),
+    inProgress: reach.inProgress.filter(t => inScope(allowed, t.workstream)),
   };
 }
 
@@ -39,14 +55,16 @@ const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
 export function reachLines(reach) {
   const { adds, inheritedBy, inProgress } = reach;
+  // Part and project names live in editable config, so they are quoted too.
+  const label = asQuotedData(adds.label, 60);
   const parts = [adds.records && plural(adds.records, 'record'), adds.tasks && plural(adds.tasks, 'task change')].filter(Boolean);
   // Titles are contributor-written, so they are quoted as data.
   const shown = inProgress.slice(0, SHOWN_TASKS)
     .map(t => `${t.key ? `${t.key} ` : ''}${asQuotedData(t.title, 60)}`).join(', ');
   const rest = inProgress.length - SHOWN_TASKS;
   return [
-    parts.length ? `Adds ${parts.join(' and ')} to ${adds.label}.` : `Adds nothing to ${adds.label}.`,
-    inheritedBy.length ? `Inherited by ${inheritedBy.map(p => p.name).join(', ')}.` : 'No other part inherits from this.',
+    parts.length ? `Adds ${parts.join(' and ')} to ${label}.` : `Adds nothing to ${label}.`,
+    inheritedBy.length ? `Inherited by ${inheritedBy.map(p => asQuotedData(p.name, 60)).join(', ')}.` : 'No other part inherits from this.',
     inProgress.length
       ? `Work in progress that will be flagged: ${shown}${rest > 0 ? ` and ${rest} more` : ''}.`
       : 'No work in progress is affected.',
