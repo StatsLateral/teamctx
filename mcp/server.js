@@ -427,7 +427,7 @@ export const TOOLS = [
   },
   {
     name: 'review_approve',
-    description: RISKY + 'applies a queued contribution to shared context, regenerates the bound role files, and commits. Irreversible without a git revert. Manager-gated against the authenticated caller; there is no way to assert a different identity. Report the queue item author + summary to the user before calling; report the resulting operations after.' + REPORT,
+    description: RISKY + 'applies a queued contribution to shared context, regenerates the bound role files, and commits. Irreversible without a git revert. **For work submitted for a task (the item has `forTask`) this is Accept**: say "accept", not "approve". It accepts the outputs, marks the task done and closes it for good; nobody can work on it afterwards, and anything further is a follow-on task. It adds nothing to the context. Manager-gated against the authenticated caller; there is no way to assert a different identity. Report the queue item author + summary to the user before calling; report the resulting operations after.' + REPORT,
     inputSchema: {
       type: 'object',
       properties: {
@@ -440,7 +440,7 @@ export const TOOLS = [
   },
   {
     name: 'review_reject',
-    description: RISKY + 'archives a queued contribution to rejected/ with an optional reason and commits. Manager-gated. Confirm intent with the user before calling.' + REPORT,
+    description: RISKY + 'archives a queued contribution to rejected/ with an optional reason and commits. Manager-gated. Confirm intent with the user before calling. **For work submitted for a task (the item has `forTask`) this is Feedback**: say "feedback", not "rejected". The task stays open, the reason is required because it is what the person reads next (write it so they can act on it), and they carry on from the same outputs and submit again.' + REPORT,
     inputSchema: {
       type: 'object',
       properties: {
@@ -1771,7 +1771,7 @@ export function makeHandlers(projectRoot) {
       // Read after the approval, so what it names is what the tree now says.
       const impact = breakingImpact(dir(), r.operations);
       if (r.forTask) {
-        return textResult({ ...r, reportBack: `Tell the user: approved ${r.taskKey || r.forTask}, submitted by ${r.author}. The task is marked done. Nothing was added to the project's context.${r.pushed ? ' Pushed.' : ''}` });
+        return textResult({ ...r, reportBack: `Tell the user: accepted ${r.taskKey || r.forTask}, submitted by ${r.author}. The task is done and closed; anything further is a follow-on task. Nothing was added to the project's context.${r.pushed ? ' Pushed.' : ''}` });
       }
       const reportBack = `Tell the user: approved contribution ${r.id} by ${r.author} on ${targetLabel(r.workstream, readConfig(dir()).project)} (${r.operations.length} op${r.operations.length === 1 ? '' : 's'}${r.rolesRegenerated.length ? `, regenerated roles: ${r.rolesRegenerated.join(', ')}` : ''}${r.pushed ? ', pushed' : ''}).`;
       const leftOut = r.tasksLeftOut?.length ? ` Left out ${r.tasksLeftOut.length} proposed task${r.tasksLeftOut.length === 1 ? '' : 's'}: ${r.tasksLeftOut.map(t => t.title).join('; ')}.` : '';
@@ -1780,7 +1780,9 @@ export function makeHandlers(projectRoot) {
 
     async review_reject({ id, reason }) {
       const r = await rejectReview({ id, reason, teamctxDir: dir(), projectDir: gitCwd });
-      const reportBack = `Tell the user: rejected ${r.id}${r.reason ? ` (reason: ${r.reason})` : ''}${r.pushed ? ' — pushed' : ''}.`;
+      const reportBack = r.feedback
+        ? `Tell the user: feedback sent on ${r.id} (${r.reason}). The task stays open; the person carries on from their outputs and can submit again.${r.pushed ? ' Pushed.' : ''}`
+        : `Tell the user: rejected ${r.id}${r.reason ? ` (reason: ${r.reason})` : ''}${r.pushed ? ' — pushed' : ''}.`;
       return textResult({ ...r, reportBack });
     },
 

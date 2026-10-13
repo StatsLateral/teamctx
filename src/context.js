@@ -1,3 +1,4 @@
+import { statusWordsIn } from './status-words.js';
 import { proposeDiff, callClaude } from './ai.js';
 import { targetLabel } from './project-level.js';
 import { applyOps } from './ops.js';
@@ -67,6 +68,21 @@ export function stampEvidence(operations, contribution, tree = null) {
   });
 }
 
+/**
+ * The summary the AI wrote, unless it says something nobody said.
+ *
+ * A summary is what the person deciding reads first. If it says the work is
+ * approved, settled or closed and the contributor never used those words, the
+ * AI added a claim, so the summary is replaced with a plain label of what was
+ * sent. Words the contributor did use are theirs to claim.
+ */
+function honestSummary(summary, contribution) {
+  const said = new Set(statusWordsIn(contribution.text));
+  if (!statusWordsIn(summary).some(w => !said.has(w))) return summary;
+  const first = String(contribution.text ?? '').trim().split('\n')[0].trim();
+  return `Proposed by ${contribution.author}: ${first.length > 140 ? `${first.slice(0, 140)}…` : first}`;
+}
+
 export async function updateShared(tree, contribution, config, { intent, avoid, comparisonRecords, operationsToCheck } = {}) {
   const proposal = await proposeDiff({
     workstream: tree,
@@ -79,7 +95,8 @@ export async function updateShared(tree, contribution, config, { intent, avoid, 
     comparisonRecords,
     operationsToCheck,
   });
-  const { summary, contradictions = [] } = proposal;
+  const { contradictions = [] } = proposal;
+  const summary = honestSummary(proposal.summary, contribution);
   const operations = stampEvidence(operationsToCheck ?? proposal.operations, contribution, tree);
   const { tree: updated, dropped, nextKey } = applyOps(tree, operations, contribution.id, {
     nextKey: config?.nextKey,

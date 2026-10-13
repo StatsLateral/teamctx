@@ -352,7 +352,7 @@ const SCRIPT = `
       d.appendChild(sum);
       if (o.turnedDown) {
         var td = document.createElement('p'); td.className = 'wnote';
-        td.textContent = 'Turned down' + (o.turnedDown.reason ? ': ' + o.turnedDown.reason : '. No reason was given.');
+        td.textContent = 'Feedback' + (o.turnedDown.reason ? ': ' + o.turnedDown.reason : '.');
         d.appendChild(td);
       }
       var body = document.createElement('p'); body.className = 'wbody'; body.textContent = o.body; d.appendChild(body);

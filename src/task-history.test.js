@@ -81,6 +81,32 @@ describe('a task’s history', () => {
     expect(historyLine(h.events[3])).toBe('rejected it: not this quarter');
   });
 
+  describe('work submitted for the task', () => {
+    const sub = { id: 's1', author: 'Priya', source: 'mcp', ts: '2026-10-12T09:00:00.000Z', forTask: 't1' };
+    it('shows the acceptance, by whom, and calls the task accepted', () => {
+      const approvals = { s1: { id: 's1', forTask: 't1', outputs: ['o1'], approvedBy: { name: 'Maya' }, approvedAt: '2026-10-12T10:00:00.000Z' } };
+      const h = taskHistory({ task: task({ id: 't1', status: 'done' }), contributions: { s1: sub }, approvals });
+      expect(did(h)).toEqual(expect.arrayContaining(['submitted', 'accepted']));
+      expect(h.status).toBe('accepted');
+      expect(historyStatus(h)).toBe('Accepted');
+      expect(historyLine(h.events.find(e => e.did === 'accepted'))).toBe('accepted the submitted work');
+    });
+
+    it('shows feedback with the reason, and leaves the task as it was', () => {
+      const rejected = [{ ...sub, createdAt: sub.ts, forTask: 't1', outputs: ['o1'], rejectedBy: 'Maya', rejectedAt: '2026-10-12T10:00:00.000Z', reason: 'Shorten the opening' }];
+      const h = taskHistory({ task: task({ id: 't1' }), contributions: { c1 }, rejected });
+      expect(did(h)).toContain('feedback');
+      expect(did(h)).not.toContain('rejected');
+      expect(historyLine(h.events.find(e => e.did === 'feedback'))).toBe('sent feedback: Shorten the opening');
+      expect(h.status).not.toBe('accepted');
+    });
+
+    it('does not show an acceptance for another task', () => {
+      const approvals = { s1: { id: 's1', forTask: 'other', approvedBy: { name: 'Maya' }, approvedAt: '2026-10-12T10:00:00.000Z' } };
+      expect(did(taskHistory({ task: task({ id: 't1' }), contributions: { s1: sub }, approvals }))).not.toContain('accepted');
+    });
+  });
+
   it('says a contribution went in under the review policy, naming no approver', () => {
     const h = taskHistory({ task: task(), contributions: { c1 }, approvals: { c1: { approvedBy: null, by: 'policy', approvedAt: c1.ts } } });
     expect(h.events[1]).toMatchObject({ did: 'approved', by: null, byPolicy: true });

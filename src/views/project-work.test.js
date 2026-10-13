@@ -175,7 +175,34 @@ describe('work submitted for a task', () => {
   it('says what approving does, and that it adds nothing to the context', () => {
     const html = render(view({ pending: [submitted()] }));
     const attr = html.match(/data-changes="([^"]*)"/)[1].replace(/&quot;/g, '"');
-    expect(JSON.parse(attr)).toEqual(['Accepts the submitted work and marks the task done. Nothing is added to the project\'s context.']);
+    expect(JSON.parse(attr)).toEqual(['Accepting it marks the task done and closes it. Nothing is added to the project\'s context. Feedback instead leaves the task open.']);
+  });
+
+  it('offers Accept and Feedback, not Approve and Reject, and says feedback leaves the task open', () => {
+    const html = render(view({ pending: [submitted()] }));
+    const decide = JSON.parse(attr(html, 'data-decide'));
+    const note = decide.find(l => l.note).note;
+    expect(note).toContain('"Accept 1.4"');
+    expect(note).toContain('"Feedback 1.4"');
+    expect(note).toMatch(/task stays open/);
+    expect(note).not.toMatch(/Approve|Reject/);
+  });
+
+  it('asks the assistant to review the work and help with feedback, for a task submission', () => {
+    const prompt = attr(render(view({ pending: [submitted()] })), 'data-prompt');
+    expect(prompt).toMatch(/work submitted for a task/);
+    expect(prompt).toMatch(/submittedOutputs/);
+    expect(prompt).toMatch(/check it against the project's context/i);
+    expect(prompt).toMatch(/accept it or send feedback/i);
+    expect(prompt).toMatch(/draft the feedback/i);
+    expect(prompt).toMatch(/review_reject.*feedback/is);
+    expect(prompt).toMatch(/do not accept or send feedback until I have answered/i);
+    expect(prompt).not.toMatch(/approve or reject it/i);
+  });
+
+  it('keeps Approve and Reject for an item that is not a task submission', () => {
+    const decide = JSON.parse(attr(render(view({ pending: [waiting()] })), 'data-decide'));
+    expect(decide.find(l => l.note).note).toMatch(/Approve.*Reject/);
   });
 
   it('has no outputs section for an item that is not a task submission', () => {

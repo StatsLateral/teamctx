@@ -21,6 +21,8 @@ vi.mock('../../src/storage.js', () => ({
   taskFilePath: vi.fn(id => `/fake/tasks/${id}.md`),
   taskFileExists: vi.fn(() => false),
   listOutputs: vi.fn(() => []),
+  readApprovals: vi.fn(() => ({})),
+  listQueue: vi.fn(() => []),
   writeOutput: vi.fn(),
 }));
 

@@ -186,6 +186,22 @@ export function listTasksFiltered({
 }
 
 /**
+ * A task whose submitted work a manager accepted is closed for good in this
+ * version: nobody works on it any more, the manager included. Anything further
+ * is a follow-on task. (Letting a manager remove an accepted task from the
+ * context is for a later version.)
+ *
+ * Read off the approvals, not stored on the task, so a task somebody merely
+ * marked done by hand is not locked and can still be reopened.
+ */
+function assertNotAccepted(task, teamctxDir) {
+  const accepted = Object.values(readApprovals(teamctxDir) || {}).find(a => a?.forTask === task.id);
+  if (!accepted) return;
+  const by = accepted.approvedBy?.name ? ` by ${accepted.approvedBy.name}` : '';
+  throw new Error(`Task ${task.key || task.id} was accepted${by} and is closed. Add a follow-on task for anything further.`);
+}
+
+/**
  * The most that one output may hold. Refused above it, never cut short: a
  * silently shortened draft is worse than one that was not saved.
  */
@@ -287,6 +303,7 @@ export async function saveOutput({
 } = {}) {
   const config = readConfig(teamctxDir);
   const { task } = findTask(id, teamctxDir);
+  assertNotAccepted(task, teamctxDir);
   const text = typeof body === 'string' ? body : '';
   if (!text.trim()) throw new Error('the output is empty: there is nothing to save');
   if (text.length > MAX_OUTPUT_CHARS) {
@@ -334,6 +351,7 @@ export async function submitTask({
 } = {}) {
   const config = readConfig(teamctxDir);
   const { task } = findTask(id, teamctxDir);
+  assertNotAccepted(task, teamctxDir);
   const saved = listOutputs(task.id, teamctxDir);
   if (!saved.length) throw new Error(`nothing saved on task ${task.key || task.id} to submit: save the work as an output first`);
   let chosen;
@@ -382,6 +400,7 @@ export async function setTaskStatus({
   const config = readConfig(teamctxDir);
   const { task } = findTask(id, teamctxDir);
   if (task.status === status) return { task, unchanged: true, committed: false, pushed: false };
+  if (status === 'open') assertNotAccepted(task, teamctxDir);
 
   // Who did it and when, appended, so a task completed, reopened and completed
   // again keeps all three for its history (#143). `doneAt` stays a date for
@@ -415,6 +434,7 @@ export async function removeTask({ id, teamctxDir, projectDir, actor } = {}) {
   const config = readConfig(teamctxDir);
   // Resolve first so a bad id fails before anything is deleted.
   const { task } = findTask(id, teamctxDir);
+  assertNotAccepted(task, teamctxDir);
   const { id: removedId, workstream } = deleteTask(id, teamctxDir);
   const me = await whoAmI({ config, teamctxDir, projectDir, actor });
   const git = await commitAndPush(config, `task: rm ${removedId} by ${me}`, projectDir);

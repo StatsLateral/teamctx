@@ -77,6 +77,32 @@ describe('updateShared', () => {
     expect(dropped).toEqual([]);
   });
 
+  describe('what the summary may claim', () => {
+    const run = async (summary, text) => {
+      proposeDiff.mockResolvedValue({ summary, operations: [] });
+      return updateShared(baseWs, { id: 'c1', author: 'Priya', text }, { model: 'm' });
+    };
+
+    it('replaces a summary that says approved, settled or closed when the contributor did not', async () => {
+      const r = await run('The draft is accepted as the settled content for that task, and the task is closed.', 'Draft for task 1.4, for review. Not published or scheduled.');
+      expect(r.summary).toBe('Proposed by Priya: Draft for task 1.4, for review. Not published or scheduled.');
+    });
+
+    it('keeps a summary that uses a status word the contributor used', async () => {
+      const r = await run('The pricing decision is final.', 'We made the pricing decision and it is final.');
+      expect(r.summary).toBe('The pricing decision is final.');
+    });
+
+    it('keeps an ordinary summary untouched', async () => {
+      expect((await run('Adds a goal for the launch.', 'New goal for the launch')).summary).toBe('Adds a goal for the launch.');
+    });
+
+    it('cuts the quoted text to a short first line', async () => {
+      const r = await run('All done and approved.', `${'x'.repeat(300)}\nsecond line`);
+      expect(r.summary).toBe(`Proposed by Priya: ${'x'.repeat(140)}…`);
+    });
+  });
+
   it('leaves out a dropped operation even when what came back is a copy of it', async () => {
     // `applyOps` replaces an operation whose record attaches to a task added in
     // the same contribution, so what it reports as dropped is a *copy*. Matching
