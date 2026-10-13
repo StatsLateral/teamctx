@@ -189,8 +189,8 @@ what the person said and what was attached:
   section 2; one new tool saves an output; a second tool, `task_submit`, sends the chosen
   output ids for approval. It is separate from `contribute` so that no AI classification runs on
   it and a person can submit without having to write any text.
-- `cli/commands/contribute.core.js`: for a `forTask` submission, attach the outputs and skip the
-  step that turns the text into records. Records come only from separate proposals.
+- `cli/commands/task.core.js`: `submitTask` queues the chosen outputs for the task with no AI step,
+  so no record is inferred from them. Records come only from separate proposals.
 - `src/ai.js`: the wording rule (section 5); the review step receives the outputs.
 - `src/review.js`: approving or rejecting a `forTask` submission sets the outputs' states and
   the task's state, as in #144.
