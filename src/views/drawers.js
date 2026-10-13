@@ -87,10 +87,14 @@ function teamPanel(view) {
   const how = view.isManager
     ? '<p class="pnote">To add someone, or list them as external, tell your assistant: "Add Dana to this project", "Make Dana external".</p>'
     : '';
+  const all = view.isManager
+    ? `<p class="pnote"><a href="/project/${encodeURIComponent(view.owner)}/${encodeURIComponent(view.repo)}/contributions">All contributions</a> — everything your team and agents have sent, latest first.</p>`
+    : '';
   return `<section class="dpanel" id="dp-team" data-scope="project" data-title="My Team" data-noassist hidden>
     ${group('Team members', team) || '<p class="muted">Nobody is on the roster yet.</p>'}
     ${group('Agents', bots)}
     ${group('External talent', outside)}
+    ${all}
     ${how}
   </section>`;
 }

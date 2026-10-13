@@ -105,7 +105,7 @@ export function parseViewParams(query = {}) {
 export function isReturnable(path) {
   if (typeof path !== 'string' || !path.startsWith('/') || path.startsWith('//')) return false;
   const [pathname, rest] = path.split('?');
-  const known = /^\/(?:settings(?:\/[a-z-]+)?|projects|tips|project\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+)$/;
+  const known = /^\/(?:settings(?:\/[a-z-]+)?|projects|tips|project\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+(?:\/contributions)?)$/;
   if (!known.test(pathname)) return false;
   if (rest === undefined) return true;
   if (rest.includes('#')) return false;
@@ -137,6 +137,11 @@ export function isReturnable(path) {
     }
     if (key === 'taskOwner') {
       if (!value || value.length > 128 || /[\u0000-\u001f\u007f<>]/.test(value)) return false;
+      continue;
+    }
+    // How the contributions page is grouped.
+    if (key === 'group' && pathname.endsWith('/contributions')) {
+      if (value !== 'person' && value !== 'date') return false;
       continue;
     }
     // Which project a Tips & Tricks link came from, so the page can lead back.
