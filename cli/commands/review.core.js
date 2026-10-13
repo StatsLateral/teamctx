@@ -318,6 +318,11 @@ export async function rejectReview({ id, reason, teamctxDir, projectDir, actor }
   try { item = readQueueItem(queueId, teamctxDir); }
   catch { throw new QueueItemNotFoundError(id); }
 
+  // Feedback on work submitted for a task is only worth sending if it says what
+  // to change; the person reads it the next time they pick the task up.
+  if (item.forTask && !String(reason ?? '').trim()) {
+    throw new Error('Feedback needs to say what to change, so the person knows what to do next. Nothing has been sent.');
+  }
   writeRejected(buildRejected(item, rejectedBy, reason, caller?.key || null), teamctxDir);
   deleteQueueItem(item.id, teamctxDir);
 
@@ -332,5 +337,8 @@ export async function rejectReview({ id, reason, teamctxDir, projectDir, actor }
     catch (err) { pushError = err.message?.split('\n')[0] || 'no remote?'; }
   }
 
-  return { id: item.id, rejectedBy, reason: reason || null, pushed, pushError };
+  return {
+    id: item.id, rejectedBy, reason: reason || null, pushed, pushError,
+    ...(item.forTask ? { forTask: item.forTask, feedback: true } : {}),
+  };
 }

@@ -14,9 +14,9 @@ import { runWithActor } from '../../src/actor.js';
 import { makeConfig, makeProject, makeWorkstream } from '../../src/test-fixtures/model.js';
 import {
   writeConfig, writeProject, writeWorkstream, listQueue, readApprovals, listRejected,
-  readContributions, readTree, readTask,
+  readContributions, readTree, readTask, listOutputs,
 } from '../../src/storage.js';
-import { addTask, getTask, saveOutput, submitTask } from './task.core.js';
+import { addTask, getTask, saveOutput, submitTask, setTaskStatus, removeTask } from './task.core.js';
 import { approveReview, rejectReview, listPendingReviews } from './review.core.js';
 import { touchesTask } from '../../src/task-history.js';
 import { proposeDiff, callClaude } from '../../src/ai.js';
@@ -35,6 +35,7 @@ const member = { key: 'git:priya@x', name: 'Priya', email: 'priya@x', source: 'g
 const as = (actor, fn) => runWithActor(actor, fn);
 const save = (actor, args) => as(actor, () => saveOutput({ id: task.id, teamctxDir: dir, ...args }));
 const submit = (actor, args = {}) => as(actor, () => submitTask({ id: task.id, teamctxDir: dir, source: 'mcp', ...args }));
+const listOutputsFor = (id) => listOutputs(id, dir);
 const stateOf = (outputId) => {
   const { outputs, output } = getTask({ id: task.id, output: outputId, teamctxDir: dir });
   return output ? output.state : [outputs.latest, ...outputs.earlier].find(o => o.id === outputId).state;
@@ -197,12 +198,12 @@ describe('approving a task submission', () => {
     expect(stateOf(b.id)).toBe('accepted');
   });
 
-  it('records the submission only when the task is already done', async () => {
+  it('records the second of two waiting submissions without reopening or changing anything', async () => {
     await save(member, { body: 'v1' });
     const first = await submit(member);
-    await as(manager, () => approveReview({ id: first.id, teamctxDir: dir }));
     await save(member, { body: 'v2' });
     const second = await submit(member);
+    await as(manager, () => approveReview({ id: first.id, teamctxDir: dir }));
     await as(manager, () => approveReview({ id: second.id, teamctxDir: dir }));
     expect(readTask(task.id, dir).task.status).toBe('done');
     expect(readApprovals(dir)[second.id]).toBeDefined();
@@ -225,12 +226,76 @@ describe('approving a task submission', () => {
   });
 });
 
-describe('rejecting a task submission', () => {
-  it('keeps the task open and records the reason, as rejection always has', async () => {
+describe('feedback on a task submission', () => {
+  it('keeps the task open and records what to change, as rejection always has', async () => {
     await save(member, { body: 'v1' });
     const r = await submit(member);
-    await as(manager, () => rejectReview({ id: r.id, reason: 'Too long', teamctxDir: dir }));
+    const out = await as(manager, () => rejectReview({ id: r.id, reason: 'Too long', teamctxDir: dir }));
     expect(readTask(task.id, dir).task.status).toBe('open');
     expect(listRejected(dir)[0]).toMatchObject({ id: r.id, reason: 'Too long', forTask: task.id });
+    expect(out).toMatchObject({ forTask: task.id, feedback: true, reason: 'Too long' });
+  });
+
+  it('must say what to change, since that is all feedback is', async () => {
+    await save(member, { body: 'v1' });
+    const r = await submit(member);
+    await expect(as(manager, () => rejectReview({ id: r.id, teamctxDir: dir }))).rejects.toThrow(/feedback needs to say what to change/i);
+    await expect(as(manager, () => rejectReview({ id: r.id, reason: '   ', teamctxDir: dir }))).rejects.toThrow(/feedback needs/i);
+    expect(listQueue(dir)).toHaveLength(1);
+  });
+
+  it('still lets any other kind of item be turned down without a reason', async () => {
+    const { writeQueueItem } = await import('../../src/storage.js');
+    writeQueueItem({ id: 'q-plain', status: 'pending', author: 'Priya', workstream: 'sales', operations: [] }, dir);
+    await expect(as(manager, () => rejectReview({ id: 'q-plain', teamctxDir: dir }))).resolves.toMatchObject({ id: 'q-plain' });
+  });
+
+  it('can be followed by more work and another submission', async () => {
+    await save(member, { body: 'v1' });
+    const first = await submit(member);
+    await as(manager, () => rejectReview({ id: first.id, reason: 'Shorter', teamctxDir: dir }));
+    await save(member, { body: 'v2' });
+    const second = await submit(member);
+    await as(manager, () => approveReview({ id: second.id, teamctxDir: dir }));
+    expect(readTask(task.id, dir).task.status).toBe('done');
+  });
+});
+
+describe('an accepted task', () => {
+  const accept = async () => {
+    await save(member, { body: 'v1' });
+    const r = await submit(member);
+    await as(manager, () => approveReview({ id: r.id, teamctxDir: dir }));
+  };
+
+  it('cannot be worked on: no more outputs, no more submissions', async () => {
+    await accept();
+    await expect(save(member, { body: 'v2' })).rejects.toThrow(/accepted.* and is closed/i);
+    await expect(submit(member)).rejects.toThrow(/accepted.* and is closed/i);
+    expect(listOutputsFor(task.id)).toHaveLength(1);
+  });
+
+  it('says to add a follow-on task, for the manager as much as for anyone', async () => {
+    await accept();
+    await expect(as(manager, () => saveOutput({ id: task.id, body: 'more', teamctxDir: dir }))).rejects.toThrow(/follow-on task/i);
+  });
+
+  it('cannot be reopened or removed, in this version', async () => {
+    await accept();
+    await expect(as(manager, () => setTaskStatus({ id: task.id, status: 'open', teamctxDir: dir }))).rejects.toThrow(/accepted.* and is closed/i);
+    await expect(as(manager, () => removeTask({ id: task.id, teamctxDir: dir }))).rejects.toThrow(/accepted.* and is closed/i);
+    expect(readTask(task.id, dir).task.status).toBe('done');
+  });
+
+  it('still allows a follow-on task in the same workstream', async () => {
+    await accept();
+    const { task: next } = await as(member, () => addTask({ title: 'Publish the post', workstream: 'sales', teamctxDir: dir }));
+    expect(next.status).toBe('open');
+    expect(next.id).not.toBe(task.id);
+  });
+
+  it('does not lock a task that was only marked done by hand', async () => {
+    await as(manager, () => setTaskStatus({ id: task.id, status: 'done', teamctxDir: dir }));
+    await expect(as(manager, () => setTaskStatus({ id: task.id, status: 'open', teamctxDir: dir }))).resolves.toMatchObject({ unchanged: false });
   });
 });

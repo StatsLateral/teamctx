@@ -121,18 +121,30 @@ The review drawer shows, for a task submission:
 - the "Checked against what is already approved" section as today, now run on the output's
   text, so a problem like a misdescribed example is flagged against the project's own context.
 
-Decisions, as in #144:
+Two decisions on work submitted for a task:
 
-- **Approve**: the chosen outputs become `accepted`, the task is done (or kept open if the
-  manager chooses; open question 1 of #144), and the history records it. Nothing is written
-  into the context as a record.
-- **Reject** is left exactly as it works today. This spec adds no new decision. The person
-  can keep working on the same outputs and submit again; any back-and-forth happens outside
-  teamctx, or through the reject reason as now.
+- **Accept** (what `review_approve` is called for such an item): the chosen outputs become
+  `accepted` and the task is done and **closed**. Nothing is written into the context as a record.
+- **Feedback** (what `review_reject` is called for such an item): the task **stays open**. The
+  feedback must say what to change, because it is attached to the outputs and is what the person
+  reads next. They carry on from the same outputs and submit again. Only the label and the
+  requirement for a reason are new; the stored file and the tool are unchanged, and any other kind
+  of item is still Approved or Rejected as before.
+
+The task closes only after Accept. Back-and-forth can still happen outside teamctx.
+
+### Accepted tasks are closed
+
+Once a task has an accepted submission nobody works on it any more, the manager included: no
+more outputs, no more submissions, it cannot be reopened and it cannot be removed. Anything
+further is a **follow-on task**, which anyone can add as usual. Whether a task is accepted is
+read off the approvals, so a task somebody simply marked done by hand is not locked. A later
+version will let a manager remove an accepted task from the context (tracked as a post-MVP issue, #202).
+
 - **Manager's assistant helps with the response.** In "Review with AI" the assistant is given
   the outputs themselves, the task and the context. It can summarise what is good and what is
   not, point to the lines that disagree with the project's context, and **draft the reason**
-  for rejecting, written so the contributor can act on it. The manager edits and sends it;
+  for the feedback, written so the contributor can act on it. The manager edits and sends it;
   the assistant never decides.
 
 A manager can also add an output to a task (an edited version, a counter-draft). It is a
@@ -167,7 +179,7 @@ what the person said and what was attached:
   that task.
 - **A member's view of their own work**: today a member sees none of their waiting items. With
   outputs, a member always sees their own outputs and their state, and sees the manager's
-  reason when one is rejected. They still do not see other people's waiting items; the
+  feedback when there is some. They still do not see other people's waiting items; the
   manager's queue stays the manager's.
 
 ## Existing open source first
@@ -192,7 +204,7 @@ what the person said and what was attached:
 - `cli/commands/task.core.js`: `submitTask` queues the chosen outputs for the task with no AI step,
   so no record is inferred from them. Records come only from separate proposals.
 - `src/ai.js`: the wording rule (section 5); the review step receives the outputs.
-- `src/review.js`: approving or rejecting a `forTask` submission sets the outputs' states and
+- `src/review.js`: accepting or giving feedback on a `forTask` submission sets the outputs' states and
   the task's state, as in #144.
 - `src/oauth/project-view.js` and the views: Working outputs in the task drawer; a member's own
   outputs; the output text in the manager's review drawer.
@@ -208,7 +220,7 @@ what the person said and what was attached:
 - Submitting one of three outputs queues the item with that output attached verbatim and the
   other two still `working`.
 - **No record is written** by approving a task submission; the task's title is unchanged.
-- Rejecting leaves the task open, as before; the person can submit the same outputs again.
+- Feedback leaves the task open and needs a reason; the person can submit the same outputs again. Accepting closes the task; saving or submitting on it afterwards is refused, and so are reopening and removing it.
 - The AI wording rule: a summary for a "for review" submission contains none of the banned
   status words; a summary that claims the task will close is rejected unless approval does close it.
 - The real case as a fixture: a post with reviewer notes, submitted "for review", produces a
@@ -220,7 +232,12 @@ what the person said and what was attached:
 
 1. **Visibility:** a working output is visible to everyone who can see the task, before it is
    submitted.
-2. **Not approving:** no new state. Reject is left as it is for now, and conversation outside
-   teamctx is expected.
+2. **Not accepting:** the decision is called **Feedback**, not Reject, for work submitted for a
+   task. The task stays open and closes only after Accept. (Replaces the earlier "no new state".)
 3. **Manager's own outputs:** a manager can accept an output they wrote without a second approval.
 4. **Retention:** old outputs are kept, for auditing.
+5. **Accepted tasks are closed** (2026-10-14): no more work on them, follow-on tasks only. Removing
+   an accepted task from the context is post-MVP.
+6. **The AI's wording** (2026-10-14): the AI may not say work is approved, accepted, settled, final,
+   closed or done unless the contribution says so, and may not add progress to a task's title.
+   Enforced in the prompt and by a check on the summary and on title edits.

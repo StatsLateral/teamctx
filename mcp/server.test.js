@@ -791,6 +791,14 @@ describe('task tools', () => {
     expect(tool('list_pending_reviews').description).toMatch(/Review those, not the summary/i);
   });
 
+  it('tells a reviewer to call these Accept and Feedback for work submitted for a task', () => {
+    expect(tool('review_approve').description).toMatch(/Accept/);
+    expect(tool('review_approve').description).toMatch(/forTask/);
+    expect(tool('review_reject').description).toMatch(/Feedback/);
+    expect(tool('review_reject').description).toMatch(/task stays open/);
+    expect(tool('review_reject').description).toMatch(/say "feedback", not "rejected"/i);
+  });
+
   it('has a handler for every task tool it advertises', async () => {
     // A tool listed with no handler fails only when someone calls it, which is
     // the worst moment to find out.
