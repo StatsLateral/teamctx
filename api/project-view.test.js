@@ -268,6 +268,26 @@ describe('getting there', () => {
     expect(body).toMatch(/could not be read/);
   });
 
+  describe('when GitHub rejects the credential itself', () => {
+    const BAD = 'github GET https://api.github.com/repos/acme/ledger → 401: { "message": "Bad credentials" }';
+
+    it('tells a Google member the manager has to lend access again, not GitHub\'s raw error', async () => {
+      await lend();
+      repo.prefetchError = BAD;
+      const { status, body } = await visit('/project/acme/ledger', MEMBER_GOOGLE);
+      expect(status).toBe(403);
+      expect(body).toMatch(/manager lent, and GitHub no longer accepts it/);
+      expect(body).toMatch(/lend the access again/);
+      expect(body).not.toMatch(/Bad credentials/);
+    });
+
+    it('tells a GitHub sign-in to sign in again', async () => {
+      repo.prefetchError = BAD;
+      const { body } = await visit('/project/acme/ledger', MANAGER);
+      expect(body).toMatch(/Sign out and sign in again/);
+    });
+  });
+
   describe('a project whose repository was deleted on GitHub', () => {
     const list = async (user = MANAGER) => (await visit('/projects', user)).body;
     const known = (...slugs) => kvSet(keys.connectedProjects('maya@example.com'), { projects: slugs });

@@ -95,6 +95,16 @@ async function openProject({ owner, repo, user }, body) {
   try {
     await session.prefetch();
   } catch (e) {
+    // GitHub refusing the credential itself is not "could not be read": nothing
+    // is wrong with the project, and the person looking can do something about
+    // it. Raw GitHub JSON told a team member nothing — least of all that the one
+    // who can fix it is the manager, not them.
+    if (/→ 401\b/.test(e.message)) {
+      throw new ProjectViewError(checkRoster
+        ? `${owner}/${repo} is shared through GitHub access its manager lent, and GitHub no longer accepts it. `
+          + 'Nothing is wrong with your account. Ask the manager to lend the access again from teamctx Settings.'
+        : 'GitHub no longer accepts your sign-in. Sign out and sign in again.');
+    }
     throw new ProjectViewError(`${owner}/${repo} could not be read: ${e.message}`);
   }
 
