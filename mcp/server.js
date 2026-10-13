@@ -14,6 +14,7 @@ import {
 import { answerQuestion } from '../src/context.js';
 import { contradictionLabel, evidenceLabel } from '../src/contradictions.js';
 import { describeChange, asQuotedData } from '../src/change-labels.js';
+import { limitReach, reachLines } from '../src/reach.js';
 import { commitContext } from '../src/git.js';
 import { connectorUrl, originRemote } from '../cli/commands/connect.core.js';
 import { buildViewUrl, buildTipsUrl } from '../src/view-url.js';
@@ -1029,7 +1030,14 @@ export function makeHandlers(projectRoot) {
       // sibling workstream, waiting to be approved into it. Only the manager
       // acts on these, and a manager is never scoped.
       const pending = (await listPendingReviews({ teamctxDir }))
-        .filter(item => inScope(allowed, resolveTarget(item.workstream)));
+        .filter(item => inScope(allowed, resolveTarget(item.workstream)))
+        // A project-level item reaches every part; the lines name tasks and
+        // parts, so a scoped caller gets only the ones they may see.
+        .map(item => {
+          if (!item.reach) return item;
+          const limited = limitReach(item.reach, allowed);
+          return { ...item, reach: limited, reachLines: reachLines(limited) };
+        });
       return textResult({ pending, ...(allowed ? { scopedTo: allowed } : {}) });
     },
 

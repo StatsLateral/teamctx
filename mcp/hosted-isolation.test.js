@@ -664,6 +664,21 @@ describe('a member scoped to one workstream', () => {
     expect(r.scopedTo).toEqual(['engineering']);
   });
 
+  it('is not told the titles of work in a workstream outside the scope', async () => {
+    const s = scoped();
+    s.write('.teamctx/workstreams/product.json', JSON.stringify({
+      id: 'product', name: 'Product', records: [],
+      tasks: [{ id: 't-secret', key: '1.1', title: 'Secret launch plan', status: 'open', compiledAt: '2026-10-01T00:00:00.000Z' }],
+    }));
+    s.write('.teamctx/queue/q-proj.json', JSON.stringify({
+      id: 'q-proj', status: 'pending', workstream: null, author: 'Maya', summary: 'A project note',
+      operations: [{ type: 'addRecord', record: { type: 'decision', text: 'x' } }],
+    }));
+    const r = await asUser(s, RAVI, h => json(h.list_pending_reviews()));
+    expect(JSON.stringify(r)).not.toContain('Secret launch plan');
+    expect(JSON.stringify(r)).not.toContain('Product');
+  });
+
   it('sees only their own in the listing', async () => {
     const r = await asUser(scoped(), RAVI, h => json(h.list_workstreams()));
     expect(r.workstreams.map(w => w.id)).toEqual(['engineering']);

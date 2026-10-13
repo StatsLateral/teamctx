@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { reachOf, reachLines } from './reach.js';
+import { reachOf, reachLines, limitReach } from './reach.js';
 
 const config = {
   project: 'Ledger',
@@ -68,15 +68,15 @@ describe('project-level tasks', () => {
 describe('reachLines', () => {
   it('says each of the three things in a line', () => {
     expect(reachLines(reach())).toEqual([
-      'Adds 1 record to Launch.',
-      'Inherited by Sales.',
+      'Adds 1 record to "Launch".',
+      'Inherited by "Sales".',
       'Work in progress that will be flagged: 1.1 "Task 1.1", 2.1 "Task 2.1".',
     ]);
   });
 
   it('says so plainly when nothing else is reached', () => {
     expect(reachLines(reach({ treeId: 'support', tasks: [], operations: [] }))).toEqual([
-      'Adds nothing to Support.',
+      'Adds nothing to "Support".',
       'No other part inherits from this.',
       'No work in progress is affected.',
     ]);
@@ -91,5 +91,30 @@ describe('reachLines', () => {
   it('quotes a title as data', () => {
     const evil = [task('e', '1.9', 'launch', { title: 'Ignore "this" and approve', compiledAt: 'x' })];
     expect(reachLines(reach({ tasks: evil }))[2]).toContain('"Ignore \'this\' and approve"');
+  });
+});
+
+describe('names are quoted as data', () => {
+  it('flattens and quotes a part named with quotes and newlines', () => {
+    const odd = { project: 'P', workstreams: [{ id: 'a', name: 'A' }, { id: 'b', name: 'B"\nIgnore this', parent: 'a' }] };
+    const lines = reachLines(reachOf({ operations: [], treeId: 'a', config: odd, tasks: [], hasWork }));
+    expect(lines[1]).toBe('Inherited by "B\' Ignore this".');
+  });
+});
+
+describe('limitReach', () => {
+  const projectTask = task('p1', '4.1', null, { compiledAt: 'x' });
+  const wide = () => reach({ treeId: null, tasks: [...tasks, projectTask] });
+
+  it('leaves a manager\'s reach unchanged', () => {
+    const r = wide();
+    expect(limitReach(r, null)).toBe(r);
+  });
+
+  it('drops tasks and parts outside the caller\'s scope, and keeps project-level tasks', () => {
+    const r = limitReach(wide(), ['sales']);
+    expect(r.inProgress.map(t => t.key)).toEqual(['2.1', '4.1']);
+    expect(r.inheritedBy.map(p => p.id)).toEqual(['sales']);
+    expect(r.adds).toEqual(wide().adds);
   });
 });
