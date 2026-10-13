@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { applyQueueItem, buildRejected, canApprove, matchesActor, isLegacyManagerRef } from './review.js';
+import { applyQueueItem, numberQueueItem, buildRejected, canApprove, matchesActor, isLegacyManagerRef } from './review.js';
 
 const emptyWorkstream = () => ({ id: 'sales', name: 'Demo', records: [], tasks: [] });
 
@@ -197,5 +197,30 @@ describe('one person recognised across every surface', () => {
 
   it('still matches an id-based gate by id', () => {
     expect(canApprove({ managerKey: 'github:1001' }, { actor: FROM_GITHUB })).toBe(true);
+  });
+});
+
+describe('numberQueueItem', () => {
+  const tree = { tasks: [{ id: 't-a', key: '1.4' }, { id: 't-b', key: '1.5' }] };
+  const nextKey = { workstream: 2, tasks: { ws: 11 } };
+  const number = (operations) => numberQueueItem({ operations, tree, nextKey, workstream: 'ws', number: 1 });
+  const decisionOn = (id) => ({ type: 'addRecord', record: { type: 'decision', text: 'x', attachedTo: { kind: 'task', id } } });
+
+  it('keeps an existing task\'s number for a decision attached to it plus a retitle of it', () => {
+    expect(number([decisionOn('t-a'), { type: 'editTask', id: 't-a', title: 'new' }]).number).toBe('1.4');
+  });
+
+  it('keeps it for a decision attached to the task and nothing else', () => {
+    expect(number([decisionOn('t-a')]).number).toBe('1.4');
+  });
+
+  it('numbers it afresh when it touches two tasks', () => {
+    expect(number([decisionOn('t-a'), decisionOn('t-b')]).number).toBe('1.11');
+  });
+
+  it('numbers it afresh when it also adds a task or a workstream-level record', () => {
+    expect(number([decisionOn('t-a'), { type: 'addTask', title: 'more' }]).number).toBe('1.11');
+    const ws = { type: 'addRecord', record: { type: 'decision', text: 'x', attachedTo: { kind: 'workstream', id: 'ws' } } };
+    expect(number([decisionOn('t-a'), ws]).number).toBe('1.11');
   });
 });
