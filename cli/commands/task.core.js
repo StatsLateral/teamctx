@@ -394,6 +394,19 @@ export async function submitTask({
   return { id: contribution.id, mode: 'queued', number: task.key || null, outputs: chosen.map(o => o.id), summary, task, ...git };
 }
 
+/**
+ * The task as it is once marked done or reopened. Pure, and shared with
+ * accepting a submission, which closes the task in the same write as the
+ * context change so a failure part-way cannot leave one without the other.
+ */
+export function withStatus(task, status, by, at = new Date().toISOString()) {
+  const entry = { did: status === 'done' ? 'completed' : 'reopened', by, at };
+  const statusLog = [...(Array.isArray(task.statusLog) ? task.statusLog : []), entry];
+  return status === 'done'
+    ? { ...task, status: 'done', doneAt: todayIso(), doneBy: by, statusLog }
+    : { ...task, status: 'open', doneAt: null, doneBy: null, statusLog };
+}
+
 export async function setTaskStatus({
   id, status, teamctxDir, projectDir, actor,
 } = {}) {
@@ -408,11 +421,7 @@ export async function setTaskStatus({
   const resolved = actor || await resolveActor({ config, cwd: projectDir });
   const me = await resolveDisplayName({ actor: resolved, config, teamctxDir });
   const by = { key: resolved?.key || null, name: me };
-  const entry = { did: status === 'done' ? 'completed' : 'reopened', by, at: new Date().toISOString() };
-  const statusLog = [...(Array.isArray(task.statusLog) ? task.statusLog : []), entry];
-  const updated = status === 'done'
-    ? { ...task, status: 'done', doneAt: todayIso(), doneBy: by, statusLog }
-    : { ...task, status: 'open', doneAt: null, doneBy: null, statusLog };
+  const updated = withStatus(task, status, by);
   writeTask(updated, teamctxDir);
 
   const verb = status === 'done' ? 'done' : 'reopen';

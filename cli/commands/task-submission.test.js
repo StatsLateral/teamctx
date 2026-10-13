@@ -174,7 +174,9 @@ describe('approving a task submission', () => {
     const after = readTask(task.id, dir).task;
     expect(after.title).toBe('Draft the post');
     expect(after).toMatchObject({ status: 'done', doneBy: { key: 'git:manager@x', name: 'Manager' } });
-    expect(readTree('sales', dir).records).toHaveLength(1);
+    expect(readTree('sales', dir).records).toEqual([
+      expect.objectContaining({ text: `Task ${task.key} accepted: Draft the post`, attachedTo: { kind: 'task', id: task.id } }),
+    ]);
     expect(listQueue(dir)).toEqual([]);
   });
 
