@@ -237,6 +237,9 @@ export async function readProjectView({ owner, repo, user }) {
         createdAt: q.createdAt || null,
         source: q.source || null,
         operations: q.operations || [],
+        // Work submitted for a task: the outputs in full, which the manager is
+        // asked about, rather than a line describing them.
+        ...(q.forTask ? { forTask: q.forTask, submittedOutputs: q.submittedOutputs || [] } : {}),
         contradictions: Array.isArray(q.contradictions) ? q.contradictions : [],
         impact: impactOf(q.operations),
         workstream: resolveTarget(q.workstream),
