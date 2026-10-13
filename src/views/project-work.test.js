@@ -172,10 +172,10 @@ describe('work submitted for a task', () => {
     expect(JSON.parse(attr)).toEqual([{ title: 'Draft 2', body: 'The whole post.\n\nSecond paragraph.', notes: 'Trim it', prompt: 'Write a short post' }]);
   });
 
-  it('says what approving does, and that it adds nothing to the context', () => {
+  it('says what approving does, and that it records the acceptance in the context', () => {
     const html = render(view({ pending: [submitted()] }));
     const attr = html.match(/data-changes="([^"]*)"/)[1].replace(/&quot;/g, '"');
-    expect(JSON.parse(attr)).toEqual(['Accepting it marks the task done and closes it. Nothing is added to the project\'s context. Feedback instead leaves the task open.']);
+    expect(JSON.parse(attr)).toEqual(['Accepting it marks the task done and closes it, and records the acceptance in the context. Feedback instead leaves the task open.']);
   });
 
   it('offers Accept and Feedback, not Approve and Reject, and says feedback leaves the task open', () => {
@@ -194,6 +194,9 @@ describe('work submitted for a task', () => {
     expect(prompt).toMatch(/submittedOutputs/);
     expect(prompt).toMatch(/check it against the project's context/i);
     expect(prompt).toMatch(/accept it or send feedback/i);
+    expect(prompt).toMatch(/reachLines/);
+    expect(prompt).toMatch(/I will pick; you suggest/);
+    expect(prompt).toMatch(/records the acceptance/);
     expect(prompt).toMatch(/draft the feedback/i);
     expect(prompt).toMatch(/review_reject.*feedback/is);
     expect(prompt).toMatch(/do not accept or send feedback until I have answered/i);

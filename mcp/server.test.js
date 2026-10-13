@@ -706,6 +706,26 @@ describe('config_set — personal keys', () => {
 describe('task tools', () => {
   const tool = name => TOOLS.find(t => t.name === name);
 
+  it('lets a reviewer pass only the facts and task changes the manager picked', () => {
+    const props = tool('review_approve').inputSchema.properties;
+    expect(props.facts.type).toBe('array');
+    expect(props.taskChanges.type).toBe('array');
+    expect(tool('review_approve').description).toMatch(/only what the manager picked/i);
+    expect(tool('review_approve').description).toMatch(/adds an acceptance record/i);
+  });
+
+  it('tells the assistant to show the reach, and to suggest, not decide', () => {
+    const d = tool('list_pending_reviews').description;
+    expect(d).toMatch(/reachLines/);
+    expect(d).toMatch(/suggest/i);
+  });
+
+  it('tells the assistant to say what changed before carrying on', () => {
+    expect(tool('get_task').description).toMatch(/changedSince/);
+    expect(tool('get_task').description).toMatch(/before carrying on/i);
+    expect(tool('task_compile').description).toMatch(/changedSince/);
+  });
+
   it('exposes every task command the CLI has', () => {
     // The server describes itself as covering the full CLI. Before this, all
     // eight task commands were missing — including compile, which is the one
