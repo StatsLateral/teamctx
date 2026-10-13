@@ -3,8 +3,8 @@
  * with them (#197, building on #144).
  *
  * The point of these: the manager is asked about the work itself, nothing is
- * inferred from it by an AI, approving writes no record and does not touch the
- * task's wording, and a person always knows where each output stands.
+ * inferred from it by an AI, accepting records the acceptance in the context and
+ * does not touch the task's wording, and a person always knows where each output stands.
  */
 import { beforeEach, afterEach, describe, it, expect, vi } from 'vitest';
 import { mkdtempSync, rmSync } from 'fs';

@@ -310,7 +310,7 @@ export const TOOLS = [
   },
   {
     name: 'task_submit',
-    description: "**Send work on a task to the manager for approval.** The person must have asked for this; saving with task_output is not a submission. Submits the outputs already saved on the task: the latest by default, or the ones named in `outputs`, or `\"all\"`. It always goes to a manager and nothing is applied until they approve, so tell the user it was sent for review, not that it was approved or done. No AI reads it and nothing is added to the project's context; the manager is shown the outputs themselves. `message` is the person's own words to the manager, passed on as written. Returns { id, mode: \"queued\", number, outputs, summary }.",
+    description: "**Send work on a task to the manager for approval.** The person must have asked for this; saving with task_output is not a submission. Submits the outputs already saved on the task: the latest by default, or the ones named in `outputs`, or `\"all\"`. It always goes to a manager and nothing is applied until they approve, so tell the user it was sent for review, not that it was approved or done. No AI reads the submission, and the manager is shown the outputs themselves. Accepting records the acceptance in the context of that part of the work (with any facts the manager picks) and closes the task. `message` is the person's own words to the manager, passed on as written. Returns { id, mode: \"queued\", number, outputs, summary }.",
     inputSchema: {
       type: 'object',
       properties: {
@@ -435,7 +435,7 @@ export const TOOLS = [
         id: { type: 'string', description: 'Queue item id, or the number it waits under such as 1.6 (from list_pending_reviews)' },
         replaces: { type: 'array', items: { type: 'string' }, description: 'IDs of flagged local decisions/rules to replace (records have no number). Required to resolve a contradiction unless links.replaces already names it. Inherited records must be resolved in their own part of the work.' },
         facts: { type: 'array', description: 'Facts from the accepted work that the manager chose to keep, each { type: "decision"|"assumption"|"rule", text, detail?, owner?, reviewBy? }. Pass only what the manager picked; an assumption needs an owner and a review date.', items: { type: 'object' } },
-        taskChanges: { type: 'array', description: 'Changes to other tasks that the manager chose, each { type: "editTask"|"addTask"|"removeTask", id?, title? }. Pass only what the manager picked. An accepted task cannot be changed.', items: { type: 'object' } },
+        taskChanges: { type: 'array', description: 'Changes to other tasks that the manager chose, each { type: "editTask"|"addTask"|"removeTask", id?, title? }. Pass only what the manager picked. An addTask pick creates a follow-on task in the same part as the accepted task (title required, owner optional); editTask needs id and title; removeTask needs id. An accepted task cannot be changed.', items: { type: 'object' } },
         tasks: { type: 'string', enum: ['include', 'leave_out'], description: 'Required when the item proposes tasks (list_pending_reviews and the contribute result list them): \'include\' creates them, \'leave_out\' approves everything else and drops them. Ask the user; never choose for them.' },
       },
       required: ['id'], additionalProperties: false,
@@ -1781,7 +1781,7 @@ export function makeHandlers(projectRoot) {
       // Read after the approval, so what it names is what the tree now says.
       const impact = breakingImpact(dir(), r.operations);
       if (r.forTask) {
-        return textResult({ ...r, reportBack: `Tell the user: accepted ${r.taskKey || r.forTask}, submitted by ${r.author}. The task is done and closed, and the acceptance is recorded in the context; anything further is a follow-on task.${r.dropped?.length ? ` Not applied: ${r.dropped.map(d => d.reason).join('; ')}.` : ''}${r.changeLogWarning ? ` ${r.changeLogWarning}` : ''}${r.pushed ? ' Pushed.' : ''}` });
+        return textResult({ ...r, reportBack: `Tell the user: accepted ${r.taskKey || r.forTask}, submitted by ${r.author}. The task is done and closed, and the acceptance is recorded in the context; anything further is a follow-on task.${r.dropped?.length ? ` Not applied: ${asQuotedData(r.dropped.map(d => d.reason).join('; '), 300)}.` : ''}${r.changeLogWarning ? ` ${r.changeLogWarning}` : ''}${r.pushed ? ' Pushed.' : ''}` });
       }
       const reportBack = `Tell the user: approved contribution ${r.id} by ${r.author} on ${targetLabel(r.workstream, readConfig(dir()).project)} (${r.operations.length} op${r.operations.length === 1 ? '' : 's'}${r.rolesRegenerated.length ? `, regenerated roles: ${r.rolesRegenerated.join(', ')}` : ''}${r.pushed ? ', pushed' : ''}).`;
       const leftOut = r.tasksLeftOut?.length ? ` Left out ${r.tasksLeftOut.length} proposed task${r.tasksLeftOut.length === 1 ? '' : 's'}: ${r.tasksLeftOut.map(t => t.title).join('; ')}.` : '';

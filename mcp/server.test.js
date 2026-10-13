@@ -706,6 +706,17 @@ describe('config_set — personal keys', () => {
 describe('task tools', () => {
   const tool = name => TOOLS.find(t => t.name === name);
 
+  it('never says accepting adds nothing to the context, in any tool description', () => {
+    for (const t of TOOLS) {
+      expect(t.description, t.name).not.toMatch(/adds nothing to the project|nothing is added to the project|nothing was added to the project|writes no record/i);
+    }
+    expect(tool('task_submit').description).toMatch(/records the acceptance/i);
+  });
+
+  it('says what each task change needs', () => {
+    expect(tool('review_approve').inputSchema.properties.taskChanges.description).toMatch(/addTask.*follow-on task.*same part/i);
+  });
+
   it('lets a reviewer pass only the facts and task changes the manager picked', () => {
     const props = tool('review_approve').inputSchema.properties;
     expect(props.facts.type).toBe('array');
@@ -804,7 +815,7 @@ describe('task tools', () => {
     const d = tool('task_submit').description;
     expect(d).toMatch(/not a submission|must have asked/i);
     expect(d).toMatch(/not that it was approved/i);
-    expect(d).toMatch(/No AI reads it/i);
+    expect(d).toMatch(/No AI reads the submission/i);
     expect(tool('task_submit').inputSchema.required).toEqual(['id']);
   });
 
