@@ -181,7 +181,7 @@ function waitingItem({ q, view, origin, marked }) {
     ? q.submittedOutputs.map(o => ({ title: o.title || '', body: o.body || '', notes: o.notes || null, prompt: o.prompt || null }))
     : [];
   const changes = q.forTask
-    ? ['Accepting it marks the task done and closes it. Nothing is added to the project\'s context. Feedback instead leaves the task open.']
+    ? ['Accepting it marks the task done and closes it, and records the acceptance in the context. Feedback instead leaves the task open.']
     : (Array.isArray(q.operations) ? q.operations : []).map(op => describeChange(op, tree)).filter(Boolean);
   const title = q.summary || changes[0] || '(no summary)';
   // Deciding happens in the assistant, so what the drawer hands over is a
