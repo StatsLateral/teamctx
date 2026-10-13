@@ -215,7 +215,7 @@ function waitingItem({ q, view, origin, marked }) {
   return `<div class="q${marked ? ' marked' : ''}" id="r-${esc(q.id)}" data-text="${esc(title)}" data-kind="${esc(`Waiting on you${ref ? ` · ${ref}` : ''}`)}"
   data-summary="${esc(`Proposed by ${q.author || 'someone'}${VIA[q.source] ? ` ${VIA[q.source]}` : ''}${date ? ` on ${date}` : ''}.`)}"
   data-who="${esc(q.author || '')}" data-review="" data-ws="${esc(q.workstream || '')}" data-queue="1"
-  data-changes="${esc(JSON.stringify(changes))}" data-outputs="${esc(JSON.stringify(outputs))}" data-checks="${esc(JSON.stringify(checks))}" data-decide="${esc(JSON.stringify(decide))}"
+  data-changes="${esc(JSON.stringify(changes))}" data-outputs="${esc(JSON.stringify(outputs))}" data-reach="${esc(JSON.stringify(Array.isArray(q.reachLines) ? q.reachLines : []))}" data-checks="${esc(JSON.stringify(checks))}" data-decide="${esc(JSON.stringify(decide))}"
   data-history="${esc(JSON.stringify(historyData(q.history, view.agents)))}"
   data-ask="${escAttr(prompt.split('\n\n')[0])}" data-prompt="${escAttr(prompt)}">
   <span class="num">${esc(ref || '—')}</span>

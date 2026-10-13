@@ -399,6 +399,12 @@ const SCRIPT = `
         return list.children.length;
       };
       fill('d-changes', 'changes');
+      var reachList = document.getElementById('d-reach');
+      reachList.textContent = '';
+      JSON.parse(el.dataset.reach || '[]').forEach(function (line) {
+        var li = document.createElement('li'); li.textContent = line; reachList.appendChild(li);
+      });
+      document.getElementById('d-reach-wrap').hidden = !reachList.children.length;
       // The submitted work, whole. Built as text nodes: it is somebody else's words.
       var outs = JSON.parse(el.dataset.outputs || '[]');
       var outBox = document.getElementById('d-outputs');
@@ -702,6 +708,10 @@ ${note ? `<p class="note">${esc(note)}</p>` : ''}
         <div id="d-outputs-wrap" hidden>
           <div class="section-title">What was submitted</div>
           <div id="d-outputs"></div>
+        </div>
+        <div id="d-reach-wrap" hidden>
+          <div class="section-title">What it reaches</div>
+          <ul class="plain" id="d-reach"></ul>
         </div>
         <div class="section-title">What it would change</div>
         <ul class="plain" id="d-changes"></ul>

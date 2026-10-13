@@ -234,3 +234,14 @@ describe('long text is cut to a fixed row, with the whole of it a hover away', (
     expect(html).toContain('&quot;Really&quot;');
   });
 });
+
+describe('what a waiting change reaches', () => {
+  it('carries the lines for the drawer', () => {
+    const lines = ['Adds 1 record to First article.', 'No other part inherits from this.', 'No work in progress is affected.'];
+    const html = render(view({ pending: [waiting({ reachLines: lines })] }));
+    expect(JSON.parse(attr(html, 'data-reach'))).toEqual(lines);
+  });
+  it('carries an empty list when there is none', () => {
+    expect(JSON.parse(attr(render(view({ pending: [waiting()] })), 'data-reach'))).toEqual([]);
+  });
+});
