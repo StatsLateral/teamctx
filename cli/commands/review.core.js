@@ -15,7 +15,7 @@ import { sourceTrailer } from './contribute.core.js';
 import { resolveTarget, isProjectLevel } from '../../src/project-level.js';
 import { recompileInheritors, chainFor } from '../../src/recompile.js';
 import { workstreamNumber, isTaskKey } from '../../src/numbering.js';
-import { setTaskStatus } from './task.core.js';
+import { withStatus } from './task.core.js';
 import { resolveContradictions, ContradictionResolutionError } from '../../src/contradictions.js';
 
 function workstreamDisplayName(id, workstream, config) {
@@ -158,15 +158,19 @@ export class TasksNeedDecisionError extends Error {
  * the task being accepted, or to any task already accepted, is dropped with its
  * reason: an accepted task is closed.
  */
-function acceptanceOperations({ item, task, facts, taskChanges, teamctxDir }) {
+function acceptanceOperations({ item, task, tree, facts, taskChanges, teamctxDir }) {
   const approvals = Object.values(readApprovals(teamctxDir) || {});
   const accepted = new Set(approvals.map(a => a?.forTask).filter(Boolean));
-  const again = accepted.has(task.id);
+  // Also when a failed attempt already wrote the record, so a retry does not add a second.
+  const again = accepted.has(task.id) || (tree?.records || []).some(r =>
+    (r.sourceContributionIds || []).includes(item.id) && r.attachedTo?.kind === 'task' && r.attachedTo.id === task.id);
   accepted.add(task.id);
   const outputs = listOutputs(task.id, teamctxDir).filter(o => (item.outputs || []).includes(o.id));
   const dropped = [];
   const kept = [];
-  for (const c of taskChanges || []) {
+  // A string or object is not a list of picks; nothing was picked.
+  const pickedFacts = Array.isArray(facts) ? facts : [];
+  for (const c of Array.isArray(taskChanges) ? taskChanges : []) {
     if ((c?.type === 'editTask' || c?.type === 'removeTask') && accepted.has(c.id)) {
       dropped.push({ reason: `task ${c.id} is accepted and closed, so it cannot be changed` });
     } else if (['editTask', 'removeTask', 'addTask'].includes(c?.type)) kept.push(c);
@@ -183,10 +187,10 @@ function acceptanceOperations({ item, task, facts, taskChanges, teamctxDir }) {
         attachedTo: { kind: 'task', id: task.id },
       },
     }]),
-    ...(facts || []).map(record => ({ type: 'addRecord', record })),
+    ...pickedFacts.map(record => ({ type: 'addRecord', record })),
     ...kept,
   ];
-  return { operations, dropped };
+  return { operations, dropped, picked: pickedFacts.length + kept.length };
 }
 
 /**
@@ -213,10 +217,12 @@ export async function approveReview({ id, replaces, tasks, askAboutTasks = false
   // before anything changes, so an item whose task has gone stays waiting.
   let taskForItem = null;
   let acceptanceDropped = [];
+  let picked = 0;
   if (item.forTask) {
     try { ({ task: taskForItem } = readTask(item.forTask, teamctxDir)); } catch { taskForItem = null; }
     if (!taskForItem) throw new Error(`Task ${item.number || item.forTask} no longer exists, so this submission cannot be accepted. Give feedback instead.`);
-    const built = acceptanceOperations({ item, task: taskForItem, facts, taskChanges, teamctxDir });
+    const built = acceptanceOperations({ item, task: taskForItem, tree: readTree(resolveTarget(item.workstream), teamctxDir), facts, taskChanges, teamctxDir });
+    picked = built.picked;
     item = { ...item, operations: built.operations };
     acceptanceDropped = built.dropped;
   }
@@ -251,6 +257,8 @@ export async function approveReview({ id, replaces, tasks, askAboutTasks = false
     applyDropped.push(...dropped);
     const tree = {
       ...applied,
+      // Closed in the same write, so nothing rendered from it shows the task open.
+      ...(item.forTask ? { tasks: (applied.tasks || []).map(t => (t.id === item.forTask && t.status !== 'done' ? withStatus(t, 'done', { key: approvedBy.key, name: approvedBy.name }, approvedBy.at) : t)) } : {}),
       records: (applied.records || []).map(r => ((r.sourceContributionIds || []).includes(item.id) ? { ...r, approvedBy } : r)),
     };
     writeConfig({ ...current, nextKey }, teamctxDir);
@@ -278,7 +286,9 @@ export async function approveReview({ id, replaces, tasks, askAboutTasks = false
 
   const rolesOnTarget = (config.roles || []).filter(r => resolveTarget(r.workstream) === targetId);
   const rolesRegenerated = [];
-  for (const role of rolesOnTarget) {
+  // Accepting work with nothing picked changes no context, so no role file needs
+  // rewriting (and no AI call is spent on it).
+  for (const role of item.forTask && !picked ? [] : rolesOnTarget) {
     const md = await generateRoleFile(updated, role, config.project, config, contributions, { project, chain });
     writeRoleFile(role.slug, md, teamctxDir);
     rolesRegenerated.push(role.slug);
@@ -286,7 +296,6 @@ export async function approveReview({ id, replaces, tasks, askAboutTasks = false
 
   // Who approved it, kept for the task history (#143): approving used to leave
   // nothing behind but the commit message.
-  if (item.forTask) await setTaskStatus({ id: item.forTask, status: 'done', teamctxDir, projectDir, actor: caller });
   writeApproved({
     id: item.id, author: item.author || null, source: item.source || null, workstream: targetId,
     ...(item.forTask ? { forTask: item.forTask, outputs: Array.isArray(item.outputs) ? item.outputs : [] } : {}),
@@ -316,7 +325,9 @@ export async function approveReview({ id, replaces, tasks, askAboutTasks = false
     // This is the commit that actually changes shared context, so it is the one
     // someone reads when asking where a Why came from. The queue item carried
     // the source through review; without this it would be lost at the last step.
-    `context: ${item.author} contribution (approved by ${approvedBy.name})${note}${wsNote}${sourceTrailer(item.source)}`,
+    item.forTask
+      ? `review: ${approvedBy.name} approved ${item.id} for task ${taskForItem.key || taskForItem.id}${sourceTrailer(item.source)}`
+      : `context: ${item.author} contribution (approved by ${approvedBy.name})${note}${wsNote}${sourceTrailer(item.source)}`,
     projectDir ? { cwd: projectDir } : undefined,
   );
 

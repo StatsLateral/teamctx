@@ -10,10 +10,11 @@ import { runWithActor } from '../../src/actor.js';
 import { makeConfig, makeProject, makeWorkstream } from '../../src/test-fixtures/model.js';
 import {
   writeConfig, writeProject, writeWorkstream, listQueue, readApprovals,
-  readTree, readTask, listChanges,
+  readTree, writeTree, readTask, listChanges, readConfig, readTreeMd,
 } from '../../src/storage.js';
 import { addTask, saveOutput, submitTask, removeTask } from './task.core.js';
 import { approveReview } from './review.core.js';
+import { callClaude } from '../../src/ai.js';
 
 vi.mock('../../src/git.js', () => ({ commitContext: vi.fn(async () => ({ committed: true })), pushContext: vi.fn() }));
 vi.mock('../../src/ai.js', async original => ({
@@ -173,5 +174,58 @@ describe('accepting a task submission', () => {
     await save(member, { body: 'v1' });
     const r = await submit(member);
     await expect(as(member, () => approveReview({ id: r.id, teamctxDir: dir }))).rejects.toThrow();
+  });
+
+  it('drops a change aimed at a different task that was accepted earlier', async () => {
+    const first = (await as(manager, () => addTask({ title: 'Earlier work', workstream: 'sales', teamctxDir: dir }))).task;
+    const earlier = await as(member, async () => {
+      await saveOutput({ id: first.id, body: 'a', teamctxDir: dir });
+      return submitTask({ id: first.id, teamctxDir: dir, source: 'mcp' });
+    });
+    await as(manager, () => approveReview({ id: earlier.id, teamctxDir: dir }));
+    await save(member, { body: 'v1' });
+    const r = await submit(member);
+    const out = await as(manager, () => approveReview({
+      id: r.id, teamctxDir: dir, taskChanges: [{ type: 'editTask', id: first.id, title: 'Reworded' }],
+    }));
+    expect(readTask(first.id, dir).task.title).toBe('Earlier work');
+    expect(out.dropped).toEqual([expect.objectContaining({ reason: expect.stringMatching(/accepted/i) })]);
+  });
+
+  it('shows the task as done in the rendered workstream markdown', async () => {
+    await save(member, { body: 'v1' });
+    const r = await submit(member);
+    await as(manager, () => approveReview({ id: r.id, teamctxDir: dir }));
+    expect(readTreeMd('sales', dir)).toMatch(/Draft the post.*\(done\)/);
+  });
+
+  it('accepts with no AI call when the workstream has a role and nothing was picked', async () => {
+    writeConfig({ ...readConfig(dir), roles: [{ slug: 'lead', name: 'Lead', workstream: 'sales' }] }, dir);
+    await save(member, { body: 'v1' });
+    const r = await submit(member);
+    const out = await as(manager, () => approveReview({ id: r.id, teamctxDir: dir }));
+    expect(out.rolesRegenerated).toEqual([]);
+    expect(callClaude).not.toHaveBeenCalled();
+    expect(readTask(task.id, dir).task.status).toBe('done');
+  });
+
+  it('does not write a second acceptance record when an earlier attempt already wrote one', async () => {
+    await save(member, { body: 'v1' });
+    const r = await submit(member);
+    const tree = readTree('sales', dir);
+    writeTree('sales', { ...tree, records: [...tree.records, {
+      id: 'rec-left', type: 'decision', text: 'Task accepted earlier', detail: '', status: 'active', owner: null,
+      attachedTo: { kind: 'task', id: task.id }, links: { restsOn: [] }, sourceContributionIds: [r.id], createdBy: r.id,
+    }] }, dir);
+    await as(manager, () => approveReview({ id: r.id, teamctxDir: dir }));
+    expect(readTree('sales', dir).records.filter(x => x.attachedTo?.id === task.id)).toHaveLength(1);
+  });
+
+  it('treats picks that are not lists as nothing picked', async () => {
+    await save(member, { body: 'v1' });
+    const r = await submit(member);
+    await as(manager, () => approveReview({ id: r.id, teamctxDir: dir, facts: 'Posts go out on Fridays', taskChanges: 'x' }));
+    expect(readTree('sales', dir).records).toHaveLength(1);
+    expect(readTask(task.id, dir).task.status).toBe('done');
   });
 });
