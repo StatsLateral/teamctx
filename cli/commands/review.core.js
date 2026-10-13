@@ -2,7 +2,7 @@ import { asQuotedData } from '../../src/change-labels.js';
 import {
   readProject, readConfig, writeConfig, withCounters, readTree, writeTree, writeTreeMd, writeRoleFile,
   readQueueItem, deleteQueueItem, writeRejected, writeApproved, writeChange, readContributions, listQueue,
-  readTask, listOutputs,
+  readTask, listOutputs, readApprovals,
 } from '../../src/storage.js';
 import { changeEntry } from '../../src/changes.js';
 import { applyQueueItem, buildRejected, canApprove, isLegacyManagerRef } from '../../src/review.js';
@@ -150,13 +150,53 @@ export class TasksNeedDecisionError extends Error {
 }
 
 /**
+ * What accepting work submitted for a task writes to the context.
+ *
+ * The acceptance itself (one decision, naming the outputs so the next person can
+ * open them), then the facts and task changes the manager picked. Everything is
+ * turned into ordinary operations so the usual checks apply to it. A change to
+ * the task being accepted, or to any task already accepted, is dropped with its
+ * reason: an accepted task is closed.
+ */
+function acceptanceOperations({ item, task, facts, taskChanges, teamctxDir }) {
+  const approvals = Object.values(readApprovals(teamctxDir) || {});
+  const accepted = new Set(approvals.map(a => a?.forTask).filter(Boolean));
+  const again = accepted.has(task.id);
+  accepted.add(task.id);
+  const outputs = listOutputs(task.id, teamctxDir).filter(o => (item.outputs || []).includes(o.id));
+  const dropped = [];
+  const kept = [];
+  for (const c of taskChanges || []) {
+    if ((c?.type === 'editTask' || c?.type === 'removeTask') && accepted.has(c.id)) {
+      dropped.push({ reason: `task ${c.id} is accepted and closed, so it cannot be changed` });
+    } else if (['editTask', 'removeTask', 'addTask'].includes(c?.type)) kept.push(c);
+    else dropped.push({ reason: `"${c?.type}" is not a change to a task` });
+  }
+  const operations = [
+    // A second submission for a task already accepted adds no second record.
+    ...(again ? [] : [{
+      type: 'addRecord',
+      record: {
+        type: 'decision',
+        text: `Task ${task.key || task.id} accepted: ${task.title}`,
+        detail: `Accepted work: ${outputs.map(o => `${o.title} (output ${o.id})`).join('; ') || 'see the task'}.`,
+        attachedTo: { kind: 'task', id: task.id },
+      },
+    }]),
+    ...(facts || []).map(record => ({ type: 'addRecord', record })),
+    ...kept,
+  ];
+  return { operations, dropped };
+}
+
+/**
  * `tasks` is `include` or `leave_out`. With `askAboutTasks` an item that carries
  * tasks is refused until it is one of them: an assistant approving on someone's
  * behalf must not create work they were never shown. The command line keeps its
  * old behaviour, because a person typing `review approve` has the item in front
  * of them.
  */
-export async function approveReview({ id, replaces, tasks, askAboutTasks = false, teamctxDir, projectDir, actor } = {}) {
+export async function approveReview({ id, replaces, tasks, askAboutTasks = false, facts, taskChanges, teamctxDir, projectDir, actor } = {}) {
   const config = readConfig(teamctxDir);
   // The gate reads the resolved identity, never the caller-supplied `actor`.
   // That argument is attribution only: it is a claim, not a credential.
@@ -169,7 +209,17 @@ export async function approveReview({ id, replaces, tasks, askAboutTasks = false
   try { item = readQueueItem(queueId, teamctxDir); }
   catch { throw new QueueItemNotFoundError(id); }
 
-  if (item.forTask) return approveTaskSubmission({ item, caller, who, config, teamctxDir, projectDir });
+  // Work submitted for a task: accepting it writes to the context. Checked
+  // before anything changes, so an item whose task has gone stays waiting.
+  let taskForItem = null;
+  let acceptanceDropped = [];
+  if (item.forTask) {
+    try { ({ task: taskForItem } = readTask(item.forTask, teamctxDir)); } catch { taskForItem = null; }
+    if (!taskForItem) throw new Error(`Task ${item.number || item.forTask} no longer exists, so this submission cannot be accepted. Give feedback instead.`);
+    const built = acceptanceOperations({ item, task: taskForItem, facts, taskChanges, teamctxDir });
+    item = { ...item, operations: built.operations };
+    acceptanceDropped = built.dropped;
+  }
 
   // `null` is the project itself. Defaulting to `main` here would have sent an
   // approved project-level contribution to a workstream that no longer exists.
@@ -178,7 +228,7 @@ export async function approveReview({ id, replaces, tasks, askAboutTasks = false
   // the approver said no to them, and a number is never reused, so the one the
   // item waited under simply stays its reference.
   const proposed = (item.operations || []).filter(o => o?.type === 'addTask');
-  if (askAboutTasks && proposed.length && tasks !== 'include' && tasks !== 'leave_out') {
+  if (askAboutTasks && !item.forTask && proposed.length && tasks !== 'include' && tasks !== 'leave_out') {
     throw new TasksNeedDecisionError(proposed.map(o => o.title));
   }
   const tasksLeftOut = tasks === 'leave_out' ? proposed.map(o => ({ title: o.title })) : [];
@@ -193,10 +243,12 @@ export async function approveReview({ id, replaces, tasks, askAboutTasks = false
   // Who approved a record travels with it, not only with the commit.
   const approvedBy = { key: caller?.key || null, name: who, at: new Date().toISOString() };
   const before = readTree(targetId, teamctxDir);
+  const applyDropped = [];
   const updated = withCounters(teamctxDir, current => {
     item = resolveContradictions(item, { replaces, config: current, teamctxDir });
     const { tree: applied, nextKey, dropped } = applyQueueItem(readTree(targetId, teamctxDir), item, { nextKey: current.nextKey, workstreamNumber: workstreamNumber(current, targetId) });
     assertConflictApplied(item, dropped);
+    applyDropped.push(...dropped);
     const tree = {
       ...applied,
       records: (applied.records || []).map(r => ((r.sourceContributionIds || []).includes(item.id) ? { ...r, approvedBy } : r)),
@@ -234,17 +286,22 @@ export async function approveReview({ id, replaces, tasks, askAboutTasks = false
 
   // Who approved it, kept for the task history (#143): approving used to leave
   // nothing behind but the commit message.
+  if (item.forTask) await setTaskStatus({ id: item.forTask, status: 'done', teamctxDir, projectDir, actor: caller });
   writeApproved({
     id: item.id, author: item.author || null, source: item.source || null, workstream: targetId,
+    ...(item.forTask ? { forTask: item.forTask, outputs: Array.isArray(item.outputs) ? item.outputs : [] } : {}),
     approvedBy: { key: approvedBy.key, name: approvedBy.name }, approvedAt: approvedBy.at,
   }, teamctxDir);
 
   // What changed, for whoever picks up the work this reaches. Written after the
   // change, and a failure here must not undo an approval that already happened.
+  // Only what was applied: an operation the checks dropped did not happen.
+  const notApplied = new Set(applyDropped.map(d => d.index));
+  const applied = (item.operations || []).filter((_, i) => !notApplied.has(i));
   let changeLogWarning = null;
   try {
     writeChange(changeEntry({
-      id: item.id, at: approvedBy.at, tree: targetId, operations: item.operations || [],
+      id: item.id, at: approvedBy.at, tree: targetId, operations: applied,
       before, after: updated, by: { key: approvedBy.key, name: approvedBy.name },
     }), teamctxDir);
   } catch (err) {
@@ -281,45 +338,10 @@ export async function approveReview({ id, replaces, tasks, askAboutTasks = false
     pushed,
     pushError,
     ...(changeLogWarning ? { changeLogWarning } : {}),
-  };
-}
-
-/**
- * Approving work submitted for a task (#197, after #144).
- *
- * Accepts the outputs the item names and marks the task done. Nothing is
- * written into the context: a draft is work product, not a decision, rule or
- * assumption, and the task's own wording is not touched. The approval file
- * names the outputs, which is how each one is known to have been accepted.
- */
-async function approveTaskSubmission({ item, caller, who, config, teamctxDir, projectDir }) {
-  // Before anything is changed, so an item whose task has gone stays waiting to
-  // be rejected rather than half applied.
-  let task;
-  try { ({ task } = readTask(item.forTask, teamctxDir)); } catch { task = null; }
-  if (!task) throw new Error(`Task ${item.number || item.forTask} no longer exists, so this submission cannot be approved. Reject it instead.`);
-
-  const at = new Date().toISOString();
-  await setTaskStatus({ id: task.id, status: 'done', teamctxDir, projectDir, actor: caller });
-  writeApproved({
-    id: item.id, author: item.author || null, source: item.source || null, workstream: resolveTarget(item.workstream),
-    forTask: task.id, outputs: Array.isArray(item.outputs) ? item.outputs : [],
-    approvedBy: { key: caller?.key || null, name: who }, approvedAt: at,
-  }, teamctxDir);
-  deleteQueueItem(item.id, teamctxDir);
-  await commitContext(
-    `review: ${who} approved ${item.id} for task ${task.key || task.id}${sourceTrailer(item.source)}`,
-    projectDir ? { cwd: projectDir } : undefined,
-  );
-  let pushed = false, pushError = null;
-  if (config.autoPush) {
-    try { await pushContext(projectDir ? { cwd: projectDir } : undefined); pushed = true; }
-    catch (err) { pushError = err.message?.split('\n')[0] || 'no remote?'; }
-  }
-  return {
-    id: item.id, workstream: resolveTarget(item.workstream), author: item.author, approvedBy: who,
-    forTask: task.id, taskKey: task.key || null, outputs: item.outputs || [],
-    operations: [], rolesRegenerated: [], pushed, pushError,
+    ...(item.forTask ? {
+      forTask: item.forTask, taskKey: taskForItem.key || null, outputs: item.outputs || [],
+      dropped: [...acceptanceDropped, ...applyDropped.map(d => ({ reason: d.reason }))],
+    } : {}),
   };
 }
 
