@@ -137,6 +137,29 @@ describe('deciding a waiting item in the assistant', () => {
 
 const LONG = 'Prepare the founder-profile opening LinkedIn text post for article #1: cheap AI prototypes create ongoing production ownership obligations, "quoted" & <tagged>';
 
+describe('work submitted for a task', () => {
+  const submitted = () => waiting({
+    number: '1.4', summary: 'Submitted: Draft 2', operations: [], forTask: 't-post',
+    submittedOutputs: [{ id: 'o1', title: 'Draft 2', body: 'The whole post.\n\nSecond paragraph.', notes: 'Trim it', prompt: 'Write a short post' }],
+  });
+
+  it('carries the outputs in full for the drawer, not only a label', () => {
+    const html = render(view({ pending: [submitted()] }));
+    const attr = html.match(/data-outputs="([^"]*)"/)[1].replace(/&quot;/g, '"').replace(/&amp;/g, '&');
+    expect(JSON.parse(attr)).toEqual([{ title: 'Draft 2', body: 'The whole post.\n\nSecond paragraph.', notes: 'Trim it', prompt: 'Write a short post' }]);
+  });
+
+  it('says what approving does, and that it adds nothing to the context', () => {
+    const html = render(view({ pending: [submitted()] }));
+    const attr = html.match(/data-changes="([^"]*)"/)[1].replace(/&quot;/g, '"');
+    expect(JSON.parse(attr)).toEqual(['Accepts the submitted work and marks the task done. Nothing is added to the project\'s context.']);
+  });
+
+  it('has no outputs section for an item that is not a task submission', () => {
+    expect(render(view({ pending: [waiting()] }))).toContain('data-outputs="[]"');
+  });
+});
+
 describe('long text is cut to a fixed row, with the whole of it a hover away', () => {
   it('a task title carries its full text as a tooltip, escaped', () => {
     const html = render(view({ tasks: { open: [task('t1', 'a', LONG)], done: [] } }));

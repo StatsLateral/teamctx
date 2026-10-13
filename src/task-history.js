@@ -15,8 +15,8 @@
 /** How a contribution arrived, in the words the history uses. */
 const VIA = { mcp: 'assistant', cli: 'cli', web: 'web' };
 
-/** Does this queued or rejected item propose a change to this task? */
-export const touchesTask = (item, taskId) => (Array.isArray(item?.operations) ? item.operations : [])
+/** Does this queued or rejected item propose a change to this task, or submit work for it? */
+export const touchesTask = (item, taskId) => item?.forTask === taskId || (Array.isArray(item?.operations) ? item.operations : [])
   .some(op => ['editTask', 'removeTask'].includes(op?.type) && op.id === taskId);
 
 /**

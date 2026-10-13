@@ -40,7 +40,7 @@ import { assertJoinableContext } from '../src/context-gate.js';
 import { contributeCore } from '../cli/commands/contribute.core.js';
 import { buildBrief } from '../cli/commands/brief.core.js';
 import {
-  listTasksFiltered, getTask, saveOutput, addTask, setTaskStatus, assignTask, removeTask, compileTask,
+  listTasksFiltered, getTask, saveOutput, submitTask, addTask, setTaskStatus, assignTask, removeTask, compileTask,
 } from '../cli/commands/task.core.js';
 import { listMembers, addMember, removeMember, setMemberWorkstreams, setMemberExternal } from '../cli/commands/member.core.js';
 import { getConfig, setConfig, repairManagerGate, setReviewPolicy } from '../cli/commands/config.core.js';
@@ -148,7 +148,7 @@ export const TOOLS = [
   },
   {
     name: 'list_pending_reviews',
-    description: 'List all queued contributions awaiting manager review (id, author, workstream, summary, operations).',
+    description: "List all queued contributions awaiting manager review (id, author, workstream, summary, operations). An item with `forTask` is work submitted for a task: `submittedOutputs` holds the outputs themselves, in full, with the person's notes and the prompt behind each. **Review those, not the summary line**; the summary is only a label built from their titles. Approving one accepts the outputs and marks the task done; it adds nothing to the project's context.",
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
   },
   {
@@ -304,6 +304,23 @@ export const TOOLS = [
         role: { type: 'string', description: 'With compile:true, frame the prompt for this role slug' },
       },
       required: ['title'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'task_submit',
+    description: "**Send work on a task to the manager for approval.** The person must have asked for this; saving with task_output is not a submission. Submits the outputs already saved on the task: the latest by default, or the ones named in `outputs`, or `\"all\"`. It always goes to a manager and nothing is applied until they approve, so tell the user it was sent for review, not that it was approved or done. No AI reads it and nothing is added to the project's context; the manager is shown the outputs themselves. `message` is the person's own words to the manager, passed on as written. Returns { id, mode: \"queued\", number, outputs, summary }.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: 'Task number such as 3.2, task id, or a unique prefix of one' },
+        outputs: {
+          anyOf: [{ type: 'string', enum: ['all'] }, { type: 'array', items: { type: 'string' } }],
+          description: 'Which saved outputs to submit: a list of output ids, or "all". Omit for the latest.',
+        },
+        message: { type: 'string', description: "The person's own note to the manager, as they said it" },
+      },
+      required: ['id'],
       additionalProperties: false,
     },
   },
@@ -1306,6 +1323,20 @@ export function makeHandlers(projectRoot) {
       return textResult(getTask({ id: args.id, output: args.output, teamctxDir }));
     },
 
+    async task_submit(args = {}) {
+      const teamctxDir = dir();
+      await assertTaskInScope(teamctxDir, args.id);
+      const r = await submitTask({
+        id: args.id, outputs: args.outputs, message: args.message, source: 'mcp', teamctxDir, projectDir: gitCwd,
+      });
+      const link = await this.viewUrl({ task: r.task.id });
+      return textResult({
+        ...r,
+        ...link,
+        reportBack: withLink(`Sent to the manager for approval as ${r.number || r.task.id}. It has not been approved; nothing changes until they decide.`, link),
+      });
+    },
+
     async task_output(args = {}) {
       const teamctxDir = dir();
       await assertTaskInScope(teamctxDir, args.id);
@@ -1739,6 +1770,9 @@ export function makeHandlers(projectRoot) {
       const r = await approveReview({ id, ...(replaces?.length ? { replaces } : {}), tasks, askAboutTasks: true, teamctxDir: dir(), projectDir: gitCwd });
       // Read after the approval, so what it names is what the tree now says.
       const impact = breakingImpact(dir(), r.operations);
+      if (r.forTask) {
+        return textResult({ ...r, reportBack: `Tell the user: approved ${r.taskKey || r.forTask}, submitted by ${r.author}. The task is marked done. Nothing was added to the project's context.${r.pushed ? ' Pushed.' : ''}` });
+      }
       const reportBack = `Tell the user: approved contribution ${r.id} by ${r.author} on ${targetLabel(r.workstream, readConfig(dir()).project)} (${r.operations.length} op${r.operations.length === 1 ? '' : 's'}${r.rolesRegenerated.length ? `, regenerated roles: ${r.rolesRegenerated.join(', ')}` : ''}${r.pushed ? ', pushed' : ''}).`;
       const leftOut = r.tasksLeftOut?.length ? ` Left out ${r.tasksLeftOut.length} proposed task${r.tasksLeftOut.length === 1 ? '' : 's'}: ${r.tasksLeftOut.map(t => t.title).join('; ')}.` : '';
       return textResult({ ...r, ...(impact ? { impact } : {}), reportBack: reportBack + leftOut + sayImpact(impact) });
@@ -1918,7 +1952,7 @@ export function toolsFor(projectRoot) {
  * first time one was added, so it is not counted here.
  */
 const LINKED_TOOLS = new Set([
-  'contribute', 'submit_contribution', 'task_add', 'task_assign', 'task_done',
+  'contribute', 'submit_contribution', 'task_add', 'task_assign', 'task_done', 'task_submit',
   'my_brief', 'get_status', 'get_workstream',
 ]);
 

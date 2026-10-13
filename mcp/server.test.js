@@ -710,7 +710,7 @@ describe('task tools', () => {
     // that turns shared context into something a person can act on.
     const names = TOOLS.map(t => t.name);
     for (const n of ['list_tasks', 'get_task', 'task_add', 'task_done',
-                     'task_reopen', 'task_assign', 'task_rm', 'task_compile', 'task_output']) {
+                     'task_reopen', 'task_assign', 'task_rm', 'task_compile', 'task_output', 'task_submit']) {
       expect(names, `${n} is missing`).toContain(n);
     }
   });
@@ -778,13 +778,26 @@ describe('task tools', () => {
     expect(tool('get_task').description).toMatch(/start from the latest output/i);
   });
 
+  it('tells the caller task_submit is a request for approval, read by no AI, and not an approval', () => {
+    const d = tool('task_submit').description;
+    expect(d).toMatch(/not a submission|must have asked/i);
+    expect(d).toMatch(/not that it was approved/i);
+    expect(d).toMatch(/No AI reads it/i);
+    expect(tool('task_submit').inputSchema.required).toEqual(['id']);
+  });
+
+  it('tells a reviewer to read the outputs, not the summary line', () => {
+    expect(tool('list_pending_reviews').description).toMatch(/submittedOutputs/);
+    expect(tool('list_pending_reviews').description).toMatch(/Review those, not the summary/i);
+  });
+
   it('has a handler for every task tool it advertises', async () => {
     // A tool listed with no handler fails only when someone calls it, which is
     // the worst moment to find out.
     const { makeHandlers } = await import('./server.js');
     const handlers = makeHandlers(process.cwd());
     const taskTools = TOOLS.filter(x => /task/.test(x.name));
-    expect(taskTools.length).toBe(9);
+    expect(taskTools.length).toBe(10);
     for (const t of taskTools) {
       expect(typeof handlers[t.name], `${t.name} has no handler`).toBe('function');
     }

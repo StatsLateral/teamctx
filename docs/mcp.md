@@ -51,6 +51,7 @@ either manager-gated or explicitly flagged as structural.
 | `list_tasks({status?, owner?, workstream?, all?})` | List tasks. Defaults to **open tasks in the caller's active workstream**; `all: true` returns every status across every workstream. |
 | `get_task({id, output?})` | One task by id or unique prefix, plus its prompt path if compiled, and what people have produced on it: the latest output in full and earlier ones as a list. `output` opens an earlier one. |
 | `task_output({id, body, title?, prompt?, notes?, basedOn?})` | Save what was produced on a task, word for word. Not a submission: nothing is queued or approved, and the task is untouched. |
+| `task_submit({id, outputs?, message?})` | Send saved outputs (the latest, chosen ids, or `"all"`) to the manager for approval. No AI reads them; the manager is shown the outputs themselves. Approving accepts them and marks the task done; nothing is added to the context. |
 
 ### Tier 1 — additive writes
 
