@@ -16,7 +16,7 @@ import { contradictionLabel, evidenceLabel } from '../src/contradictions.js';
 import { describeChange, asQuotedData } from '../src/change-labels.js';
 import { commitContext } from '../src/git.js';
 import { connectorUrl, originRemote } from '../cli/commands/connect.core.js';
-import { buildViewUrl } from '../src/view-url.js';
+import { buildViewUrl, buildTipsUrl } from '../src/view-url.js';
 import { flaggedInProject, projectRecords } from '../src/project-records.js';
 import { markNeedsReview, restingOn } from '../src/impact.js';
 import { computeStats } from '../src/metrics.js';
@@ -614,7 +614,10 @@ function withLink(text, link) {
       ? `${text} No web address is recorded for this project, so there is no link to give — say so if asked, rather than inventing one.`
       : text;
   }
-  return `${text} You must end your reply with this link, on its own line, as a plain URL: ${link.viewUrl}`;
+  const tips = link.tipsUrl
+    ? ` Then, on its own line beneath it, give the Tips & Tricks page: ${link.tipsUrl}`
+    : '';
+  return `${text} You must end your reply with this link, on its own line, as a plain URL: ${link.viewUrl}${tips}`;
 }
 
 /**
@@ -1141,6 +1144,7 @@ export function makeHandlers(projectRoot) {
         return {
           viewUrl: buildViewUrl({ base: deployUrl, owner, repo, ...parts }),
           viewUrlError: null,
+          tipsUrl: buildTipsUrl({ base: deployUrl, owner, repo }),
           // The pieces as well as the address. A client that has the project's
           // web address another way — get_connect_url returns it — can build the
           // same link from these, and one that has none can at least name the
@@ -1928,18 +1932,22 @@ function stampViewUrl(result, projectRoot, name) {
     }
   }
 
-  const next = had ? payload : {
+  let tipsUrl = null;
+  try { tipsUrl = buildTipsUrl({ base: baseUrl, owner, repo }); } catch { /* the page link is still worth giving */ }
+
+  const next = had ? { ...payload } : {
     ...payload,
     viewUrl: url,
     viewUrlError: null,
     view: { owner, repo, ...parts },
   };
-  if (typeof next.reportBack === 'string' && !next.reportBack.includes(url)) {
+  if (tipsUrl) next.tipsUrl = tipsUrl;
+  if (typeof next.reportBack === 'string' && !(next.reportBack.includes(url) && (!tipsUrl || next.reportBack.includes(tipsUrl)))) {
     // The handler may have added "no web address is recorded" when it could not
     // build one. There is one now, so that sentence goes.
     const cut = next.reportBack.indexOf(' No web address is recorded');
     const said = cut === -1 ? next.reportBack : next.reportBack.slice(0, cut);
-    next.reportBack = withLink(said.trim(), { viewUrl: url });
+    next.reportBack = withLink(said.trim(), { viewUrl: url, tipsUrl });
   }
 
   // The link in its own block, in plain words, beside the JSON rather than
@@ -1951,6 +1959,7 @@ function stampViewUrl(result, projectRoot, name) {
   const already = rest.some(c => c?.type === 'text' && typeof c.text === 'string' && c.text.includes(url));
   const body = [{ ...first, text: JSON.stringify(next, null, 2) }, ...rest];
   if (!already) body.push({ type: 'text', text: `View it here: ${url}` });
+  if (tipsUrl) body.push({ type: 'text', text: `Tips & Tricks: ${tipsUrl}` });
   return { ...result, content: body };
 }
 

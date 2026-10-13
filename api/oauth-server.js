@@ -22,13 +22,14 @@ import { readProjectView, ProjectViewError } from '../src/oauth/project-view.js'
 import { TOOLS, callTool } from '../mcp/server.js';
 import { baseUrlFrom } from '../src/base-url.js';
 import { resolveKey } from '../src/numbering.js';
-import { isReturnable, parseViewParams } from '../src/view-url.js';
+import { isReturnable, parseViewParams, TIPS_PROJECT } from '../src/view-url.js';
 import { parseProjectRef } from '../src/project-ref.js';
 // Page templates. They used to sit at the bottom of this file, which left it
 // mostly HTML with the routes buried in it — see #103 part 1.
 import { settingsPage } from '../src/views/settings.js';
 import { projectsPage } from '../src/views/projects.js';
 import { projectPage } from '../src/views/project.js';
+import { tipsPage } from '../src/views/tips.js';
 import { choosePage, signInPage, lendsNothing } from '../src/views/connect.js';
 import { homePage } from '../src/views/home.js';
 import { newProjectPage, newProjectSuccessPage, newProjectRetryPage } from '../src/views/new-project.js';
@@ -1159,6 +1160,19 @@ app.post('/settings/agents/revoke', async (req, res) => {
 
 
 const signInFor = (res, path) => res.redirect(303, `/signin?returnTo=${encodeURIComponent(path)}`);
+
+/**
+ * Tips & Tricks, for signed-in people. The link in every tool result lands here;
+ * a signed-out click goes through sign-in and comes back to the same address.
+ */
+app.get('/tips', async (req, res) => {
+  const user = await currentUser(req);
+  const raw = typeof req.query.project === 'string' ? req.query.project : '';
+  const project = TIPS_PROJECT.test(raw) ? raw : null;
+  if (!user) return signInFor(res, `/tips${project ? `?project=${project}` : ''}`);
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.send(tipsPage({ user, project, projectUrl: project ? `/project/${project}` : null }));
+});
 
 /** The projects this person is on, as somewhere to start looking. */
 app.get('/projects', async (req, res) => {
