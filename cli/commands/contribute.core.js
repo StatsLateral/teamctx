@@ -1,4 +1,5 @@
-import { readProject, readConfig, writeConfig, withCounters, readTree, writeTree, writeTreeMd, appendContribution, writeRoleFile, writeQueueItem, writeApproved, readContributions, listWorkstreamIds } from '../../src/storage.js';
+import { readProject, readConfig, writeConfig, withCounters, readTree, writeTree, writeTreeMd, appendContribution, writeRoleFile, writeQueueItem, writeApproved, writeChange, readContributions, listWorkstreamIds } from '../../src/storage.js';
+import { changeEntry } from '../../src/changes.js';
 import { resolveTarget, isProjectLevel } from '../../src/project-level.js';
 import { digestProject } from '../../src/tree-digest.js';
 import { touchedBy, applyOps } from '../../src/ops.js';
@@ -270,6 +271,16 @@ export async function contributeCore({
     approvedAt: new Date().toISOString(),
   }, teamctxDir);
 
+  let changeLogWarning = null;
+  try {
+    writeChange(changeEntry({
+      id: contribution.id, at: new Date().toISOString(), tree: targetId, operations,
+      before: workstream, after: updated, by: { key: resolved.key || null, name: resolvedName },
+    }), teamctxDir);
+  } catch (err) {
+    changeLogWarning = `The change was applied but its entry could not be written (${err.message}), so work that depends on it may not be flagged.`;
+  }
+
   const note = tagged === 'decision' ? ' [decision]' : '';
   const wsNote = isProjectLevel(targetId) ? '' : ` (${targetId})`;
   const { pushed, pushError } = await commitAndOptionallyPush(
@@ -291,6 +302,7 @@ export async function contributeCore({
     // asked to bypass a queue that does not exist still gets their wish — just
     // not because they asked.
     ...(applyRefused ? { applyRefused: true } : {}),
+    ...(changeLogWarning ? { changeLogWarning } : {}),
     // What this contribution actually put in the tree, read back off the tree
     // it was written to. The operations cannot answer it: an add carries no id
     // until it is applied, and a contribution that also deletes carries only
