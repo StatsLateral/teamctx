@@ -9,6 +9,7 @@ import {
   writeOutput, listOutputs, appendContribution, writeQueueItem, readApprovals, listQueue,
 } from '../../src/storage.js';
 import { compileTaskPrompt } from '../../src/context.js';
+import { outputStates } from '../../src/outputs.js';
 import { commitContext, pushContext } from '../../src/git.js';
 import { resolveActor } from '../../src/actor.js';
 import { resolveDisplayName, resolveActiveWorkstream } from '../../src/prefs.js';
@@ -213,17 +214,12 @@ export function getTask({ id, output, teamctxDir } = {}) {
   return { ...base, outputs: summarise(saved) };
 }
 
-/**
- * Where each output stands, worked out rather than stored: an output is written
- * once and never changed, so what became of it is read off what exists. Accepted
- * once an approval names it; submitted while a queue item names it; otherwise
- * working, which is also where a rejected one goes back to.
- */
 function withStates(saved, teamctxDir) {
   if (!saved.length) return saved;
-  const accepted = new Set(Object.values(readApprovals(teamctxDir)).flatMap(a => (Array.isArray(a.outputs) ? a.outputs : [])));
-  const waiting = new Set(listQueue(teamctxDir).flatMap(q => (Array.isArray(q.outputs) ? q.outputs : [])));
-  return saved.map(o => ({ ...o, state: accepted.has(o.id) ? 'accepted' : waiting.has(o.id) ? 'submitted' : 'working' }));
+  return outputStates(saved, {
+    approvals: readApprovals(teamctxDir),
+    waiting: new Set(listQueue(teamctxDir).flatMap(q => (Array.isArray(q.outputs) ? q.outputs : []))),
+  });
 }
 
 function summarise(saved) {

@@ -1,6 +1,7 @@
 import { GithubSession } from '../adapters/github.js';
 import { runWithSession } from '../session-context.js';
-import { readConfig, readProject, readWorkstream, listTasks, readContributions, readApprovals, listRejected } from '../storage.js';
+import { readConfig, readProject, readWorkstream, listTasks, readContributions, readApprovals, listRejected, listQueue, listOutputs } from '../storage.js';
+import { outputStates, outputsForReader } from '../outputs.js';
 import { taskHistory, touchesTask } from '../task-history.js';
 import { listAllWorkstreams } from '../../cli/commands/workstream.core.js';
 import { listMembers, memberByEmail } from '../../cli/commands/member.core.js';
@@ -193,6 +194,25 @@ export async function readProjectView({ owner, repo, user }) {
       canSee: (name) => isManager || visible.has(name), isAgent: (name) => agentNames.has(name),
     });
 
+    // What has been produced on each task (#197). Every output on a task the
+    // reader can see is theirs to see, so this follows the same scope filter as
+    // the task itself. Where each stands is worked out from the queue and the
+    // approvals: only the ids on waiting items are read here, so a member sees
+    // their own work as waiting without seeing anybody's queue. The reason a
+    // submission was turned down is read for everyone but handed on only to its
+    // author and the manager (see outputsForReader).
+    const waitingOutputs = new Set(listQueue().flatMap(q => (Array.isArray(q.outputs) ? q.outputs : [])));
+    const everyRejection = listRejected();
+    const actorKeys = [actor.key, ...(actor.keys || [])];
+    // A task file is the repository's, so an id that is not a plain one has no
+    // outputs rather than taking the page down.
+    const savedOn = (task) => { try { return listOutputs(task.id); } catch { return []; } };
+    const outputsOn = (task) => outputsForReader({
+      outputs: outputStates(savedOn(task), { approvals, waiting: waitingOutputs }),
+      rejected: everyRejection.filter(r => r?.forTask === task.id),
+      actorKeys, isManager, canSee: (name) => visible.has(name),
+    });
+
     const tasks = allTasks
       .filter(t => inScope(allowed, resolveTarget(t.workstream)))
       .map(t => ({
@@ -208,6 +228,7 @@ export async function readProjectView({ owner, repo, user }) {
         workstream: resolveTarget(t.workstream),
         where: workstreamLocation(workstreams, resolveTarget(t.workstream), config.project),
         history: historyOf(t),
+        outputs: outputsOn(t),
       }));
 
     // The queue is the manager's to clear, so only they are shown what is in it.
