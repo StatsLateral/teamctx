@@ -204,6 +204,7 @@ h1{font-size:28px;line-height:1.25;margin:0 0 .35rem}
 .chatico:hover,.chatico:focus-visible{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft);outline:none}
 .chatdiv{width:1px;height:26px;background:var(--line);margin:0 2px}
 .chatnote{font-size:12px;color:var(--faint);margin:.6rem 0 0}
+.howbot{font-size:13px;margin:.9rem 0 .2rem}.howlbl{font-size:12px;color:var(--faint);margin:.4rem 0 .1rem}.howeach{font-size:13px;margin:.2rem 0}.peek ol{margin:.2rem 0 .2rem 1.1rem;padding:0;font-size:13px}
 .toast{min-height:1.2em;font-size:13px;color:var(--accent);margin:.6rem 0 0}
 .drawer-body .statement{font-family:var(--font-display);font-size:18px;margin:0 0 10px;overflow-wrap:anywhere}
 /* What the button is about to put on the clipboard, shut by default: it is long,
@@ -651,8 +652,8 @@ ${note ? `<p class="note">${esc(note)}</p>` : ''}
       </div>
     </div>
     ${panelsHtml({ view, onDay: today() })}
-    ${assistantBlockHtml()}
+    ${assistantBlockHtml({ view, origin })}
   </div>
 </aside>
-<script type="application/json" id="prompts">${JSON.stringify(drawerPrompts({ view, onDay: today() })).replace(/</g, '\\u003c')}</script>`, { wide: true, extraCss: CSS, script: SCRIPT });
+<script type="application/json" id="prompts">${JSON.stringify(drawerPrompts({ view, onDay: today(), origin })).replace(/</g, '\\u003c')}</script>`, { wide: true, extraCss: CSS, script: SCRIPT });
 };
