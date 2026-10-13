@@ -2108,3 +2108,70 @@ describe('working outputs on a task', () => {
     });
   });
 });
+
+describe('what changed since a task was last worked on', () => {
+  const putOutput = (taskId, at) => repo.files.set(`.teamctx/outputs/${taskId}/o1.json`, JSON.stringify({
+    id: 'o1', task: taskId, title: 'Draft', body: 'text', at, notes: null, prompt: null, basedOn: null, author: { key: 'git:priya@example.com', name: 'Priya' },
+  }));
+  const putChange = (id, tree, summary) => repo.files.set(`.teamctx/changes/2099-01-01T000000000Z-${id}.json`, JSON.stringify({
+    id, at: '2099-01-01T00:00:00.000Z', tree, summary: [summary], touched: { records: [], tasks: [] }, by: null,
+  }));
+  const taskOf = (view, id) => view.tasks.open.concat(view.tasks.done).find(t => t.id === id);
+
+  beforeEach(() => {
+    putOutput('pricing-page', '2026-10-10T10:00:00Z');
+    putChange('c1', null, 'Set the goal: x');
+    putChange('c2', 'tech', 'Add: secret tech plan');
+  });
+
+  it('flags a task that was worked on, with where the change was', async () => {
+    await lend();
+    const view = await readProjectView({ owner: 'acme', repo: 'ledger', user: MEMBER_GOOGLE });
+    expect(taskOf(view, 'pricing-page').changedSince.changes[0].where).toBe('Ledger');
+  });
+
+  it('flags nothing on a task nobody touched', async () => {
+    const view = await readProjectView({ owner: 'acme', repo: 'ledger', user: MANAGER });
+    expect(taskOf(view, 'migrate-db').changedSince).toBeNull();
+  });
+
+  it('does not hand a member a change in a part they are not on', async () => {
+    await lend();
+    const view = await readProjectView({ owner: 'acme', repo: 'ledger', user: MEMBER_GOOGLE });
+    expect(JSON.stringify(view)).not.toContain('secret tech plan');
+  });
+
+  describe('in the drawer', () => {
+    async function drawer(taskId) {
+      const path = '/project/acme/ledger?ws=product';
+      const { body } = await visit(path, MEMBER_GOOGLE);
+      const { window } = new JSDOM(body, {
+        url: `${base}${path}`,
+        runScripts: 'dangerously',
+        beforeParse(w) {
+          w.Element.prototype.scrollIntoView = function () {};
+          Object.defineProperty(w.document, 'fonts', { value: { ready: Promise.resolve() } });
+          w.matchMedia = () => ({ matches: false, addEventListener() {}, addListener() {} });
+        },
+      });
+      window.document.querySelector(`#t-${taskId}`).click();
+      return window.document;
+    }
+
+    it('shows the quoted summary as plain text', async () => {
+      putChange('c3', null, 'Add: <b>bold</b>');
+      await lend();
+      const doc = await drawer('pricing-page');
+      expect(doc.getElementById('d-changed-wrap').hidden).toBe(false);
+      expect(doc.getElementById('d-changed').textContent).toContain('"Set the goal: x"');
+      expect(doc.getElementById('d-changed').innerHTML).not.toContain('<b>');
+    });
+
+    it('is hidden for a task nothing is flagged on', async () => {
+      repo.files.delete('.teamctx/outputs/pricing-page/o1.json');
+      await lend();
+      const doc = await drawer('pricing-page');
+      expect(doc.getElementById('d-changed-wrap').hidden).toBe(true);
+    });
+  });
+});

@@ -1,12 +1,13 @@
 import { chainFor } from '../../src/recompile.js';
 import { flaggedInProject } from '../../src/project-records.js';
-import { isActive } from '../../src/model.js';
+import { isActive, ancestorsOf } from '../../src/model.js';
+import { changesReaching, lastActivity, changedSummary, labelFor } from '../../src/changes.js';
 import { createHash } from 'crypto';
 import {
   readProject, readConfig, readTree, listTasks, readTask, writeTask, deleteTask,
   readWorkstream, readContributions,
   writeTaskFile, readTaskFile, taskFilePath, taskFileExists,
-  writeOutput, listOutputs, appendContribution, writeQueueItem, readApprovals, listQueue,
+  writeOutput, listOutputs, listChanges, appendContribution, writeQueueItem, readApprovals, listQueue,
 } from '../../src/storage.js';
 import { compileTaskPrompt } from '../../src/context.js';
 import { outputStates } from '../../src/outputs.js';
@@ -208,6 +209,22 @@ function assertNotAccepted(task, teamctxDir) {
 export const MAX_OUTPUT_CHARS = 50_000;
 
 /**
+ * What changed in the context since somebody last worked on this task (or
+ * `null`). A task nobody has touched has nothing to go stale. The trees that
+ * count are the project, every ancestor and the task's own part.
+ */
+function changedSinceFor(task, saved, teamctxDir) {
+  const since = lastActivity({ outputs: saved, task });
+  if (!since) return null;
+  const config = readConfig(teamctxDir) || {};
+  const ws = resolveTarget(task.workstream);
+  const trees = [null, ...(ws ? [...ancestorsOf(config, ws), ws] : [])];
+  const found = changesReaching({ entries: listChanges({ after: since }, teamctxDir), trees, taskId: task.id, since });
+  if (!found.changes.length) return null;
+  return changedSummary(found, labelFor(config));
+}
+
+/**
  * One task, with what has been produced on it (#197).
  *
  * `outputs` is the latest in full and the earlier ones as a list without their
@@ -221,6 +238,7 @@ export function getTask({ id, output, teamctxDir } = {}) {
     ...task,
     workstream,
     promptPath: taskFileExists(task.id, teamctxDir) ? taskFilePath(task.id, teamctxDir) : null,
+    changedSince: changedSinceFor(task, saved, teamctxDir),
   };
   if (output) {
     const found = saved.find(o => o.id === output);
@@ -470,14 +488,20 @@ export async function compileTask({
   const wsId = task.workstream;
   const workstream = readTree(wsId, teamctxDir);
   const currentHash = contextHash(workstream);
+  // The fingerprint covers only the task's own part, so a change in the project
+  // or an ancestor would leave a stale prompt looking current. An odd task id
+  // must not stop a compile, hence the guard.
+  let flag = null;
+  try { flag = changedSinceFor(task, listOutputs(task.id, teamctxDir), teamctxDir); } catch { flag = null; }
 
-  if (!force && taskFileExists(task.id, teamctxDir) && task.compiledFromHash === currentHash) {
+  if (!force && !flag && taskFileExists(task.id, teamctxDir) && task.compiledFromHash === currentHash) {
     return {
       task,
       role: roleSlug || null,
       markdown: readTaskFile(task.id, teamctxDir),
       promptPath: taskFilePath(task.id, teamctxDir),
       alreadyCompiled: true,
+      changedSince: null,
       committed: false,
       pushed: false,
     };
@@ -512,6 +536,7 @@ export async function compileTask({
     markdown,
     promptPath: taskFilePath(task.id, teamctxDir),
     alreadyCompiled: false,
+    changedSince: flag,
     ...git,
   };
 }
