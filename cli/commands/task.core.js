@@ -504,9 +504,14 @@ export async function compileTask({
   try { saved = listOutputs(task.id, teamctxDir); } catch { saved = []; }
   const flag = changedSinceFor(task, saved, teamctxDir, read) || staleFlag;
 
+  // What people have already produced on this task, so whoever carries on starts
+  // from it and not from the bare title.
+  const outputs = summarise(withStates(saved, teamctxDir));
+
   if (!force && !staleFlag && taskFileExists(task.id, teamctxDir) && task.compiledFromHash === currentHash) {
     return {
       task,
+      outputs,
       role: roleSlug || null,
       markdown: readTaskFile(task.id, teamctxDir),
       promptPath: taskFilePath(task.id, teamctxDir),
@@ -542,6 +547,7 @@ export async function compileTask({
 
   return {
     task: updated,
+    outputs,
     role: roleSlug || null,
     markdown,
     promptPath: taskFilePath(task.id, teamctxDir),
