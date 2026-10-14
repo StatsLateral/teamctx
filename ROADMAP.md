@@ -25,6 +25,7 @@ Work that moves with the task (October 13–14, 2026):
 - **Working outputs on a task** — a task keeps what people produce for it, verbatim and append-only; anyone who can see the task sees the outputs and their assistant starts from the latest. Saving needs no approval; submitting sends chosen outputs to the manager, who accepts them (the task is then closed) or sends feedback with a reason (#197, #199–#201, #203; also delivers the submit-and-approve path of #144)
 - **Accepted work updates the context** — accepting a task writes an acceptance record and the facts and follow-on tasks the manager picks; every applied change is logged; each pending change shows what it reaches; and anyone picking up work in progress is told what changed above it (#204, #209)
 - **Assistants offer to send a decision as it is made** — in one line, only with a yes, once per decision; a recipe for Custom GPTs, `CLAUDE.md` and Cursor rules (#181, #211). The issue stays open until it has been run for real in Claude and ChatGPT
+- **A task's earlier work follows whoever carries on** — asking an assistant about a task now includes its saved and submitted outputs, `get_task` and `task_compile` hand them back, `my_brief` shows which tasks have any, and the connector instructions tell assistants to start from the latest (#212, #213)
 - **Tips & Tricks and All contributions pages**, linked from the nav bar and beside the project link in tool results (#189–#191)
 
 The web page and the assistant-first flow (October 2026):
