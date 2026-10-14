@@ -38,7 +38,7 @@ describe('freshnessLine', () => {
 describe('withFreshness', () => {
   it('puts the line under the title of a role file', () => {
     // No approvals or queue on disk for this path.
-    const out = withFreshness('# Designer Context — Acme\n*Last updated: 2026-10-01*\n\n## Your Role\n', '/nonexistent-teamctx-dir', NOW);
+    const out = withFreshness('# Designer Context — Acme\n*Last updated: 2026-10-01*\n\n## Your Role\n', '/nonexistent-teamctx-dir', { now: NOW });
     expect(out.split('\n').slice(0, 3)).toEqual([
       '# Designer Context — Acme',
       '*Context last approved: not recorded; nothing waiting*',

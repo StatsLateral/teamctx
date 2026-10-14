@@ -817,6 +817,12 @@ export function makeHandlers(projectRoot) {
    * in the repo, so a scope changed by the manager takes effect on the next
    * call rather than whenever a session happens to be rebuilt.
    */
+  // The review queue as this caller may see it: the same filter as
+  // `list_pending_reviews`, so a freshness count never tells a scoped member
+  // how much is waiting in parts they cannot open.
+  const visibleQueue = async (teamctxDir, allowed) => (await listPendingReviews({ teamctxDir }))
+    .filter(item => inScope(allowed, resolveTarget(item.workstream)));
+
   const scope = async (teamctxDir, config) => {
     const actor = await resolveActor({ config, cwd: gitCwd });
     // Never asked whether an agent can approve. A manager has no scope at all,
@@ -975,8 +981,9 @@ export function makeHandlers(projectRoot) {
       // that workstream — a scope that stopped at get_workstream would be
       // walked around by asking for the role instead.
       const found = (config.roles || []).find(r => r.slug === role);
-      if (found) assertInScope(await scope(teamctxDir, config), resolveTarget(found.workstream));
-      return textResult(withFreshness(readRoleFile(role, teamctxDir), teamctxDir));
+      const allowed = await scope(teamctxDir, config);
+      if (found) assertInScope(allowed, resolveTarget(found.workstream));
+      return textResult(withFreshness(readRoleFile(role, teamctxDir), teamctxDir, { queue: await visibleQueue(teamctxDir, allowed) }));
     },
 
     async list_roles() {
@@ -1119,7 +1126,7 @@ export function makeHandlers(projectRoot) {
         contributions: { total: contributions.length, decisions: decisions.length },
         // How old the approved context is and how much is waiting, so an
         // assistant can tell a stale context from a current one (#183).
-        freshness: (() => { const f = freshness(teamctxDir); return { ...f, line: freshnessLine(f) }; })(),
+        freshness: await (async () => { const f = freshness(teamctxDir, { queue: await visibleQueue(teamctxDir, allowed) }); return { ...f, line: freshnessLine(f) }; })(),
         // Filtered for the same reason `list_roles` is: a role name and the
         // workstream behind it are two of the things a scope keeps back, and
         // this response hides those workstream ids three lines above.

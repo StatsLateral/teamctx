@@ -81,3 +81,31 @@ describe('freshness in get_status and role files', () => {
     });
   });
 });
+
+describe('what a scoped member is told is waiting', () => {
+  // `list_pending_reviews` already hides items in parts a member cannot open;
+  // a count that included them would say how much is waiting there.
+  it('counts only the items in parts they may see', async () => {
+    const q = (id, workstream) => [`.teamctx/queue/${id}.json`, JSON.stringify({ id, workstream, createdAt: '2026-10-10T00:00:00.000Z', operations: [] })];
+    const config = { ...CONFIG, workstreams: [...CONFIG.workstreams, { id: 'legal', number: 2, name: 'Legal' }], members: [{ key: 'git:sam@example.com', name: 'Sam', workstreams: ['finance'] }] };
+    const extra = Object.fromEntries([
+      ['.teamctx/config.json', JSON.stringify(config)],
+      ['.teamctx/workstreams/legal.json', JSON.stringify({ id: 'legal', name: 'Legal', records: [], tasks: [] })],
+      q('f1', 'finance'), q('l1', 'legal'), q('l2', 'legal'), q('l3', 'legal'),
+    ]);
+    const SAM = { key: 'git:sam@example.com', name: 'Sam', email: 'sam@example.com', source: 'github' };
+    const root = { __backend: 'github', owner: 'o', repo: 'r', baseUrl: 'https://teamctx.example.app' };
+    const handlers = makeHandlers(root);
+    const call = async (as, tool, args) => {
+      const text = (await callTool(handlers, root, tool, args)).content[0].text;
+      try { return JSON.parse(text); } catch { return text; }
+    };
+    await runWithSession(session(extra), async () => {
+      const asManager = await runWithActor(MAYA, () => call(MAYA, 'get_status', {}));
+      expect(asManager.freshness.waiting).toBe(4);
+      const asSam = await runWithActor(SAM, () => call(SAM, 'get_status', {}));
+      expect(asSam.freshness.waiting).toBe(1);
+      expect(asSam.freshness.line).toMatch(/1 item waiting$/);
+    });
+  });
+});

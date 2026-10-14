@@ -37,8 +37,8 @@ export function freshnessLine({ lastApprovedAt, waiting }, now = Date.now()) {
  * read, not when it is written: "12 days ago" in a file written once would be
  * wrong by tomorrow.
  */
-export function withFreshness(markdown, dir, now = Date.now()) {
-  const line = `*${freshnessLine(freshness(dir), now)}*`;
+export function withFreshness(markdown, dir, { now = Date.now(), queue } = {}) {
+  const line = `*${freshnessLine(freshness(dir, queue ? { queue } : {}), now)}*`;
   const text = String(markdown ?? '');
   const m = text.match(/^(# [^\n]*\n)/);
   return m ? `${m[1]}${line}\n${text.slice(m[1].length)}` : `${line}\n\n${text}`;
