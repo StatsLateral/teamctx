@@ -142,7 +142,7 @@ function taskRow({ t, view, origin, marked }) {
   return `<button type="button" class="item trow${marked ? ' marked' : ''}${t.status === 'done' ? ' done' : ''}" id="t-${esc(t.id)}"
   data-text="${esc(t.title)}" data-kind="${esc(`Task${t.key ? ` ${t.key}` : ''}`)}" data-summary="" data-who="${esc(who.join(', '))}"
   data-review="" data-ws="${esc(t.workstream || '')}" data-ask="${escAttr(prompt.split('\n\n')[0])}" data-prompt="${escAttr(prompt)}"
-  ${t.status === 'done' ? 'data-done="1" ' : ''}data-work="${esc(JSON.stringify(workData(t.outputs)))}" data-history="${esc(JSON.stringify(historyData(t.history, view.agents)))}">
+  ${t.status === 'done' ? 'data-done="1" ' : ''}data-work="${esc(JSON.stringify(workData(t.outputs)))}" data-changed="${esc(JSON.stringify(t.changedSince || null))}" data-history="${esc(JSON.stringify(historyData(t.history, view.agents)))}">
   <span class="num">${esc(t.key || '—')}</span><span class="ttl" title="${esc(t.title)}">${esc(t.title)}</span>
   <span class="own">${whoChip(t.owner, view.agents)}</span>${clip(t)}</button>`;
 }
@@ -175,13 +175,13 @@ function waitingItem({ q, view, origin, marked }) {
   const where = q.workstream ? workstreamLocation(view.workstreams, q.workstream, view.project) : (view.project || 'Overall project');
   const ref = q.number || null;
   const checks = checksOf(q);
-  // Work submitted for a task changes no part of the context: approving accepts
-  // it and marks the task done. The work itself is shown beside, in full.
+  // Accepting work submitted for a task marks the task done and records the
+  // acceptance in the context. The work itself is shown beside, in full.
   const outputs = q.forTask && Array.isArray(q.submittedOutputs)
     ? q.submittedOutputs.map(o => ({ title: o.title || '', body: o.body || '', notes: o.notes || null, prompt: o.prompt || null }))
     : [];
   const changes = q.forTask
-    ? ['Accepting it marks the task done and closes it. Nothing is added to the project\'s context. Feedback instead leaves the task open.']
+    ? ['Accepting it marks the task done and closes it, and records the acceptance in the context. Feedback instead leaves the task open.']
     : (Array.isArray(q.operations) ? q.operations : []).map(op => describeChange(op, tree)).filter(Boolean);
   const title = q.summary || changes[0] || '(no summary)';
   // Deciding happens in the assistant, so what the drawer hands over is a
@@ -215,7 +215,7 @@ function waitingItem({ q, view, origin, marked }) {
   return `<div class="q${marked ? ' marked' : ''}" id="r-${esc(q.id)}" data-text="${esc(title)}" data-kind="${esc(`Waiting on you${ref ? ` · ${ref}` : ''}`)}"
   data-summary="${esc(`Proposed by ${q.author || 'someone'}${VIA[q.source] ? ` ${VIA[q.source]}` : ''}${date ? ` on ${date}` : ''}.`)}"
   data-who="${esc(q.author || '')}" data-review="" data-ws="${esc(q.workstream || '')}" data-queue="1"
-  data-changes="${esc(JSON.stringify(changes))}" data-outputs="${esc(JSON.stringify(outputs))}" data-checks="${esc(JSON.stringify(checks))}" data-decide="${esc(JSON.stringify(decide))}"
+  data-changes="${esc(JSON.stringify(changes))}" data-outputs="${esc(JSON.stringify(outputs))}" data-reach="${esc(JSON.stringify(Array.isArray(q.reachLines) ? q.reachLines : []))}" data-checks="${esc(JSON.stringify(checks))}" data-decide="${esc(JSON.stringify(decide))}"
   data-history="${esc(JSON.stringify(historyData(q.history, view.agents)))}"
   data-ask="${escAttr(prompt.split('\n\n')[0])}" data-prompt="${escAttr(prompt)}">
   <span class="num">${esc(ref || '—')}</span>

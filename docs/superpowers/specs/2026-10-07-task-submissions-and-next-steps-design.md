@@ -130,7 +130,7 @@ acting.
 - Adding a suggestion is a normal task creation (`addTask`) by the approver, recorded as in
   the task history spec, with `note: suggested by AI after <task> was approved`.
 - Approval of a task submission writes: the task's done state with who and when, and the
-  approval event. It writes no record.
+  approval event. It writes no record (superseded by the accepted-work spec, 2026-10-14).
 
 ### 6. Edge cases
 

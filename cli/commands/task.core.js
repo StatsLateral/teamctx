@@ -1,12 +1,13 @@
 import { chainFor } from '../../src/recompile.js';
 import { flaggedInProject } from '../../src/project-records.js';
-import { isActive } from '../../src/model.js';
+import { isActive, ancestorsOf } from '../../src/model.js';
+import { changesReaching, lastActivity, changedSummary, labelFor } from '../../src/changes.js';
 import { createHash } from 'crypto';
 import {
   readProject, readConfig, readTree, listTasks, readTask, writeTask, deleteTask,
   readWorkstream, readContributions,
   writeTaskFile, readTaskFile, taskFilePath, taskFileExists,
-  writeOutput, listOutputs, appendContribution, writeQueueItem, readApprovals, listQueue,
+  writeOutput, listOutputs, listChanges, appendContribution, writeQueueItem, readApprovals, listQueue,
 } from '../../src/storage.js';
 import { compileTaskPrompt } from '../../src/context.js';
 import { outputStates } from '../../src/outputs.js';
@@ -208,6 +209,27 @@ function assertNotAccepted(task, teamctxDir) {
 export const MAX_OUTPUT_CHARS = 50_000;
 
 /**
+ * What changed in the context since somebody last worked on this task (or
+ * `null`). A task nobody has touched has nothing to go stale. The trees that
+ * count are the project, every ancestor and the task's own part.
+ */
+function changedSinceFor(task, saved, teamctxDir, read = {}) {
+  // In progress means not done; a closed task's accepted work is not news.
+  if (task.status === 'done') return null;
+  const since = lastActivity({ outputs: saved, task });
+  if (!since) return null;
+  // A caller asking twice (compile does) passes `read` so config and the log are
+  // read once; changesReaching applies `since` itself.
+  const config = (read.config ??= readConfig(teamctxDir) || {});
+  const ws = resolveTarget(task.workstream);
+  const trees = [null, ...(ws ? [...ancestorsOf(config, ws), ws] : [])];
+  const entries = read.entries ?? (read.entries = listChanges({}, teamctxDir));
+  const found = changesReaching({ entries, trees, since });
+  if (!found.changes.length) return null;
+  return changedSummary(found, labelFor(config));
+}
+
+/**
  * One task, with what has been produced on it (#197).
  *
  * `outputs` is the latest in full and the earlier ones as a list without their
@@ -221,6 +243,7 @@ export function getTask({ id, output, teamctxDir } = {}) {
     ...task,
     workstream,
     promptPath: taskFileExists(task.id, teamctxDir) ? taskFilePath(task.id, teamctxDir) : null,
+    changedSince: changedSinceFor(task, saved, teamctxDir),
   };
   if (output) {
     const found = saved.find(o => o.id === output);
@@ -394,6 +417,19 @@ export async function submitTask({
   return { id: contribution.id, mode: 'queued', number: task.key || null, outputs: chosen.map(o => o.id), summary, task, ...git };
 }
 
+/**
+ * The task as it is once marked done or reopened. Pure, and shared with
+ * accepting a submission, which closes the task in the same write as the
+ * context change so a failure part-way cannot leave one without the other.
+ */
+export function withStatus(task, status, by, at = new Date().toISOString()) {
+  const entry = { did: status === 'done' ? 'completed' : 'reopened', by, at };
+  const statusLog = [...(Array.isArray(task.statusLog) ? task.statusLog : []), entry];
+  return status === 'done'
+    ? { ...task, status: 'done', doneAt: todayIso(), doneBy: by, statusLog }
+    : { ...task, status: 'open', doneAt: null, doneBy: null, statusLog };
+}
+
 export async function setTaskStatus({
   id, status, teamctxDir, projectDir, actor,
 } = {}) {
@@ -408,11 +444,7 @@ export async function setTaskStatus({
   const resolved = actor || await resolveActor({ config, cwd: projectDir });
   const me = await resolveDisplayName({ actor: resolved, config, teamctxDir });
   const by = { key: resolved?.key || null, name: me };
-  const entry = { did: status === 'done' ? 'completed' : 'reopened', by, at: new Date().toISOString() };
-  const statusLog = [...(Array.isArray(task.statusLog) ? task.statusLog : []), entry];
-  const updated = status === 'done'
-    ? { ...task, status: 'done', doneAt: todayIso(), doneBy: by, statusLog }
-    : { ...task, status: 'open', doneAt: null, doneBy: null, statusLog };
+  const updated = withStatus(task, status, by);
   writeTask(updated, teamctxDir);
 
   const verb = status === 'done' ? 'done' : 'reopen';
@@ -461,14 +493,25 @@ export async function compileTask({
   const wsId = task.workstream;
   const workstream = readTree(wsId, teamctxDir);
   const currentHash = contextHash(workstream);
+  // The fingerprint covers only the task's own part, so a change in the project
+  // or an ancestor would leave a stale prompt looking current. Staleness is
+  // judged from the compile time alone: saving an output afterwards must not
+  // hide that the prompt predates a change.
+  const read = {};
+  const staleFlag = changedSinceFor(task, [], teamctxDir, read);
+  // An odd task id must not stop a compile, hence the guard on this read only.
+  let saved = [];
+  try { saved = listOutputs(task.id, teamctxDir); } catch { saved = []; }
+  const flag = changedSinceFor(task, saved, teamctxDir, read) || staleFlag;
 
-  if (!force && taskFileExists(task.id, teamctxDir) && task.compiledFromHash === currentHash) {
+  if (!force && !staleFlag && taskFileExists(task.id, teamctxDir) && task.compiledFromHash === currentHash) {
     return {
       task,
       role: roleSlug || null,
       markdown: readTaskFile(task.id, teamctxDir),
       promptPath: taskFilePath(task.id, teamctxDir),
       alreadyCompiled: true,
+      changedSince: null,
       committed: false,
       pushed: false,
     };
@@ -503,6 +546,7 @@ export async function compileTask({
     markdown,
     promptPath: taskFilePath(task.id, teamctxDir),
     alreadyCompiled: false,
+    changedSince: flag,
     ...git,
   };
 }

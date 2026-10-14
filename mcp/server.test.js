@@ -18,6 +18,9 @@ vi.mock('../src/storage.js', () => ({
   appendContribution: vi.fn(),
   readContributions: vi.fn(() => []),
   listQueue: vi.fn(() => []),
+  listTasks: vi.fn(() => []),
+  listOutputs: vi.fn(() => []),
+  readApprovals: vi.fn(() => ({})),
   readQueueItem: vi.fn(),
   deleteQueueItem: vi.fn(),
   writeRejected: vi.fn(),
@@ -704,6 +707,37 @@ describe('config_set — personal keys', () => {
 describe('task tools', () => {
   const tool = name => TOOLS.find(t => t.name === name);
 
+  it('never says accepting adds nothing to the context, in any tool description', () => {
+    for (const t of TOOLS) {
+      expect(t.description, t.name).not.toMatch(/adds nothing to the project|nothing is added to the project|nothing was added to the project|writes no record/i);
+    }
+    expect(tool('task_submit').description).toMatch(/records the acceptance/i);
+  });
+
+  it('says what each task change needs', () => {
+    expect(tool('review_approve').inputSchema.properties.taskChanges.description).toMatch(/addTask.*follow-on task.*same part/i);
+  });
+
+  it('lets a reviewer pass only the facts and task changes the manager picked', () => {
+    const props = tool('review_approve').inputSchema.properties;
+    expect(props.facts.type).toBe('array');
+    expect(props.taskChanges.type).toBe('array');
+    expect(tool('review_approve').description).toMatch(/only what the manager picked/i);
+    expect(tool('review_approve').description).toMatch(/adds an acceptance record/i);
+  });
+
+  it('tells the assistant to show the reach, and to suggest, not decide', () => {
+    const d = tool('list_pending_reviews').description;
+    expect(d).toMatch(/reachLines/);
+    expect(d).toMatch(/suggest/i);
+  });
+
+  it('tells the assistant to say what changed before carrying on', () => {
+    expect(tool('get_task').description).toMatch(/changedSince/);
+    expect(tool('get_task').description).toMatch(/before carrying on/i);
+    expect(tool('task_compile').description).toMatch(/changedSince/);
+  });
+
   it('exposes every task command the CLI has', () => {
     // The server describes itself as covering the full CLI. Before this, all
     // eight task commands were missing — including compile, which is the one
@@ -782,7 +816,7 @@ describe('task tools', () => {
     const d = tool('task_submit').description;
     expect(d).toMatch(/not a submission|must have asked/i);
     expect(d).toMatch(/not that it was approved/i);
-    expect(d).toMatch(/No AI reads it/i);
+    expect(d).toMatch(/No AI reads the submission/i);
     expect(tool('task_submit').inputSchema.required).toEqual(['id']);
   });
 

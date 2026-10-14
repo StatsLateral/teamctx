@@ -1,6 +1,6 @@
 import { GithubSession } from '../adapters/github.js';
 import { runWithSession } from '../session-context.js';
-import { readConfig, readProject, readWorkstream, listTasks, readContributions, readApprovals, listRejected, listQueue, listOutputs } from '../storage.js';
+import { readConfig, readProject, readWorkstream, listTasks, readContributions, readApprovals, listRejected, listQueue, listOutputs, listChanges } from '../storage.js';
 import { outputStates, outputsForReader } from '../outputs.js';
 import { taskHistory, touchesTask } from '../task-history.js';
 import { listAllWorkstreams } from '../../cli/commands/workstream.core.js';
@@ -8,6 +8,8 @@ import { listMembers, memberByEmail } from '../../cli/commands/member.core.js';
 import { listPendingReviews } from '../../cli/commands/review.core.js';
 import { scopeFor, inScope } from '../member-scope.js';
 import { resolveTarget } from '../project-level.js';
+import { ancestorsOf } from '../model.js';
+import { changesReaching, lastActivity, changedSummary, labelFor } from '../changes.js';
 import { workstreamLocation } from '../views/workstream-location.js';
 import { managerKeys, matchesActor } from '../review.js';
 import { flaggedInProject, projectRecords } from '../project-records.js';
@@ -207,29 +209,48 @@ export async function readProjectView({ owner, repo, user }) {
     // A task file is the repository's, so an id that is not a plain one has no
     // outputs rather than taking the page down.
     const savedOn = (task) => { try { return listOutputs(task.id); } catch { return []; } };
-    const outputsOn = (task) => outputsForReader({
-      outputs: outputStates(savedOn(task), { approvals, waiting: waitingOutputs }),
+    const outputsOn = (task, saved) => outputsForReader({
+      outputs: outputStates(saved, { approvals, waiting: waitingOutputs }),
       rejected: everyRejection.filter(r => r?.forTask === task.id),
       actorKeys, isManager, canSee: (name) => visible.has(name),
     });
 
+    // The log is read once and indexed in memory: on hosted storage every read
+    // is a request, so reading it per task would be one per row.
+    const allChanges = listChanges({});
     const tasks = allTasks
       .filter(t => inScope(allowed, resolveTarget(t.workstream)))
-      .map(t => ({
-        id: t.id,
-        // The handle a person has in front of them. The payload is built field by
-        // field on purpose, so anything not named here never reaches the page —
-        // which is also how this was missing, and a link by key reached nothing.
-        key: t.key || null,
-        title: t.title,
-        owner: t.owner || null,
-        status: t.status === 'done' ? 'done' : 'open',
-        sourceContributionIds: t.sourceContributionIds || [],
-        workstream: resolveTarget(t.workstream),
-        where: workstreamLocation(workstreams, resolveTarget(t.workstream), config.project),
-        history: historyOf(t),
-        outputs: outputsOn(t),
-      }));
+      .map(t => {
+        const saved = savedOn(t);
+        return {
+          id: t.id,
+          // The handle a person has in front of them. The payload is built field by
+          // field on purpose, so anything not named here never reaches the page —
+          // which is also how this was missing, and a link by key reached nothing.
+          key: t.key || null,
+          title: t.title,
+          owner: t.owner || null,
+          status: t.status === 'done' ? 'done' : 'open',
+          sourceContributionIds: t.sourceContributionIds || [],
+          workstream: resolveTarget(t.workstream),
+          where: workstreamLocation(workstreams, resolveTarget(t.workstream), config.project),
+          history: historyOf(t),
+          outputs: outputsOn(t, saved),
+          // Only the project, the ancestors, the own part and changes touching
+          // this task: a sibling part's changes are not this reader's to see.
+          changedSince: (() => {
+            // In progress means not done: an accepted task's own accepted work
+            // would otherwise flag it for good.
+            if (t.status === 'done') return null;
+            const since = lastActivity({ outputs: saved, task: t });
+            if (!since) return null;
+            const ws = resolveTarget(t.workstream);
+            const trees = [null, ...(ws ? [...ancestorsOf(config, ws), ws] : [])];
+            const found = changesReaching({ entries: allChanges, trees, since });
+            return found.changes.length ? changedSummary(found, labelFor(config)) : null;
+          })(),
+        };
+      });
 
     // The queue is the manager's to clear, so only they are shown what is in it.
     // What a queued break would take with it, so the manager reads the impact
@@ -261,6 +282,7 @@ export async function readProjectView({ owner, repo, user }) {
         // Work submitted for a task: the outputs in full, which the manager is
         // asked about, rather than a line describing them.
         ...(q.forTask ? { forTask: q.forTask, submittedOutputs: q.submittedOutputs || [] } : {}),
+        reachLines: q.reachLines || [],
         contradictions: Array.isArray(q.contradictions) ? q.contradictions : [],
         impact: impactOf(q.operations),
         workstream: resolveTarget(q.workstream),

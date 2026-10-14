@@ -124,7 +124,7 @@ The review drawer shows, for a task submission:
 Two decisions on work submitted for a task:
 
 - **Accept** (what `review_approve` is called for such an item): the chosen outputs become
-  `accepted` and the task is done and **closed**. Nothing is written into the context as a record.
+  `accepted` and the task is done and **closed**. ~~Nothing is written into the context as a record.~~ (Superseded by the accepted-work spec: accepting records the acceptance in the context, plus any facts and task changes the manager picks.)
 - **Feedback** (what `review_reject` is called for such an item): the task **stays open**. The
   feedback must say what to change, because it is attached to the outputs and is what the person
   reads next. They carry on from the same outputs and submit again. Only the label and the
@@ -237,7 +237,9 @@ what the person said and what was attached:
 3. **Manager's own outputs:** a manager can accept an output they wrote without a second approval.
 4. **Retention:** old outputs are kept, for auditing.
 5. **Accepted tasks are closed** (2026-10-14): no more work on them, follow-on tasks only. Removing
-   an accepted task from the context is post-MVP.
+   an accepted task from the context is post-MVP. Accepting adds nothing to the context beyond the task
+   being done: superseded by the accepted-work spec, where accepting records the acceptance in the
+   context.
 6. **The AI's wording** (2026-10-14): the AI may not say work is approved, accepted, settled, final,
    closed or done unless the contribution says so, and may not add progress to a task's title.
    Enforced in the prompt and by a check on the summary and on title edits.

@@ -16,6 +16,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 const repo = vi.hoisted(() => ({ trees: new Map() }));
 
 vi.mock('../../src/storage.js', () => ({
+  writeChange: vi.fn(), listChanges: vi.fn(() => []),
   readTree: vi.fn(id => repo.trees.get(id ?? null) || (id ? { id, name: id, records: [], tasks: [] } : { name: 'Ledger', goal: null, records: [], tasks: [] })),
   readProject: vi.fn(() => repo.trees.get(null) || { name: 'Ledger', goal: null, records: [], tasks: [] }),
   readWorkstream: vi.fn(id => repo.trees.get(id) || { id, name: id, records: [], tasks: [] }),

@@ -3,8 +3,8 @@
  * with them (#197, building on #144).
  *
  * The point of these: the manager is asked about the work itself, nothing is
- * inferred from it by an AI, approving writes no record and does not touch the
- * task's wording, and a person always knows where each output stands.
+ * inferred from it by an AI, accepting records the acceptance in the context and
+ * does not touch the task's wording, and a person always knows where each output stands.
  */
 import { beforeEach, afterEach, describe, it, expect, vi } from 'vitest';
 import { mkdtempSync, rmSync } from 'fs';
@@ -14,7 +14,7 @@ import { runWithActor } from '../../src/actor.js';
 import { makeConfig, makeProject, makeWorkstream } from '../../src/test-fixtures/model.js';
 import {
   writeConfig, writeProject, writeWorkstream, listQueue, readApprovals, listRejected,
-  readContributions, readTree, readTask, listOutputs,
+  readContributions, readTree, readTask, listOutputs, writeTree,
 } from '../../src/storage.js';
 import { addTask, getTask, saveOutput, submitTask, setTaskStatus, removeTask } from './task.core.js';
 import { approveReview, rejectReview, listPendingReviews } from './review.core.js';
@@ -165,17 +165,30 @@ describe('what the manager is shown', () => {
   });
 });
 
+describe('a task with an id that is not a plain one', () => {
+  it('does not stop the queue from being listed', async () => {
+    await save(member, { body: 'v1' });
+    await submit(member);
+    const tree = readTree('sales', dir);
+    writeTree('sales', { ...tree, tasks: [...tree.tasks, { id: 'odd id/..', title: 'Odd', status: 'open' }] }, dir);
+    const items = await listPendingReviews({ teamctxDir: dir });
+    expect(items).toHaveLength(1);
+    expect(items[0].reach).toBeDefined();
+  });
+});
+
 describe('approving a task submission', () => {
-  it('accepts the outputs and marks the task done, writing no record and not touching its title', async () => {
+  it('accepts the outputs and marks the task done, without touching its title', async () => {
     await save(member, { body: 'v1' });
     const r = await submit(member);
-    const treeBefore = readTree('sales', dir);
     const out = await as(manager, () => approveReview({ id: r.id, teamctxDir: dir }));
     expect(out.id).toBe(r.id);
     const after = readTask(task.id, dir).task;
     expect(after.title).toBe('Draft the post');
     expect(after).toMatchObject({ status: 'done', doneBy: { key: 'git:manager@x', name: 'Manager' } });
-    expect(readTree('sales', dir).records).toEqual(treeBefore.records);
+    expect(readTree('sales', dir).records).toEqual([
+      expect.objectContaining({ text: `Task ${task.key} accepted: Draft the post`, attachedTo: { kind: 'task', id: task.id } }),
+    ]);
     expect(listQueue(dir)).toEqual([]);
   });
 
