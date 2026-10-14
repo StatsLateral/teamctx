@@ -20,6 +20,13 @@ It compiles a role-specific file for each person to bring to their AI tool witho
 
 ## Recently shipped 🎉
 
+Work that moves with the task (October 13–14, 2026):
+
+- **Working outputs on a task** — a task keeps what people produce for it, verbatim and append-only; anyone who can see the task sees the outputs and their assistant starts from the latest. Saving needs no approval; submitting sends chosen outputs to the manager, who accepts them (the task is then closed) or sends feedback with a reason (#197, #199–#201, #203; also delivers the submit-and-approve path of #144)
+- **Accepted work updates the context** — accepting a task writes an acceptance record and the facts and follow-on tasks the manager picks; every applied change is logged; each pending change shows what it reaches; and anyone picking up work in progress is told what changed above it (#204, #209)
+- **Assistants offer to send a decision as it is made** — in one line, only with a yes, once per decision; a recipe for Custom GPTs, `CLAUDE.md` and Cursor rules (#181, #211). The issue stays open until it has been run for real in Claude and ChatGPT
+- **Tips & Tricks and All contributions pages**, linked from the nav bar and beside the project link in tool results (#189–#191)
+
 The web page and the assistant-first flow (October 2026):
 
 - **The project page** — a read-only page for a manager or a member: the goal and why it matters, the work as a tree, tasks, and what is waiting on the manager, with drawers for the project's and each workstream's context (#138–#141, #156)
@@ -40,7 +47,6 @@ Earlier:
 
 ## Now
 
-- **Task submissions in the review queue, and AI-suggested next steps** — a draft sent back for a task is shown against that task, approving it marks the task done, and the approver decides which follow-on tasks to add — *managers in control* · [#144](https://github.com/StatsLateral/teamctx/issues/144)
 - **Tasks the AI proposes read as work a person would pick up** — today they can read as steps for an assistant — *managers in control* · [#175](https://github.com/StatsLateral/teamctx/issues/175)
 
 ## Next
@@ -48,7 +54,6 @@ Earlier:
 - **Connected sources** — record what a project draws on (which tool, which item, when it was read, which tasks it feeds), as links and summaries and never copies of files, in the team's own repository; the drawer in Settings shows sample data until then. One issue each for **Slack, Notion, Google Drive, Microsoft SharePoint, Dropbox and Coda**; build the record first, then connectors in any order — each is a good standalone PR. The open-source options (Activepieces and Onyx cover all six, both MIT) are surveyed in the first issue — *bring your own tools* · [#168](https://github.com/StatsLateral/teamctx/issues/168) · [Slack #169](https://github.com/StatsLateral/teamctx/issues/169) · [Notion #170](https://github.com/StatsLateral/teamctx/issues/170) · [Drive #171](https://github.com/StatsLateral/teamctx/issues/171) · [SharePoint #172](https://github.com/StatsLateral/teamctx/issues/172) · [Dropbox #173](https://github.com/StatsLateral/teamctx/issues/173) · [Coda #174](https://github.com/StatsLateral/teamctx/issues/174)
 
 - **First-run experience + `teamctx doctor`** — a new user should reach their first compiled role file in under 10 minutes. `doctor` checks the environment (git repo, Node version, API key present and valid, provider reachable) and prints one actionable fix per problem — *easy to start* · [#180](https://github.com/StatsLateral/teamctx/issues/180)
-- **Mid-session decision capture** — when a team member's AI tool reaches a decision mid-session, the tool itself proposes `submit_contribution` over MCP (with the member's confirmation), so decisions flow into shared context at the speed they're made instead of at the weekly review — *bring your own tools & agents* · [#181](https://github.com/StatsLateral/teamctx/issues/181)
 - **Slack approval notifications** — when a contribution lands in the queue, ping the manager where they already live; approving stays in the assistant or the command line — *managers in control* · [#182](https://github.com/StatsLateral/teamctx/issues/182)
 - **Context freshness signals** — role files and `status` surface "last approved N days ago / M pending contributions" so a stale context is visible before it misleads someone's AI — *prove team productivity* · [#183](https://github.com/StatsLateral/teamctx/issues/183)
 
@@ -56,6 +61,7 @@ Earlier:
 
 Open, and not being worked on until there is a reason:
 
+- **Post-MVP follow-ons to accepted work**: removing an accepted task from the context ([#202](https://github.com/StatsLateral/teamctx/issues/202)), scaling the change log, impact card and pickup flag to Slack-volume context ([#206](https://github.com/StatsLateral/teamctx/issues/206)), and logging task and structure changes made directly ([#207](https://github.com/StatsLateral/teamctx/issues/207))
 - **Non-technical member's fallback path** still needs a terminal and git — [#93](https://github.com/StatsLateral/teamctx/issues/93)
 - **A GitHub App instead of the OAuth `repo` scope**, to narrow access to the project's repository — [#110](https://github.com/StatsLateral/teamctx/issues/110)
 - **A read log**, so a manager can see who read which part of the context — [#111](https://github.com/StatsLateral/teamctx/issues/111)
