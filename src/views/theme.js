@@ -214,6 +214,7 @@ export const navBar = ({ user, current }) => {
     ${link('/', 'Home')}
     ${user ? link('/projects', 'Projects') : ''}
     ${user ? link('/settings', 'Settings') : ''}
+    ${user ? link('/tips', 'Tips &amp; Tricks') : ''}
     ${user?.id ? link('/settings/new-project', 'New project') : ''}
   </span>
   <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Switch between light and dark"></button>

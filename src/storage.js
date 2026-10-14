@@ -293,6 +293,93 @@ export function listRejected(dir) {
     .sort((a, b) => (a.rejectedAt || '').localeCompare(b.rejectedAt || ''));
 }
 
+// ---- Working outputs (#197) ----
+
+/**
+ * What people produce on a task, one file each: `outputs/<task id>/<id>.json`.
+ *
+ * Kept apart from the task and from the contribution log for the same reason
+ * approvals are: an output is written once and never changed, so a file per
+ * output cannot be lost by two people saving at the same moment, and nothing
+ * has to rewrite an existing file.
+ */
+export function writeOutput(output, dir) {
+  sanitizeTaskId(output?.task);
+  sanitizeQueueId(output?.id);
+  const body = JSON.stringify(output, null, 2);
+  if (sessionWrite(ctxPath('outputs', output.task, `${output.id}.json`), body)) return;
+  const d = resolve(dir, 'outputs', output.task);
+  mkdirSync(d, { recursive: true });
+  writeFileSync(join(d, `${output.id}.json`), body);
+}
+
+/**
+ * Every output on a task, oldest first. Files in the repository, so one that
+ * is not valid, or is not an object with an id, is skipped rather than allowed
+ * to take a page down.
+ */
+export function listOutputs(taskId, dir) {
+  sanitizeTaskId(taskId);
+  const parse = (text) => { try { return JSON.parse(text); } catch { return null; } };
+  const valid = (list) => list
+    .filter(o => o && typeof o === 'object' && typeof o.id === 'string')
+    .sort((a, b) => String(a.at || '').localeCompare(String(b.at || '')) || a.id.localeCompare(b.id));
+  const s = sessionListDir(ctxPath('outputs', taskId));
+  if (s !== null) {
+    return valid(s.filter(name => name.endsWith('.json'))
+      .map(name => getCurrentSession().read(ctxPath('outputs', taskId, name)))
+      .filter(Boolean)
+      .map(f => parse(f.content)));
+  }
+  const d = resolve(dir, 'outputs', taskId);
+  if (!existsSync(d)) return [];
+  return valid(readdirSync(d)
+    .filter(name => name.endsWith('.json'))
+    .map(name => parse(readFileSync(join(d, name), 'utf-8'))));
+}
+
+// ---- Change log ----
+
+/**
+ * What changed in the context, one file per change under `changes/`.
+ *
+ * The name starts with the time, in a fixed width that sorts as it reads, so
+ * "what is newer than X" is answered from the names alone, before any file is
+ * read. The id follows so two changes in the same millisecond keep both files.
+ */
+const stamp = (at) => String(at).replace(/[:.]/g, '');
+const STAMP_WIDTH = 21;
+
+export function writeChange(entry, dir) {
+  sanitizeQueueId(entry?.id);
+  const name = `${stamp(entry.at)}-${entry.id}.json`;
+  const body = JSON.stringify(entry, null, 2);
+  if (sessionWrite(ctxPath('changes', name), body)) return;
+  const d = resolve(dir, 'changes');
+  mkdirSync(d, { recursive: true });
+  writeFileSync(join(d, name), body);
+}
+
+/** Entries oldest first; `after` keeps only those newer. Invalid files are skipped. */
+export function listChanges({ after } = {}, dir) {
+  const floor = after ? stamp(after) : null;
+  const wanted = (names) => names.filter(n => n.endsWith('.json') && (!floor || n.slice(0, STAMP_WIDTH) > floor)).sort();
+  const parse = (text) => { try { return JSON.parse(text); } catch { return null; } };
+  const valid = (list) => list
+    .filter(e => e && typeof e === 'object' && typeof e.id === 'string' && typeof e.at === 'string')
+    .sort((a, b) => a.at.localeCompare(b.at) || a.id.localeCompare(b.id));
+  const s = sessionListDir(ctxPath('changes'));
+  if (s !== null) {
+    return valid(wanted(s)
+      .map(name => getCurrentSession().read(ctxPath('changes', name)))
+      .filter(Boolean)
+      .map(f => parse(f.content)));
+  }
+  const d = resolve(dir, 'changes');
+  if (!existsSync(d)) return [];
+  return valid(wanted(readdirSync(d)).map(name => parse(readFileSync(join(d, name), 'utf-8'))));
+}
+
 /**
  * Approvals leave a file too (#143), so a task's history can say who approved
  * a contribution and when. One small file per decision, beside `rejected/`,

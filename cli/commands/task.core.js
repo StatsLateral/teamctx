@@ -1,13 +1,16 @@
 import { chainFor } from '../../src/recompile.js';
 import { flaggedInProject } from '../../src/project-records.js';
-import { isActive } from '../../src/model.js';
+import { isActive, ancestorsOf } from '../../src/model.js';
+import { changesReaching, lastActivity, changedSummary, labelFor } from '../../src/changes.js';
 import { createHash } from 'crypto';
 import {
   readProject, readConfig, readTree, listTasks, readTask, writeTask, deleteTask,
   readWorkstream, readContributions,
   writeTaskFile, readTaskFile, taskFilePath, taskFileExists,
+  writeOutput, listOutputs, listChanges, appendContribution, writeQueueItem, readApprovals, listQueue,
 } from '../../src/storage.js';
 import { compileTaskPrompt } from '../../src/context.js';
+import { outputStates } from '../../src/outputs.js';
 import { commitContext, pushContext } from '../../src/git.js';
 import { resolveActor } from '../../src/actor.js';
 import { resolveDisplayName, resolveActiveWorkstream } from '../../src/prefs.js';
@@ -183,12 +186,87 @@ export function listTasksFiltered({
   };
 }
 
-export function getTask({ id, teamctxDir } = {}) {
+/**
+ * A task whose submitted work a manager accepted is closed for good in this
+ * version: nobody works on it any more, the manager included. Anything further
+ * is a follow-on task. (Letting a manager remove an accepted task from the
+ * context is for a later version.)
+ *
+ * Read off the approvals, not stored on the task, so a task somebody merely
+ * marked done by hand is not locked and can still be reopened.
+ */
+function assertNotAccepted(task, teamctxDir) {
+  const accepted = Object.values(readApprovals(teamctxDir) || {}).find(a => a?.forTask === task.id);
+  if (!accepted) return;
+  const by = accepted.approvedBy?.name ? ` by ${accepted.approvedBy.name}` : '';
+  throw new Error(`Task ${task.key || task.id} was accepted${by} and is closed. Add a follow-on task for anything further.`);
+}
+
+/**
+ * The most that one output may hold. Refused above it, never cut short: a
+ * silently shortened draft is worse than one that was not saved.
+ */
+export const MAX_OUTPUT_CHARS = 50_000;
+
+/**
+ * What changed in the context since somebody last worked on this task (or
+ * `null`). A task nobody has touched has nothing to go stale. The trees that
+ * count are the project, every ancestor and the task's own part.
+ */
+function changedSinceFor(task, saved, teamctxDir, read = {}) {
+  // In progress means not done; a closed task's accepted work is not news.
+  if (task.status === 'done') return null;
+  const since = lastActivity({ outputs: saved, task });
+  if (!since) return null;
+  // A caller asking twice (compile does) passes `read` so config and the log are
+  // read once; changesReaching applies `since` itself.
+  const config = (read.config ??= readConfig(teamctxDir) || {});
+  const ws = resolveTarget(task.workstream);
+  const trees = [null, ...(ws ? [...ancestorsOf(config, ws), ws] : [])];
+  const entries = read.entries ?? (read.entries = listChanges({}, teamctxDir));
+  const found = changesReaching({ entries, trees, since });
+  if (!found.changes.length) return null;
+  return changedSummary(found, labelFor(config));
+}
+
+/**
+ * One task, with what has been produced on it (#197).
+ *
+ * `outputs` is the latest in full and the earlier ones as a list without their
+ * text, so a long history does not grow what an assistant is handed; ask for
+ * one by id with `output` to open it. `null` when nothing was saved.
+ */
+export function getTask({ id, output, teamctxDir } = {}) {
   const { task, workstream } = findTask(id, teamctxDir);
-  return {
+  const saved = withStates(listOutputs(task.id, teamctxDir), teamctxDir);
+  const base = {
     ...task,
     workstream,
     promptPath: taskFileExists(task.id, teamctxDir) ? taskFilePath(task.id, teamctxDir) : null,
+    changedSince: changedSinceFor(task, saved, teamctxDir),
+  };
+  if (output) {
+    const found = saved.find(o => o.id === output);
+    if (!found) throw new Error(`no output "${output}" on task ${task.key || task.id}`);
+    return { ...base, outputs: summarise(saved), output: found };
+  }
+  return { ...base, outputs: summarise(saved) };
+}
+
+function withStates(saved, teamctxDir) {
+  if (!saved.length) return saved;
+  return outputStates(saved, {
+    approvals: readApprovals(teamctxDir),
+    waiting: new Set(listQueue(teamctxDir).flatMap(q => (Array.isArray(q.outputs) ? q.outputs : []))),
+  });
+}
+
+function summarise(saved) {
+  if (!saved.length) return null;
+  const latest = saved[saved.length - 1];
+  return {
+    latest,
+    earlier: saved.slice(0, -1).map(o => ({ id: o.id, title: o.title, author: o.author, at: o.at, state: o.state })),
   };
 }
 
@@ -227,12 +305,138 @@ export async function addTask({
   return { task, ...git };
 }
 
+// Outputs are ordered by when they were saved, so two saved in the same
+// millisecond must not tie: the later one would be "latest" only by luck.
+let lastStamp = 0;
+function nextStamp() {
+  lastStamp = Math.max(Date.now(), lastStamp + 1);
+  return lastStamp;
+}
+
+/**
+ * Save something somebody produced on a task, word for word.
+ *
+ * Not a change to the project: nothing here is queued or needs approving, the
+ * task is not touched, and no one is asked a question. Submitting the work for
+ * approval is a separate step. An output is never edited; working on one
+ * further saves a new output with `basedOn` pointing back at it.
+ */
+export async function saveOutput({
+  id, body, title, prompt, notes, basedOn, source, teamctxDir, projectDir, actor,
+} = {}) {
+  const config = readConfig(teamctxDir);
+  const { task } = findTask(id, teamctxDir);
+  assertNotAccepted(task, teamctxDir);
+  const text = typeof body === 'string' ? body : '';
+  if (!text.trim()) throw new Error('the output is empty: there is nothing to save');
+  if (text.length > MAX_OUTPUT_CHARS) {
+    throw new Error(`the output is too long to save (${text.length} characters; the most is ${MAX_OUTPUT_CHARS}). Save it in parts.`);
+  }
+  const saved = listOutputs(task.id, teamctxDir);
+  if (basedOn && !saved.some(o => o.id === basedOn)) {
+    throw new Error(`no output "${basedOn}" on task ${task.key || task.id} to build on`);
+  }
+  const resolved = actor || await resolveActor({ config, cwd: projectDir });
+  const me = await resolveDisplayName({ actor: resolved, config, teamctxDir });
+  const firstLine = text.trim().split('\n')[0].trim();
+  const stamp = nextStamp();
+  const output = {
+    id: `o-${stamp.toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
+    task: task.id,
+    title: (typeof title === 'string' && title.trim() ? title.trim() : firstLine).slice(0, 120),
+    body: text,
+    author: { key: resolved?.key || null, name: me },
+    source: source || null,
+    at: new Date(stamp).toISOString(),
+    prompt: typeof prompt === 'string' && prompt.trim() ? prompt : null,
+    notes: typeof notes === 'string' && notes.trim() ? notes : null,
+    basedOn: basedOn || null,
+    state: 'working',
+  };
+  writeOutput(output, teamctxDir);
+  const git = await commitAndPush(config, `output: ${me} saved ${output.id} on ${task.id}`, projectDir);
+  return { output, task, ...git };
+}
+
+/**
+ * Put outputs in front of the manager for approval.
+ *
+ * Deliberately not `contribute`: nothing here is read by an AI and turned into
+ * records. What the manager is asked about is the outputs themselves, and what
+ * the line on the queue says is built from their titles, so it cannot claim
+ * anything the person did not. The item is for the task, so it waits under the
+ * task's own number. Approving it is a separate act (`approveReview`).
+ *
+ * `outputs` is a list of output ids, `'all'`, or absent for the latest.
+ */
+export async function submitTask({
+  id, outputs, message, source, teamctxDir, projectDir, actor,
+} = {}) {
+  const config = readConfig(teamctxDir);
+  const { task } = findTask(id, teamctxDir);
+  assertNotAccepted(task, teamctxDir);
+  const saved = listOutputs(task.id, teamctxDir);
+  if (!saved.length) throw new Error(`nothing saved on task ${task.key || task.id} to submit: save the work as an output first`);
+  let chosen;
+  if (outputs === 'all') chosen = saved;
+  else if (Array.isArray(outputs) && outputs.length) {
+    chosen = outputs.map(oid => {
+      const found = saved.find(o => o.id === oid);
+      if (!found) throw new Error(`no output "${oid}" on task ${task.key || task.id}`);
+      return found;
+    });
+  } else chosen = [saved[saved.length - 1]];
+
+  const resolved = actor || await resolveActor({ config, cwd: projectDir });
+  const me = await resolveDisplayName({ actor: resolved, config, teamctxDir });
+  const summary = `Submitted: ${chosen.map(o => o.title).join('; ')}`;
+  const said = typeof message === 'string' && message.trim() ? message.trim() : null;
+  const src = source || 'cli';
+  const contribution = {
+    id: `${src === 'mcp' ? 'mcp' : 'c'}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    ts: new Date().toISOString(),
+    author: me,
+    ...(resolved?.key ? { authorKey: resolved.key } : {}),
+    text: said || summary,
+    tagged: null,
+    source: src,
+    workstream: task.workstream,
+    status: 'logged',
+    forTask: task.id,
+  };
+  appendContribution(contribution, teamctxDir);
+  writeQueueItem({
+    id: contribution.id, status: 'pending', createdAt: contribution.ts,
+    ...(task.key ? { number: task.key } : {}),
+    author: me, source: src, workstream: task.workstream,
+    text: contribution.text, tagged: null, summary, operations: [],
+    forTask: task.id, outputs: chosen.map(o => o.id),
+  }, teamctxDir);
+  const trailer = src === 'cli' ? '' : `\n\nSource: ${src}`;
+  const git = await commitAndPush(config, `queue: ${me} submission for ${task.id} pending approval (${contribution.id})${trailer}`, projectDir);
+  return { id: contribution.id, mode: 'queued', number: task.key || null, outputs: chosen.map(o => o.id), summary, task, ...git };
+}
+
+/**
+ * The task as it is once marked done or reopened. Pure, and shared with
+ * accepting a submission, which closes the task in the same write as the
+ * context change so a failure part-way cannot leave one without the other.
+ */
+export function withStatus(task, status, by, at = new Date().toISOString()) {
+  const entry = { did: status === 'done' ? 'completed' : 'reopened', by, at };
+  const statusLog = [...(Array.isArray(task.statusLog) ? task.statusLog : []), entry];
+  return status === 'done'
+    ? { ...task, status: 'done', doneAt: todayIso(), doneBy: by, statusLog }
+    : { ...task, status: 'open', doneAt: null, doneBy: null, statusLog };
+}
+
 export async function setTaskStatus({
   id, status, teamctxDir, projectDir, actor,
 } = {}) {
   const config = readConfig(teamctxDir);
   const { task } = findTask(id, teamctxDir);
   if (task.status === status) return { task, unchanged: true, committed: false, pushed: false };
+  if (status === 'open') assertNotAccepted(task, teamctxDir);
 
   // Who did it and when, appended, so a task completed, reopened and completed
   // again keeps all three for its history (#143). `doneAt` stays a date for
@@ -240,11 +444,7 @@ export async function setTaskStatus({
   const resolved = actor || await resolveActor({ config, cwd: projectDir });
   const me = await resolveDisplayName({ actor: resolved, config, teamctxDir });
   const by = { key: resolved?.key || null, name: me };
-  const entry = { did: status === 'done' ? 'completed' : 'reopened', by, at: new Date().toISOString() };
-  const statusLog = [...(Array.isArray(task.statusLog) ? task.statusLog : []), entry];
-  const updated = status === 'done'
-    ? { ...task, status: 'done', doneAt: todayIso(), doneBy: by, statusLog }
-    : { ...task, status: 'open', doneAt: null, doneBy: null, statusLog };
+  const updated = withStatus(task, status, by);
   writeTask(updated, teamctxDir);
 
   const verb = status === 'done' ? 'done' : 'reopen';
@@ -266,6 +466,7 @@ export async function removeTask({ id, teamctxDir, projectDir, actor } = {}) {
   const config = readConfig(teamctxDir);
   // Resolve first so a bad id fails before anything is deleted.
   const { task } = findTask(id, teamctxDir);
+  assertNotAccepted(task, teamctxDir);
   const { id: removedId, workstream } = deleteTask(id, teamctxDir);
   const me = await whoAmI({ config, teamctxDir, projectDir, actor });
   const git = await commitAndPush(config, `task: rm ${removedId} by ${me}`, projectDir);
@@ -292,14 +493,25 @@ export async function compileTask({
   const wsId = task.workstream;
   const workstream = readTree(wsId, teamctxDir);
   const currentHash = contextHash(workstream);
+  // The fingerprint covers only the task's own part, so a change in the project
+  // or an ancestor would leave a stale prompt looking current. Staleness is
+  // judged from the compile time alone: saving an output afterwards must not
+  // hide that the prompt predates a change.
+  const read = {};
+  const staleFlag = changedSinceFor(task, [], teamctxDir, read);
+  // An odd task id must not stop a compile, hence the guard on this read only.
+  let saved = [];
+  try { saved = listOutputs(task.id, teamctxDir); } catch { saved = []; }
+  const flag = changedSinceFor(task, saved, teamctxDir, read) || staleFlag;
 
-  if (!force && taskFileExists(task.id, teamctxDir) && task.compiledFromHash === currentHash) {
+  if (!force && !staleFlag && taskFileExists(task.id, teamctxDir) && task.compiledFromHash === currentHash) {
     return {
       task,
       role: roleSlug || null,
       markdown: readTaskFile(task.id, teamctxDir),
       promptPath: taskFilePath(task.id, teamctxDir),
       alreadyCompiled: true,
+      changedSince: null,
       committed: false,
       pushed: false,
     };
@@ -334,6 +546,7 @@ export async function compileTask({
     markdown,
     promptPath: taskFilePath(task.id, teamctxDir),
     alreadyCompiled: false,
+    changedSince: flag,
     ...git,
   };
 }

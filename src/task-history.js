@@ -15,8 +15,8 @@
 /** How a contribution arrived, in the words the history uses. */
 const VIA = { mcp: 'assistant', cli: 'cli', web: 'web' };
 
-/** Does this queued or rejected item propose a change to this task? */
-export const touchesTask = (item, taskId) => (Array.isArray(item?.operations) ? item.operations : [])
+/** Does this queued or rejected item propose a change to this task, or submit work for it? */
+export const touchesTask = (item, taskId) => item?.forTask === taskId || (Array.isArray(item?.operations) ? item.operations : [])
   .some(op => ['editTask', 'removeTask'].includes(op?.type) && op.id === taskId);
 
 /**
@@ -66,9 +66,19 @@ export function taskHistory({
     }
   }
 
+  // Work submitted for the task and accepted. Such a submission proposes no
+  // change to the plan, so nothing in the task points back to it; the approval
+  // itself says which task it was for.
+  for (const [id, a] of Object.entries(task ? approvals : {})) {
+    if (a?.forTask !== task.id) continue;
+    if (contributions[id]) submitted({ ...contributions[id], id }, contributions[id].ts);
+    events.push({ at: a.approvedAt || null, by: a.approvedBy ? name(a.approvedBy.name) : null, did: 'accepted', contribution: id });
+  }
+
   for (const r of task ? rejected.filter(r => touchesTask(r, task.id)) : []) {
     submitted(r, r.createdAt || r.ts);
-    events.push({ at: r.rejectedAt || null, by: name(r.rejectedBy), did: 'rejected', contribution: r.id, ...(r.reason ? { reason: r.reason } : {}) });
+    // Work submitted for a task gets feedback, not a rejection: the task stays open.
+    events.push({ at: r.rejectedAt || null, by: name(r.rejectedBy), did: r.forTask ? 'feedback' : 'rejected', contribution: r.id, ...(r.reason ? { reason: r.reason } : {}) });
   }
 
   const waiting = [...pending, ...(task ? queue.filter(q => touchesTask(q, task.id)) : [])];
@@ -96,13 +106,13 @@ export function taskHistory({
   const order = events.map((e, i) => [e, i]);
   order.sort(([a, i], [b, j]) => (a.at && b.at ? String(a.at).localeCompare(String(b.at)) : 0) || i - j);
 
-  const status = !task ? 'not-approved' : events.some(e => e.did === 'approved') ? 'approved' : 'added';
+  const status = !task ? 'not-approved' : events.some(e => e.did === 'accepted') ? 'accepted' : events.some(e => e.did === 'approved') ? 'approved' : 'added';
   return { status, waiting: waiting.length > 0, events: order.map(([e]) => e) };
 }
 
 /** The status line, in words. */
 export function historyStatus({ status, waiting }) {
-  const base = { approved: 'Approved', added: 'Added', 'not-approved': 'Not approved yet' }[status] || 'Added';
+  const base = { accepted: 'Accepted', approved: 'Approved', added: 'Added', 'not-approved': 'Not approved yet' }[status] || 'Added';
   return waiting && status !== 'not-approved' ? `${base} · a new submission is waiting` : base;
 }
 
@@ -113,6 +123,8 @@ export function historyLine(e) {
     case 'submitted': return `submitted it ${how[e.via] || ''}`.trim();
     case 'approved': return e.byPolicy ? 'went in without review, under the project’s review policy' : 'approved it';
     case 'rejected': return `rejected it${e.reason ? `: ${e.reason}` : ''}`;
+    case 'accepted': return 'accepted the submitted work';
+    case 'feedback': return `sent feedback${e.reason ? `: ${e.reason}` : ''}`;
     case 'completed': return 'marked it done';
     case 'reopened': return 'reopened it';
     case 'added': return e.unrecorded ? 'added to the plan' : 'added it';

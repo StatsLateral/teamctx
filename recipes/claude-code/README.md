@@ -41,6 +41,10 @@ Review the proposed diff carefully before letting Claude Code apply it —
 and hand-edits are fine, but the file is committed to your team's repo, so
 mistakes are visible.
 
+## Offer decisions as they are made
+
+Put the instruction from [`offer-decisions.md`](../offer-decisions.md) in your project's `CLAUDE.md` (or `~/.claude/CLAUDE.md` to have it everywhere). Claude Code then offers, and runs `teamctx contribute` only after you say yes.
+
 ## Tips
 
 - If you use Claude Code in this repo often, consider adding a project-level

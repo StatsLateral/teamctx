@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('../../src/storage.js', () => ({
+  writeChange: vi.fn(), listChanges: vi.fn(() => []),
   readTree: vi.fn(() => ({ id: 'main', name: 'M', records: [], tasks: [] })),
   writeTree: vi.fn(),
   readTreeMd: vi.fn(() => ''),
@@ -20,6 +21,10 @@ vi.mock('../../src/storage.js', () => ({
   writeTaskFile: vi.fn(),
   taskFilePath: vi.fn(id => `/fake/tasks/${id}.md`),
   taskFileExists: vi.fn(() => false),
+  listOutputs: vi.fn(() => []),
+  readApprovals: vi.fn(() => ({})),
+  listQueue: vi.fn(() => []),
+  writeOutput: vi.fn(),
 }));
 
 vi.mock('../../src/context.js', () => ({
