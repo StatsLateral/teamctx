@@ -164,3 +164,22 @@ describe('the bring-your-own-agent recipe for offering decisions', () => {
     }
   });
 });
+
+describe('a member carrying on with earlier work', () => {
+  it('is sent to the task\'s saved work before starting', () => {
+    expect(INSTRUCTIONS).toMatch(/get_task/);
+    expect(INSTRUCTIONS).toMatch(/start from\s+the latest, not\s+from the title/);
+  });
+
+  it('saves each round with task_output and submits only when asked', () => {
+    expect(INSTRUCTIONS).toMatch(/task_output/);
+    expect(INSTRUCTIONS).toMatch(/task_submit/);
+    expect(INSTRUCTIONS).toMatch(/only when they ask/);
+  });
+
+  it('tells the assistant to start from the saved work in task_compile and my_brief too', () => {
+    const of = (n) => TOOLS.find(t => t.name === n).description;
+    expect(of('task_compile')).toMatch(/start from the latest/);
+    expect(of('my_brief')).toMatch(/savedOutputs/);
+  });
+});
