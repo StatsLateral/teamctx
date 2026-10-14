@@ -1,5 +1,6 @@
 import { readFileSync } from 'fs';
 import { join } from 'path';
+import { withFreshness } from '../../src/freshness.js';
 
 export default function handler(req, res) {
   const { role } = req.query;
@@ -23,5 +24,5 @@ export default function handler(req, res) {
   res.setHeader('Content-Type', 'text/plain; charset=utf-8');
   res.setHeader('Content-Disposition', `attachment; filename="${role}.md"`);
   res.setHeader('Cache-Control', 'no-cache');
-  res.send(content);
+  res.send(withFreshness(content, join(process.cwd(), '.teamctx')));
 }

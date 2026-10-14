@@ -4,6 +4,7 @@ import dotenv from 'dotenv';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
+import { freshness, freshnessLine, withFreshness } from '../src/freshness.js';
 import {
   getTeamctxDir,
   readConfig, readWorkstream, readProject, listWorkstreamIds,
@@ -975,7 +976,7 @@ export function makeHandlers(projectRoot) {
       // walked around by asking for the role instead.
       const found = (config.roles || []).find(r => r.slug === role);
       if (found) assertInScope(await scope(teamctxDir, config), resolveTarget(found.workstream));
-      return textResult(readRoleFile(role, teamctxDir));
+      return textResult(withFreshness(readRoleFile(role, teamctxDir), teamctxDir));
     },
 
     async list_roles() {
@@ -1116,6 +1117,9 @@ export function makeHandlers(projectRoot) {
         workstreams,
         ...(allowed ? { scopedTo: allowed } : {}),
         contributions: { total: contributions.length, decisions: decisions.length },
+        // How old the approved context is and how much is waiting, so an
+        // assistant can tell a stale context from a current one (#183).
+        freshness: (() => { const f = freshness(teamctxDir); return { ...f, line: freshnessLine(f) }; })(),
         // Filtered for the same reason `list_roles` is: a role name and the
         // workstream behind it are two of the things a scope keeps back, and
         // this response hides those workstream ids three lines above.

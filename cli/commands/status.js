@@ -1,6 +1,7 @@
 import { readProject, readConfig, readWorkstream, listWorkstreamIds, readContributions, listTasks } from '../../src/storage.js';
 import { resolveActor } from '../../src/actor.js';
 import { resolveActiveWorkstream, resolveIdentity } from '../../src/prefs.js';
+import { freshness, freshnessLine } from '../../src/freshness.js';
 import { isProjectLevel } from '../../src/project-level.js';
 
 export async function statusCommand() {
@@ -40,6 +41,7 @@ export async function statusCommand() {
     });
   }
   console.log(`  Contributions: ${contributions.length} total, ${decisions.length} decisions`);
+  console.log(`  Freshness:    ${freshnessLine(freshness())}`);
   console.log(`  Tasks:        ${openTasks} open, ${doneTasks} done${compiledTasks ? ` (${compiledTasks} compiled)` : ''}`);
   console.log(`\nRoles (${config.roles.length}):`);
 
