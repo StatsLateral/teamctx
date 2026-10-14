@@ -109,11 +109,14 @@ are not on the card: they are produced during the review, in the assistant, wher
 **In progress** means a task that is not done and has a saved output or a compiled prompt. A task
 nobody has touched has nothing to go stale.
 
-**Since** is the task's last activity: its newest output or its compile time, whichever is later.
+**Done and accepted tasks are never flagged.** They are closed; there is nothing to carry on.
 
-**A change counts** if it is newer than that and is one of: a change to the project, to an ancestor
-workstream, to the task's own workstream, or one that touched the task directly. A sibling workstream's
-change does not count; it does not flow down.
+**Since** is the task's last activity: its newest output or its compile time, whichever is later. A
+compiled prompt's staleness is measured from its compile time only.
+
+**A change counts** if it is newer than that and its tree is in the task's chain: the project, an
+ancestor workstream, or the task's own part. A sibling workstream's change does not count; it does not
+flow down. Malformed change entries are ignored or normalised, never an error.
 
 **Where it shows:**
 
@@ -121,7 +124,7 @@ change does not count; it does not flow down.
   Its description tells the assistant to say so first and check the existing output against the changes
   before carrying on.
 - `task_compile` returns the same list.
-- The task drawer shows the same note to anyone who can see the task. Scope applies: a member sees only
+- The task drawer shows the same note, headed "Changed since this was last worked on", to anyone who can see the task. Scope applies: a member sees only
   changes from the project, the ancestors and their own part.
 
 **Clearing.** No dismiss. Saving a new output, or recompiling, moves "last activity" forward, so the
@@ -188,9 +191,9 @@ Checked, nothing to borrow for the core.
   drops an invalid pick with a reason, and leaves unpicked suggestions unwritten.
 - `reach` for: a task acceptance; a project-level change; a workstream with no children; work in
   progress counts and the three-task cap.
-- Pickup flag: includes project, ancestor, own-workstream and task-touching changes; excludes a sibling's
-  and anything older than last activity; cleared by a new output or a recompile; nothing for a task
-  nobody has touched; scoped for a member.
+- Pickup flag: includes project, ancestor and own-part changes; excludes a sibling's and anything older than last
+  activity; cleared by a new output or a recompile; nothing for a task nobody has touched or one that is
+  done; scoped for a member.
 - Compiled prompt: a project-level change makes a downstream prompt stale (it did not before).
 - A summary that quotes injected text reaches the assistant quoted, with the do-not-follow note.
 - A full flow through the tool handlers with no page: submit, accept with picks, then a later pickup of an
