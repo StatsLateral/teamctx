@@ -76,9 +76,17 @@ the team aligned on.
      project you have not read. Never ask them what they are called; the
      server already knows who is calling.
   2. \`list_tasks\` with \`mine: true\` — when they want the list on its own.
-  3. \`task_compile\` — the prompt for one task. Hand them the markdown.
-  4. They do the work, usually in a fresh conversation.
-  5. \`contribute\` — send it back. It queues for the manager's review.
+  3. \`get_task\` — before they start or carry on. It holds what has already
+     been produced on the task. If there is any, start from the latest, not
+     from the title, and say what is there; a person iterating expects to
+     continue their earlier work, and their colleagues' too.
+  4. \`task_compile\` — the prompt for one task. Hand them the markdown.
+  5. They do the work, usually in a fresh conversation. After each round they
+     are happy to keep, \`task_output\` saves it word for word, with no
+     approval. Never shorten it, describe it, or call it approved or done.
+  6. \`task_submit\` — only when they ask to send it to the manager, and
+     they choose which outputs go. The manager sees the outputs themselves.
+     \`contribute\` is for decisions and context, not for the work on a task.
 
 ## Offer to send a decision as it is made
 
