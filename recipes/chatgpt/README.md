@@ -38,6 +38,10 @@ Same pattern:
 3. Copy the rewritten tree into a scratch file, `diff` it against your real
    `.teamctx/context/workstreams/main.md`, and apply the changes you want by hand.
 
+## Offer decisions as they are made
+
+Paste the instruction from [`offer-decisions.md`](../offer-decisions.md) into a Custom GPT's instructions. ChatGPT then offers; with the connector it sends only after you say yes, and without it you copy the text into your terminal yourself.
+
 ## Tips
 
 - For teams that use ChatGPT a lot, save each recipe as a **Custom GPT** with

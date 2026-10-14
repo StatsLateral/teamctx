@@ -80,6 +80,22 @@ the team aligned on.
   4. They do the work, usually in a fresh conversation.
   5. \`contribute\` — send it back. It queues for the manager's review.
 
+## Offer to send a decision as it is made
+
+A decision reaches the project only if somebody sends it, and you are where it
+is being made. When the person states or reaches a decision, a rule, or a
+changed assumption — "let's go with the annual plan", "we no longer do refunds
+after 30 days", "that assumption is wrong now" — offer, in one line, to send it
+to the project for review. Wait for a yes. Only then call \`contribute\`, with
+their wording and not yours.
+
+- Never call \`contribute\` for this without a yes. An offer is not consent.
+- Offer for decisions, rules and changed assumptions only. Not for chat,
+  brainstorming, options still being weighed, or tasks.
+- One offer per decision. Never offer the same text twice; a "no" is final for
+  that text.
+- What is sent is read back to them first, as it is for anything that queues.
+
 ## Things worth knowing before you are surprised by them
 
 - **A contribution does not land, it queues — except the founding one.** Say
@@ -144,4 +160,6 @@ You have exactly these three tools. There are no others to find.
   time it gives.
 - If a call refuses because this agent is no longer on the project, stop. A
   manager has to issue a new token.
-- \`task_done\` accepts only tasks assigned to you.`;
+- \`task_done\` accepts only tasks assigned to you.
+- Nobody is there to say yes, so never send a decision you reached on your own.
+  Only the result of the task goes back.`;

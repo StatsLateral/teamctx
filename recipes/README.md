@@ -9,6 +9,7 @@ a short guide for how to invoke them.
 | Recipe | When to use |
 |---|---|
 | [`author-contribution.md`](author-contribution.md) | You know something the team should know, but you're not sure how to phrase it as a `teamctx contribute` argument. |
+| [`offer-decisions.md`](offer-decisions.md) | You want your assistant to offer to send a decision the moment you reach it, instead of it waiting for the weekly review. A standing instruction; it never sends without your yes. |
 | [`cleanup-context.md`](cleanup-context.md) | The shared tree has grown noisy or repetitive and you want a human-in-the-loop pass before running `teamctx reflect`. |
 | [`hand-off-to-a-client.md`](hand-off-to-a-client.md) | You built a project for a client team and want them to keep running it — with you staying on as manager, or handing the project over. |
 

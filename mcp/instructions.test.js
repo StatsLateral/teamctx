@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { INSTRUCTIONS } from './instructions.js';
+import { readFileSync } from 'fs';
+import { INSTRUCTIONS, AGENT_INSTRUCTIONS } from './instructions.js';
 import { TOOLS } from './server.js';
 
 /**
@@ -110,5 +111,56 @@ describe('the model the instructions describe', () => {
 describe('the labels the instructions teach', () => {
   it('are the four the MVP governs', () => {
     expect(INSTRUCTIONS).not.toMatch(/Open question:|Risk:/);
+  });
+});
+
+describe('offering a decision as it is made', () => {
+  // The rule exists to keep an assistant from sending what nobody agreed to
+  // send, so these pin the consent half before the offering half.
+  it('waits for a yes before calling contribute', () => {
+    expect(INSTRUCTIONS).toMatch(/Wait for a yes/);
+    expect(INSTRUCTIONS).toMatch(/Never call `contribute` for this without a yes/);
+  });
+
+  it('offers for decisions, rules and changed assumptions, not chat, brainstorming or tasks', () => {
+    expect(INSTRUCTIONS).toMatch(/decision, a rule, or a\s+changed assumption/);
+    expect(INSTRUCTIONS).toMatch(/Not for chat,\s+brainstorming, options still being weighed, or tasks/);
+  });
+
+  it('offers once per decision and treats a no as final', () => {
+    expect(INSTRUCTIONS).toMatch(/One offer per decision/);
+    expect(INSTRUCTIONS).toMatch(/a "no" is final/);
+  });
+
+  it('reads back what is sent', () => {
+    expect(INSTRUCTIONS).toMatch(/read back to them first/);
+  });
+
+  it('is carried by contribute too, for a client that ignores instructions', () => {
+    const contribute = TOOLS.find(t => t.name === 'contribute').description;
+    expect(contribute).toMatch(/only after they say yes/);
+    expect(contribute).toMatch(/a no is final/);
+  });
+
+  it('is not asked of an unattended agent, which has nobody to say yes', () => {
+    expect(AGENT_INSTRUCTIONS).toMatch(/never send a decision you reached on your own/);
+  });
+});
+
+describe('the bring-your-own-agent recipe for offering decisions', () => {
+  const recipe = readFileSync(new URL('../recipes/offer-decisions.md', import.meta.url), 'utf-8');
+
+  it('carries the same consent rule', () => {
+    expect(recipe).toMatch(/Wait for my yes/);
+    expect(recipe).toMatch(/Never send anything without a yes/);
+    expect(recipe).toMatch(/Not for chat,\s+brainstorming/);
+    expect(recipe).toMatch(/Offer once per decision/);
+    expect(recipe).toMatch(/that\s+is final for that text/);
+  });
+
+  it('is listed in the recipes index and in each tool guide', () => {
+    for (const f of ['README.md', 'claude-code/README.md', 'cursor/README.md', 'chatgpt/README.md']) {
+      expect(readFileSync(new URL(`../recipes/${f}`, import.meta.url), 'utf-8'), f).toMatch(/offer-decisions\.md/);
+    }
   });
 });
