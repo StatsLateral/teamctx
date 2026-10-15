@@ -183,6 +183,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   link and the member gate agree.
 
 ### Fixed
+- **A contribution with two changes flagged against one decision can be approved.** A new
+  decision that replaces an old one, sent with a new rule about the same thing, had both
+  flagged against the old decision. Naming it in `--replaces` failed because a rule cannot
+  replace a decision, and leaving it out failed because the new decision needed it, so the
+  item could only be rejected. Now the change of the same type replaces it, and the other
+  is added beside it, since a retired decision contradicts nothing. Nothing is approved
+  without the manager naming the record, as before.
 - **A connector whose GitHub sign-in GitHub has stopped accepting now signs in again by
   itself.** It used to get a normal tool answer ("disconnect and connect again"), which an
   assistant cannot act on and a client never does, and a refresh carried the dead GitHub
