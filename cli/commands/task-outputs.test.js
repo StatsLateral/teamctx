@@ -115,7 +115,7 @@ describe('picking a task up', () => {
 });
 
 describe('the feedback on an output that was sent back', () => {
-  const asker = (over) => ({ keys: [], name: 'Nobody', isManager: false, ...over });
+  const asker = (over) => ({ keys: [], isManager: false, ...over });
   let output;
   beforeEach(async () => {
     ({ output } = await save(member, { body: 'A draft', title: 'Draft 1', source: 'mcp' }));
@@ -126,9 +126,11 @@ describe('the feedback on an output that was sent back', () => {
   it('goes to the person who wrote it, a manager, and whoever the task is assigned to', () => {
     expect(feedback(asker({ keys: [member.key] }))?.reason).toBe('Fix three points');
     expect(feedback(asker({ isManager: true }))?.reason).toBe('Fix three points');
-    expect(feedback(asker({ name: task.owner }))?.reason).toBe('Fix three points');
+    expect(feedback(asker({ keys: [manager.key] }))?.reason).toBe('Fix three points');
   });
   it('goes to nobody else, and to a caller that cannot say who it is', () => {
+    // A name is not an identity: sharing the owner's name does not make anyone the assignee.
+    expect(feedback({ keys: ['git:other@x'], name: task.owner, isManager: false })).toBeUndefined();
     expect(feedback(asker({ keys: ['git:other@x'] }))).toBeUndefined();
     expect(feedback(undefined)).toBeUndefined();
   });

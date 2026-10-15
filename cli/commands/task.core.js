@@ -256,7 +256,7 @@ export function getTask({ id, output, teamctxDir, reader } = {}) {
 /**
  * Put the manager's feedback on an output that was sent back, for the people it
  * is for: a manager, whoever wrote the output, and whoever the task is assigned
- * to, whatever the source of the work. `reader` is who is asking ({ keys, name,
+ * to, whatever the source of the work. `reader` is who is asking ({ keys,
  * isManager }); without one nothing is added, so a caller that cannot say who it
  * is never gets somebody's feedback. An assistant carrying on from an output
  * that was sent back has to see why, or it works from the draft that was turned
@@ -265,7 +265,11 @@ export function getTask({ id, output, teamctxDir, reader } = {}) {
 export function withFeedback(saved, task, reader, teamctxDir) {
   if (!reader || !saved.some(o => o.state === 'working')) return saved;
   const keys = new Set((reader.keys || []).filter(Boolean));
-  const assigned = (!!task.ownerKey && keys.has(task.ownerKey)) || (!!task.owner && task.owner === reader.name);
+  // By key, or by the roster entry the task's owner name belongs to: a name the
+  // caller chose for themselves proves nothing, the roster's keys do.
+  const members = (readConfig(teamctxDir)?.members || []);
+  const assigned = (!!task.ownerKey && keys.has(task.ownerKey))
+    || members.some(m => m?.key && keys.has(m.key) && !!task.owner && m.name === task.owner);
   let rejected = [];
   try { rejected = listRejected(teamctxDir).filter(r => r?.forTask === task.id); } catch { rejected = []; }
   return saved.map(o => {

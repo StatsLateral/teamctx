@@ -918,8 +918,8 @@ export function makeHandlers(projectRoot) {
     if (agent) return null;
     const config = readConfig(teamctxDir);
     const actor = await resolveActor({ config, cwd: gitCwd });
-    const name = await resolveDisplayName({ actor, config, teamctxDir });
-    return { keys: [actor.key, ...(actor.keys || [])], name, isManager: canApprove(config, { actor, displayName: name }) };
+    const displayName = await resolveDisplayName({ actor, config, teamctxDir });
+    return { keys: [actor.key, ...(actor.keys || [])], isManager: canApprove(config, { actor, displayName }) };
   };
 
   const assertTaskInScope = async (teamctxDir, id) => {
