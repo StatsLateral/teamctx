@@ -682,7 +682,8 @@ describe('Connected sources, with nothing recorded yet', () => {
     expect(html).toMatch(/Nothing is connected yet/);
     expect(html).toMatch(/sample data/i);
     expect(html).toMatch(/contribut/i);
-    expect(html).toContain('https://github.com/StatsLateral/teamctx/issues');
+    // The issue that lists every connector, not the general issues page.
+    expect(html).toContain('href="https://github.com/StatsLateral/teamctx/issues/168"');
   });
 
   it('shows a few connectors and what came from them, as the demo does', async () => {
