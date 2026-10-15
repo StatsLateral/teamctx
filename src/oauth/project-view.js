@@ -1,12 +1,15 @@
 import { GithubSession } from '../adapters/github.js';
 import { runWithSession } from '../session-context.js';
-import { readConfig, readProject, readWorkstream, listTasks, readContributions, readApprovals, listRejected } from '../storage.js';
+import { readConfig, readProject, readWorkstream, listTasks, readContributions, readApprovals, listRejected, listQueue, listOutputs, listChanges } from '../storage.js';
+import { outputStates, outputsForReader } from '../outputs.js';
 import { taskHistory, touchesTask } from '../task-history.js';
 import { listAllWorkstreams } from '../../cli/commands/workstream.core.js';
 import { listMembers, memberByEmail } from '../../cli/commands/member.core.js';
 import { listPendingReviews } from '../../cli/commands/review.core.js';
 import { scopeFor, inScope } from '../member-scope.js';
 import { resolveTarget } from '../project-level.js';
+import { ancestorsOf } from '../model.js';
+import { changesReaching, lastActivity, changedSummary, labelFor } from '../changes.js';
 import { workstreamLocation } from '../views/workstream-location.js';
 import { managerKeys, matchesActor } from '../review.js';
 import { flaggedInProject, projectRecords } from '../project-records.js';
@@ -82,12 +85,29 @@ function membersOn(members, id) {
   return members.filter(m => !m.workstreams?.length || m.workstreams.includes(id));
 }
 
-export async function readProjectView({ owner, repo, user }) {
+/**
+ * Open a project as somebody, and run `body` inside it.
+ *
+ * Every page that reads a project starts the same way: a credential, the
+ * repository, who this person has proved they are, and the checks that decide
+ * whether they may look at all. Kept in one place so a new page cannot skip one.
+ */
+async function openProject({ owner, repo, user }, body) {
   const { ghToken, actor, checkRoster } = await accessFor({ owner, repo, user });
   const session = new GithubSession({ owner, repo, ghToken });
   try {
     await session.prefetch();
   } catch (e) {
+    // GitHub refusing the credential itself is not "could not be read": nothing
+    // is wrong with the project, and the person looking can do something about
+    // it. Raw GitHub JSON told a team member nothing — least of all that the one
+    // who can fix it is the manager, not them.
+    if (/→ 401\b/.test(e.message)) {
+      throw new ProjectViewError(checkRoster
+        ? `${owner}/${repo} is shared through GitHub access its manager lent, and GitHub no longer accepts it. `
+          + 'Nothing is wrong with your account. Ask the manager to lend the access again from teamctx Settings.'
+        : 'GitHub no longer accepts your sign-in. Sign out and sign in again.');
+    }
     throw new ProjectViewError(`${owner}/${repo} could not be read: ${e.message}`);
   }
 
@@ -116,7 +136,12 @@ export async function readProjectView({ owner, repo, user }) {
         + 'Ask the manager to add that exact address, or sign in with the one they invited.');
     }
     const allowed = scopeFor(config, actor, { isManager });
+    return body({ config, actor, isManager, allowed });
+  });
+}
 
+export async function readProjectView({ owner, repo, user }) {
+  return openProject({ owner, repo, user }, async ({ config, actor, isManager, allowed }) => {
     const members = listMembers({}).filter(m => m.kind !== 'agent');
     const agents = listMembers({}).filter(m => m.kind === 'agent');
     const everyPart = await listAllWorkstreams({});
@@ -171,22 +196,61 @@ export async function readProjectView({ owner, repo, user }) {
       canSee: (name) => isManager || visible.has(name), isAgent: (name) => agentNames.has(name),
     });
 
+    // What has been produced on each task (#197). Every output on a task the
+    // reader can see is theirs to see, so this follows the same scope filter as
+    // the task itself. Where each stands is worked out from the queue and the
+    // approvals: only the ids on waiting items are read here, so a member sees
+    // their own work as waiting without seeing anybody's queue. The reason a
+    // submission was turned down is read for everyone but handed on only to its
+    // author and the manager (see outputsForReader).
+    const waitingOutputs = new Set(listQueue().flatMap(q => (Array.isArray(q.outputs) ? q.outputs : [])));
+    const everyRejection = listRejected();
+    const actorKeys = [actor.key, ...(actor.keys || [])];
+    // A task file is the repository's, so an id that is not a plain one has no
+    // outputs rather than taking the page down.
+    const savedOn = (task) => { try { return listOutputs(task.id); } catch { return []; } };
+    const outputsOn = (task, saved) => outputsForReader({
+      outputs: outputStates(saved, { approvals, waiting: waitingOutputs }),
+      rejected: everyRejection.filter(r => r?.forTask === task.id),
+      actorKeys, isManager, canSee: (name) => visible.has(name),
+    });
+
+    // The log is read once and indexed in memory: on hosted storage every read
+    // is a request, so reading it per task would be one per row.
+    const allChanges = listChanges({});
     const tasks = allTasks
       .filter(t => inScope(allowed, resolveTarget(t.workstream)))
-      .map(t => ({
-        id: t.id,
-        // The handle a person has in front of them. The payload is built field by
-        // field on purpose, so anything not named here never reaches the page —
-        // which is also how this was missing, and a link by key reached nothing.
-        key: t.key || null,
-        title: t.title,
-        owner: t.owner || null,
-        status: t.status === 'done' ? 'done' : 'open',
-        sourceContributionIds: t.sourceContributionIds || [],
-        workstream: resolveTarget(t.workstream),
-        where: workstreamLocation(workstreams, resolveTarget(t.workstream), config.project),
-        history: historyOf(t),
-      }));
+      .map(t => {
+        const saved = savedOn(t);
+        return {
+          id: t.id,
+          // The handle a person has in front of them. The payload is built field by
+          // field on purpose, so anything not named here never reaches the page —
+          // which is also how this was missing, and a link by key reached nothing.
+          key: t.key || null,
+          title: t.title,
+          owner: t.owner || null,
+          status: t.status === 'done' ? 'done' : 'open',
+          sourceContributionIds: t.sourceContributionIds || [],
+          workstream: resolveTarget(t.workstream),
+          where: workstreamLocation(workstreams, resolveTarget(t.workstream), config.project),
+          history: historyOf(t),
+          outputs: outputsOn(t, saved),
+          // Only the project, the ancestors, the own part and changes touching
+          // this task: a sibling part's changes are not this reader's to see.
+          changedSince: (() => {
+            // In progress means not done: an accepted task's own accepted work
+            // would otherwise flag it for good.
+            if (t.status === 'done') return null;
+            const since = lastActivity({ outputs: saved, task: t });
+            if (!since) return null;
+            const ws = resolveTarget(t.workstream);
+            const trees = [null, ...(ws ? [...ancestorsOf(config, ws), ws] : [])];
+            const found = changesReaching({ entries: allChanges, trees, since });
+            return found.changes.length ? changedSummary(found, labelFor(config)) : null;
+          })(),
+        };
+      });
 
     // The queue is the manager's to clear, so only they are shown what is in it.
     // What a queued break would take with it, so the manager reads the impact
@@ -215,6 +279,10 @@ export async function readProjectView({ owner, repo, user }) {
         createdAt: q.createdAt || null,
         source: q.source || null,
         operations: q.operations || [],
+        // Work submitted for a task: the outputs in full, which the manager is
+        // asked about, rather than a line describing them.
+        ...(q.forTask ? { forTask: q.forTask, submittedOutputs: q.submittedOutputs || [] } : {}),
+        reachLines: q.reachLines || [],
         contradictions: Array.isArray(q.contradictions) ? q.contradictions : [],
         impact: impactOf(q.operations),
         workstream: resolveTarget(q.workstream),
@@ -265,6 +333,42 @@ export async function readProjectView({ owner, repo, user }) {
   });
 }
 
+
+/**
+ * Every contribution the project has received, newest first, and where each stands.
+ *
+ * What the page groups and shows is a flat list; this settles the one thing a
+ * list from the log cannot say on its own, which is what became of each — taken
+ * into the shared context, turned down, or still waiting for the manager.
+ *
+ * The manager's alone. The log holds what people typed, across every part of the
+ * work, and the queue and the turned-down items are already the manager's to see;
+ * a page listing all of it for anybody else would be a way round that.
+ */
+export async function readContributionsView({ owner, repo, user }) {
+  return openProject({ owner, repo, user }, async ({ config, isManager }) => {
+    if (!isManager) throw new ProjectViewError('Only the manager of this project can see all of its contributions.');
+    const parts = await listAllWorkstreams({});
+    const approvals = readApprovals();
+    const rejected = new Set(listRejected().map(r => r.id));
+    const waiting = new Set((await listPendingReviews({})).map(q => q.id));
+    const status = (c) => (approvals[c.id] ? 'taken in'
+      : rejected.has(c.id) ? 'turned down'
+        : waiting.has(c.id) ? 'waiting' : 'logged');
+    const contributions = readContributions()
+      .map(c => ({
+        id: c.id,
+        at: c.ts || null,
+        author: c.author || 'Unknown',
+        text: String(c.text || ''),
+        source: c.source || null,
+        where: workstreamLocation(parts, resolveTarget(c.workstream), config.project),
+        status: status(c),
+      }))
+      .sort((a, b) => String(b.at || '').localeCompare(String(a.at || '')));
+    return { project: config.project, owner, repo, contributions };
+  });
+}
 
 /**
  * The contributions the given trees point at.

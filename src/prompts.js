@@ -1,5 +1,7 @@
 import { renderBrief } from './brief.js';
 import { isActive, today } from './model.js';
+import { stepsAsPromptText, MENU_NOTE } from './connect-steps.js';
+import { mcpUrl } from './views/mcp-url.js';
 
 /**
  * The prompts behind the page's assistant actions, built from what the reader
@@ -21,12 +23,31 @@ import { isActive, today } from './model.js';
  *          for "there is none".
  */
 
-export function connectedPrompt({ owner, repo, subject, scope }) {
+/**
+ * The first thing a connected prompt asks of the assistant.
+ *
+ * A new chat opened from a link does not necessarily have the project's
+ * connector turned on, and an assistant with no teamctx tools used to say it
+ * could not check, then offer to write something from the wording alone — which
+ * is the guess the prompt exists to prevent. So the missing connector is named as
+ * what is wrong, with the two ways out, and nothing is answered around it.
+ */
+export const connectCheck = (owner, repo, origin = null) => {
+  const address = origin ? mcpUrl({ origin, owner, repo }) : null;
+  return [
+    `- Confirm you are connected to the repository ${owner}/${repo}. get_connect_url returns a URL containing the owner and repo. If it is a different one, stop and tell me, rather than answering from the project you are connected to.`,
+    `- If you have no teamctx tools in this chat at all, do not guess and do not offer to answer from the wording above. Say in a sentence that the teamctx connector for ${owner}/${repo} is not turned on in this chat. Then give me the steps below for the chatbot you are, only that one, as written, so I know exactly what to do. Then say I can instead go back to the page and choose "Paste the context in".`,
+    stepsAsPromptText(address),
+    MENU_NOTE,
+  ].join('\n');
+};
+
+export function connectedPrompt({ owner, repo, subject, scope, origin = null }) {
   return [
     `Tell me about ${subject}.`,
     '',
     'Instructions for the AI agent:',
-    `- Confirm you are connected to the repository ${owner}/${repo}. get_connect_url returns a URL containing the owner and repo. If it is a different one, stop and tell me, rather than answering from the project you are connected to.`,
+    connectCheck(owner, repo, origin),
     `- Use the teamctx connector to fetch the current approved context for ${scope} and answer from it.`,
     `- Keep to ${scope}. Do not summarise other parts of the project unless I ask.`,
     '- Answer in plain language, the way a colleague would. Where something has not been decided yet, say so and move on.',
@@ -42,13 +63,13 @@ const TASK_STEPS = [
 ];
 
 /** The same two prompts as a workstream's, asking instead for help deciding its tasks. */
-function tasksPrompts({ label, owner, repo, full }) {
+function tasksPrompts({ label, owner, repo, full, origin = null }) {
   return {
     short: [
       taskAsk(label),
       '',
       'Instructions for the AI agent:',
-      `- Confirm you are connected to the repository ${owner}/${repo}. get_connect_url returns a URL containing the owner and repo. If it is a different one, stop and tell me, rather than answering from the project you are connected to.`,
+      connectCheck(owner, repo, origin),
       `- Use the teamctx connector to fetch the current approved context for ${label} and the project context it inherits.`,
       ...TASK_STEPS,
     ].join('\n'),
@@ -74,7 +95,7 @@ function indexOf({ workstreams, trees, openTasks, exclude, hidden, onDay }) {
  * `{ project: { short, full }, ws: { [id]: { short, full } } }` for everything a
  * reader can open a drawer on.
  */
-export function drawerPrompts({ view, onDay = today() }) {
+export function drawerPrompts({ view, onDay = today(), origin = null }) {
   const name = view.project || `${view.owner}/${view.repo}`;
   const trees = view.trees || {};
   const visible = view.workstreams || [];
@@ -94,7 +115,7 @@ export function drawerPrompts({ view, onDay = today() }) {
 
   const out = {
     project: {
-      short: connectedPrompt({ owner: view.owner, repo: view.repo, subject: 'this project', scope: 'the project as a whole (its goal and the project-level context)' }),
+      short: connectedPrompt({ origin, owner: view.owner, repo: view.repo, subject: 'this project', scope: 'the project as a whole (its goal and the project-level context)' }),
       full: full({ chain: [], exclude: new Set(), scope: 'the project as a whole' }),
     },
     ws: {},
@@ -110,9 +131,9 @@ export function drawerPrompts({ view, onDay = today() }) {
     const chain = [...path, w].map(p => ({ ...(trees[p.id] || { id: p.id, records: [], tasks: [] }), id: p.id, name: p.name, number: p.number ? String(p.number) : '' }));
     const label = `workstream ${w.number ? `${w.number} ` : ''}(${w.name})`.replace('  ', ' ');
     out.ws[w.id] = {
-      short: connectedPrompt({ owner: view.owner, repo: view.repo, subject: label, scope: `${label} and the project context it inherits` }),
+      short: connectedPrompt({ origin, owner: view.owner, repo: view.repo, subject: label, scope: `${label} and the project context it inherits` }),
       full: full({ chain, exclude: new Set(chain.map(c => c.id)), scope: label }),
-      tasks: tasksPrompts({ label, owner: view.owner, repo: view.repo, full: full({ chain, exclude: new Set(chain.map(c => c.id)), scope: label }) }),
+      tasks: tasksPrompts({ origin, label, owner: view.owner, repo: view.repo, full: full({ chain, exclude: new Set(chain.map(c => c.id)), scope: label }) }),
     };
   }
   return out;

@@ -268,6 +268,26 @@ describe('getting there', () => {
     expect(body).toMatch(/could not be read/);
   });
 
+  describe('when GitHub rejects the credential itself', () => {
+    const BAD = 'github GET https://api.github.com/repos/acme/ledger → 401: { "message": "Bad credentials" }';
+
+    it('tells a Google member the manager has to lend access again, not GitHub\'s raw error', async () => {
+      await lend();
+      repo.prefetchError = BAD;
+      const { status, body } = await visit('/project/acme/ledger', MEMBER_GOOGLE);
+      expect(status).toBe(403);
+      expect(body).toMatch(/manager lent, and GitHub no longer accepts it/);
+      expect(body).toMatch(/lend the access again/);
+      expect(body).not.toMatch(/Bad credentials/);
+    });
+
+    it('tells a GitHub sign-in to sign in again', async () => {
+      repo.prefetchError = BAD;
+      const { body } = await visit('/project/acme/ledger', MANAGER);
+      expect(body).toMatch(/Sign out and sign in again/);
+    });
+  });
+
   describe('a project whose repository was deleted on GitHub', () => {
     const list = async (user = MANAGER) => (await visit('/projects', user)).body;
     const known = (...slugs) => kvSet(keys.connectedProjects('maya@example.com'), { projects: slugs });
@@ -1944,5 +1964,245 @@ describe('a task history built from files anybody with write access could have e
     const r = await visit('/project/acme/ledger', MANAGER);
     expect(r.status).toBe(200);
     expect(r.body).toContain('Draft the pricing page');
+  });
+});
+
+describe('working outputs on a task', () => {
+  const put = (taskId, o) => repo.files.set(`.teamctx/outputs/${taskId}/${o.id}.json`, JSON.stringify({ task: taskId, notes: null, prompt: null, basedOn: null, ...o }));
+  const PRIYA = { key: 'git:priya@example.com', name: 'Priya' };
+  const DEV = { key: 'git:dev@example.com', name: 'Dev' };
+  const outputsOf = (view, taskId) => view.tasks.open.concat(view.tasks.done).find(t => t.id === taskId).outputs;
+
+  beforeEach(() => {
+    put('pricing-page', { id: 'o1', title: 'First draft', body: 'Page text v1', at: '2026-10-10T10:00:00Z', author: PRIYA });
+    put('pricing-page', { id: 'o2', title: 'Second draft', body: 'Page text v2', at: '2026-10-11T10:00:00Z', author: PRIYA, basedOn: 'o1' });
+  });
+
+  it('shows a member the outputs on their task, newest first, in full, with theirs marked', async () => {
+    await lend();
+    const view = await readProjectView({ owner: 'acme', repo: 'ledger', user: MEMBER_GOOGLE });
+    const outs = outputsOf(view, 'pricing-page');
+    expect(outs.map(o => [o.id, o.body, o.mine, o.state])).toEqual([
+      ['o2', 'Page text v2', true, 'working'], ['o1', 'Page text v1', true, 'working'],
+    ]);
+  });
+
+  it('has an empty list for a task nothing was produced on', async () => {
+    const view = await readProjectView({ owner: 'acme', repo: 'ledger', user: MANAGER });
+    expect(outputsOf(view, 'migrate-db')).toEqual([]);
+  });
+
+  it('shows a member their own submission as waiting, without showing them the queue', async () => {
+    repo.files.set('.teamctx/queue/q-1.json', JSON.stringify({
+      id: 'q-1', number: '1.1', status: 'pending', author: 'Priya', summary: 'Submitted: Second draft',
+      workstream: 'product', forTask: 'pricing-page', outputs: ['o2'], operations: [],
+    }));
+    await lend();
+    const view = await readProjectView({ owner: 'acme', repo: 'ledger', user: MEMBER_GOOGLE });
+    expect(outputsOf(view, 'pricing-page').find(o => o.id === 'o2').state).toBe('submitted');
+    expect(view.pending).toBeNull();
+  });
+
+  it('shows accepted once approved', async () => {
+    repo.files.set('.teamctx/approved/q-1.json', JSON.stringify({ id: 'q-1', forTask: 'pricing-page', outputs: ['o2'], approvedAt: '2026-10-12T10:00:00Z' }));
+    await lend();
+    const view = await readProjectView({ owner: 'acme', repo: 'ledger', user: MEMBER_GOOGLE });
+    expect(outputsOf(view, 'pricing-page').find(o => o.id === 'o2').state).toBe('accepted');
+  });
+
+  it('gives the author the reason their submission was turned down, and not another member', async () => {
+    repo.files.set('.teamctx/rejected/q-1.json', JSON.stringify({
+      id: 'q-1', forTask: 'pricing-page', outputs: ['o2'], reason: 'Shorten the opening', rejectedAt: '2026-10-12T10:00:00Z', status: 'rejected',
+    }));
+    await lend();
+    const theirs = await readProjectView({ owner: 'acme', repo: 'ledger', user: MEMBER_GOOGLE });
+    expect(outputsOf(theirs, 'pricing-page').find(o => o.id === 'o2').turnedDown).toEqual({ reason: 'Shorten the opening', at: '2026-10-12T10:00:00Z' });
+    // Dev is on every part of the work, but the output is not Dev's.
+    const other = await readProjectView({ owner: 'acme', repo: 'ledger', user: { ...MEMBER_GOOGLE, name: 'Dev', email: 'dev@example.com' } });
+    const seen = outputsOf(other, 'pricing-page').find(o => o.id === 'o2');
+    expect(seen.turnedDown).toBeNull();
+    expect(seen.body).toBe('Page text v2');
+    expect(JSON.stringify(other)).not.toContain('Shorten the opening');
+  });
+
+  it('gives the manager the reason too', async () => {
+    repo.files.set('.teamctx/rejected/q-1.json', JSON.stringify({
+      id: 'q-1', forTask: 'pricing-page', outputs: ['o2'], reason: 'Shorten the opening', rejectedAt: '2026-10-12T10:00:00Z', status: 'rejected',
+    }));
+    const view = await readProjectView({ owner: 'acme', repo: 'ledger', user: MANAGER });
+    expect(outputsOf(view, 'pricing-page').find(o => o.id === 'o2').turnedDown.reason).toBe('Shorten the opening');
+  });
+
+  it('sends nothing for a task outside the reader\'s scope', async () => {
+    put('migrate-db', { id: 'o9', title: 'Plan', body: 'SECRET TECH PLAN', at: '2026-10-10T10:00:00Z', author: DEV });
+    await lend();
+    const view = await readProjectView({ owner: 'acme', repo: 'ledger', user: MEMBER_GOOGLE });
+    expect(JSON.stringify(view)).not.toContain('SECRET TECH PLAN');
+  });
+
+  it('skips a file that is not a valid output rather than failing the page', async () => {
+    repo.files.set('.teamctx/outputs/pricing-page/bad.json', '{not json');
+    await lend();
+    const view = await readProjectView({ owner: 'acme', repo: 'ledger', user: MEMBER_GOOGLE });
+    expect(outputsOf(view, 'pricing-page')).toHaveLength(2);
+  });
+
+  it('does not fail the page for a task whose id is not a plain one', async () => {
+    repo.files.set('.teamctx/workstreams/product.json', JSON.stringify({
+      id: 'product', name: 'Product', records: [],
+      tasks: [{ id: 'odd id/..', key: '1.1', title: 'Strange task', owner: 'Priya', status: 'open' }],
+    }));
+    await lend();
+    const view = await readProjectView({ owner: 'acme', repo: 'ledger', user: MEMBER_GOOGLE });
+    expect(outputsOf(view, 'odd id/..')).toEqual([]);
+  });
+
+  describe('in the drawer', () => {
+    async function drawerFor(user, path = '/project/acme/ledger?ws=product') {
+      const { body } = await visit(path, user);
+      const { window } = new JSDOM(body, {
+        url: `${base}${path}`,
+        runScripts: 'dangerously',
+        beforeParse(w) {
+          w.Element.prototype.scrollIntoView = function () {};
+          Object.defineProperty(w.document, 'fonts', { value: { ready: Promise.resolve() } });
+          w.matchMedia = () => ({ matches: false, addEventListener() {}, addListener() {} });
+        },
+      });
+      const $ = (sel) => window.document.querySelector(sel);
+      $('#t-pricing-page').click();
+      return { $, all: (sel) => [...window.document.querySelectorAll(sel)] };
+    }
+
+    it('lists a member\'s outputs, the newest open, with the text exactly as written', async () => {
+      put('pricing-page', { id: 'o3', title: 'Third <b>draft</b>', body: 'Line one\n\n<script>alert(1)</script> & more', at: '2026-10-12T10:00:00Z', author: PRIYA, notes: 'Mind the tone', prompt: 'Make it warmer' });
+      await lend();
+      const d = await drawerFor(MEMBER_GOOGLE);
+      expect(d.$('#d-work-wrap').hidden).toBe(false);
+      const items = d.all('#d-work details');
+      expect(items.map(i => i.querySelector('summary').firstChild.textContent)).toEqual(['Third <b>draft</b>', 'Second draft', 'First draft']);
+      expect(items.map(i => i.open)).toEqual([true, false, false]);
+      expect(items[0].querySelector('.wbody').textContent).toBe('Line one\n\n<script>alert(1)</script> & more');
+      expect(items[0].querySelector('.wbody').innerHTML).not.toContain('<script>');
+      expect(items[0].textContent).toContain('Notes: Mind the tone');
+      expect(items[0].textContent).toContain('Asked: Make it warmer');
+      expect(items[0].querySelector('.wstate').textContent).toBe('you · 2026-10-12 · working');
+    });
+
+    it('says an output is waiting for the manager, and shows why one was turned down', async () => {
+      repo.files.set('.teamctx/queue/q-1.json', JSON.stringify({ id: 'q-1', status: 'pending', author: 'Priya', workstream: 'product', forTask: 'pricing-page', outputs: ['o2'], operations: [] }));
+      repo.files.set('.teamctx/rejected/q-0.json', JSON.stringify({ id: 'q-0', forTask: 'pricing-page', outputs: ['o1'], reason: 'Shorten the opening', rejectedAt: '2026-10-10T12:00:00Z', status: 'rejected' }));
+      await lend();
+      const d = await drawerFor(MEMBER_GOOGLE);
+      const [second, first] = d.all('#d-work details');
+      expect(second.querySelector('.wstate').textContent).toMatch(/waiting for the manager$/);
+      expect(first.classList.contains('turned')).toBe(true);
+      expect(first.textContent).toContain('Feedback: Shorten the opening');
+    });
+
+    it('shows no section for a task with nothing produced on it', async () => {
+      repo.files.delete('.teamctx/outputs/pricing-page/o1.json');
+      repo.files.delete('.teamctx/outputs/pricing-page/o2.json');
+      await lend();
+      const d = await drawerFor(MEMBER_GOOGLE);
+      expect(d.$('#d-work-wrap').hidden).toBe(true);
+    });
+  });
+});
+
+describe('what changed since a task was last worked on', () => {
+  const putOutput = (taskId, at) => repo.files.set(`.teamctx/outputs/${taskId}/o1.json`, JSON.stringify({
+    id: 'o1', task: taskId, title: 'Draft', body: 'text', at, notes: null, prompt: null, basedOn: null, author: { key: 'git:priya@example.com', name: 'Priya' },
+  }));
+  const putChange = (id, tree, summary) => repo.files.set(`.teamctx/changes/2099-01-01T000000000Z-${id}.json`, JSON.stringify({
+    id, at: '2099-01-01T00:00:00.000Z', tree, summary: [summary], touched: { records: [], tasks: [] }, by: null,
+  }));
+  const taskOf = (view, id) => view.tasks.open.concat(view.tasks.done).find(t => t.id === id);
+
+  beforeEach(() => {
+    putOutput('pricing-page', '2026-10-10T10:00:00Z');
+    putChange('c1', null, 'Set the goal: x');
+    putChange('c2', 'tech', 'Add: secret tech plan');
+  });
+
+  it('flags a task that was worked on, with where the change was', async () => {
+    await lend();
+    const view = await readProjectView({ owner: 'acme', repo: 'ledger', user: MEMBER_GOOGLE });
+    expect(taskOf(view, 'pricing-page').changedSince.changes[0].where).toBe('"Ledger"');
+  });
+
+  it('flags nothing on a task nobody touched', async () => {
+    const view = await readProjectView({ owner: 'acme', repo: 'ledger', user: MANAGER });
+    expect(taskOf(view, 'migrate-db').changedSince).toBeNull();
+  });
+
+  it('does not hand a member a change in a part they are not on', async () => {
+    await lend();
+    const view = await readProjectView({ owner: 'acme', repo: 'ledger', user: MEMBER_GOOGLE });
+    expect(JSON.stringify(view)).not.toContain('secret tech plan');
+  });
+
+  it('does not count an entry in another part that names the task', async () => {
+    repo.files.set('.teamctx/changes/2099-02-01T000000000Z-forged.json', JSON.stringify({
+      id: 'forged', at: '2099-02-01T00:00:00.000Z', tree: 'tech', summary: ['Add: forged tech text'], touched: { records: [], tasks: ['pricing-page'] }, by: null,
+    }));
+    await lend();
+    const view = await readProjectView({ owner: 'acme', repo: 'ledger', user: MEMBER_GOOGLE });
+    expect(JSON.stringify(view)).not.toContain('forged tech text');
+  });
+
+  it('flags nothing on a done task', async () => {
+    const f = '.teamctx/workstreams/product.json';
+    repo.files.set(f, repo.files.get(f).replace('"status":"open"', '"status":"done"'));
+    await lend();
+    const view = await readProjectView({ owner: 'acme', repo: 'ledger', user: MEMBER_GOOGLE });
+    expect(taskOf(view, 'pricing-page').status).toBe('done');
+    expect(taskOf(view, 'pricing-page').changedSince).toBeNull();
+  });
+
+  it('survives a change file of the wrong shape', async () => {
+    repo.files.set('.teamctx/changes/2099-03-01T000000000Z-bad.json', JSON.stringify({
+      id: 'bad', at: '2099-03-01T00:00:00.000Z', tree: null, summary: 'a string', touched: { tasks: 'pricing-page' },
+    }));
+    repo.files.set('.teamctx/changes/2099-03-02T000000000Z-bad2.json', JSON.stringify({ id: 'bad2', at: 'soon', tree: 4, summary: { a: 1 } }));
+    await lend();
+    const view = await readProjectView({ owner: 'acme', repo: 'ledger', user: MEMBER_GOOGLE });
+    expect(taskOf(view, 'pricing-page').changedSince.changes.length).toBeGreaterThan(0);
+  });
+
+  describe('in the drawer', () => {
+    async function drawer(taskId) {
+      const path = '/project/acme/ledger?ws=product';
+      const { body } = await visit(path, MEMBER_GOOGLE);
+      const { window } = new JSDOM(body, {
+        url: `${base}${path}`,
+        runScripts: 'dangerously',
+        beforeParse(w) {
+          w.Element.prototype.scrollIntoView = function () {};
+          Object.defineProperty(w.document, 'fonts', { value: { ready: Promise.resolve() } });
+          w.matchMedia = () => ({ matches: false, addEventListener() {}, addListener() {} });
+        },
+      });
+      window.document.querySelector(`#t-${taskId}`).click();
+      return window.document;
+    }
+
+    it('shows the quoted summary as plain text', async () => {
+      putChange('c3', null, 'Add: <b>bold</b>');
+      await lend();
+      const doc = await drawer('pricing-page');
+      expect(doc.getElementById('d-changed-wrap').hidden).toBe(false);
+      expect(doc.getElementById('d-changed').textContent).toContain('"Set the goal: x"');
+      expect(doc.getElementById('d-changed').textContent).toContain('Add: <b>bold</b>');
+      expect(doc.getElementById('d-changed-wrap').textContent).toContain('Changed since this was last worked on');
+      expect(doc.getElementById('d-changed').innerHTML).not.toContain('<b>');
+    });
+
+    it('is hidden for a task nothing is flagged on', async () => {
+      repo.files.delete('.teamctx/outputs/pricing-page/o1.json');
+      await lend();
+      const doc = await drawer('pricing-page');
+      expect(doc.getElementById('d-changed-wrap').hidden).toBe(true);
+    });
   });
 });

@@ -77,6 +77,30 @@ describe('applyOps', () => {
     expect(tree.tasks).toEqual([]);
   });
 
+  describe('a task\'s title says what the work is, not how far it has got', () => {
+    const edit = (from, to) => applyOps({ ...food(), tasks: [{ id: 't1', key: '3.1', title: from, status: 'open' }] },
+      [{ type: 'editTask', id: 't1', title: to }], 'c-1', FOOD);
+
+    it('drops an edit that adds progress to the end of the title, and says why', () => {
+      const r = edit('Draft the post', 'Draft the post. Draft complete and ready for review');
+      expect(r.tree.tasks[0].title).toBe('Draft the post');
+      expect(r.dropped).toHaveLength(1);
+      expect(r.dropped[0].reason).toMatch(/not how far it has got/);
+    });
+
+    it('drops it whichever status word is used', () => {
+      for (const tail of [' (approved)', ' - done', ' [final]', ' Published on Friday', ' — signed off']) {
+        expect(edit('Draft the post', `Draft the post${tail}`).dropped, tail).toHaveLength(1);
+      }
+    });
+
+    it('keeps a real rename, a clarification, and a shortening', () => {
+      expect(edit('Draft the post', 'Write the post').tree.tasks[0].title).toBe('Write the post');
+      expect(edit('Draft the post', 'Draft the post for Friday').tree.tasks[0].title).toBe('Draft the post for Friday');
+      expect(edit('Draft the post. Draft complete', 'Draft the post').tree.tasks[0].title).toBe('Draft the post');
+    });
+  });
+
   it('applies in order setGoal → adds → edits → evidence → status → removals', () => {
     // Evidence before status reads as a person would say it; it does not change
     // the result, since evidence is kept only beside a break and lands on a

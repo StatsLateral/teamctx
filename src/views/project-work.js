@@ -2,7 +2,7 @@ import { esc } from './theme.js';
 import { RECORD_TYPES, today } from '../model.js';
 import { contradictionLabel, evidenceLabel } from '../contradictions.js';
 import { describeChange } from '../change-labels.js';
-import { promptFor, decisionPrompt, escAttr, whoTouched } from './prompt-for.js';
+import { promptFor, decisionPrompt, outputsBlock, escAttr, whoTouched } from './prompt-for.js';
 import { workstreamLocation } from './workstream-location.js';
 import { historyStatus, historyLine } from '../task-history.js';
 
@@ -110,6 +110,19 @@ export function historyData(h, agents) {
 
 // ---- tasks ------------------------------------------------------------------
 
+/**
+ * What the drawer needs of a task's working outputs: each one whole, since the
+ * drawer is where it is read. Built field by field, so nothing else on an
+ * output reaches the page.
+ */
+function workData(outputs) {
+  return (Array.isArray(outputs) ? outputs : []).map(o => ({
+    id: o.id, title: o.title || '', body: o.body || '', notes: o.notes || null, prompt: o.prompt || null,
+    basedOn: o.basedOn || null, at: o.at || null, state: o.state, author: o.author || 'someone', mine: Boolean(o.mine),
+    turnedDown: o.turnedDown ? { reason: o.turnedDown.reason || null, at: o.turnedDown.at || null } : null,
+  }));
+}
+
 const clip = (node) => {
   const n = (node.sourceContributionIds || []).length;
   return n ? `<span class="clip" title="${n} linked source${n === 1 ? '' : 's'}">📎 ${n}</span>` : '<span class="clip"></span>';
@@ -128,8 +141,8 @@ function taskRow({ t, view, origin, marked }) {
   if (!who.length && addedBy) who.push(addedBy);
   return `<button type="button" class="item trow${marked ? ' marked' : ''}${t.status === 'done' ? ' done' : ''}" id="t-${esc(t.id)}"
   data-text="${esc(t.title)}" data-kind="${esc(`Task${t.key ? ` ${t.key}` : ''}`)}" data-summary="" data-who="${esc(who.join(', '))}"
-  data-review="" data-ws="${esc(t.workstream || '')}" data-ask="${escAttr(prompt.split('\n\n')[0])}" data-prompt="${escAttr(prompt)}"
-  ${t.status === 'done' ? 'data-done="1" ' : ''}data-history="${esc(JSON.stringify(historyData(t.history, view.agents)))}">
+  data-review="" data-ws="${esc(t.workstream || '')}" data-ask="${escAttr(prompt.split('\n\n')[0])}" data-prompt="${escAttr(prompt)}" data-paste-extra="${escAttr(outputsBlock(workData(t.outputs)))}"
+  ${t.status === 'done' ? 'data-done="1" ' : ''}data-work="${esc(JSON.stringify(workData(t.outputs)))}" data-changed="${esc(JSON.stringify(t.changedSince || null))}" data-history="${esc(JSON.stringify(historyData(t.history, view.agents)))}">
   <span class="num">${esc(t.key || '—')}</span><span class="ttl" title="${esc(t.title)}">${esc(t.title)}</span>
   <span class="own">${whoChip(t.owner, view.agents)}</span>${clip(t)}</button>`;
 }
@@ -162,13 +175,21 @@ function waitingItem({ q, view, origin, marked }) {
   const where = q.workstream ? workstreamLocation(view.workstreams, q.workstream, view.project) : (view.project || 'Overall project');
   const ref = q.number || null;
   const checks = checksOf(q);
-  const changes = (Array.isArray(q.operations) ? q.operations : []).map(op => describeChange(op, tree)).filter(Boolean);
+  // Accepting work submitted for a task marks the task done and records the
+  // acceptance in the context. The work itself is shown beside, in full.
+  const outputs = q.forTask && Array.isArray(q.submittedOutputs)
+    ? q.submittedOutputs.map(o => ({ title: o.title || '', body: o.body || '', notes: o.notes || null, prompt: o.prompt || null }))
+    : [];
+  const changes = q.forTask
+    ? ['Accepting it marks the task done and closes it, and records the acceptance in the context. Feedback instead leaves the task open.']
+    : (Array.isArray(q.operations) ? q.operations : []).map(op => describeChange(op, tree)).filter(Boolean);
   const title = q.summary || changes[0] || '(no summary)';
   // Deciding happens in the assistant, so what the drawer hands over is a
   // request to show this item and ask, not a question about it.
   const prompt = decisionPrompt({
     ref, id: q.id, title, owner: view.owner, repo: view.repo,
     link: origin ? `${origin}/project/${view.owner}/${view.repo}?${new URLSearchParams({ ...(q.workstream ? { ws: q.workstream } : {}), item: q.id })}` : null,
+    forTask: Boolean(q.forTask),
   });
   // How to decide it. In the assistant: the drawer's assistant row opens it with
   // the item and the question (#159), so this only says so. On the command
@@ -179,7 +200,9 @@ function waitingItem({ q, view, origin, marked }) {
   // it. So a command is offered only for an id made of plain characters.
   const plainId = /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(String(q.id));
   const decide = [
-    { note: `Open your assistant with the icons below, or tell it: "Approve ${ref || 'this'}"${ref ? '' : ' (name it by what it says)'} with or without its tasks, or "Reject ${ref || 'this'}" with a reason.` },
+    q.forTask
+      ? { note: `Open your assistant with the icons below, or tell it: "Accept ${ref || 'this'}", or "Feedback ${ref || 'this'}" saying what to change. The task stays open until you accept.` }
+      : { note: `Open your assistant with the icons below, or tell it: "Approve ${ref || 'this'}"${ref ? '' : ' (name it by what it says)'} with or without its tasks, or "Reject ${ref || 'this'}" with a reason.` },
     ...(plainId ? [
       { where: 'On the command line', label: `teamctx review approve ${q.id}`, text: `teamctx review approve ${q.id}` },
       { where: 'On the command line', label: `teamctx review reject ${q.id} --reason "…"`, text: `teamctx review reject ${q.id} --reason "…"` },
@@ -192,7 +215,7 @@ function waitingItem({ q, view, origin, marked }) {
   return `<div class="q${marked ? ' marked' : ''}" id="r-${esc(q.id)}" data-text="${esc(title)}" data-kind="${esc(`Waiting on you${ref ? ` · ${ref}` : ''}`)}"
   data-summary="${esc(`Proposed by ${q.author || 'someone'}${VIA[q.source] ? ` ${VIA[q.source]}` : ''}${date ? ` on ${date}` : ''}.`)}"
   data-who="${esc(q.author || '')}" data-review="" data-ws="${esc(q.workstream || '')}" data-queue="1"
-  data-changes="${esc(JSON.stringify(changes))}" data-checks="${esc(JSON.stringify(checks))}" data-decide="${esc(JSON.stringify(decide))}"
+  data-changes="${esc(JSON.stringify(changes))}" data-outputs="${esc(JSON.stringify(outputs))}" data-reach="${esc(JSON.stringify(Array.isArray(q.reachLines) ? q.reachLines : []))}" data-checks="${esc(JSON.stringify(checks))}" data-decide="${esc(JSON.stringify(decide))}"
   data-history="${esc(JSON.stringify(historyData(q.history, view.agents)))}"
   data-ask="${escAttr(prompt.split('\n\n')[0])}" data-prompt="${escAttr(prompt)}">
   <span class="num">${esc(ref || '—')}</span>

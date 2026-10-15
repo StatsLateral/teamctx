@@ -39,6 +39,10 @@ the diff in the editor before accepting.
 Review the diff in Cursor's editor before accepting the changes. Reject
 anything that drops a decision or changes intent.
 
+## Offer decisions as they are made
+
+Put the instruction from [`offer-decisions.md`](../offer-decisions.md) in your project rules (`.cursor/rules`). Cursor then offers, and runs `teamctx contribute` only after you say yes.
+
 ## Tips
 
 - If your team wants consistent contribution style, add a rule under
