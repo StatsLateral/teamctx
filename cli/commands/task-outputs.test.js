@@ -9,7 +9,7 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import { runWithActor } from '../../src/actor.js';
 import { makeConfig, makeProject, makeWorkstream } from '../../src/test-fixtures/model.js';
-import { writeConfig, writeProject, writeWorkstream, listOutputs } from '../../src/storage.js';
+import { writeConfig, writeProject, writeWorkstream, listOutputs, writeRejected } from '../../src/storage.js';
 import { addTask, getTask, saveOutput, MAX_OUTPUT_CHARS } from './task.core.js';
 
 vi.mock('../../src/git.js', () => ({ commitContext: vi.fn(async () => ({ committed: true })), pushContext: vi.fn() }));
@@ -111,5 +111,27 @@ describe('picking a task up', () => {
 
   it('says so when the output asked for is not on this task', () => {
     expect(() => getTask({ id: task.id, output: 'nope', teamctxDir: dir })).toThrow(/no output/i);
+  });
+});
+
+describe('the feedback on an output that was sent back', () => {
+  const asker = (over) => ({ keys: [], isManager: false, ...over });
+  let output;
+  beforeEach(async () => {
+    ({ output } = await save(member, { body: 'A draft', title: 'Draft 1', source: 'mcp' }));
+    writeRejected({ id: 'r1', forTask: task.id, outputs: [output.id], reason: 'Fix three points', rejectedAt: '2026-10-15T20:02:00Z' }, dir);
+  });
+  const feedback = (reader) => getTask({ id: task.id, teamctxDir: dir, reader }).outputs.latest.feedback;
+
+  it('goes to the person who wrote it, a manager, and whoever the task is assigned to', () => {
+    expect(feedback(asker({ keys: [member.key] }))?.reason).toBe('Fix three points');
+    expect(feedback(asker({ isManager: true }))?.reason).toBe('Fix three points');
+    expect(feedback(asker({ keys: [manager.key] }))?.reason).toBe('Fix three points');
+  });
+  it('goes to nobody else, and to a caller that cannot say who it is', () => {
+    // A name is not an identity: sharing the owner's name does not make anyone the assignee.
+    expect(feedback({ keys: ['git:other@x'], name: task.owner, isManager: false })).toBeUndefined();
+    expect(feedback(asker({ keys: ['git:other@x'] }))).toBeUndefined();
+    expect(feedback(undefined)).toBeUndefined();
   });
 });

@@ -168,6 +168,9 @@ h1{font-size:28px;line-height:1.25;margin:0 0 .35rem}
 #d-text.done{text-decoration:line-through;opacity:.75}
 .decide p{margin:0 0 .5rem;font-size:13px;line-height:1.5;color:var(--ink);overflow-wrap:anywhere}
 .decide code{font-family:var(--font-mono);font-size:12px}
+/* How to decide it is the point of the section, so it reads as one. */
+.decide p.decide-note{font-size:15px;line-height:1.55;font-weight:600;background:var(--accent-soft);
+  border-left:3px solid var(--accent);border-radius:var(--radius-sm);padding:.7rem .9rem;margin:0 0 .9rem}
 /* One instruction per line, its Copy button beside it; the text wraps first. */
 .decide .decide-where{margin:.6rem 0 .3rem;font-size:12px;color:var(--soft)}
 .decide-line{display:flex;align-items:center;gap:8px;margin:0 0 6px}
@@ -427,7 +430,7 @@ const SCRIPT = `
       JSON.parse(el.dataset.decide || '[]').forEach(function (line) {
         // A line to read rather than copy: how to decide it in the assistant.
         if (line.note) {
-          var note = document.createElement('p'); note.textContent = line.note; decide.appendChild(note);
+          var note = document.createElement('p'); note.className = 'decide-note'; note.textContent = line.note; decide.appendChild(note);
           return;
         }
         if (line.where !== group) {

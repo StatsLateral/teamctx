@@ -26,19 +26,26 @@ export function outputStates(saved, { approvals = {}, waiting = new Set() } = {}
  * answers to is shown as "someone", as in the task history. The reason a
  * submission was turned down is the author's and the manager's: it is
  * feedback on one person's work, and is shown only while the output is back to
- * working, not once it has been sent again or accepted.
+ * working, not once it has been sent again or accepted. Whoever the task is
+ * assigned to reads it too, whatever the source of the work: they are the one
+ * who carries it on.
  */
-export function outputsForReader({ outputs, rejected = [], actorKeys = [], isManager = false, canSee = () => true }) {
-  const mine = new Set((actorKeys || []).filter(Boolean));
-  const latestReason = (id) => rejected
-    .filter(r => Array.isArray(r?.outputs) && r.outputs.includes(id))
+/** The most recent time this output was sent back, or null. */
+export function latestRejection(rejected, outputId) {
+  return (rejected || [])
+    .filter(r => Array.isArray(r?.outputs) && r.outputs.includes(outputId))
     .sort((a, b) => String(b.rejectedAt || '').localeCompare(String(a.rejectedAt || '')))[0] || null;
+}
+
+export function outputsForReader({ outputs, rejected = [], actorKeys = [], isManager = false, assigned = false, canSee = () => true }) {
+  const mine = new Set((actorKeys || []).filter(Boolean));
+  const latestReason = (id) => latestRejection(rejected, id);
   return [...outputs]
     .sort((a, b) => String(b.at || '').localeCompare(String(a.at || '')) || b.id.localeCompare(a.id))
     .map(o => {
       const own = Boolean(o.author?.key && mine.has(o.author.key));
       const name = o.author?.name || null;
-      const r = o.state === 'working' && (isManager || own) ? latestReason(o.id) : null;
+      const r = o.state === 'working' && (isManager || assigned || own) ? latestReason(o.id) : null;
       return {
         id: o.id,
         title: o.title,
