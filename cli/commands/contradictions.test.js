@@ -239,6 +239,42 @@ describe('contradiction review through the real provider and storage paths', () 
     expect(readProject(dir).records.map(r => r.status)).toEqual(['replaced', 'replaced', 'active', 'active']);
   });
 
+  describe('one record flagged by two operations', () => {
+    // A new budget decision that replaces the old one, and a new rule about the
+    // budget that only sits beside it: both are flagged against the old decision.
+    const rule = text => ({ type: 'addRecord', record: { type: 'rule', text } });
+    const both = () => response([add(newText), rule('Overspend comes out of contingency, never prizes')],
+      [{ operationIndex: 0, recordId: 'old' }, { operationIndex: 1, recordId: 'old' }]);
+
+    it('approves in one go: the decision replaces it and the rule is added beside it', async () => {
+      both();
+      const queued = await contribute();
+      await approve(queued.id, ['old']);
+      const records = readProject(dir).records;
+      expect(records.find(r => r.id === 'old').status).toBe('replaced');
+      expect(records.find(r => r.text === newText)).toMatchObject({ type: 'decision', status: 'active', links: { replaces: 'old' } });
+      const added = records.find(r => r.type === 'rule');
+      expect(added).toMatchObject({ status: 'active' });
+      expect(added.links?.replaces ?? null).toBeNull();
+      expect(listQueue(dir)).toHaveLength(0);
+    });
+
+    it('still refuses without the manager naming the record', async () => {
+      both();
+      const queued = await contribute();
+      await expect(approve(queued.id)).rejects.toThrow(/Specify --replaces old/);
+      expect(readProject(dir).records.find(r => r.id === 'old').status).toBe('active');
+    });
+
+    it('still refuses when nothing flagged against it can replace it', async () => {
+      response([rule('Overspend comes out of contingency, never prizes')], [{ operationIndex: 0, recordId: 'old' }]);
+      const queued = await contribute();
+      await expect(approve(queued.id, ['old'])).rejects.toThrow(/same record type/);
+      expect(readProject(dir).records.find(r => r.id === 'old').status).toBe('active');
+      expect(listQueue(dir)).toHaveLength(1);
+    });
+  });
+
   it('retains the queue when a replacement cannot validate on approval', async () => {
     const queued = await contribute();
     const item = readQueueItem(queued.id, dir);

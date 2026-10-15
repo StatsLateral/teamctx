@@ -67,6 +67,31 @@ export const contradictionLabel = conflict => `Contradicts '${LABELS[conflict.re
 
 export const comparisonFingerprint = records => JSON.stringify(records.map(({ id, type, text, workstream }) => ({ id, type, text, workstream })));
 
+/** The operation rewritten to replace `old`, or a refusal saying why it cannot. */
+function replacementFor(op, old, { target, teamctxDir }) {
+  if (op?.type === 'addRecord') {
+    if (op.record?.type !== old.type) throw new ContradictionResolutionError('A replacement must have the same record type as the decision or rule it replaces.');
+    if (op.record.links?.replaces && op.record.links.replaces !== old.id) throw new ContradictionResolutionError('This proposed record already replaces another record. Resolve the additional conflict separately.');
+    return { ...op, record: { ...op.record, links: { ...op.record.links, replaces: old.id } } };
+  }
+  if (op?.type === 'editRecord') {
+    const tree = readTree(target, teamctxDir);
+    const existing = tree.records.find(r => r.id === op.id);
+    if (!existing || existing.type !== old.type || existing.id !== old.id) throw new ContradictionResolutionError('To replace a different record, submit an explicit replacement contribution. This edit cannot retire another decision or rule.');
+    const changes = Object.fromEntries(Object.entries(op.changes || {}).filter(([key]) => EDITABLE_RECORD_FIELDS.includes(key)));
+    // The new record's own fields only. Spreading the old record carried its
+    // id, status and history into the proposal, so the approval result
+    // named the new record as the one it replaced while the stored
+    // record was another. `applyOps` mints the identity; nothing here should
+    // look like it has one already.
+    const { id: _id, status: _status, sourceContributionIds: _src, createdBy: _by,
+      approvedBy: _ok, createdAt: _at, updatedAt: _up, reviewedAt: _rv, brokenAt: _br, ...fields } = existing;
+    const record = { ...fields, ...changes, links: { ...existing.links, ...changes.links, replaces: old.id } };
+    return { type: 'addRecord', record };
+  }
+  throw new ContradictionResolutionError('The flagged operation has changed; resubmit this contribution for review.');
+}
+
 /** Resolve only manager-selected conflicts; never infer permission from a flag. */
 export function resolveContradictions(item, { replaces = [], config, teamctxDir }) {
   const target = item.workstream ?? null;
@@ -77,39 +102,38 @@ export function resolveContradictions(item, { replaces = [], config, teamctxDir 
   for (const handle of requested) {
     const matching = conflicts.filter(c => c.record.id === handle);
     if (!matching.length) throw new ContradictionResolutionError(`"${handle}" is not a flagged record on this contribution.`);
+    // One record can be flagged by more than one operation: a new decision that
+    // replaces it, and a new rule that only sits beside it. Each operation that
+    // can stand in for it (the same type, or an edit of that same record)
+    // becomes its replacement; one that cannot is not made to. It was flagged
+    // against a record this approval retires, which the check below accepts.
+    // Only when none of them can is the manager's choice refused, with the
+    // reason the first one gave.
+    let replaced = 0;
+    let refusal = null;
     for (const conflict of matching) {
       if (conflict.record.workstream !== target) throw new ContradictionResolutionError('This conflict is inherited. Replace or retire the record in its own part of the work, then review this contribution again.');
       const old = active.find(r => r.id === conflict.record.id && r.workstream === target);
-      if (!old) continue;
-      const op = operations[conflict.operationIndex];
-      if (op?.type === 'addRecord') {
-        if (op.record?.type !== old.type) throw new ContradictionResolutionError('A replacement must have the same record type as the decision or rule it replaces.');
-        if (op.record.links?.replaces && op.record.links.replaces !== old.id) throw new ContradictionResolutionError('This proposed record already replaces another record. Resolve the additional conflict separately.');
-        operations[conflict.operationIndex] = { ...op, record: { ...op.record, links: { ...op.record.links, replaces: old.id } } };
-      } else if (op?.type === 'editRecord') {
-        const tree = readTree(target, teamctxDir);
-        const existing = tree.records.find(r => r.id === op.id);
-        if (!existing || existing.type !== old.type || existing.id !== old.id) throw new ContradictionResolutionError('To replace a different record, submit an explicit replacement contribution. This edit cannot retire another decision or rule.');
-        const changes = Object.fromEntries(Object.entries(op.changes || {}).filter(([key]) => EDITABLE_RECORD_FIELDS.includes(key)));
-        // The new record's own fields only. Spreading the old record carried its
-        // id, status and history into the proposal, so the approval result
-        // named the new record as the one it replaced while the stored
-        // record was another. `applyOps` mints the identity; nothing here should
-        // look like it has one already.
-        const { id: _id, status: _status, sourceContributionIds: _src, createdBy: _by,
-          approvedBy: _ok, createdAt: _at, updatedAt: _up, reviewedAt: _rv, brokenAt: _br, ...fields } = existing;
-        const record = { ...fields, ...changes, links: { ...existing.links, ...changes.links, replaces: old.id } };
-        operations[conflict.operationIndex] = { type: 'addRecord', record };
-      } else throw new ContradictionResolutionError('The flagged operation has changed; resubmit this contribution for review.');
+      if (!old) { replaced++; continue; }
+      try {
+        operations[conflict.operationIndex] = replacementFor(operations[conflict.operationIndex], old, { target, teamctxDir });
+        replaced++;
+      } catch (err) {
+        if (!(err instanceof ContradictionResolutionError)) throw err;
+        refusal ??= err;
+      }
     }
+    if (!replaced) throw refusal;
   }
   for (const conflict of conflicts) {
     const old = active.find(r => r.id === conflict.record.id && r.workstream === conflict.record.workstream);
     if (!old) continue; // A manager has already retired the inherited/local choice.
     if (old.text !== conflict.record.text) throw new ContradictionResolutionError('A compared decision or rule has changed since this check. Resubmit the contribution against the current context before approval.');
     const op = operations[conflict.operationIndex];
-    const resolves = old.workstream === target && op?.type === 'addRecord'
-      && op.record?.type === old.type && op.record?.links?.replaces === old.id;
+    const replaces = o => o?.type === 'addRecord' && o.record?.type === old.type && o.record?.links?.replaces === old.id;
+    // Resolved by its own operation replacing the record, or by another one in
+    // this approval doing so: a retired record contradicts nothing.
+    const resolves = old.workstream === target && (replaces(op) || operations.some(replaces));
     if (!resolves) throw new ContradictionResolutionError(`${contradictionLabel(conflict)}. Specify --replaces ${old.id}, resolve an inherited record in its own part of the work, or reject this contribution.`);
   }
   return { ...item, operations };
