@@ -1,11 +1,11 @@
 /**
- * What the Connected sources drawer shows, until connectors exist.
+ * What the Connected sources drawer shows while a project has no references
+ * recorded yet (#168).
  *
- * Nothing here is read from a project. Connecting a tool (Slack, Notion, Google
- * Drive, SharePoint) so its context reaches teamctx is on the roadmap, and each
- * connector is an open issue; this is a picture of where it is headed, in the
- * same shape the page already uses: a source, what came from it, and the tasks it
- * feeds. The names are made up, and the drawer says so.
+ * Nothing here is read from a project. It is a picture of what the drawer holds
+ * once an assistant or `teamctx import` records where context came from, in the
+ * same shape: a source, what came from it, and the tasks it feeds. The names are
+ * made up, and the drawer says so.
  */
 export const ISSUES_URL = 'https://github.com/StatsLateral/teamctx/issues';
 

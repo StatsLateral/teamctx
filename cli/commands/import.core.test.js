@@ -274,3 +274,48 @@ describe('importDocuments — connectors', () => {
     vi.resetModules();
   });
 });
+
+/**
+ * An import from a connected tool leaves a reference to each item it brought
+ * in (#168); a local folder is not a connected tool and leaves none.
+ */
+describe('what an import was drawn from', () => {
+  it('passes each item as a source, with its link when the connector gives one', async () => {
+    vi.resetModules();
+    vi.doMock('../../src/connectors/index.js', async (orig) => ({
+      ...(await orig()),
+      getConnector: () => ({
+        name: 'notion',
+        auth: () => ({ ok: true }),
+        // As Drive and Coda do, the second keeps its link on the listing's ref
+        // rather than in what fetch returns; the third has none at all.
+        list: () => ({ items: [{ ref: 'a', id: 'notion:1' }, { ref: { key: 'b', url: 'https://www.notion.so/From-listing-def' }, id: 'notion:2' }, { ref: 'c', id: 'notion:3' }] }),
+        fetch: (_a, ref) => (ref === 'a'
+          ? { id: 'notion:1', text: '# Launch checklist\n\nbody', url: 'https://www.notion.so/Launch-checklist-abc' }
+          : ref?.key === 'b' ? { id: 'notion:2', text: '# Interview notes\n\nbody' }
+            : { id: 'notion:3', text: '# Meeting notes\n\nbody' }),
+      }),
+    }));
+    const { importDocuments: fresh } = await import('./import.core.js');
+    const { contributeCore: core } = await import('./contribute.core.js');
+    core.mockResolvedValue(queued());
+    await fresh({ paths: ['sel'], from: 'notion', cwd: root });
+
+    const passed = core.mock.calls.map(([args]) => ({ sources: args.sources, via: args.sourcesVia }));
+    expect(passed).toEqual([
+      { sources: [{ connector: 'notion', title: 'Launch checklist', link: 'https://www.notion.so/Launch-checklist-abc', itemId: 'notion:1' }], via: 'import' },
+      { sources: [{ connector: 'notion', title: 'Interview notes', link: 'https://www.notion.so/From-listing-def', itemId: 'notion:2' }], via: 'import' },
+      { sources: [{ connector: 'notion', title: 'Meeting notes', link: undefined, itemId: 'notion:3' }], via: 'import' },
+    ]);
+    // The body travels as the contribution's text, never as part of a source.
+    expect(JSON.stringify(passed)).not.toContain('body');
+    vi.doUnmock('../../src/connectors/index.js');
+    vi.resetModules();
+  });
+
+  it('leaves no source for a local folder', async () => {
+    writeFileSync(join(root, 'notes.md'), '# Notes\n\nsome notes');
+    await importDocuments({ paths: [root], cwd: root });
+    expect(contributeCore.mock.calls[0][0].sources).toBeUndefined();
+  });
+});
