@@ -87,3 +87,18 @@ describe('what a reader is shown', () => {
     });
   });
 });
+
+describe('who reads the feedback on a sent-back output', () => {
+  const out = [{ id: 'o1', title: 't', body: 'b', at: '2026-10-15T19:59:00Z', state: 'working', author: { key: 'git:writer@x.com', name: 'Writer' } }];
+  const rej = [{ forTask: 'T', outputs: ['o1'], reason: 'fix three points', rejectedAt: '2026-10-15T20:02:00Z' }];
+  const read = (extra) => outputsForReader({ outputs: out, rejected: rej, canSee: () => true, ...extra })[0].turnedDown;
+
+  it('shows it to whoever the task is assigned to, whatever the source of the work', () => {
+    expect(read({ actorKeys: ['git:someone@x.com'], assigned: true })?.reason).toBe('fix three points');
+  });
+  it('still shows it to the author and the manager, and to nobody else', () => {
+    expect(read({ actorKeys: ['git:writer@x.com'] })?.reason).toBe('fix three points');
+    expect(read({ actorKeys: [], isManager: true })?.reason).toBe('fix three points');
+    expect(read({ actorKeys: ['git:other@x.com'] })).toBeNull();
+  });
+});

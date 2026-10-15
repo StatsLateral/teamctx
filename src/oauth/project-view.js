@@ -214,6 +214,8 @@ export async function readProjectView({ owner, repo, user }) {
       outputs: outputStates(saved, { approvals, waiting: waitingOutputs }),
       rejected: everyRejection.filter(r => r?.forTask === task.id),
       actorKeys, isManager, canSee: (name) => visible.has(name),
+      assigned: (!!task.ownerKey && actorKeys.includes(task.ownerKey))
+        || (config.members || []).some(m => m?.key && actorKeys.includes(m.key) && !!task.owner && m.name === task.owner),
     });
 
     // The log is read once and indexed in memory: on hosted storage every read
