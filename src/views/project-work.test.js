@@ -189,15 +189,38 @@ describe('asking an assistant about a task that has working outputs', () => {
     expect(extra(render(view({ tasks: { open: [task('t1', 'a', 'Draft the post')], done: [] } }), 'a'))).toBe('');
   });
 
-  it('tells a connected assistant to read the outputs through get_task and say what the submission is', () => {
+  it('asks a connected assistant to do the task, carry on from the latest saved work and not plan first', () => {
     const html = render(view({ tasks: { open: [withOutputs()], done: [] } }), 'a');
     const prompt = attr(html, 'data-prompt');
-    expect(prompt).toContain('Call get_task for this task');
-    expect(prompt).toMatch(/original submission/);
+    expect(prompt).toMatch(/^Do task /);
+    expect(prompt).toContain('call get_task, then task_compile');
+    expect(prompt).toMatch(/start from the latest/);
+    expect(prompt).toContain('Do not open with a summary or a plan');
+    expect(prompt).toContain('ask me only what stops you');
+    expect(prompt).toContain('task_output');
+    expect(prompt).toMatch(/task_submit\) only when I ask/);
+    expect(prompt).not.toMatch(/Tell me more/);
   });
 
-  it('does not ask for outputs when the question is about anything but a task', () => {
-    expect(promptFor({ node: { text: 'A rule' }, tier: 'rule', where: 'Part', isProject: false, owner: 'o', repo: 'r' })).not.toContain('get_task');
+  it('assumes nothing about what the task is', () => {
+    const prompt = promptFor({ node: { key: '2.1', text: 'Reconcile the March ledger' }, tier: 'task', where: 'Finance', isProject: false, owner: 'o', repo: 'r' });
+    expect(prompt).not.toMatch(/draft|LinkedIn|article|essay/i);
+  });
+
+  it('keeps asking about anything but a task as a question, with no task tools', () => {
+    const rule = promptFor({ node: { text: 'A rule' }, tier: 'rule', where: 'Part', isProject: false, owner: 'o', repo: 'r' });
+    expect(rule).toMatch(/^Tell me more about/);
+    expect(rule).not.toContain('get_task');
+  });
+
+  it('closes the pasted version with the same ask: do it now, from the context and outputs above', () => {
+    const html = render(view({ tasks: { open: [withOutputs()], done: [] } }), 'a');
+    const end = attr(html, 'data-paste-end');
+    expect(end).toMatch(/^Do this task now/);
+    expect(end).toContain('ask me only what stops you');
+    expect(end).toContain('and the working outputs');
+    const bare = attr(render(view({ tasks: { open: [task('t1', 'a', 'Draft the post')], done: [] } }), 'a'), 'data-paste-end');
+    expect(bare).not.toContain('working outputs');
   });
 });
 

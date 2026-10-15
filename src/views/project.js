@@ -479,7 +479,7 @@ const SCRIPT = `
       : {
         short: el.dataset.prompt,
         full: scoped.full + '\\n---\\n' + (el.dataset.ask || '') + (el.dataset.pasteExtra ? '\\n\\n' + el.dataset.pasteExtra + '\\n' : '')
-          + '\\nAnswer in plain language, from the context' + (el.dataset.pasteExtra ? ' and the working outputs' : '') + ' above only.\\n'
+          + '\\n' + (el.dataset.pasteEnd || ('Answer in plain language, from the context above only.')) + '\\n'
       };
     showPrompt();
     reveal();

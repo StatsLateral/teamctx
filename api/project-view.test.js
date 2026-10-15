@@ -806,23 +806,21 @@ describe('what a copied prompt asks for', () => {
   // sequence of whatever rewrote this file last.
   const NL = String.fromCharCode(10);
 
-  it('asks about the one task, not the project around it', async () => {
+  it('asks to do the one task, not to hear about the project around it', async () => {
     const { body } = await visit('/project/acme/ledger?ws=product', MANAGER);
     const prompt = rowPrompt(body);
-    expect(prompt).toContain('tell me about that one thing');
-    expect(prompt).toContain('what is still open for it');
-    expect(prompt).toContain('Do not summarise the rest of the project');
+    expect(prompt).toContain('produce it now');
+    expect(prompt).toContain('ask me only what stops you');
+    expect(prompt).toContain('do not summarise the rest of the project');
   });
 
-  it("asks for it in a colleague's words, not in the project's", async () => {
+  it("keeps the project's storage out of the work", async () => {
     // What came back read like a tour of the data model: headings, field names,
     // and a walk back up the tree, to somebody who asked about one line on a
     // page and does not care how it is stored.
     const { body } = await visit('/project/acme/ledger?ws=product', MANAGER);
     const prompt = rowPrompt(body);
-    expect(prompt).toContain('the way a colleague would');
     expect(prompt).toContain('Do not explain how the project stores any of this');
-    expect(prompt).toContain('do not walk me back up the structure');
     // What to talk about, and nothing about how to lay it out. Banning headings
     // and lists was the wrong lever: the subject was wrong, not the shape, and a
     // model told how to format itself loses formatting it would have chosen well.
@@ -840,7 +838,7 @@ describe('what a copied prompt asks for', () => {
     expect(text.split(NL).length).toBeGreaterThan(8);
     // The question first, in the words somebody would use out loud, and
     // everything the assistant has to do below it, addressed to the assistant.
-    expect(text.startsWith('Tell me more about task 1.1: &quot;Draft the pricing page&quot;.')).toBe(true);
+    expect(text.startsWith('Do task 1.1: &quot;Draft the pricing page&quot;.')).toBe(true);
     expect(text).toContain(`${NL}${NL}Instructions for the AI agent:${NL}- `);
     // Every instruction on a line of its own.
     expect(text.split(NL).filter(l => l.startsWith('- ')).length).toBeGreaterThan(4);
@@ -1484,7 +1482,7 @@ describe('the project page is one page', () => {
       expect(prompt).toContain('get_connect_url');
       expect(prompt).toContain('stop and tell me');
       expect(prompt).toContain('the part of the work called &quot;Product&quot;');
-      expect(prompt).toContain('Tell me more about task 1.1:');
+      expect(prompt).toContain('Do task 1.1:');
       expect(prompt).toContain('&quot;Draft the pricing page&quot;');
       expect(prompt).not.toContain('(id: product)');
       expect(prompt).toMatch(/The page it came from: https?:[^ ]*project\/acme\/ledger/);

@@ -2,7 +2,7 @@ import { esc } from './theme.js';
 import { RECORD_TYPES, today } from '../model.js';
 import { contradictionLabel, evidenceLabel } from '../contradictions.js';
 import { describeChange } from '../change-labels.js';
-import { promptFor, decisionPrompt, outputsBlock, escAttr, whoTouched } from './prompt-for.js';
+import { promptFor, decisionPrompt, outputsBlock, taskPasteEnd, escAttr, whoTouched } from './prompt-for.js';
 import { workstreamLocation } from './workstream-location.js';
 import { historyStatus, historyLine } from '../task-history.js';
 
@@ -141,7 +141,7 @@ function taskRow({ t, view, origin, marked }) {
   if (!who.length && addedBy) who.push(addedBy);
   return `<button type="button" class="item trow${marked ? ' marked' : ''}${t.status === 'done' ? ' done' : ''}" id="t-${esc(t.id)}"
   data-text="${esc(t.title)}" data-kind="${esc(`Task${t.key ? ` ${t.key}` : ''}`)}" data-summary="" data-who="${esc(who.join(', '))}"
-  data-review="" data-ws="${esc(t.workstream || '')}" data-ask="${escAttr(prompt.split('\n\n')[0])}" data-prompt="${escAttr(prompt)}" data-paste-extra="${escAttr(outputsBlock(workData(t.outputs)))}"
+  data-review="" data-ws="${esc(t.workstream || '')}" data-ask="${escAttr(prompt.split('\n\n')[0])}" data-prompt="${escAttr(prompt)}" data-paste-extra="${escAttr(outputsBlock(workData(t.outputs)))}" data-paste-end="${escAttr(taskPasteEnd(Boolean(outputsBlock(workData(t.outputs)))))}"
   ${t.status === 'done' ? 'data-done="1" ' : ''}data-work="${esc(JSON.stringify(workData(t.outputs)))}" data-changed="${esc(JSON.stringify(t.changedSince || null))}" data-history="${esc(JSON.stringify(historyData(t.history, view.agents)))}">
   <span class="num">${esc(t.key || '—')}</span><span class="ttl" title="${esc(t.title)}">${esc(t.title)}</span>
   <span class="own">${whoChip(t.owner, view.agents)}</span>${clip(t)}</button>`;
