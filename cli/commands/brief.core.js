@@ -1,4 +1,5 @@
 import {
+  listOutputs,
   readConfig, readProject, readRoleFile, listTasks, listWorkstreamIds,
 } from '../../src/storage.js';
 import { resolveTarget, isProjectLevel, targetLabel } from '../../src/project-level.js';
@@ -100,7 +101,10 @@ export async function buildBrief({
   // Oldest first, matching `task list`. Two surfaces listing the same tasks in
   // different orders is the kind of difference somebody spends an afternoon on.
   const byAge = (a, b) => (a.createdAt || '').localeCompare(b.createdAt || '');
-  const open = mine.filter(t => t.status === 'open').sort(byAge);
+  // How much has already been produced on each open task, so an assistant asked
+  // to carry on knows there is earlier work to start from (read it with get_task).
+  const savedCount = (t) => { try { return listOutputs(t.id, teamctxDir).length; } catch { return 0; } };
+  const open = mine.filter(t => t.status === 'open').sort(byAge).map(t => ({ ...t, savedOutputs: savedCount(t) }));
   const done = mine.filter(t => t.status !== 'open').sort(byAge);
 
   // The context for each place they stand, the project and every part above it

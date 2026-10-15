@@ -22,7 +22,8 @@ export function applyQueueItem(tree, item, { nextKey, workstreamNumber = null } 
 /**
  * The number a waiting item is known by, from the moment it is submitted.
  *
- * An item about one existing task is that task's number. Any other item in a
+ * An item about one existing task (editing it, removing it, or recording
+ * something against it) is that task's number. Any other item in a
  * workstream takes the next number in that workstream's running list, so it can
  * be spoken of while it waits ("approve 1.6"). If it is approved as a task, the
  * task keeps it; as a record or evidence, the number stays as the submission's
@@ -35,9 +36,14 @@ export function applyQueueItem(tree, item, { nextKey, workstreamNumber = null } 
 export function numberQueueItem({ operations, tree, nextKey, workstream, number }) {
   if (!workstream) return { number: null, nextKey };
   const ops = Array.isArray(operations) ? operations : [];
-  const taskIds = new Set(ops.map(o => o?.id));
-  if (ops.length && ops.every(o => o?.type === 'editTask' || o?.type === 'removeTask') && taskIds.size === 1) {
-    const task = (tree?.tasks || []).find(t => t.id === ops[0].id);
+  // The one existing task every operation is about, if there is one: an edit or
+  // removal of it, or a record attached to it. A decision saved beside a retitle
+  // is still an answer to that task, not a new piece of work.
+  const aboutTask = (o) => (o?.type === 'editTask' || o?.type === 'removeTask' ? o.id
+    : o?.type === 'addRecord' && o.record?.attachedTo?.kind === 'task' ? o.record.attachedTo.id : null);
+  const taskIds = new Set(ops.map(aboutTask));
+  if (ops.length && taskIds.size === 1 && !taskIds.has(null)) {
+    const task = (tree?.tasks || []).find(t => t.id === [...taskIds][0]);
     if (task?.key) return { number: task.key, nextKey };
   }
   if (!number) return { number: null, nextKey };

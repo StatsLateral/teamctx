@@ -33,6 +33,9 @@ export const VIEW_PARAMS = ['ws', 'item', 'task', 'review'];
  */
 const ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 
+/** `owner/repo`, as the Tips & Tricks link carries it. */
+export const TIPS_PROJECT = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}\/[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+
 export const isViewId = (v) => typeof v === 'string' && ID.test(v);
 
 export class ViewUrlError extends Error {
@@ -57,6 +60,20 @@ export function buildViewUrl({ base, owner, repo, ws = null, item = null, task =
   for (const [key, value] of [['ws', ws], ['item', item], ['task', task], ['review', review]]) {
     if (value != null && isViewId(value)) url.searchParams.set(key, value);
   }
+  return url.toString();
+}
+
+/**
+ * The Tips & Tricks page, remembering which project it was linked from.
+ *
+ * Sits beside the project link in every tool result. Like it, the link carries
+ * no credential: the page is for signed-in people and sends anybody else
+ * through sign-in first.
+ */
+export function buildTipsUrl({ base, owner, repo } = {}) {
+  if (!base) throw new ViewUrlError('no deployment address for this project, so there is no page to link to');
+  const url = new URL('/tips', base.endsWith('/') ? base : `${base}/`);
+  if (isViewId(owner) && isViewId(repo)) url.searchParams.set('project', `${owner}/${repo}`);
   return url.toString();
 }
 
@@ -88,7 +105,7 @@ export function parseViewParams(query = {}) {
 export function isReturnable(path) {
   if (typeof path !== 'string' || !path.startsWith('/') || path.startsWith('//')) return false;
   const [pathname, rest] = path.split('?');
-  const known = /^\/(?:settings(?:\/[a-z-]+)?|projects|project\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+)$/;
+  const known = /^\/(?:settings(?:\/[a-z-]+)?|projects|tips|project\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+(?:\/contributions)?)$/;
   if (!known.test(pathname)) return false;
   if (rest === undefined) return true;
   if (rest.includes('#')) return false;
@@ -120,6 +137,16 @@ export function isReturnable(path) {
     }
     if (key === 'taskOwner') {
       if (!value || value.length > 128 || /[\u0000-\u001f\u007f<>]/.test(value)) return false;
+      continue;
+    }
+    // How the contributions page is grouped.
+    if (key === 'group' && pathname.endsWith('/contributions')) {
+      if (value !== 'person' && value !== 'date') return false;
+      continue;
+    }
+    // Which project a Tips & Tricks link came from, so the page can lead back.
+    if (key === 'project' && pathname === '/tips') {
+      if (!TIPS_PROJECT.test(value)) return false;
       continue;
     }
     if (!VIEW_PARAMS.includes(key) || !isViewId(value)) return false;

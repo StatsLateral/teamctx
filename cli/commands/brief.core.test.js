@@ -14,6 +14,7 @@ vi.mock('../../src/storage.js', () => ({
   readWorkstream: vi.fn((id) => ({ id, name: id, records: [{ id: `r-${id}`, type: 'decision', text: `${id} decision`, status: 'active', attachedTo: { kind: 'workstream', id }, links: {} }], tasks: [] })),
   readRoleFile: vi.fn(() => '# role file'),
   listTasks: vi.fn(() => []),
+  listOutputs: vi.fn(() => []),
   listWorkstreamIds: vi.fn(() => ['delivery', 'docs']),
   // The brief now also asks what rests on a broken assumption, which needs every
   // record in the project rather than the reader's own chain — so the whole-tree
@@ -28,7 +29,7 @@ vi.mock('../../src/actor.js', () => ({
 vi.mock('../../src/prefs.js', () => ({ resolveDisplayName: vi.fn(async () => 'Priya') }));
 
 const { buildBrief } = await import('./brief.core.js');
-const { readConfig, readProject, readWorkstream, readRoleFile, listTasks, readTree } = await import('../../src/storage.js');
+const { readConfig, readProject, readWorkstream, readRoleFile, listTasks, readTree, listOutputs } = await import('../../src/storage.js');
 const { resolveActor } = await import('../../src/actor.js');
 
 const PRIYA = { key: 'git:priya@example.com', name: 'Priya', email: 'priya@example.com' };
@@ -79,6 +80,17 @@ describe('whose brief it is', () => {
     const r = await buildBrief({ teamctxDir: '/x' });
     expect(r.tasks.done.flatMap(g => g.tasks.map(t => t.id))).toEqual(['t3']);
     expect(r.tasks.openCount).toBe(2);
+  });
+});
+
+describe('earlier work on a task', () => {
+  it('says how much has already been produced on each open task', async () => {
+    listOutputs.mockImplementation((id) => (id === 't2' ? [{ id: 'o1' }, { id: 'o2' }] : []));
+    const r = await buildBrief({ teamctxDir: '/x' });
+    const all = r.tasks.open.flatMap(g => g.tasks);
+    expect(all.find(t => t.id === 't2').savedOutputs).toBe(2);
+    expect(all.find(t => t.id === 't1').savedOutputs).toBe(0);
+    listOutputs.mockImplementation(() => []);
   });
 });
 
