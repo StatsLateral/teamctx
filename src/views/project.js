@@ -141,6 +141,18 @@ h1{font-size:28px;line-height:1.25;margin:0 0 .35rem}
 .empty{color:var(--faint);font-style:italic;font-size:13px;padding:14px;border:1px dashed var(--line);border-radius:var(--radius-sm);text-align:center}
 .stale-note{background:var(--amber-soft);color:var(--amber);font-size:12px;padding:6px 8px;border-radius:6px;margin:0 0 10px}
 .plain{margin:0 0 1rem;padding-left:1.1rem}
+.wout{border:1px solid var(--line, #ddd);border-radius:6px;margin:0 0 8px}
+.wout summary{cursor:pointer;padding:8px 10px;line-height:1.4;overflow-wrap:anywhere}
+.wout .wbody{white-space:pre-wrap;line-height:1.5;margin:0;padding:0 10px 8px;overflow-wrap:anywhere}
+.wout .wnote{font-size:12px;color:var(--muted, #666);margin:0;padding:0 10px 8px;white-space:pre-wrap;overflow-wrap:anywhere}
+.wout .wstate{font-size:12px;margin-left:6px;color:var(--muted, #666)}
+.wout .wstate.waiting{color:var(--amber)}
+.wout .wstate.accepted{color:var(--green, #2a7)}
+.wout.turned summary{border-left:3px solid var(--amber)}
+.out{border:1px solid var(--line, #ddd);border-radius:6px;padding:8px 10px;margin:0 0 10px}
+.out .otitle{font-weight:600;margin:0 0 4px;overflow-wrap:anywhere}
+.out .obody{white-space:pre-wrap;line-height:1.5;margin:0;overflow-wrap:anywhere}
+.out .onote{font-size:12px;color:var(--muted, #666);margin:6px 0 0;white-space:pre-wrap;overflow-wrap:anywhere}
 .plain li{margin:0 0 .4rem;line-height:1.45;overflow-wrap:anywhere}
 /* A task's history: the date, who, what happened, one line each. */
 .hstatus{margin:0 0 .4rem;font-size:13px;color:var(--ink);font-weight:600}
@@ -204,6 +216,7 @@ h1{font-size:28px;line-height:1.25;margin:0 0 .35rem}
 .chatico:hover,.chatico:focus-visible{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft);outline:none}
 .chatdiv{width:1px;height:26px;background:var(--line);margin:0 2px}
 .chatnote{font-size:12px;color:var(--faint);margin:.6rem 0 0}
+.howbot{font-size:13px;margin:.9rem 0 .2rem}.howlbl{font-size:12px;color:var(--faint);margin:.4rem 0 .1rem}.howeach{font-size:13px;margin:.2rem 0}.peek ol{margin:.2rem 0 .2rem 1.1rem;padding:0;font-size:13px}
 .toast{min-height:1.2em;font-size:13px;color:var(--accent);margin:.6rem 0 0}
 .drawer-body .statement{font-family:var(--font-display);font-size:18px;margin:0 0 10px;overflow-wrap:anywhere}
 /* What the button is about to put on the clipboard, shut by default: it is long,
@@ -320,6 +333,34 @@ const SCRIPT = `
       earlier.textContent = 'Show earlier (' + hidden + ')';
     }
   }
+  // What has been produced on a task: newest first, each one opening to its
+  // whole text. Text nodes throughout: these are somebody else's words.
+  var STATE_WORDS = { working: 'working', submitted: 'waiting for the manager', accepted: 'accepted' };
+  function showWork(items) {
+    var wrap = document.getElementById('d-work-wrap');
+    var box = document.getElementById('d-work');
+    box.textContent = '';
+    wrap.hidden = !items.length;
+    items.forEach(function (o, i) {
+      var d = document.createElement('details'); d.className = 'wout' + (o.turnedDown ? ' turned' : '');
+      if (i === 0) d.open = true;
+      var sum = document.createElement('summary');
+      sum.appendChild(document.createTextNode(o.title));
+      var meta = document.createElement('span'); meta.className = 'wstate' + (o.state === 'submitted' ? ' waiting' : o.state === 'accepted' ? ' accepted' : '');
+      meta.textContent = (o.mine ? 'you' : o.author) + (o.at ? ' \\u00b7 ' + o.at.slice(0, 10) : '') + ' \\u00b7 ' + (STATE_WORDS[o.state] || o.state);
+      sum.appendChild(meta);
+      d.appendChild(sum);
+      if (o.turnedDown) {
+        var td = document.createElement('p'); td.className = 'wnote';
+        td.textContent = 'Feedback' + (o.turnedDown.reason ? ': ' + o.turnedDown.reason : '.');
+        d.appendChild(td);
+      }
+      var body = document.createElement('p'); body.className = 'wbody'; body.textContent = o.body; d.appendChild(body);
+      if (o.notes) { var n = document.createElement('p'); n.className = 'wnote'; n.textContent = 'Notes: ' + o.notes; d.appendChild(n); }
+      if (o.prompt) { var q = document.createElement('p'); q.className = 'wnote'; q.textContent = 'Asked: ' + o.prompt; d.appendChild(q); }
+      box.appendChild(d);
+    });
+  }
   document.getElementById('d-history-earlier').addEventListener('click', function () {
     document.querySelectorAll('#d-history li.earlier').forEach(function (li) { li.hidden = false; });
     this.hidden = true;
@@ -358,6 +399,25 @@ const SCRIPT = `
         return list.children.length;
       };
       fill('d-changes', 'changes');
+      var reachList = document.getElementById('d-reach');
+      reachList.textContent = '';
+      JSON.parse(el.dataset.reach || '[]').forEach(function (line) {
+        var li = document.createElement('li'); li.textContent = line; reachList.appendChild(li);
+      });
+      document.getElementById('d-reach-wrap').hidden = !reachList.children.length;
+      // The submitted work, whole. Built as text nodes: it is somebody else's words.
+      var outs = JSON.parse(el.dataset.outputs || '[]');
+      var outBox = document.getElementById('d-outputs');
+      outBox.textContent = '';
+      document.getElementById('d-outputs-wrap').hidden = !outs.length;
+      outs.forEach(function (o) {
+        var card = document.createElement('div'); card.className = 'out';
+        var t = document.createElement('p'); t.className = 'otitle'; t.textContent = o.title; card.appendChild(t);
+        var b = document.createElement('p'); b.className = 'obody'; b.textContent = o.body; card.appendChild(b);
+        if (o.notes) { var n = document.createElement('p'); n.className = 'onote'; n.textContent = 'Notes: ' + o.notes; card.appendChild(n); }
+        if (o.prompt) { var q = document.createElement('p'); q.className = 'onote'; q.textContent = 'Asked: ' + o.prompt; card.appendChild(q); }
+        outBox.appendChild(card);
+      });
       document.getElementById('d-checks-wrap').hidden = !fill('d-checks', 'checks');
       // Each instruction on its own line with a Copy button, under where it is
       // used. Built as text nodes: these are somebody else's words.
@@ -390,6 +450,20 @@ const SCRIPT = `
     // A done task reads as done here too.
     document.getElementById('d-text').classList.toggle('done', el.dataset.done === '1');
     showHistory(el.dataset.history ? JSON.parse(el.dataset.history) : null);
+    showWork(el.dataset.work ? JSON.parse(el.dataset.work) : []);
+    // Plain text only: the summary quotes what a contributor wrote.
+    var changed = el.dataset.changed ? JSON.parse(el.dataset.changed) : null;
+    var changedList = document.getElementById('d-changed');
+    changedList.textContent = '';
+    document.getElementById('d-changed-wrap').hidden = !changed;
+    if (changed) {
+      changed.changes.forEach(function (c) {
+        var li = document.createElement('li');
+        li.textContent = (c.at ? c.at.slice(0, 10) + ' \\u00b7 ' : '') + c.where + ': ' + c.summary;
+        changedList.appendChild(li);
+      });
+      if (changed.more) { var more = document.createElement('li'); more.textContent = 'and ' + changed.more + ' more'; changedList.appendChild(more); }
+    }
     // One sentence and a way in, instead of the list of records that govern it.
     var ws = el.dataset.ws || '';
     var ctx = document.getElementById('d-ctx');
@@ -404,7 +478,8 @@ const SCRIPT = `
       ? { short: el.dataset.prompt, full: el.dataset.prompt }
       : {
         short: el.dataset.prompt,
-        full: scoped.full + '\\n---\\n' + (el.dataset.ask || '') + '\\nAnswer in plain language, from the context above only.\\n'
+        full: scoped.full + '\\n---\\n' + (el.dataset.ask || '') + (el.dataset.pasteExtra ? '\\n\\n' + el.dataset.pasteExtra + '\\n' : '')
+          + '\\nAnswer in plain language, from the context' + (el.dataset.pasteExtra ? ' and the working outputs' : '') + ' above only.\\n'
       };
     showPrompt();
     reveal();
@@ -633,6 +708,14 @@ ${note ? `<p class="note">${esc(note)}</p>` : ''}
       <p id="d-summary"></p>
       <div class="section-title">Who wrote it</div>
       <p id="d-who"></p>
+      <div id="d-changed-wrap" hidden>
+        <div class="section-title">Changed since this was last worked on</div>
+        <ul class="plain" id="d-changed"></ul>
+      </div>
+      <div id="d-work-wrap" hidden>
+        <div class="section-title">Working outputs</div>
+        <div id="d-work"></div>
+      </div>
       <div id="d-history-wrap" hidden>
         <div class="section-title">History</div>
         <p class="hstatus" id="d-history-status"></p>
@@ -640,6 +723,14 @@ ${note ? `<p class="note">${esc(note)}</p>` : ''}
         <ul class="plain history" id="d-history"></ul>
       </div>
       <div id="d-queue" hidden>
+        <div id="d-outputs-wrap" hidden>
+          <div class="section-title">What was submitted</div>
+          <div id="d-outputs"></div>
+        </div>
+        <div id="d-reach-wrap" hidden>
+          <div class="section-title">What it reaches</div>
+          <ul class="plain" id="d-reach"></ul>
+        </div>
         <div class="section-title">What it would change</div>
         <ul class="plain" id="d-changes"></ul>
         <div id="d-checks-wrap" hidden>
@@ -651,8 +742,8 @@ ${note ? `<p class="note">${esc(note)}</p>` : ''}
       </div>
     </div>
     ${panelsHtml({ view, onDay: today() })}
-    ${assistantBlockHtml()}
+    ${assistantBlockHtml({ view, origin })}
   </div>
 </aside>
-<script type="application/json" id="prompts">${JSON.stringify(drawerPrompts({ view, onDay: today() })).replace(/</g, '\\u003c')}</script>`, { wide: true, extraCss: CSS, script: SCRIPT });
+<script type="application/json" id="prompts">${JSON.stringify(drawerPrompts({ view, onDay: today(), origin })).replace(/</g, '\\u003c')}</script>`, { wide: true, extraCss: CSS, script: SCRIPT });
 };

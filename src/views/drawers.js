@@ -1,5 +1,7 @@
 import { esc } from './theme.js';
 import { contextGroups } from '../prompts.js';
+import { CHATBOTS, MENU_NOTE, stepsFor } from '../connect-steps.js';
+import { mcpUrl } from './mcp-url.js';
 import { SAMPLE_SOURCES, ISSUES_URL } from './sources-sample.js';
 import { CONNECTORS } from '../sources.js';
 import { CLAUDE_ICON, CHATGPT_ICON, COPILOT_ICON, COPY_ICON } from './assistant-icons.js';
@@ -88,10 +90,14 @@ function teamPanel(view) {
   const how = view.isManager
     ? '<p class="pnote">To add someone, or list them as external, tell your assistant: "Add Dana to this project", "Make Dana external".</p>'
     : '';
+  const all = view.isManager
+    ? `<p class="pnote"><a href="/project/${encodeURIComponent(view.owner)}/${encodeURIComponent(view.repo)}/contributions">All contributions</a> — everything your team and agents have sent, latest first.</p>`
+    : '';
   return `<section class="dpanel" id="dp-team" data-scope="project" data-title="My Team" data-noassist hidden>
     ${group('Team members', team) || '<p class="muted">Nobody is on the roster yet.</p>'}
     ${group('Agents', bots)}
     ${group('External talent', outside)}
+    ${all}
     ${how}
   </section>`;
 }
@@ -165,7 +171,16 @@ const button = (go, label, title, icon) => `<button type="button" class="chatico
  * Open in Claude, ChatGPT or Copilot, or copy the prompt: one compact row, every
  * control a real button with its own name. What each does is `assistantPlan`.
  */
-export function assistantBlockHtml() {
+export function assistantBlockHtml({ view = null, origin = null } = {}) {
+  const address = origin && view ? mcpUrl({ origin, owner: view.owner, repo: view.repo }) : null;
+  const howTo = CHATBOTS.map((bot) => {
+    const { once, each } = stepsFor(bot, address);
+    return `<h4 class="howbot">${esc(bot.name)}</h4>
+      ${once.length ? `<p class="howlbl">Once, to add the connector</p><ol>${once.map(t => `<li>${esc(t)}</li>`).join('')}</ol>` : ''}
+      ${bot.id === 'copilot' ? '' : '<p class="howlbl">Then, in each new chat</p>'}
+      ${each.map(t => `<p class="howeach">${esc(t)}</p>`).join('')}`;
+  }).join('');
+
   return `<section class="assist" id="d-assist" aria-label="Work on this in your assistant">
     <div class="section-title" id="d-assist-title">Ask in your assistant</div>
     <div class="amode" id="d-amode" role="radiogroup" aria-label="How your assistant gets the context">
@@ -181,6 +196,12 @@ export function assistantBlockHtml() {
       ${button('copy', 'Copy full prompt', 'Copy the full prompt (works in any chatbot)', COPY_ICON)}
     </div>
     <p class="chatnote">Copilot cannot be prefilled by link, so its icon copies the prompt first.</p>
+    <p class="chatnote">A new chat only reaches your project if its teamctx connector is turned on there. If it is not, choose "Paste the context in" above.</p>
+    <details class="peek">
+      <summary>How to turn the connector on</summary>
+      ${howTo}
+      <p class="chatnote">${esc(MENU_NOTE)}</p>
+    </details>
     <details class="peek">
       <summary>See the prompt first</summary>
       <pre id="d-prompt"></pre>

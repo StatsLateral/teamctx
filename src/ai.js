@@ -154,6 +154,7 @@ export async function proposeDiff({
     '',
     operationsToCheck ? 'Check the supplied operations for contradictions only. Do not change or regenerate them. Output STRICT JSON:' : 'Propose changes. Output STRICT JSON:',
     'A task number such as 3.2 is the handle a person uses. When a contribution names one, resolve it to the matching task id above. Records have no number: refer to them by their wording. Use internal ids in operations and links; never assign or edit a number. A task belongs to a workstream: when the contribution is to the project itself, do not propose addTask.',
+    'Say only what the contribution says. Never write that work is approved, accepted, settled, final, closed, complete or done unless the contribution itself says so in those words: a draft sent "for review" is a draft for review, and only a manager\'s decision makes anything approved. Never use editTask to record progress: a task\'s title says what the work is, so do not add "draft complete", "ready for review" or any status to it. Do not propose closing or reopening a task.',
     'For setGoal: "text" is one outcome sentence that names who or what changes, not how. "why" is the reason, the buyer or user need, or the cost of not doing it, and does not restate the goal. Plain words: no headings, bullets, hedging or marketing language. Use only what the input says. If it gives no reason, leave "why" out rather than invent one.',
     `{
   "summary": "1-2 sentences",

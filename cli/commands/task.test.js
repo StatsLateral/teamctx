@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('../../src/storage.js', () => ({
+  writeChange: vi.fn(), listChanges: vi.fn(() => []),
   readTree: vi.fn(() => ({ id: 'main', name: 'M', records: [], tasks: [] })),
   writeTree: vi.fn(),
   readTreeMd: vi.fn(() => ''),
@@ -20,6 +21,10 @@ vi.mock('../../src/storage.js', () => ({
   writeTaskFile: vi.fn(),
   taskFilePath: vi.fn(id => `/fake/tasks/${id}.md`),
   taskFileExists: vi.fn(() => false),
+  listOutputs: vi.fn(() => []),
+  readApprovals: vi.fn(() => ({})),
+  listQueue: vi.fn(() => []),
+  writeOutput: vi.fn(),
 }));
 
 vi.mock('../../src/context.js', () => ({
@@ -53,8 +58,9 @@ import {
 } from './task.js';
 import {
   readConfig, listTasks, readTask, writeTask, deleteTask,
-  writeTaskFile, taskFileExists, readWorkstream, readTree, listWorkstreamIds,
+  writeTaskFile, taskFileExists, readWorkstream, readTree, listWorkstreamIds, listOutputs,
 } from '../../src/storage.js';
+import { compileTask } from './task.core.js';
 import { compileTaskPrompt } from '../../src/context.js';
 import { readProject } from '../../src/storage.js';
 import { commitContext } from '../../src/git.js';
@@ -310,6 +316,26 @@ describe('taskCompileCommand', () => {
   };
   const wsA = { id: 'main', name: 'M', records: [{ id: 'w1', type: 'decision', text: 'a', status: 'active' }], tasks: [] };
   const wsB = { id: 'main', name: 'M', records: [{ id: 'w1', type: 'decision', text: 'b', status: 'active' }], tasks: [] };
+
+  it('hands back what has already been produced on the task, so whoever carries on starts from it', async () => {
+    readTask.mockReturnValue({ task: openTask, workstream: 'main' });
+    readTree.mockReturnValue(wsA);
+    listOutputs.mockReturnValue([
+      { id: 'o1', title: 'Draft 1', body: 'First.', at: '2026-10-10T10:00:00Z', author: { name: 'Priya' } },
+      { id: 'o2', title: 'Draft 2', body: 'Second, whole.', at: '2026-10-11T10:00:00Z', author: { name: 'Priya' } },
+    ]);
+    const r = await compileTask({ id: 't-plan', teamctxDir: '/x', projectDir: '/x' });
+    expect(r.outputs.latest).toMatchObject({ id: 'o2', body: 'Second, whole.' });
+    expect(r.outputs.earlier.map(o => o.id)).toEqual(['o1']);
+    listOutputs.mockReturnValue([]);
+  });
+
+  it('says there is nothing when the task has no saved work', async () => {
+    readTask.mockReturnValue({ task: openTask, workstream: 'main' });
+    readTree.mockReturnValue(wsA);
+    listOutputs.mockReturnValue([]);
+    expect((await compileTask({ id: 't-plan', teamctxDir: '/x', projectDir: '/x' })).outputs).toBeNull();
+  });
 
   it('hands the prompt what rests on a broken assumption', async () => {
     // The call site, not the renderer. `compileTaskPrompt` renders the flag and

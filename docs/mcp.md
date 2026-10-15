@@ -49,7 +49,9 @@ either manager-gated or explicitly flagged as structural.
 | `suggest_roles({workstream?})` | AI-suggest 3-5 roles (dry-run; does not create them). |
 | `list_members` | The people on this project. A member is someone the manager put on the roster — **not** the same as having repository access. |
 | `list_tasks({status?, owner?, workstream?, all?})` | List tasks. Defaults to **open tasks in the caller's active workstream**; `all: true` returns every status across every workstream. |
-| `get_task({id})` | One task by id or unique prefix, plus its prompt path if compiled. |
+| `get_task({id, output?})` | One task by id or unique prefix, plus its prompt path if compiled, and what people have produced on it: the latest output in full and earlier ones as a list. `output` opens an earlier one. `changedSince` (also on `task_compile`) lists what changed in the context since the person last worked on an open task, quoted as data. |
+| `task_output({id, body, title?, prompt?, notes?, basedOn?})` | Save what was produced on a task, word for word. Not a submission: nothing is queued or approved, and the task is untouched. |
+| `task_submit({id, outputs?, message?})` | Send saved outputs (the latest, chosen ids, or `"all"`) to the manager for approval. No AI reads them; the manager is shown the outputs themselves. Accepting (`review_approve`) marks the task done and closes it for good; giving feedback (`review_reject`, with a reason) leaves it open. Accepting records the acceptance in the context. |
 
 ### Tier 1 — additive writes
 
@@ -84,7 +86,7 @@ marked *(manager-gated)* require the caller to pass `author` matching
 | `role_assign({slug, workstream})` | Move a role to a different workstream and regenerate. |
 | `workstream_add({name, parent?})` | Add a part of the work, optionally under another. Manager only. |
 | `workstream_use({id})` | Change the active workstream. |
-| `review_approve({id, author})` | *(manager-gated)* Apply a queued contribution. |
+| `review_approve({id, facts?, taskChanges?, ...})` | *(manager-gated)* Apply a queued contribution. For work submitted for a task this is Accept: it records the acceptance in the context, plus only the `facts` and `taskChanges` the manager picked. `list_pending_reviews` items carry `reachLines` to show first. |
 | `review_reject({id, reason?, author})` | *(manager-gated)* Archive a queued contribution. |
 | `snapshot_create({message?})` | Freeze the workspace as a pending snapshot. |
 | `snapshot_approve({id, author})` | *(manager-gated)* Approve and set current pointer. |

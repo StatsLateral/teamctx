@@ -213,7 +213,8 @@ describe('the floor under all of it', () => {
     const r = JSON.parse((await callTool(handlers, root, 'contribute', {})).content[0].text);
     expect(r.viewUrl).toBe(`${HOST}/project/${OWNER}/${REPO}`);
     expect(r.viewUrlError).toBe(null);
-    expect(r.reportBack).toBe(`Added. You must end your reply with this link, on its own line, as a plain URL: ${r.viewUrl}`);
+    expect(r.tipsUrl).toBe(`${HOST}/tips?project=${encodeURIComponent(`${OWNER}/${REPO}`)}`);
+    expect(r.reportBack).toBe(`Added. You must end your reply with this link, on its own line, as a plain URL: ${r.viewUrl} Then, directly beneath it on its own line, the Tips & Tricks page: ${r.tipsUrl}`);
   });
 
   it('uses the ids the handler did name, even without a link', async () => {
@@ -255,19 +256,20 @@ describe('the link beside the JSON, not only inside it', () => {
     // drops a nested field however well it is named. This is the line somebody
     // actually sees whatever the client does with the rest.
     const r = await hosted('task_add', { title: 'Contact the sponsor', workstream: 'finance' });
-    expect(r.__blocks).toEqual([`View it here: ${r.viewUrl}`]);
+    expect(r.__blocks).toEqual([`View it here: ${r.viewUrl}\nTips & Tricks: ${r.tipsUrl}`]);
   });
 
   it('is there for a contribution too, pointing at what it wrote', async () => {
     const r = await hosted('contribute', { text: 'a sponsor at 25,000', workstream: 'finance', apply: true });
     const added = tree().records.find(w => w.text === 'tiers decided');
-    expect(r.__blocks[0]).toBe(`View it here: ${HOST}/project/${OWNER}/${REPO}?ws=finance&item=${added.id}`);
+    expect(r.__blocks[0].split('\n')[0]).toBe(`View it here: ${HOST}/project/${OWNER}/${REPO}?ws=finance&item=${added.id}`);
+    expect(r.__blocks[0].split('\n')[1]).toBe(`Tips & Tricks: ${r.tipsUrl}`);
   });
 
   it('is there for the read tools that report where something lives', async () => {
     for (const [tool, args] of [['get_status', {}], ['get_workstream', { id: 'finance' }], ['my_brief', {}]]) {
       const r = await hosted(tool, args);
-      expect(r.__blocks[0], tool).toBe(`View it here: ${r.viewUrl}`);
+      expect(r.__blocks[0], tool).toBe(`View it here: ${r.viewUrl}\nTips & Tricks: ${r.tipsUrl}`);
     }
   });
 
