@@ -7,10 +7,10 @@ import {
   readProject, readConfig, readTree, listTasks, readTask, writeTask, deleteTask,
   readWorkstream, readContributions,
   writeTaskFile, readTaskFile, taskFilePath, taskFileExists,
-  writeOutput, listOutputs, listChanges, appendContribution, writeQueueItem, readApprovals, listQueue,
+  writeOutput, listOutputs, listChanges, appendContribution, writeQueueItem, readApprovals, listQueue, listRejected,
 } from '../../src/storage.js';
 import { compileTaskPrompt } from '../../src/context.js';
-import { outputStates } from '../../src/outputs.js';
+import { outputStates, latestRejection } from '../../src/outputs.js';
 import { commitContext, pushContext } from '../../src/git.js';
 import { resolveActor } from '../../src/actor.js';
 import { resolveDisplayName, resolveActiveWorkstream } from '../../src/prefs.js';
@@ -236,9 +236,9 @@ function changedSinceFor(task, saved, teamctxDir, read = {}) {
  * text, so a long history does not grow what an assistant is handed; ask for
  * one by id with `output` to open it. `null` when nothing was saved.
  */
-export function getTask({ id, output, teamctxDir } = {}) {
+export function getTask({ id, output, teamctxDir, reader } = {}) {
   const { task, workstream } = findTask(id, teamctxDir);
-  const saved = withStates(listOutputs(task.id, teamctxDir), teamctxDir);
+  const saved = withFeedback(withStates(listOutputs(task.id, teamctxDir), teamctxDir), task, reader, teamctxDir);
   const base = {
     ...task,
     workstream,
@@ -251,6 +251,29 @@ export function getTask({ id, output, teamctxDir } = {}) {
     return { ...base, outputs: summarise(saved), output: found };
   }
   return { ...base, outputs: summarise(saved) };
+}
+
+/**
+ * Put the manager's feedback on an output that was sent back, for the people it
+ * is for: a manager, whoever wrote the output, and whoever the task is assigned
+ * to, whatever the source of the work. `reader` is who is asking ({ keys, name,
+ * isManager }); without one nothing is added, so a caller that cannot say who it
+ * is never gets somebody's feedback. An assistant carrying on from an output
+ * that was sent back has to see why, or it works from the draft that was turned
+ * down.
+ */
+export function withFeedback(saved, task, reader, teamctxDir) {
+  if (!reader || !saved.some(o => o.state === 'working')) return saved;
+  const keys = new Set((reader.keys || []).filter(Boolean));
+  const assigned = (!!task.ownerKey && keys.has(task.ownerKey)) || (!!task.owner && task.owner === reader.name);
+  let rejected = [];
+  try { rejected = listRejected(teamctxDir).filter(r => r?.forTask === task.id); } catch { rejected = []; }
+  return saved.map(o => {
+    if (o.state !== 'working') return o;
+    if (!(reader.isManager || assigned || (o.author?.key && keys.has(o.author.key)))) return o;
+    const r = latestRejection(rejected, o.id);
+    return r ? { ...o, feedback: { reason: r.reason || null, at: r.rejectedAt || null } } : o;
+  });
 }
 
 function withStates(saved, teamctxDir) {
@@ -485,7 +508,7 @@ export async function removeTask({ id, teamctxDir, projectDir, actor } = {}) {
  * cannot open `promptPath`.
  */
 export async function compileTask({
-  id, role: roleSlug, force = false, teamctxDir, projectDir, actor,
+  id, role: roleSlug, force = false, teamctxDir, projectDir, actor, reader,
 } = {}) {
   const config = readConfig(teamctxDir);
   const { task } = findTask(id, teamctxDir);
@@ -506,7 +529,7 @@ export async function compileTask({
 
   // What people have already produced on this task, so whoever carries on starts
   // from it and not from the bare title.
-  const outputs = summarise(withStates(saved, teamctxDir));
+  const outputs = summarise(withFeedback(withStates(saved, teamctxDir), task, reader, teamctxDir));
 
   if (!force && !staleFlag && taskFileExists(task.id, teamctxDir) && task.compiledFromHash === currentHash) {
     return {
