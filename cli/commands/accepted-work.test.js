@@ -255,13 +255,13 @@ describe('accepting a task submission', () => {
     await save(member, { body: 'v1' });
     const first = await submit(member);
     await save(member, { body: 'v2' });
-    await submit(member);
-    const [waiting] = await listPendingReviews({ teamctxDir: dir });
-    expect(waiting.reachLines[0]).toMatch(/^Adds 1 record/);
-    await as(manager, () => approveReview({ id: waiting.id, teamctxDir: dir }));
-    const [second] = await listPendingReviews({ teamctxDir: dir });
-    expect(second.id).not.toBe(first.id);
-    expect(second.reachLines[0]).toMatch(/^Adds nothing/);
+    const again = await submit(member);
+    // Picked by id: the queue is ordered by timestamp, and two submissions in
+    // the same millisecond have no order to rely on.
+    const pending = (id) => listPendingReviews({ teamctxDir: dir }).then(items => items.find(i => i.id === id));
+    expect((await pending(first.id)).reachLines[0]).toMatch(/^Adds 1 record/);
+    await as(manager, () => approveReview({ id: first.id, teamctxDir: dir }));
+    expect((await pending(again.id)).reachLines[0]).toMatch(/^Adds nothing/);
   });
 
   it('treats picks that are not lists as nothing picked', async () => {
