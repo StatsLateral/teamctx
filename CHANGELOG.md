@@ -102,6 +102,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `workstream_split` and `teamctx workstream suggest` / `suggest_workstream_splits`.
 
 ### Added
+- **Connected sources are real (#168).** When something an assistant read in a
+  connected tool (Slack, Notion, Google Drive, SharePoint, Dropbox, Coda) reaches
+  the project, a reference to it is kept in `.teamctx/sources/`: the tool, a
+  title, a link, a one-line summary, who brought it, when it was read, and the
+  parts of the work and tasks it feeds. Links and summaries only: no field holds
+  an item's contents, and a link keeps no user, password or parameter that looks
+  like a credential. Two ways in: `contribute` takes `sources` (people and agents;
+  teamctx needs no credential for the tool), and `teamctx import` from a
+  connector leaves one per document, with its link wherever the connector keeps
+  it. A reference is written only once its contribution reaches the project
+  (queued or applied). The same item read again gains a feed; what each
+  contribution said about it, who brought it and when are kept per feed. The
+  Connected sources drawer lists them by tool: a member sees only approved
+  contributions in their own parts, a manager also sees waiting ones, marked;
+  names are shown as the roster has them. With none it says nothing is connected
+  yet and keeps the sample, labelled. Settings shows the count.
 - **My Team and Connected sources open drawers from Settings.** My Team lists team
   members, agents and external talent in their own sections. A manager can list a
   person as external (`member_external`, `teamctx member external`, or `external` on

@@ -28,6 +28,7 @@ These are **contributor-facing write-ups** for the larger items on the
 | [Context import (cold-start onboarding)](context-import.md) | Bring your own tools · Managers in control | Medium–Large (splittable) |
 | [Import connector contract](import-connectors.md) | Bring your own tools | Medium (one PR per connector after) |
 | [Slack import connector](import-slack.md) | Bring your own tools | Medium (first connector on the contract) |
+| [Connected sources](connected-sources.md) | Bring your own tools · Managers in control | Medium (one record, two routes in, one drawer) |
 | [Notion import connector](import-notion.md) | Bring your own tools | Medium (the block tree is the work) |
 | [Coda import connector](import-coda.md) | Bring your own tools | Small–Medium (the async export is the work) |
 | [Dropbox import connector](import-dropbox.md) | Bring your own tools | Small (the easiest of the six) |

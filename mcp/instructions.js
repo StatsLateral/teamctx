@@ -106,6 +106,11 @@ their wording and not yours.
 
 ## Things worth knowing before you are surprised by them
 
+- **Say where it came from.** When what you contribute was read in one of the
+  person's connected tools (Slack, Notion, Google Drive, SharePoint, Dropbox,
+  Coda), pass each item in sources: the tool, its title, its link and one line
+  on what it says. Never its contents. The manager sees these as the project's
+  connected sources.
 - **A contribution does not land, it queues — except the founding one.** Say
   "sent for review", not "added", for every contribution but the first. The
   manager's first (\`hasContext: false\`) lands without being asked: there is
