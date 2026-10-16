@@ -1,6 +1,6 @@
 # Proposal: Google Drive as a connected source
 
-**Status:** Proposed · **Issue:** [#171](https://github.com/StatsLateral/teamctx/issues/171)
+**Status:** Implemented, except the tasks it feeds · **Issue:** [#171](https://github.com/StatsLateral/teamctx/issues/171)
 · **Base:** `main` (after #168)
 
 ## What the issue asks
@@ -50,8 +50,8 @@ change, not this one.
 
 ## Plan
 
-- [ ] Drive link to one form per file or folder, keeping `resourcekey`; tests
+- [x] Drive link to one form per file or folder, keeping `resourcekey`; tests
       for each link above, a folder, and non-Drive links
-- [ ] `sources` guidance for Drive; test that the schema says it
-- [ ] End to end test (import and assistant)
-- [ ] CHANGELOG
+- [x] `sources` guidance for Drive; test that the schema says it
+- [x] End to end test (import and assistant)
+- [x] CHANGELOG
