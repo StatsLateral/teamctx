@@ -15,6 +15,7 @@
  */
 import { createHash } from 'crypto';
 import { readSourceRef, writeSourceRef } from './storage.js';
+import { fileLink, isSharedLink } from './connectors/dropbox.js';
 
 /** The tools a reference can name, as the drawer shows them. */
 export const CONNECTORS = {
@@ -25,6 +26,15 @@ export const CONNECTORS = {
   dropbox: { name: 'Dropbox', mark: 'D' },
   coda: { name: 'Coda', mark: 'C' },
   other: { name: 'Other sources', mark: '·' },
+};
+
+/**
+ * One link per item, for a tool whose items are reached by several links (a
+ * Dropbox file's address copied from the browser, say). Each tool adds its own
+ * entry; a link for any other tool is kept as it came.
+ */
+const NORMALIZE_LINK = {
+  dropbox: fileLink,
 };
 
 /** What an assistant or an importer might call a tool, mapped to its key. */
@@ -93,7 +103,11 @@ export function sourceId(connector, handle) {
 export function cleanRef(input) {
   if (!input || typeof input !== 'object') return null;
   const connector = connectorKey(input.connector);
-  const link = cleanLink(input.link);
+  // A Dropbox shared link is the access itself, whatever tool it arrives
+  // under, so it is never kept: the reference keeps its title.
+  const cleaned = cleanLink(input.link);
+  const kept = cleaned && isSharedLink(cleaned) ? null : cleaned;
+  const link = kept && (NORMALIZE_LINK[connector] ? NORMALIZE_LINK[connector](kept) : kept);
   const title = oneLine(input.title, TITLE_MAX);
   const itemId = oneLine(input.itemId, 200) || null;
   const summary = oneLine(input.summary, SUMMARY_MAX);
