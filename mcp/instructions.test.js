@@ -183,3 +183,11 @@ describe('a member carrying on with earlier work', () => {
     expect(of('my_brief')).toMatch(/savedOutputs/);
   });
 });
+
+describe('what an assistant passes for a Google Drive file', () => {
+  it("is the file's link and its name", () => {
+    const { items } = TOOLS.find(t => t.name === 'contribute').inputSchema.properties.sources;
+    expect(items.properties.title.description).toMatch(/Google Drive file, its name/);
+    expect(items.properties.link.description).toMatch(/Google Drive, the file's or folder's link/);
+  });
+});

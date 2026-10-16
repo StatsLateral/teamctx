@@ -91,6 +91,24 @@ describe('recording references', () => {
     expect(readSourceRefs(dir)[id].feeds[0].summary).toBe('What the contribution says');
   });
 
+  it("reads a link by its own tool's rule only", () => {
+    const shared = 'https://docs.google.com/document/d/1DocumentIdBbbbbbbbbbbbbbbbbbbbb/edit?usp=sharing';
+    expect(cleanRef({ connector: 'gdrive', link: shared }).link).toBe('https://drive.google.com/file/d/1DocumentIdBbbbbbbbbbbbbbbbbbbbb/view');
+    expect(cleanRef({ connector: 'other', link: shared }).link).toBe(shared);
+  });
+
+  it('records a Drive file once, from the editor or from Drive', () => {
+    const doc = '1DocumentIdBbbbbbbbbbbbbbbbbbbbb';
+    recordSources([{ connector: 'Google Drive', title: 'Hall floor plan', link: `https://docs.google.com/document/d/${doc}/edit?usp=drivesdk`, summary: 'Two halls' }],
+      { by: maya, at: '2026-10-01T09:00:00.000Z', feed: { workstream: null, contribution: 'c1' }, dir });
+    recordSources([{ connector: 'gdrive', title: 'Hall floor plan', link: `https://drive.google.com/file/d/${doc}/view?usp=drive_link`, summary: 'Now three halls' }],
+      { by: maya, at: '2026-10-05T09:00:00.000Z', feed: { workstream: null, contribution: 'c2' }, dir });
+    const refs = Object.values(readSourceRefs(dir));
+    expect(refs).toHaveLength(1);
+    expect(refs[0].link).toBe(`https://drive.google.com/file/d/${doc}/view`);
+    expect(visibleSources(readSourceRefs(dir))[0].summary).toBe('Now three halls');
+  });
+
   it('never writes a body or a secret it was handed', () => {
     recordSources([{ ...thread, link: `${thread.link}?token=xoxb-123`, text: 'BODY-OF-THE-THREAD', password: 'pw-1' }],
       { by: maya, feed: { workstream: null, contribution: 'c1' }, dir });
