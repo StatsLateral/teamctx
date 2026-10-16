@@ -1,6 +1,6 @@
 # Proposal: Dropbox as a connected source
 
-**Status:** Proposed · **Issue:** [#173](https://github.com/StatsLateral/teamctx/issues/173)
+**Status:** Implemented, except the tasks it feeds · **Issue:** [#173](https://github.com/StatsLateral/teamctx/issues/173)
 · **Base:** `main` (after #168)
 
 ## What the issue asks
@@ -54,10 +54,10 @@ takes no `sources` yet), and are left to their own change.
 
 ## Plan
 
-- [ ] Shared links (`/scl/fi`, `/scl/fo`, `/s/`, `dl.dropboxusercontent.com`,
+- [x] Shared links (`/scl/fi`, `/scl/fo`, `/s/`, `dl.dropboxusercontent.com`,
       `db.tt`) are not kept; tests
-- [ ] The importer hands over a file's address; a browser address reduced to
+- [x] The importer hands over a file's address; a browser address reduced to
       folder and `preview`; tests
-- [ ] `sources` guidance for Dropbox; test that the schema says it
-- [ ] End to end test (import and assistant)
-- [ ] CHANGELOG
+- [x] `sources` guidance for Dropbox; test that the schema says it
+- [x] End to end test (import and assistant)
+- [x] CHANGELOG
