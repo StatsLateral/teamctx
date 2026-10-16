@@ -102,6 +102,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `workstream_split` and `teamctx workstream suggest` / `suggest_workstream_splits`.
 
 ### Added
+- **Notion pages as connected sources (#170).** A Notion page, imported with
+  `teamctx import --from notion` or cited by an assistant with `contribute`, is
+  recorded once under Notion whichever link it came by (the API's, one from
+  after a rename, "Copy link", a link to a block on it, or a database view), as
+  `https://www.notion.so/<page id>`. So a changed page brought in again shows
+  its new summary on the same entry. Published `notion.site` links are kept as
+  they are. Never the page's text, and no Notion credential is held for the
+  assistant route.
 - **Connected sources are real (#168).** When something an assistant read in a
   connected tool (Slack, Notion, Google Drive, SharePoint, Dropbox, Coda) reaches
   the project, a reference to it is kept in `.teamctx/sources/`: the tool, a
