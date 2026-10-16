@@ -1,7 +1,7 @@
 # Proposal: Notion as a connected source
 
-**Status:** Implemented, except the tasks it feeds (after #184) · **Issue:** [#170](https://github.com/StatsLateral/teamctx/issues/170)
-· **Base:** `feat/connected-sources` (#168, PR #185)
+**Status:** Implemented, except the tasks it feeds · **Issue:** [#170](https://github.com/StatsLateral/teamctx/issues/170)
+· **Base:** `main` (after #168)
 
 ## What the issue asks
 
@@ -43,8 +43,10 @@ kept: never page contents, never a credential.
    public one. A link that is not to a Notion page is left as it is.
 2. **The assistant route says what to pass.** The `sources` description asks,
    for Notion, for the page's link and its title.
-3. **The tasks it feeds.** As for Slack, a task arrives with #144's `forTask`
-   (PR #184); after it merges, the `forTask` path records sources with the task.
+3. **The tasks it feeds.** Work for a task is now sent with `task_submit`
+   (#197), which takes no `sources` yet, so a Notion reference names the part
+   of the work it feeds, not a task. Recording sources on `task_submit` would
+   give every tool its tasks at once, so it belongs in its own change.
 4. **End to end test,** as for Slack: an imported page and an assistant-cited
    page both land under Notion, once, with no page text and no token written.
 
@@ -56,5 +58,5 @@ kept: never page contents, never a credential.
 - [x] A changed page, imported again, shows one reference with the new summary
 - [x] `sources` guidance for Notion; test that the schema says it
 - [x] End to end test (import and assistant)
-- [ ] After #184: record sources on the `forTask` path, with the task
+- [ ] Tasks it feeds: sources on `task_submit` (separate change, for every tool)
 - [x] CHANGELOG
