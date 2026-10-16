@@ -274,7 +274,7 @@ describe('the link to a thread', () => {
   it('comes with a title for the reference that names the channel and day, not a message', async () => {
     globalThis.fetch = vi.fn(async (url) => {
       const method = String(url).split('/api/')[1];
-      if (method === 'conversations.info') return ok({ channel: { name: 'pricing' } });
+      if (method === 'conversations.info') return ok({ channel: { name: 'pricing', is_private: false } });
       return method === 'auth.test' ? ok({ url: 'https://acme.slack.com/' }) : replies;
     });
     const doc = await slack.fetch(authed(), { channel: 'C1', ts: '1699887654.123456' });
@@ -288,6 +288,31 @@ describe('the link to a thread', () => {
     globalThis.fetch = slackSays(ok({ url: 'https://acme.slack.com/' }));
     const doc = await slack.fetch(authed(), { channel: 'C1', ts: '1699887654.123456' });
     expect(doc.sourceTitle).toBe('Slack thread, 2023-11-13');
+  });
+
+  it("never names a private channel, a DM or a group DM, since everyone on the project reads the reference", async () => {
+    for (const channel of [
+      { name: 'hr-investigations', is_private: true },
+      { name: 'hr-investigations' },
+      { name: 'mpdm-a--b-1', is_private: false, is_mpim: true },
+      { name: 'U123', is_private: false, is_im: true },
+    ]) {
+      globalThis.fetch = vi.fn(async (url) => {
+        const method = String(url).split('/api/')[1];
+        if (method === 'conversations.info') return ok({ channel });
+        return method === 'auth.test' ? ok({ url: 'https://acme.slack.com/' }) : replies;
+      });
+      const doc = await slack.fetch(authed(), { channel: 'C1', ts: '1699887654.123456' });
+      expect(doc.sourceTitle, JSON.stringify(channel)).toBe('Slack thread, 2023-11-13');
+    }
+  });
+
+  it('keeps the import going, with no date, when the thread id is not a Slack timestamp', async () => {
+    globalThis.fetch = slackSays(ok({ url: 'https://acme.slack.com/' }));
+    for (const ts of ['not-a-ts', '99999999999999999999.1', '']) {
+      const doc = await slack.fetch(authed(), { channel: 'C1', ts });
+      expect(doc.sourceTitle, ts).toBe('Slack thread');
+    }
   });
 
   it('is built the way Slack builds its own', () => {

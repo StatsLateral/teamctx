@@ -248,14 +248,23 @@ export async function fetch(a, ref) {
     // title that says which thread without quoting anybody's message, since a
     // reference never carries the contents.
     ...(base ? { url: permalinkFor(base, ref.channel, ref.ts) } : {}),
-    sourceTitle: `${channel ? `#${channel}` : 'Slack'} thread, ${new Date(Number(String(ref.ts).split('.')[0]) * 1000).toISOString().slice(0, 10)}`,
+    sourceTitle: [`${channel ? `#${channel}` : 'Slack'} thread`, threadDay(ref.ts)].filter(Boolean).join(', '),
   };
 }
 
+/** The day a thread started, or nothing for a ts that is not a Slack timestamp: an import never fails over a title. */
+function threadDay(ts) {
+  const at = new Date(Number(String(ts).split('.')[0]) * 1000);
+  return /^\d{1,12}(\.\d+)?$/.test(String(ts)) && !Number.isNaN(at.getTime()) ? at.toISOString().slice(0, 10) : null;
+}
+
 /**
- * A channel's name, asked once per channel per run. `channels:read` may not be
- * granted, and a private channel may not answer: then there is no name, and the
- * reference says "Slack thread" instead.
+ * A channel's name, asked once per channel per run, for a public channel only.
+ * The reference is kept in the team's repository, where everyone on the project
+ * reads it, so a private channel's name (an HR channel, say) would tell people
+ * outside it that it exists. `channels:read` may not be granted, and a private
+ * channel may not answer: in all of these there is no name, and the reference
+ * says "Slack thread" instead.
  */
 async function channelName(a, channel) {
   a.channels ??= new Map();
@@ -263,7 +272,8 @@ async function channelName(a, channel) {
   let name = null;
   try {
     const r = await call(a.token, 'conversations.info', { channel });
-    name = typeof r.channel?.name === 'string' && /^[\w.-]{1,80}$/.test(r.channel.name) ? r.channel.name : null;
+    const shown = r.channel && r.channel.is_private === false && !r.channel.is_im && !r.channel.is_mpim;
+    name = shown && typeof r.channel.name === 'string' && /^[\w.-]{1,80}$/.test(r.channel.name) ? r.channel.name : null;
   } catch { /* no name; said without one */ }
   a.channels.set(channel, name);
   return name;
