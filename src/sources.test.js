@@ -91,6 +91,12 @@ describe('recording references', () => {
     expect(readSourceRefs(dir)[id].feeds[0].summary).toBe('What the contribution says');
   });
 
+  it("reads a link by its own tool's rule only", () => {
+    const copied = 'https://www.notion.so/acme/Launch-checklist-1a2b3c4d5e6f47788899aabbccddeeff?pvs=4';
+    expect(cleanRef({ connector: 'notion', link: copied }).link).toBe('https://www.notion.so/1a2b3c4d5e6f47788899aabbccddeeff');
+    expect(cleanRef({ connector: 'other', link: copied }).link).toBe(copied);
+  });
+
   it('records a Notion page once, renamed or copied, showing what was said of it last', () => {
     const page = '1a2b3c4d5e6f47788899aabbccddeeff';
     recordSources([{ connector: 'notion', title: 'Launch checklist', link: `https://www.notion.so/Launch-checklist-${page}`, summary: 'Three steps' }],

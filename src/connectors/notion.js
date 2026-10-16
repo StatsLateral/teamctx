@@ -181,7 +181,8 @@ export function pageLink(link) {
   let url;
   try { url = new URL(link); } catch { return link; }
   if (url.protocol !== 'https:' || !/^(www\.)?notion\.so$/i.test(url.hostname)) return link;
-  const peek = /^[0-9a-f]{32}$/i.test(undash(url.searchParams.get('p') || '')) && undash(url.searchParams.get('p'));
+  const p = undash(url.searchParams.get('p') || '');
+  const peek = /^[0-9a-f]{32}$/i.test(p) && p;
   const last = url.pathname.replace(/\/$/, '').split('/').pop();
   const id = peek || /(?:^|-)([0-9a-f]{32})$/i.exec(last)?.[1] || (/^[0-9a-f-]{36}$/i.test(last) && undash(last));
   return id && /^[0-9a-f]{32}$/i.test(id) ? `https://www.notion.so/${id.toLowerCase()}` : link;
