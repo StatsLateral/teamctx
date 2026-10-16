@@ -89,7 +89,10 @@ A reference is shown only for the parts of the work a reader can see:
   - It also returns a `sourceTitle` ("#pricing thread, 2023-11-14"), because the
     document's own title is the thread's first message, and a reference must
     not quote it.
-  - Task numbers on a Slack reference arrive with #144's `forTask`.
+  - The channel is named only when it is public; a private channel or DM reads
+    "Slack thread".
+  - A Slack reference names the part of the work it feeds; a task would come
+    from sources on `task_submit` (#197), which it does not take yet.
 
 ## Existing open source first
 
