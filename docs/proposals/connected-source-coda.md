@@ -1,6 +1,6 @@
 # Proposal: Coda as a connected source
 
-**Status:** Proposed · **Issue:** [#174](https://github.com/StatsLateral/teamctx/issues/174)
+**Status:** Implemented, except the tasks it feeds · **Issue:** [#174](https://github.com/StatsLateral/teamctx/issues/174)
 · **Base:** `main` (after #168)
 
 ## What the issue asks
@@ -45,7 +45,7 @@ takes no `sources` yet), and are left to their own change.
 
 ## Plan
 
-- [ ] A Coda link reduced to doc and page ids; tests
-- [ ] `sources` guidance for Coda; test that the schema says it
-- [ ] End to end test (import and assistant)
-- [ ] CHANGELOG
+- [x] A Coda link reduced to doc and page ids; tests
+- [x] `sources` guidance for Coda; test that the schema says it
+- [x] End to end test (import and assistant)
+- [x] CHANGELOG
