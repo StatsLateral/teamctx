@@ -1,6 +1,6 @@
 # Proposal: Microsoft SharePoint (Microsoft 365) as a connected source
 
-**Status:** Proposed · **Issue:** [#172](https://github.com/StatsLateral/teamctx/issues/172)
+**Status:** Implemented, except the tasks it feeds · **Issue:** [#172](https://github.com/StatsLateral/teamctx/issues/172)
 · **Base:** `main` (after #168)
 
 ## What the issue asks
@@ -62,15 +62,15 @@ takes no `sources` yet), and are left to their own change.
 
 ## Decision
 
-Keep a sharing link, or drop it? Dropping it (recommended) means an entry
-cited with only a sharing link has no link to click, but nobody on the project
-gets access to a file through the reference that they did not already have.
+Sharing links are dropped, under any tool label: an entry cited with only a
+sharing link has no link to click, but nobody on the project gets access to a
+file through the reference that they did not already have.
 
 ## Plan
 
-- [ ] Sharing links (SharePoint `/:x:/`, `1drv.ms`, `onedrive.live.com` with
+- [x] Sharing links (SharePoint `/:x:/`, `1drv.ms`, `onedrive.live.com` with
       `authkey`/`resid`) are not kept; tests
-- [ ] Library path and Office viewer link reduced to one form each; tests
-- [ ] `sources` guidance for SharePoint; test that the schema says it
-- [ ] End to end test (import and assistant)
-- [ ] CHANGELOG
+- [x] Library path and Office viewer link reduced to one form each; tests
+- [x] `sources` guidance for SharePoint; test that the schema says it
+- [x] End to end test (import and assistant)
+- [x] CHANGELOG
