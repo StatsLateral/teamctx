@@ -28,6 +28,15 @@ export const CONNECTORS = {
   other: { name: 'Other sources', mark: '·' },
 };
 
+/**
+ * One link per item, for a tool whose items are reached by several links (a
+ * Slack thread copied from a reply, say). Each tool adds its own entry; a link
+ * for any other tool is kept as it came.
+ */
+const NORMALIZE_LINK = {
+  slack: threadPermalink,
+};
+
 /** What an assistant or an importer might call a tool, mapped to its key. */
 const ALIASES = {
   slack: 'slack',
@@ -94,9 +103,8 @@ export function sourceId(connector, handle) {
 export function cleanRef(input) {
   if (!input || typeof input !== 'object') return null;
   const connector = connectorKey(input.connector);
-  // A Slack thread has several links; it is kept, and known, by its own.
   const cleaned = cleanLink(input.link);
-  const link = cleaned && threadPermalink(cleaned);
+  const link = cleaned && (NORMALIZE_LINK[connector] ? NORMALIZE_LINK[connector](cleaned) : cleaned);
   const title = oneLine(input.title, TITLE_MAX);
   const itemId = oneLine(input.itemId, 200) || null;
   const summary = oneLine(input.summary, SUMMARY_MAX);
