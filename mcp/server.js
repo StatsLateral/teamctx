@@ -85,8 +85,8 @@ const SOURCES_INPUT = {
     type: 'object',
     properties: {
       connector: { type: 'string', description: 'The tool: slack, notion, gdrive, m365, dropbox, coda, or its name' },
-      title: { type: 'string', description: 'What the item is called: a channel thread, page, file or doc title' },
-      link: { type: 'string', description: 'Its https link' },
+      title: { type: 'string', description: 'What the item is called: a channel thread, page, file or doc title. For a Dropbox file, its file name' },
+      link: { type: 'string', description: "Its https link. For Dropbox, the file's address from the browser (dropbox.com/home/…), never a shared link: a shared link is the access itself and is not kept" },
       summary: { type: 'string', description: 'One line on what it says' },
     },
     additionalProperties: false,

@@ -91,6 +91,23 @@ describe('recording references', () => {
     expect(readSourceRefs(dir)[id].feeds[0].summary).toBe('What the contribution says');
   });
 
+  it("reads a link by its own tool's rule only", () => {
+    const address = 'https://www.dropbox.com/home/Specs?preview=Plan.docx&di=left_nav';
+    expect(cleanRef({ connector: 'dropbox', link: address }).link).toBe('https://www.dropbox.com/home/Specs?preview=Plan.docx');
+    expect(cleanRef({ connector: 'other', link: address }).link).toBe(address);
+  });
+
+  it('never keeps a Dropbox shared link, under any tool, and keeps the item by its title', () => {
+    const share = 'https://www.dropbox.com/scl/fi/abc123/Plan.docx?rlkey=SECRETKEY&dl=0';
+    for (const connector of ['Dropbox', 'other', 'notion']) {
+      const r = cleanRef({ connector, title: 'Plan.docx', link: share });
+      expect(r.link, connector).toBeNull();
+      expect(r.title).toBe('Plan.docx');
+    }
+    recordSources([{ connector: 'dropbox', title: 'Plan.docx', link: share }], { by: maya, feed: { workstream: null, contribution: 'c1' }, dir });
+    expect(files()).not.toContain('SECRETKEY');
+  });
+
   it('never writes a body or a secret it was handed', () => {
     recordSources([{ ...thread, link: `${thread.link}?token=xoxb-123`, text: 'BODY-OF-THE-THREAD', password: 'pw-1' }],
       { by: maya, feed: { workstream: null, contribution: 'c1' }, dir });

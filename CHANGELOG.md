@@ -102,6 +102,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `workstream_split` and `teamctx workstream suggest` / `suggest_workstream_splits`.
 
 ### Added
+- **Dropbox files as connected sources (#173).** A Dropbox file, imported with
+  `teamctx import --from dropbox` or cited by an assistant with `contribute`, is
+  recorded under Dropbox by its address (`dropbox.com/home/<folder>?preview=<name>`,
+  built from the path the importer already has, or copied from the browser
+  without what it adds). A shared link (`/scl/fi/…`, `/s/…`, `db.tt`, …) is the
+  access itself, so it is never kept, whatever tool it arrives under; the item is
+  kept by its name. Never the file's text, and no Dropbox credential is held for
+  the assistant route.
 - **Connected sources are real (#168).** When something an assistant read in a
   connected tool (Slack, Notion, Google Drive, SharePoint, Dropbox, Coda) reaches
   the project, a reference to it is kept in `.teamctx/sources/`: the tool, a
