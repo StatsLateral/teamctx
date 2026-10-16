@@ -91,6 +91,23 @@ describe('recording references', () => {
     expect(readSourceRefs(dir)[id].feeds[0].summary).toBe('What the contribution says');
   });
 
+  it("reads a link by its own tool's rule only", () => {
+    const reply = 'https://acme.slack.com/archives/C1/p1700000555000200?thread_ts=1700000000.000100&cid=C1';
+    expect(cleanRef({ connector: 'slack', link: reply }).link).toBe(thread.link);
+    expect(cleanRef({ connector: 'other', link: reply }).link).toBe(reply);
+  });
+
+  it('records a Slack thread once, whether it came as the thread or a reply in it', () => {
+    const first = recordSources([thread], { by: maya, feed: { workstream: 'sales', contribution: 'c1' }, dir });
+    const again = recordSources([{ ...thread, link: 'https://acme.slack.com/archives/C1/p1700000555000200?thread_ts=1700000000.000100&cid=C1' }],
+      { by: maya, feed: { workstream: 'sales', contribution: 'c2' }, dir });
+    expect(again).toEqual(first);
+    const refs = Object.values(readSourceRefs(dir));
+    expect(refs).toHaveLength(1);
+    expect(refs[0].link).toBe(thread.link);
+    expect(refs[0].feeds.map(f => f.contribution)).toEqual(['c1', 'c2']);
+  });
+
   it('never writes a body or a secret it was handed', () => {
     recordSources([{ ...thread, link: `${thread.link}?token=xoxb-123`, text: 'BODY-OF-THE-THREAD', password: 'pw-1' }],
       { by: maya, feed: { workstream: null, contribution: 'c1' }, dir });

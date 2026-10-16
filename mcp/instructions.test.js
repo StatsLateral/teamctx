@@ -183,3 +183,14 @@ describe('a member carrying on with earlier work', () => {
     expect(of('my_brief')).toMatch(/savedOutputs/);
   });
 });
+
+describe('what an assistant passes for a Slack thread', () => {
+  // A thread's first message is the obvious title, and a reference must not
+  // quote it (#169): both places the assistant reads say so.
+  it('is a link to the thread and a title that names it, not a message', () => {
+    const { items } = TOOLS.find(t => t.name === 'contribute').inputSchema.properties.sources;
+    expect(items.properties.title.description).toMatch(/Slack thread.*never quote a message/);
+    expect(items.properties.link.description).toMatch(/Slack, the thread's link/);
+    expect(INSTRUCTIONS).toMatch(/Slack thread, the title names\s+its channel or topic, never a message/);
+  });
+});
