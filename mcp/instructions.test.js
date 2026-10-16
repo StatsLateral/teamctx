@@ -183,3 +183,11 @@ describe('a member carrying on with earlier work', () => {
     expect(of('my_brief')).toMatch(/savedOutputs/);
   });
 });
+
+describe('what an assistant passes for a Coda page', () => {
+  it('is the doc or page link from the browser and the page name', () => {
+    const { items } = TOOLS.find(t => t.name === 'contribute').inputSchema.properties.sources;
+    expect(items.properties.title.description).toMatch(/Coda page, the page name/);
+    expect(items.properties.link.description).toMatch(/Coda, the doc or page link from the browser/);
+  });
+});
