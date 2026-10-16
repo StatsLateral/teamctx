@@ -91,6 +91,12 @@ describe('recording references', () => {
     expect(readSourceRefs(dir)[id].feeds[0].summary).toBe('What the contribution says');
   });
 
+  it("reads a link by its own tool's rule only", () => {
+    const page = 'https://coda.io/d/Handbook_dAbCd1234/Onboarding_su42?searchClear=true';
+    expect(cleanRef({ connector: 'Coda', link: page }).link).toBe('https://coda.io/d/_dAbCd1234/_su42');
+    expect(cleanRef({ connector: 'other', link: page }).link).toBe(page);
+  });
+
   it('never writes a body or a secret it was handed', () => {
     recordSources([{ ...thread, link: `${thread.link}?token=xoxb-123`, text: 'BODY-OF-THE-THREAD', password: 'pw-1' }],
       { by: maya, feed: { workstream: null, contribution: 'c1' }, dir });
