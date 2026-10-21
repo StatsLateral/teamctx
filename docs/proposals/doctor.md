@@ -1,6 +1,6 @@
 # Proposal: `teamctx doctor`
 
-**Status:** Proposed · **Issue:** [#180](https://github.com/StatsLateral/teamctx/issues/180)
+**Status:** Implemented · **Issue:** [#180](https://github.com/StatsLateral/teamctx/issues/180)
 · **Base:** `main`
 
 ## Why
@@ -67,8 +67,8 @@ project prints "all good" and exits 0, a failing one exits 1; `doctor` is in
 
 ## Plan
 
-- [ ] Move `verifyProviderKey` to `src/providers/verify-key.js`; existing tests
+- [x] Move `verifyProviderKey` to `src/providers/verify-key.js`; existing tests
       pass
-- [ ] `runDoctor` and its checks; tests
-- [ ] `teamctx doctor` command, `--offline`, exit code; tests
-- [ ] README quickstart and commands table, CHANGELOG
+- [x] `runDoctor` and its checks; tests
+- [x] `teamctx doctor` command, `--offline`, exit code; tests
+- [x] README quickstart and commands table, CHANGELOG
