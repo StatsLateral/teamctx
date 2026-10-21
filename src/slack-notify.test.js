@@ -92,7 +92,7 @@ describe('announcing a queued item', () => {
 
   it('logs a failure without the address', async () => {
     const log = vi.fn();
-    const r = await announceQueued(item, { env: { TEAMCTX_SLACK_WEBHOOK: HOOK }, fetchImpl: vi.fn(async () => ({ ok: false, status: 500 })), log });
+    const r = await announceQueued(item, { env: { TEAMCTX_SLACK_WEBHOOK: HOOK }, pushed: true, fetchImpl: vi.fn(async () => ({ ok: false, status: 500 })), log });
     expect(r).toEqual({ sent: false });
     expect(log).toHaveBeenCalledWith('Slack: the notice for mcp-1-abc was not sent: Slack answered 500.');
     expect(JSON.stringify(log.mock.calls)).not.toContain('SECRET');

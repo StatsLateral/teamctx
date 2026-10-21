@@ -106,11 +106,14 @@ async function reviewLink(id, { baseUrl, config, projectDir }) {
 
 /**
  * Tell Slack an item is waiting, if a webhook is set. Called after the item is
- * committed, so it never announces one that was not written.
+ * committed, so it never announces one that was not written. On the command
+ * line that also means pushed (`pushed`): until then the item is only on this
+ * machine, and the link would open a page that does not have it.
  */
 export async function announceQueued(item, {
-  baseUrl = null, config = null, projectDir, env = process.env, fetchImpl, timeoutMs, log = console.warn,
+  baseUrl = null, config = null, projectDir, pushed = false, env = process.env, fetchImpl, timeoutMs, log = console.warn,
 } = {}) {
+  if (!getCurrentSession() && !pushed) return { sent: false };
   let url = null;
   try { url = await slackWebhookFor({ env }); } catch { url = null; }
   if (!url) return { sent: false };

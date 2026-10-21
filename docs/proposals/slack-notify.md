@@ -35,7 +35,10 @@ It is a credential: anyone holding it can post to that channel.
   by a manager of that project only. The page says whether one is set, by whom
   and when, never the URL itself.
 - **Command line:** the `TEAMCTX_SLACK_WEBHOOK` environment variable (or
-  `.env.local`).
+  `.env.local`), read on the sender's machine, so it covers only people who have
+  it set. A notice goes out once the item is pushed: the link opens the hosted
+  page, which does not have an unpushed item. An import sends one notice for the
+  whole run.
 - Never written to the repository, a log line, a commit message or a page.
 - Only `https://hooks.slack.com/…` is accepted, so the setting cannot be used to
   make the server post to anywhere else.

@@ -2,6 +2,11 @@ import { normalizeDocument } from '../../src/import.js';
 import { getConnector, ConnectorAuthError } from '../../src/connectors/index.js';
 import { contributeCore } from './contribute.core.js';
 import { UnknownWorkstreamError } from './role.core.js';
+import { announceQueued } from '../../src/slack-notify.js';
+import { readConfig } from '../../src/storage.js';
+
+// For the notice's link only; a project whose config cannot be read still imports.
+const projectConfig = (dir) => { try { return readConfig(dir); } catch { return null; } };
 
 /**
  * Collect documents from a connector.
@@ -89,6 +94,7 @@ export async function importDocuments({
   // already been proposed lets the distiller skip the repeat at the source,
   // rather than queueing duplicates for a human to notice and reject.
   const proposed = [];
+  const queued = [];
   for (const [index, doc] of documents.entries()) {
     onProgress?.({ index, total: documents.length, document: doc });
     try {
@@ -109,7 +115,10 @@ export async function importDocuments({
         ...(from !== 'folder' ? { sources: [{ connector: from, title: doc.title, link: doc.url, itemId: doc.id }], sourcesVia: 'import' } : {}),
         teamctxDir,
         projectDir,
+        // One notice for the run, below, rather than one per document.
+        notify: false,
       });
+      if (r.mode === 'queued') queued.push(r);
       results.push({
         id: doc.id,
         title: doc.title,
@@ -132,6 +141,14 @@ export async function importDocuments({
       if (err instanceof UnknownWorkstreamError) throw err;
       failures.push({ id: doc.id, error: err.message?.split('\n')[0] || String(err) });
     }
+  }
+
+  if (queued.length) {
+    const n = queued.length;
+    await announceQueued({
+      id: queued[0].id, author: queued[0].author,
+      summary: `${n} imported document${n === 1 ? '' : 's'} from ${from}`,
+    }, { config: projectConfig(teamctxDir), projectDir, pushed: queued.some(r => r.pushed) });
   }
 
   return { documents, skipped, results, failures, dryRun };

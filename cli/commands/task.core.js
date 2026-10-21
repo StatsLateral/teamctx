@@ -443,7 +443,7 @@ export async function submitTask({
   const trailer = src === 'cli' ? '' : `\n\nSource: ${src}`;
   const git = await commitAndPush(config, `queue: ${me} submission for ${task.id} pending approval (${contribution.id})${trailer}`, projectDir);
   // After the commit, like a queued contribution (#182).
-  await announceQueued({ id: contribution.id, number: task.key || null, author: me, summary }, { baseUrl, config, projectDir });
+  await announceQueued({ id: contribution.id, number: task.key || null, author: me, summary }, { baseUrl, config, projectDir, pushed: git.pushed });
   return { id: contribution.id, mode: 'queued', number: task.key || null, outputs: chosen.map(o => o.id), summary, task, ...git };
 }
 

@@ -44,7 +44,7 @@ beforeEach(() => {
   caller = MEMBER;
   dir = mkdtempSync(join(tmpdir(), 'teamctx-slack-'));
   writeConfig(makeConfig({
-    autoPush: false, reviewPolicy: 'all', deployUrl: 'https://t.example',
+    autoPush: true, reviewPolicy: 'all', deployUrl: 'https://t.example',
     members: [{ key: MEMBER.key, name: MEMBER.name }],
     workstreams: [{ id: 'sales', number: 1, name: 'Sales' }],
     nextKey: { workstream: 2, tasks: {} },
@@ -102,6 +102,18 @@ describe('a queued contribution', () => {
     expect(written()).not.toContain('SECRET');
     expect(JSON.stringify(commitContext.mock.calls)).not.toContain('SECRET');
     warn.mockRestore();
+  });
+
+  it('is not posted until it is pushed, since the link would open a page without it', async () => {
+    const { pushContext } = await import('../../src/git.js');
+    pushContext.mockRejectedValueOnce(new Error('no upstream'));
+    expect((await contribute(MEMBER)).mode).toBe('queued');
+    expect(posts()).toHaveLength(0);
+  });
+
+  it('is not posted when the caller says it will tell Slack itself, as an import does', async () => {
+    expect((await contribute(MEMBER, { notify: false })).mode).toBe('queued');
+    expect(posts()).toHaveLength(0);
   });
 
   it('is not posted when no webhook is set', async () => {

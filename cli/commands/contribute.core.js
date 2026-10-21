@@ -94,6 +94,8 @@ export async function contributeCore({
   // The address this server answers on, for the link in a Slack notice (#182).
   // The command line has none and falls back to the project's deployUrl.
   baseUrl = null,
+  // False for a bulk import, which says it once for the whole run.
+  notify = true,
 } = {}) {
   if (!text) throw new Error('contribution text is required');
   const config = readConfig(teamctxDir);
@@ -244,7 +246,7 @@ export async function contributeCore({
     );
     // After the commit, so it never announces an item that was not written.
     // Never throws, and a failed post changes nothing about the contribution.
-    await announceQueued({ id: contribution.id, number: queuedNumber, author: contribution.author, summary }, { baseUrl, config, projectDir });
+    if (notify) await announceQueued({ id: contribution.id, number: queuedNumber, author: contribution.author, summary }, { baseUrl, config, projectDir, pushed });
     return {
       id: contribution.id, workstream: targetId, author: actor, source,
       mode: 'queued', summary, operations, pushed, pushError,
