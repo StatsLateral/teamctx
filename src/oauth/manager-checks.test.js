@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { __resetMemory, kvSet, keys } from './kv.js';
 import { addProjectKey } from './ai-keys.js';
-import { verifyProviderKey, keyCheckFor, lendCheckFor, stepOutCheckFor } from './manager-checks.js';
+import { keyCheckFor, lendCheckFor, stepOutCheckFor } from './manager-checks.js';
+import { verifyProviderKey } from '../providers/verify-key.js';
 
 const ok = () => vi.fn(async () => ({ ok: true, status: 200 }));
 const status = code => vi.fn(async () => ({ ok: false, status: code }));
