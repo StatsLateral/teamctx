@@ -4,14 +4,18 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import { writeConfig } from '../../src/storage.js';
 import { makeConfig } from '../../src/test-fixtures/model.js';
-import { runDoctor, meetsEngines } from './doctor.core.js';
+import { runDoctor, meetsEngines, minimumNode } from './doctor.core.js';
 
 let root;
 const project = (over = {}) => {
   mkdirSync(join(root, '.teamctx'), { recursive: true });
   writeConfig(makeConfig({ autoPush: true, ...over }), join(root, '.teamctx'));
 };
-const repo = ({ remote = 'origin\n' } = {}) => vi.fn(async args => (args[0] === 'remote' ? remote : '.git\n'));
+const repo = ({ remote = 'origin\n', upstream = true } = {}) => vi.fn(async (args) => {
+  if (args[0] === 'remote') return remote;
+  if (args.includes('@{u}') && !upstream) throw new Error('fatal: no upstream configured');
+  return '.git\n';
+});
 const notRepo = vi.fn(async () => { throw new Error('fatal: not a git repository'); });
 const accepted = vi.fn(async () => ({ ok: true, status: 200 }));
 const KEY = { ANTHROPIC_API_KEY: 'sk-ant-test' };
@@ -45,9 +49,17 @@ describe('each check, failing, says how to fix it', () => {
     expect(accepted).not.toHaveBeenCalled();
   });
 
-  it('on a Node older than package.json allows', async () => {
+  it('on a Node older than package.json allows, and does not blame the network too', async () => {
     project();
-    expect(line(await doctor({ nodeVersion: 'v16.20.0' }), 'Node version')).toMatchObject({ status: 'fail', fix: expect.stringMatching(/Install Node 18 or later/) });
+    const checks = await doctor({ nodeVersion: 'v16.20.0' });
+    expect(line(checks, 'Node version')).toMatchObject({ status: 'fail', fix: expect.stringMatching(/Install Node 18 or later/) });
+    expect(line(checks, 'AI key accepted')).toMatchObject({ status: 'skip', fix: 'needs a supported Node' });
+    expect(accepted).not.toHaveBeenCalled();
+  });
+
+  it('with a provider it does not know, even one named like an object property', async () => {
+    project({ provider: 'constructor' });
+    expect(line(await doctor(), 'AI key present')).toMatchObject({ status: 'fail', fix: expect.stringMatching(/^Unknown provider "constructor".*anthropic, openai, gemini\.$/) });
   });
 
   it('with no key for the configured provider, in the words the CLI already uses', async () => {
@@ -61,7 +73,7 @@ describe('each check, failing, says how to fix it', () => {
     project();
     const rejected = vi.fn(async () => ({ ok: false, status: 401 }));
     expect(line(await doctor({ fetchImpl: rejected }), 'AI key accepted'))
-      .toMatchObject({ status: 'fail', fix: 'anthropic rejected the key (401). Replace ANTHROPIC_API_KEY in .env.local with a working key.' });
+      .toMatchObject({ status: 'fail', fix: 'anthropic rejected the key (401). Replace ANTHROPIC_API_KEY with a working key, in .env.local or in your shell (a value set in the shell wins).' });
   });
 
   it('when the provider cannot be reached', async () => {
@@ -74,6 +86,12 @@ describe('each check, failing, says how to fix it', () => {
   it('with a manager gate nobody can match', async () => {
     project({ managerKey: undefined, managerKeys: ['name:Old Name'] });
     expect(line(await doctor(), 'Manager gate')).toMatchObject({ status: 'fail', fix: expect.stringMatching(/teamctx config manager --repair/) });
+  });
+
+  it('with auto-push on and a branch that tracks no remote branch', async () => {
+    project();
+    expect(line(await doctor({ git: repo({ upstream: false }) }), 'Remote for auto-push'))
+      .toMatchObject({ status: 'fail', fix: expect.stringMatching(/git push -u origin HEAD/) });
   });
 
   it('with auto-push on and no remote', async () => {
@@ -102,5 +120,10 @@ describe('the Node range', () => {
     expect(meetsEngines('v17.9.1', '>=18')).toBe(false);
     expect(meetsEngines('v18.2.0', '>=18.10')).toBe(false);
     expect(meetsEngines('v22.1.0', '>=18.10')).toBe(true);
+  });
+
+  it('names the lowest version allowed in the fix', () => {
+    expect(minimumNode('>=20')).toBe('20');
+    expect(minimumNode('>=18.10')).toBe('18.10');
   });
 });
