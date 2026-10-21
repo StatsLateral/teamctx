@@ -1010,6 +1010,28 @@ app.post('/settings/unlend', async (req, res) => {
  * no manager on record is refused outright — with no gate, everyone passes as
  * a manager, and issuing an agent is not something everyone should do.
  */
+/**
+ * The identity a signed-in person matches the project's manager gate with, or
+ * null when they are not a manager. Whichever identity the gate recognised is
+ * the one handed on: a manager recorded as github:<id> passed a check by
+ * address and was then refused by a roster write, which checks the gate again
+ * with the actor it is given.
+ */
+function matchManager(config, user) {
+  if (!user.email) return null;
+  const actor = {
+    key: `git:${String(user.email).toLowerCase()}`,
+    name: user.name || user.login || user.email,
+    email: String(user.email).toLowerCase(),
+    login: user.login || null,
+    source: user.id ? 'github' : 'google',
+  };
+  const managers = managerKeys(config);
+  const byId = user.id ? { ...actor, key: `github:${user.id}` } : null;
+  return managers.some(k => matchesActor(k, actor)) ? actor
+    : (byId && managers.some(k => matchesActor(k, byId)) ? byId : null);
+}
+
 async function agentManagerAccess(user, ref) {
   const slug = `${ref.owner}/${ref.repo}`;
   if (!user.email) {
@@ -1023,21 +1045,8 @@ async function agentManagerAccess(user, ref) {
   try { config = await readConfigJson({ owner: ref.owner, repo: ref.repo, token: lent.token }); } catch (e) {
     return { ok: false, why: e.message };
   }
-  const actor = {
-    key: `git:${String(user.email).toLowerCase()}`,
-    name: user.name || user.login || user.email,
-    email: String(user.email).toLowerCase(),
-    login: user.login || null,
-    source: user.id ? 'github' : 'google',
-  };
-  const managers = managerKeys(config);
-  if (!managers.length) return { ok: false, why: `${slug} has no manager on record, so nobody can issue agents for it.` };
-  const byId = user.id ? { ...actor, key: `github:${user.id}` } : null;
-  // Whichever identity the gate recognised is the one handed on. A manager
-  // recorded as github:<id> passed here but was refused by the roster write,
-  // which checks the gate again with the actor it is given.
-  const matched = managers.some(k => matchesActor(k, actor)) ? actor
-    : (byId && managers.some(k => matchesActor(k, byId)) ? byId : null);
+  if (!managerKeys(config).length) return { ok: false, why: `${slug} has no manager on record, so nobody can issue agents for it.` };
+  const matched = matchManager(config, user);
   if (!matched) {
     return { ok: false, why: `Only a manager of ${slug} can issue or revoke its agents.` };
   }
