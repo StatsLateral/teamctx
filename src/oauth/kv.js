@@ -268,6 +268,8 @@ export const keys = {
    * repository; the page shows who set it and when, never the URL. Long-lived.
    */
   slackWebhook: (owner, repo) => `teamctx:slack:project:${slug(owner, repo)}`,
+  /** Projects this address has set a Slack webhook on, so the page can list them. */
+  slackSetBy: email => `teamctx:slack:set-by:${String(email).toLowerCase()}`,
   /** Browser session for the settings page. 1 hour. */
   session: sid => `teamctx:session:${sid}`,
 };
