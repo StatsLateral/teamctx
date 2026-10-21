@@ -15,6 +15,7 @@ import { commitContext, pushContext } from '../../src/git.js';
 import { resolveActor } from '../../src/actor.js';
 import { resolveDisplayName, resolveActiveWorkstream } from '../../src/prefs.js';
 import { resolveTarget, isProjectLevel } from '../../src/project-level.js';
+import { announceQueued } from '../../src/slack-notify.js';
 import { TaskWithoutWorkstreamError } from '../../src/numbering.js';
 
 /**
@@ -397,7 +398,7 @@ export async function saveOutput({
  * `outputs` is a list of output ids, `'all'`, or absent for the latest.
  */
 export async function submitTask({
-  id, outputs, message, source, teamctxDir, projectDir, actor,
+  id, outputs, message, source, teamctxDir, projectDir, actor, baseUrl = null,
 } = {}) {
   const config = readConfig(teamctxDir);
   const { task } = findTask(id, teamctxDir);
@@ -441,6 +442,8 @@ export async function submitTask({
   }, teamctxDir);
   const trailer = src === 'cli' ? '' : `\n\nSource: ${src}`;
   const git = await commitAndPush(config, `queue: ${me} submission for ${task.id} pending approval (${contribution.id})${trailer}`, projectDir);
+  // After the commit, like a queued contribution (#182).
+  await announceQueued({ id: contribution.id, number: task.key || null, author: me, summary }, { baseUrl, config, projectDir });
   return { id: contribution.id, mode: 'queued', number: task.key || null, outputs: chosen.map(o => o.id), summary, task, ...git };
 }
 

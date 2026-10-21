@@ -1370,6 +1370,7 @@ export function makeHandlers(projectRoot) {
       await assertTaskInScope(teamctxDir, args.id);
       const r = await submitTask({
         id: args.id, outputs: args.outputs, message: args.message, source: 'mcp', teamctxDir, projectDir: gitCwd,
+        baseUrl: isHosted ? projectRoot.baseUrl || null : null,
       });
       const link = await this.viewUrl({ task: r.task.id });
       return textResult({
@@ -1695,6 +1696,7 @@ export function makeHandlers(projectRoot) {
         source: 'mcp',
         teamctxDir,
         projectDir: gitCwd,
+        baseUrl: isHosted ? projectRoot.baseUrl || null : null,
         ...(Array.isArray(args.sources) ? { sources: args.sources } : {}),
       });
       // Where to go and look at it. Work that queued is waiting on somebody:
