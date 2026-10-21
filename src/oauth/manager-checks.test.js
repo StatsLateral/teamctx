@@ -47,6 +47,12 @@ describe('checking a key with the provider', () => {
     expect(await verifyProviderKey({ provider: 'openai', apiKey: 'sk' }, status(503))).toMatchObject({ ok: false, transient: true });
   });
 
+  it('gives up on a provider that does not answer, as worth retrying', async () => {
+    const hangs = vi.fn(() => new Promise(() => {}));
+    expect(await verifyProviderKey({ provider: 'anthropic', apiKey: 'sk' }, hangs, { timeoutMs: 20 }))
+      .toMatchObject({ ok: false, transient: true, why: expect.stringMatching(/Could not reach anthropic/) });
+  });
+
   it('refuses an unknown provider rather than guessing', async () => {
     expect((await verifyProviderKey({ provider: 'mystery', apiKey: 'sk' }, ok())).ok).toBe(false);
   });
