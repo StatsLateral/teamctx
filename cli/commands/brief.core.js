@@ -138,8 +138,7 @@ export async function buildBrief({
   }
   // How fresh it is, under the title (#183): counted in their own parts only.
   if (roleMarkdown) {
-    const keep = item => inScope(scope && scope.length ? scope : null, resolveTarget(item.workstream));
-    roleMarkdown = withFreshness(roleMarkdown, freshnessLine(contextFreshness(teamctxDir, { keep })));
+    roleMarkdown = withFreshness(roleMarkdown, freshnessLine(contextFreshness(teamctxDir, { scope, role })));
   }
 
   const where = places.length === 1

@@ -8,7 +8,8 @@ export async function contextCommand(role) {
     process.exit(1);
   }
   try {
-    process.stdout.write(withFreshness(readRoleFile(role), freshnessLine(contextFreshness())));
+    const found = config.roles.find(r => r.slug === role);
+    process.stdout.write(withFreshness(readRoleFile(role), freshnessLine(contextFreshness(undefined, { role: found }))));
   } catch {
     console.error(`Error: context file for "${role}" not found. It may not have been generated yet.`);
     process.exit(1);

@@ -75,8 +75,8 @@ export function resolveProjectDir(argv = process.argv.slice(2), env = process.en
  * How fresh the context is, for a caller who may see only part of the queue:
  * a scoped member counts what is waiting in their own parts.
  */
-function freshness(teamctxDir, allowed) {
-  return contextFreshness(teamctxDir, { keep: item => inScope(allowed, resolveTarget(item.workstream)) });
+function freshness(teamctxDir, allowed, role = null) {
+  return contextFreshness(teamctxDir, { scope: allowed, role }) || {};
 }
 
 const RISKY = '⚠ RISKY: ';
@@ -1015,11 +1015,12 @@ export function makeHandlers(projectRoot) {
       // that workstream — a scope that stopped at get_workstream would be
       // walked around by asking for the role instead.
       const found = (config.roles || []).find(r => r.slug === role);
-      if (found) assertInScope(await scope(teamctxDir, config), resolveTarget(found.workstream));
+      const allowed = await scope(teamctxDir, config);
+      if (found) assertInScope(allowed, resolveTarget(found.workstream));
       // With how fresh it is under the title (#183), worked out now: a line
       // written into the file would always say "today".
       const md = readRoleFile(role, teamctxDir);
-      return textResult(withFreshness(md, freshnessLine(freshness(teamctxDir, await scope(teamctxDir, config)))));
+      return textResult(withFreshness(md, freshnessLine(contextFreshness(teamctxDir, { scope: allowed, role: found || null }))));
     },
 
     async list_roles() {

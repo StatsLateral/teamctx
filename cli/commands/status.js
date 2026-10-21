@@ -42,7 +42,8 @@ export async function statusCommand() {
   }
   console.log(`  Contributions: ${contributions.length} total, ${decisions.length} decisions`);
   console.log(`  Tasks:        ${openTasks} open, ${doneTasks} done${compiledTasks ? ` (${compiledTasks} compiled)` : ''}`);
-  console.log(`  Freshness:    ${freshnessLine(contextFreshness())}`);
+  const fresh = freshnessLine(contextFreshness());
+  if (fresh) console.log(`  Freshness:    ${fresh}`);
   console.log(`\nRoles (${config.roles.length}):`);
 
   if (config.roles.length === 0) {

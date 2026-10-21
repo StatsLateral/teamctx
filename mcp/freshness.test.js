@@ -33,7 +33,7 @@ function session({ approvals = [], queue = [] } = {}) {
     ['.teamctx/contributions.jsonl', { content: '', sha: null }],
     ['.teamctx/context/roles/pm.md', { content: '# Product lead Context — Ledger\n\n## Your Role\nShip it.', sha: null }],
     ...approvals.map(a => [`.teamctx/approved/${a.id}.json`, { content: JSON.stringify(a), sha: null }]),
-    ...queue.map(q => [`.teamctx/queue/${q.id}.json`, { content: JSON.stringify(q), sha: null }]),
+    ...queue.map(q => [`.teamctx/queue/${q.id}.json`, { content: q.raw ?? JSON.stringify(q), sha: null }]),
   ]);
   return {
     owner: 'acme',
@@ -81,12 +81,24 @@ describe('get_status says how fresh the context is', () => {
     expect(r.lastApprovedAt).toBeNull();
     expect(r.waiting).toBe(0);
   });
+
+  it('still answers when a queue file is broken, without the two facts', async () => {
+    const r = JSON.parse(await call({ queue: [{ id: 'q-bad', raw: '{' }] }, MAYA, 'get_status'));
+    expect(r.project).toBe('Ledger');
+    expect(r).not.toHaveProperty('waiting');
+  });
 });
 
 describe('a role file says how fresh it is', () => {
   it('under its title, from get_role_context', async () => {
     const md = await call({ approvals: APPROVED, queue: QUEUE }, PRIYA, 'get_role_context', { role: 'pm' });
     expect(md).toBe('# Product lead Context — Ledger\n\n*Context last approved 12 days ago; 1 item waiting for review.*\n\n## Your Role\nShip it.');
+  });
+
+  it('not freshened by an approval in a part of the work it does not cover', async () => {
+    const approvals = [...APPROVED, { id: 'c-tech', workstream: 'tech', approvedAt: day(0) }];
+    const md = await call({ approvals }, MAYA, 'get_role_context', { role: 'pm' });
+    expect(md).toContain('*Context last approved 12 days ago;');
   });
 
   it('in my_brief', async () => {

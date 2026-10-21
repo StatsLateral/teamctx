@@ -25,11 +25,16 @@ the queue is empty.
 
 - `teamctx status`: a `Freshness:` line.
 - `get_status`: `lastApprovedAt` (ISO date or `null`) and `waiting`. A scoped
-  member counts only the waiting items in their own parts of the work, as
-  `list_pending_reviews` shows them.
-- A role file, as it is read: the line goes under its title in
-  `get_role_context`, `my_brief`, `teamctx context` and the `/context/<role>`
-  link.
+  member counts only approvals and waiting items in their own parts of the
+  work, as `list_pending_reviews` shows them.
+- A role file, as it is read: the line goes under its title, as its own
+  paragraph, in `get_role_context`, `my_brief`, `teamctx context` and the
+  `/context/<role>` link. It counts the role's own part of the work and the
+  project, not a sibling part, which does not change that file.
+
+Days are calendar days where the line is read. If the queue cannot be read (a
+file that is not valid JSON), the line is left out rather than breaking what it
+sits beside.
 
 The line is added when a role file is read, not written into it. A role file is
 regenerated at each approval, so a line written then would always say "today"
@@ -39,8 +44,8 @@ Not on the project page: it already shows what is waiting.
 
 ## Code
 
-- `src/freshness.js`: `contextFreshness(teamctxDir, { keep })` returns
-  `{ lastApprovedAt, waiting }` from `readApprovals` and `listQueue`;
+- `src/freshness.js`: `contextFreshness(teamctxDir, { scope, role })` returns
+  `{ lastApprovedAt, waiting }` from `readApprovals` and `listQueue`, or null;
   `freshnessLine(f, now)`; `withFreshness(md, line)` puts the line under the
   first heading.
 - The callers above use them.
