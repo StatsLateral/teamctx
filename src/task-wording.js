@@ -35,3 +35,33 @@ export function taskTitleProblem(title) {
   if (w.slice(1).every(x => NOT_A_THING.has(x.toLowerCase()))) return 'it does not name the thing to do';
   return null;
 }
+
+/**
+ * Whether the input itself says not to make tasks: it is only source material,
+ * or it says so in as many words. That is the person's instruction, so it holds
+ * whatever the model proposed.
+ */
+const NO_TASKS = /\b(?:(?:do not|don't|dont|no need to|never) (?:create|add|make|propose|generate|suggest) (?:any )?tasks|(?:create|add|make|propose|generate|suggest) no tasks|no tasks (?:needed|please|for this|from this)|(?:only|just|purely) (?:as )?source material|source material only|is source material)\b/i;
+
+export function saysNoTasks(text) {
+  return NO_TASKS.test(String(text ?? ''));
+}
+
+/**
+ * The model's operations without the tasks a person would not pick up, and
+ * without any task at all when the input says not to make them. `at` maps each
+ * old position to its new one, or to -1 for one that was dropped, so a
+ * contradiction that points at an operation by index still points at the same
+ * one.
+ */
+export function keepPeoplesTasks(operations, input) {
+  const none = saysNoTasks(input);
+  const kept = [];
+  const at = new Map();
+  operations.forEach((op, i) => {
+    if (op?.type === 'addTask' && (none || taskTitleProblem(op.title))) { at.set(i, -1); return; }
+    at.set(i, kept.length);
+    kept.push(op);
+  });
+  return { operations: kept, at };
+}

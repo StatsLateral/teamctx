@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { taskTitleProblem } from './task-wording.js';
+import { taskTitleProblem, saysNoTasks } from './task-wording.js';
 
 describe('a proposed task a person picks up', () => {
   it('passes when it starts with what somebody does and names the thing', () => {
@@ -29,5 +29,17 @@ describe('a proposed task a person picks up', () => {
 
   it('fails when it does not name the thing', () => {
     for (const t of ['Review', 'Finish it', 'Do this', '', null]) expect(taskTitleProblem(t), String(t)).toMatch(/name the thing/);
+  });
+});
+
+describe('an input that says not to make tasks', () => {
+  it('is one that says it is source material, or says no tasks in as many words', () => {
+    for (const t of ['This is source material only.', 'Sharing this just as source material for later.', "Don't create any tasks from this.", 'No tasks needed, it is background.', 'Please add no tasks.'])
+      expect(saysNoTasks(t), t).toBe(true);
+  });
+
+  it('is not one that only mentions tasks or material', () => {
+    for (const t of ['There are no tasks left for Bob.', 'We need source code for the badge printer.', 'Create tasks for the venue.', '', null])
+      expect(saysNoTasks(t), String(t)).toBe(false);
   });
 });
