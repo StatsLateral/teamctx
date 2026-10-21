@@ -90,3 +90,13 @@ describe('a contradiction that points at nothing', () => {
     await expect(distil('We stop scoring articles.')).rejects.toThrow(/unknown record or operation/);
   });
 });
+
+describe('where a task came from, in what the distiller is asked and gives back', () => {
+  it('asks for the decision or rule a task comes from, and puts its wording beside the task', async () => {
+    answer([task('Write the launch post for article 1')].map(t => ({ ...t, from: 'r1' })));
+    const r = await distil('Brief for article 1');
+    expect(complete.mock.calls[0][0].prompt).toMatch(/"from": "<id or ref of the decision or rule it comes from>"/);
+    expect(complete.mock.calls[0][0].prompt).toMatch(/When a task comes from a decision or rule, existing or proposed here, name it in from/);
+    expect(r.operations[0]).toMatchObject({ from: 'r1', fromRecord: { type: 'rule', text: rule.text } });
+  });
+});

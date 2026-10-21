@@ -3,6 +3,12 @@ import { evidenceLabel } from './contradictions.js';
 
 // Shared by the web view and by what an assistant is told to read back, so a
 // manager hears the same words in their chat that they see on the page.
+/** Where a proposed task came from, as the page and the chat say it. */
+export function fromLabel(op) {
+  const r = op?.fromRecord;
+  return r?.text ? ` (from ${LABELS[r.type] || 'Note:'} "${r.text}")` : '';
+}
+
 /** One operation of a proposal, in the words a manager would use. */
 export function describeChange(op, tree) {
   const text = (id) => (tree?.records || []).find(r => r.id === id)?.text;
@@ -13,7 +19,7 @@ export function describeChange(op, tree) {
     case 'editRecord': return `Reword ${text(op.id) ? `"${text(op.id)}"` : 'a record'}${op.changes?.text ? ` to: ${op.changes.text}` : ''}`;
     case 'setRecordStatus': return `Mark ${text(op.id) ? `"${text(op.id)}"` : 'a record'} as ${op.status}`;
     case 'addEvidence': return evidenceLabel(op);
-    case 'addTask': return `Add a task: ${op.title}`;
+    case 'addTask': return `Add a task: ${op.title}${fromLabel(op)}`;
     case 'editTask': return `Retitle ${task(op.id) ? `"${task(op.id)}"` : 'a task'} to: ${op.title}`;
     case 'removeTask': return `Remove the task ${task(op.id) ? `"${task(op.id)}"` : ''}`.trim();
     default: return null;

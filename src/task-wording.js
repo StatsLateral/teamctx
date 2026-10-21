@@ -54,6 +54,23 @@ export function saysNoTasks(text) {
  * contradiction that points at an operation by index still points at the same
  * one.
  */
+/**
+ * Each proposed task with the wording of the decision or rule it came from
+ * beside it (`fromRecord`), so a manager sees why it is proposed. `from` is an
+ * existing record's id, or the `ref` of a record proposed with it; one that names
+ * neither a decision nor a rule is dropped, and the task kept.
+ */
+export function withWhereFrom(operations, records) {
+  const proposed = new Map(operations.filter(o => o?.type === 'addRecord' && o.ref).map(o => [o.ref, o.record]));
+  return operations.map(op => {
+    if (op?.type !== 'addTask' || op.from == null) return op;
+    const { from, fromRecord: _ignored, ...task } = op;
+    const record = proposed.get(from) || records.find(r => r.id === from);
+    if (!['decision', 'rule'].includes(record?.type) || typeof record.text !== 'string') return task;
+    return { ...task, from, fromRecord: { type: record.type, text: record.text } };
+  });
+}
+
 export function keepPeoplesTasks(operations, input) {
   const none = saysNoTasks(input);
   const kept = [];
