@@ -57,8 +57,10 @@ only what the AI proposes.
 
 - The prompt says what a task is, asks for `from` and `owner`, and says to
   propose none for source material or "no tasks".
-- `taskTitleProblem` on sample titles: the editorial-workflow ones from the
-  issue fail, plain ones pass.
+- `taskTitleProblem` on sample titles: ones addressed to an assistant, starting
+  with "The…" or "Drafting…", or naming nothing fail; plain ones pass. (The
+  issue's "Score and rank the seven extracted content atoms" is a well-formed
+  sentence; what keeps it out is the prompt's rule about workflow steps.)
 - Sample briefs, with the model's answer mocked: an editorial-workflow brief
   whose answer addresses an assistant keeps only the person's tasks; a brief
   that says it is source material keeps none, whatever the model returned; a
