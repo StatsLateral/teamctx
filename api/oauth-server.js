@@ -414,7 +414,7 @@ async function renderSettings(req, res, user, { newAgent = null } = {}) {
     ...(user.email ? (await kvGet(keys.lentByAddress(user.email)))?.projects || [] : []),
   ])].sort();
   const agents = await agentsFor(user);
-  const slack = await slackFor(user);
+  const slack = await slackFor(user, repos);
   if (newAgent) res.setHeader('Cache-Control', 'no-store');
   res.send(settingsPage({
     user, hasKey: !!existing, shared, lent, repos, agents, newAgent, slack,
@@ -455,12 +455,15 @@ async function agentsFor(user) {
  * The Slack notices set on projects this person manages (#182): who set each and
  * when, never the webhook itself, which is a credential.
  */
-async function slackFor(user) {
+async function slackFor(user, repos = []) {
   if (!user.email) return [];
+  // The repositories they can push to as well, so a co-manager can see and stop
+  // a notice another manager set. Only those with a webhook are checked.
   const projects = [...new Set([
     ...((await kvGet(keys.slackSetBy(user.email)))?.projects || []),
     ...(await projectsKnownFor(user.email)),
-  ].map(p => p.toLowerCase()))].sort();
+    ...repos.map(r => r.fullName),
+  ].filter(Boolean).map(p => p.toLowerCase()))].sort();
   const out = [];
   for (const slug of projects) {
     const [owner, repo] = slug.split('/');
@@ -1025,15 +1028,6 @@ app.post('/settings/unlend', async (req, res) => {
 });
 
 /**
- * Is this person a manager of this project, and can an agent reach it?
- *
- * Read through the project's lent GitHub access, because that is what an agent
- * reads through: a project that lends none could issue a token that never
- * works. A manager is matched by every form one is written in. A project with
- * no manager on record is refused outright — with no gate, everyone passes as
- * a manager, and issuing an agent is not something everyone should do.
- */
-/**
  * The identity a signed-in person matches the project's manager gate with, or
  * null when they are not a manager. Whichever identity the gate recognised is
  * the one handed on: a manager recorded as github:<id> passed a check by
@@ -1055,6 +1049,15 @@ function matchManager(config, user) {
     : (byId && managers.some(k => matchesActor(k, byId)) ? byId : null);
 }
 
+/**
+ * Is this person a manager of this project, and can an agent reach it?
+ *
+ * Read through the project's lent GitHub access, because that is what an agent
+ * reads through: a project that lends none could issue a token that never
+ * works. A manager is matched by every form one is written in. A project with
+ * no manager on record is refused outright — with no gate, everyone passes as
+ * a manager, and issuing an agent is not something everyone should do.
+ */
 async function agentManagerAccess(user, ref) {
   const slug = `${ref.owner}/${ref.repo}`;
   if (!user.email) {
@@ -1082,14 +1085,18 @@ async function agentManagerAccess(user, ref) {
  */
 async function slackManagerAccess(user, ref) {
   const slug = `${ref.owner}/${ref.repo}`;
-  const token = user.token || (await kvGet(keys.projectGhCred(ref.owner, ref.repo)))?.token;
-  if (!token) {
+  // Their own sign-in first, then the access the project lends: a GitHub
+  // account an organisation keeps out of the repository can still be a manager.
+  const tokens = [user.token, (await kvGet(keys.projectGhCred(ref.owner, ref.repo)))?.token].filter(Boolean);
+  if (!tokens.length) {
     return { ok: false, why: `${slug} cannot be read without GitHub access. Sign in with GitHub, or ask its manager to lend access below.` };
   }
-  let config;
-  try { config = await readConfigJson({ owner: ref.owner, repo: ref.repo, token }); } catch (e) {
-    return { ok: false, why: e.message };
+  let config = null;
+  let lastError = null;
+  for (const token of tokens) {
+    try { config = await readConfigJson({ owner: ref.owner, repo: ref.repo, token }); break; } catch (e) { lastError = e; }
   }
+  if (!config) return { ok: false, why: lastError.message };
   if (!matchManager(config, user)) return { ok: false, why: `Only a manager of ${slug} can set its Slack notices.` };
   return { ok: true };
 }

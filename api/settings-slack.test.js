@@ -6,10 +6,11 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 import http from 'http';
 
+let pushable = [];
 vi.mock('../src/adapters/github.js', async (orig) => ({
   ...(await orig()),
   GithubSession: class { async prefetch() {} },
-  listPushableRepos: async () => [],
+  listPushableRepos: async () => pushable,
 }));
 
 const { kvGet, kvSet, keys, __resetMemory } = await import('../src/oauth/kv.js');
@@ -30,11 +31,16 @@ const HOOK = 'https://hooks.slack.com/services/T000/B000/XXXXSECRET';
 const b64 = obj => Buffer.from(JSON.stringify(obj)).toString('base64');
 
 let restore;
+let blockedToken = null;
 function stubGithub(config = { project: 'Ledger', managerKey: 'git:maya@example.com' }) {
   const real = globalThis.fetch;
   globalThis.fetch = async (u, o) => {
     const url = String(u);
-    if (url.includes('/contents/.teamctx/config.json')) return { ok: true, status: 200, json: async () => ({ content: b64(config) }) };
+    if (url.includes('/contents/.teamctx/config.json')) {
+      // An organisation that keeps this account's own token out of the repository.
+      if (String(o?.headers?.Authorization || '').includes(blockedToken || 'no token is blocked')) return { ok: false, status: 403, json: async () => ({}) };
+      return { ok: true, status: 200, json: async () => ({ content: b64(config) }) };
+    }
     if (url.includes('api.github.com')) return { ok: true, status: 200, json: async () => ([]) };
     return real(u, o);
   };
@@ -56,6 +62,8 @@ const set = (user, webhook = HOOK) => as(user, '/settings/slack', { method: 'POS
 
 beforeEach(() => {
   __resetMemory();
+  pushable = [];
+  blockedToken = null;
   restore?.();
   restore = stubGithub();
 });
@@ -70,6 +78,12 @@ describe('setting the webhook', () => {
   });
 
   it('works for a manager signed in with GitHub, with no access lent', async () => {
+    expect((await set(MAYA_GITHUB)).location).toBe('/settings?saved=1');
+  });
+
+  it('falls back on the access the project lends when their own token cannot read it', async () => {
+    await lend();
+    blockedToken = 'gh-maya';
     expect((await set(MAYA_GITHUB)).location).toBe('/settings?saved=1');
   });
 
@@ -97,6 +111,17 @@ describe('the page', () => {
     expect(page.body).toMatch(/<code>acme\/ledger<\/code>\s*<span class="muted">— set by maya@example.com on \d{4}-\d{2}-\d{2}<\/span>/);
     expect(page.body).not.toContain('SECRET');
     expect(page.body).not.toContain('hooks.slack.com/services/T000');
+  });
+
+  it('shows a co-manager one another manager set, so they can stop it', async () => {
+    await lend();
+    await set(MAYA_GOOGLE);
+    const LEE_GITHUB = { id: 88, login: 'lee', name: 'Lee', email: 'lee@example.com', token: 'gh-lee', source: 'github' };
+    restore();
+    restore = stubGithub({ project: 'Ledger', managerKeys: ['git:maya@example.com', 'git:lee@example.com'] });
+    pushable = [{ fullName: 'acme/ledger', private: true }];
+    const page = await as(LEE_GITHUB, '/settings');
+    expect(page.body).toMatch(/<code>acme\/ledger<\/code>\s*<span class="muted">— set by maya@example.com/);
   });
 
   it('does not list it for someone who is not a manager', async () => {
