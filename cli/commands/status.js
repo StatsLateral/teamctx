@@ -2,6 +2,7 @@ import { readProject, readConfig, readWorkstream, listWorkstreamIds, readContrib
 import { resolveActor } from '../../src/actor.js';
 import { resolveActiveWorkstream, resolveIdentity } from '../../src/prefs.js';
 import { isProjectLevel } from '../../src/project-level.js';
+import { contextFreshness, freshnessLine } from '../../src/freshness.js';
 
 export async function statusCommand() {
   const config = readConfig();
@@ -41,6 +42,7 @@ export async function statusCommand() {
   }
   console.log(`  Contributions: ${contributions.length} total, ${decisions.length} decisions`);
   console.log(`  Tasks:        ${openTasks} open, ${doneTasks} done${compiledTasks ? ` (${compiledTasks} compiled)` : ''}`);
+  console.log(`  Freshness:    ${freshnessLine(contextFreshness())}`);
   console.log(`\nRoles (${config.roles.length}):`);
 
   if (config.roles.length === 0) {

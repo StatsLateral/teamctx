@@ -60,6 +60,7 @@ import {
   AGENT_TOOLS, agentOnRoster, agentOwnsTask, AgentRefusedError,
 } from '../src/agents.js';
 import { takeDailyContribution } from '../src/oauth/agent-tokens.js';
+import { contextFreshness } from '../src/freshness.js';
 
 export function resolveProjectDir(argv = process.argv.slice(2), env = process.env, cwd = process.cwd()) {
   const flagIdx = argv.findIndex(a => a === '--project' || a === '-p');
@@ -68,6 +69,14 @@ export function resolveProjectDir(argv = process.argv.slice(2), env = process.en
   if (eqArg) return pathResolve(eqArg.slice('--project='.length));
   if (env.TEAMCTX_PROJECT_DIR) return pathResolve(env.TEAMCTX_PROJECT_DIR);
   return cwd;
+}
+
+/**
+ * How fresh the context is, for a caller who may see only part of the queue:
+ * a scoped member counts what is waiting in their own parts.
+ */
+function freshness(teamctxDir, allowed) {
+  return contextFreshness(teamctxDir, { keep: item => inScope(allowed, resolveTarget(item.workstream)) });
 }
 
 const RISKY = '⚠ RISKY: ';
@@ -1148,6 +1157,10 @@ export function makeHandlers(projectRoot) {
         workstreams,
         ...(allowed ? { scopedTo: allowed } : {}),
         contributions: { total: contributions.length, decisions: decisions.length },
+        // How fresh the context is (#183). `lastApprovedAt` is null on a project
+        // approved before approvals were recorded; a scoped caller counts only
+        // what is waiting in their own parts, as list_pending_reviews shows it.
+        ...freshness(teamctxDir, allowed),
         // Filtered for the same reason `list_roles` is: a role name and the
         // workstream behind it are two of the things a scope keeps back, and
         // this response hides those workstream ids three lines above.
