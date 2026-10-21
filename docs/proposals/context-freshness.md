@@ -1,6 +1,6 @@
 # Proposal: show how fresh the context is
 
-**Status:** Proposed · **Issue:** [#183](https://github.com/StatsLateral/teamctx/issues/183)
+**Status:** Implemented · **Issue:** [#183](https://github.com/StatsLateral/teamctx/issues/183)
 · **Base:** `main`
 
 ## Why
@@ -53,7 +53,7 @@ count.
 
 ## Plan
 
-- [ ] `src/freshness.js`; tests
-- [ ] `teamctx status` and `get_status`; tests
-- [ ] The line in a role file as it is read; tests
-- [ ] CHANGELOG
+- [x] `src/freshness.js`; tests
+- [x] `teamctx status` and `get_status`; tests
+- [x] The line in a role file as it is read; tests
+- [x] CHANGELOG

@@ -102,6 +102,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `workstream_split` and `teamctx workstream suggest` / `suggest_workstream_splits`.
 
 ### Added
+- **How fresh the context is (#183).** `teamctx status`, `get_status`
+  (`lastApprovedAt`, `waiting`) and every role file as it is read say when the
+  context was last approved and how much is waiting for review: "Context last
+  approved 12 days ago; 3 items waiting for review." Worked out from the
+  approval files and the queue, never stored; a project approved before
+  approvals were recorded says "not recorded". A scoped member counts only what
+  is waiting in their own parts.
 - **Connected sources are real (#168).** When something an assistant read in a
   connected tool (Slack, Notion, Google Drive, SharePoint, Dropbox, Coda) reaches
   the project, a reference to it is kept in `.teamctx/sources/`: the tool, a
