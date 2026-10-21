@@ -1,6 +1,6 @@
 # Proposal: tasks the AI proposes read as work a person picks up
 
-**Status:** Proposed · **Issue:** [#175](https://github.com/StatsLateral/teamctx/issues/175)
+**Status:** Implemented · **Issue:** [#175](https://github.com/StatsLateral/teamctx/issues/175)
 · **Base:** `main`
 
 ## What goes wrong
@@ -70,8 +70,8 @@ only what the AI proposes.
 
 ## Plan
 
-- [ ] `taskTitleProblem`, tests
-- [ ] Prompt, the check and "no tasks" in `proposeDiff`, tests
-- [ ] `from` on `addTask`: shown in the read-back and on the page, kept on the
+- [x] `taskTitleProblem`, tests
+- [x] Prompt, the check and "no tasks" in `proposeDiff`, tests
+- [x] `from` on `addTask`: shown in the read-back and on the page, kept on the
       task, tests
-- [ ] CHANGELOG
+- [x] CHANGELOG
