@@ -9,6 +9,7 @@ import { inScope } from '../../src/member-scope.js';
 import { resolveActor } from '../../src/actor.js';
 import { resolveDisplayName } from '../../src/prefs.js';
 import { flaggedInProject } from '../../src/project-records.js';
+import { contextFreshness, freshnessLine, withFreshness } from '../../src/freshness.js';
 
 /**
  * The one thing a member reads before they do anything.
@@ -134,6 +135,11 @@ export async function buildBrief({
   let roleMarkdown = '';
   if (role) {
     try { roleMarkdown = readRoleFile(role.slug, teamctxDir); } catch { roleMarkdown = ''; }
+  }
+  // How fresh it is, under the title (#183): counted in their own parts only.
+  if (roleMarkdown) {
+    const keep = item => inScope(scope && scope.length ? scope : null, resolveTarget(item.workstream));
+    roleMarkdown = withFreshness(roleMarkdown, freshnessLine(contextFreshness(teamctxDir, { keep })));
   }
 
   const where = places.length === 1

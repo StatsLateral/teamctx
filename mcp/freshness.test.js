@@ -1,6 +1,7 @@
 /**
  * How fresh the context is (#183), where an assistant reads it: `get_status`
- * says when something was last approved and how much is waiting.
+ * says when something was last approved and how much is waiting, and a role
+ * file carries the same as a line under its title.
  */
 import { describe, it, expect, beforeEach } from 'vitest';
 
@@ -79,5 +80,17 @@ describe('get_status says how fresh the context is', () => {
     const r = JSON.parse(await call({}, MAYA, 'get_status'));
     expect(r.lastApprovedAt).toBeNull();
     expect(r.waiting).toBe(0);
+  });
+});
+
+describe('a role file says how fresh it is', () => {
+  it('under its title, from get_role_context', async () => {
+    const md = await call({ approvals: APPROVED, queue: QUEUE }, PRIYA, 'get_role_context', { role: 'pm' });
+    expect(md).toBe('# Product lead Context — Ledger\n\n*Context last approved 12 days ago; 1 item waiting for review.*\n\n## Your Role\nShip it.');
+  });
+
+  it('in my_brief', async () => {
+    const r = JSON.parse(await call({ queue: QUEUE }, PRIYA, 'my_brief'));
+    expect(r.role.markdown).toContain('*Context last approved: not recorded; 1 item waiting for review.*');
   });
 });

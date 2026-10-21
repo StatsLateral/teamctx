@@ -60,7 +60,7 @@ import {
   AGENT_TOOLS, agentOnRoster, agentOwnsTask, AgentRefusedError,
 } from '../src/agents.js';
 import { takeDailyContribution } from '../src/oauth/agent-tokens.js';
-import { contextFreshness } from '../src/freshness.js';
+import { contextFreshness, freshnessLine, withFreshness } from '../src/freshness.js';
 
 export function resolveProjectDir(argv = process.argv.slice(2), env = process.env, cwd = process.cwd()) {
   const flagIdx = argv.findIndex(a => a === '--project' || a === '-p');
@@ -1016,7 +1016,10 @@ export function makeHandlers(projectRoot) {
       // walked around by asking for the role instead.
       const found = (config.roles || []).find(r => r.slug === role);
       if (found) assertInScope(await scope(teamctxDir, config), resolveTarget(found.workstream));
-      return textResult(readRoleFile(role, teamctxDir));
+      // With how fresh it is under the title (#183), worked out now: a line
+      // written into the file would always say "today".
+      const md = readRoleFile(role, teamctxDir);
+      return textResult(withFreshness(md, freshnessLine(freshness(teamctxDir, await scope(teamctxDir, config)))));
     },
 
     async list_roles() {
