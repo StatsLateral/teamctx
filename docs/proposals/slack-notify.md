@@ -1,6 +1,6 @@
 # Proposal: tell the manager in Slack when something is waiting
 
-**Status:** Proposed · **Issue:** [#182](https://github.com/StatsLateral/teamctx/issues/182)
+**Status:** Implemented · **Issue:** [#182](https://github.com/StatsLateral/teamctx/issues/182)
 · **Base:** `main`
 
 ## Why
@@ -73,7 +73,7 @@ or clear it; a non-Slack URL is refused.
 
 ## Plan
 
-- [ ] `src/slack-notify.js`; tests
-- [ ] Post when a contribution or a task's work is queued; tests
-- [ ] Set and clear in Settings, manager only; tests
-- [ ] README, CHANGELOG
+- [x] `src/slack-notify.js`; tests
+- [x] Post when a contribution or a task's work is queued; tests
+- [x] Set and clear in Settings, manager only; tests
+- [x] README, CHANGELOG

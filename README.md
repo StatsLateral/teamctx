@@ -402,6 +402,10 @@ vercel env pull .env.local
 
 Every `teamctx contribute` commits and pushes to your private repo. Vercel's git integration auto-deploys on push — role files at `/context/<role>` are always up to date within seconds.
 
+### Slack notices
+
+A manager can have a Slack channel told whenever something is waiting for their approval. Each message holds the item's number, who sent it, a one-line summary and a link to it. The text of what was sent is never included. On the hosted server, set the channel's [incoming webhook](https://api.slack.com/messaging/webhooks) in **Settings → Slack**. On the command line, put it in `.env.local` as `TEAMCTX_SLACK_WEBHOOK`. The webhook is never written to the repository. If a post fails, it is logged and skipped, and the contribution is never held up.
+
 ### Security model
 
 - **Source + data** (`.teamctx/`) live in your private GitHub repo — only visible to you

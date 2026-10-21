@@ -102,6 +102,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `workstream_split` and `teamctx workstream suggest` / `suggest_workstream_splits`.
 
 ### Added
+- **Slack notices for what is waiting (#182).** When a contribution or a task's
+  work is queued for review, one message goes to a Slack incoming webhook: the
+  item's number, who sent it, a one-line summary and the link that opens it.
+  Never the text. A manager sets it in Settings (kept in the deployment's store,
+  never the repository, never shown again); the command line reads
+  `TEAMCTX_SLACK_WEBHOOK`. Only `https://hooks.slack.com/services/…` is
+  accepted. A post that fails or takes over 3 seconds is logged and skipped.
 - **Connected sources are real (#168).** When something an assistant read in a
   connected tool (Slack, Notion, Google Drive, SharePoint, Dropbox, Coda) reaches
   the project, a reference to it is kept in `.teamctx/sources/`: the tool, a
