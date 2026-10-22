@@ -8,7 +8,11 @@ import {
   readWorkstream, readContributions,
   writeTaskFile, readTaskFile, taskFilePath, taskFileExists,
   writeOutput, listOutputs, listChanges, appendContribution, writeQueueItem, readApprovals, listQueue, listRejected,
+  writeTree, deleteTaskFile, writeChange, withCounters,
 } from '../../src/storage.js';
+import { applyOps } from '../../src/ops.js';
+import { changeEntry } from '../../src/changes.js';
+import { assertManager } from './review.core.js';
 import { compileTaskPrompt } from '../../src/context.js';
 import { outputStates, latestRejection } from '../../src/outputs.js';
 import { commitContext, pushContext } from '../../src/git.js';
@@ -195,8 +199,11 @@ export function listTasksFiltered({
  * Read off the approvals, not stored on the task, so a task somebody merely
  * marked done by hand is not locked and can still be reopened.
  */
+/** The approval that accepted work for this task, or undefined. */
+const acceptanceOf = (task, teamctxDir) => Object.values(readApprovals(teamctxDir) || {}).find(a => a?.forTask === task.id);
+
 function assertNotAccepted(task, teamctxDir) {
-  const accepted = Object.values(readApprovals(teamctxDir) || {}).find(a => a?.forTask === task.id);
+  const accepted = acceptanceOf(task, teamctxDir);
   if (!accepted) return;
   const by = accepted.approvedBy?.name ? ` by ${accepted.approvedBy.name}` : '';
   throw new Error(`Task ${task.key || task.id} was accepted${by} and is closed. Add a follow-on task for anything further.`);
@@ -489,15 +496,74 @@ export async function assignTask({ id, owner, teamctxDir, projectDir } = {}) {
   return { task: updated, ...git };
 }
 
-export async function removeTask({ id, teamctxDir, projectDir, actor } = {}) {
+export const MAX_REASON_CHARS = 500;
+
+export async function removeTask({ id, reason, source = 'cli', teamctxDir, projectDir, actor } = {}) {
   const config = readConfig(teamctxDir);
   // Resolve first so a bad id fails before anything is deleted.
   const { task } = findTask(id, teamctxDir);
-  assertNotAccepted(task, teamctxDir);
+  const accepted = acceptanceOf(task, teamctxDir);
+  if (accepted) return removeAcceptedTask({ task, accepted, reason, source, config, teamctxDir, projectDir, actor });
   const { id: removedId, workstream } = deleteTask(id, teamctxDir);
   const me = await whoAmI({ config, teamctxDir, projectDir, actor });
   const git = await commitAndPush(config, `task: rm ${removedId} by ${me}`, projectDir);
   return { id: removedId, title: task.title, workstream, ...git };
+}
+
+/**
+ * Take an accepted task out of the plan (#202). A manager only, with a reason.
+ *
+ * It leaves the plan, not the history: the outputs, the approval file and the
+ * logs stay. Its acceptance record is closed, so the context stops calling it
+ * accepted work; anything else recorded when it was accepted stands on its own
+ * and is handed back as `stillActive`, for the manager to decide about.
+ */
+async function removeAcceptedTask({ task, accepted, reason, source, config, teamctxDir, projectDir, actor }) {
+  const resolved = actor || await resolveActor({ config, cwd: projectDir });
+  const me = await resolveDisplayName({ actor: resolved, config, teamctxDir });
+  const label = task.key || task.id;
+  try {
+    assertManager(config, { actor: resolved, displayName: me });
+  } catch {
+    const by = accepted.approvedBy?.name ? ` by ${accepted.approvedBy.name}` : '';
+    throw new Error(`Task ${label} was accepted${by} and is closed. Only a manager can remove it; add a follow-on task for anything further.`);
+  }
+  const why = String(reason ?? '').trim();
+  if (!why) throw new Error(`Task ${label} was accepted, so removing it needs a reason: say why it is leaving the plan.`);
+  if (why.length > MAX_REASON_CHARS) throw new Error(`The reason is too long (${why.length} characters; at most ${MAX_REASON_CHARS}).`);
+
+  const at = new Date().toISOString();
+  const cid = `${source === 'mcp' ? 'mcp' : 'c'}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+  const wsId = task.workstream;
+  const fromAcceptance = (r) => (r?.sourceContributionIds || []).includes(accepted.id) || r?.createdBy === accepted.id;
+  let closed = [];
+  let stillActive = [];
+  withCounters(teamctxDir, () => {
+    const before = readTree(wsId, teamctxDir);
+    const acceptance = (before.records || []).filter(r => fromAcceptance(r) && r.attachedTo?.kind === 'task'
+      && r.attachedTo.id === task.id && r.status === 'active');
+    const operations = [
+      ...acceptance.map(r => ({ type: 'setRecordStatus', id: r.id, status: 'closed' })),
+      { type: 'removeTask', id: task.id },
+    ];
+    const { tree } = applyOps(before, operations, cid, { at });
+    writeTree(wsId, tree, teamctxDir);
+    deleteTaskFile(task.id, teamctxDir);
+    writeChange(changeEntry({ id: cid, at, tree: wsId, operations, before, after: tree, by: { key: resolved?.key || null, name: me } }), teamctxDir);
+    closed = acceptance.map(r => r.id);
+    stillActive = [
+      ...(tree.records || []).filter(r => fromAcceptance(r) && isActive(r)).map(r => ({ kind: 'record', id: r.id, type: r.type, text: r.text })),
+      ...(tree.tasks || []).filter(fromAcceptance).map(t => ({ kind: 'task', id: t.id, key: t.key || null, title: t.title })),
+    ];
+  });
+  // Who took it out and why, beside every other change to the context.
+  appendContribution({
+    id: cid, ts: at, author: me, ...(resolved?.key ? { authorKey: resolved.key } : {}),
+    text: `Removed accepted task ${label} ("${task.title}"): ${why}`,
+    tagged: null, source, workstream: wsId, status: 'applied', removedTask: task.id,
+  }, teamctxDir);
+  const git = await commitAndPush(config, `task: rm accepted ${task.id} by ${me}: ${why.split(/\r?\n/)[0].slice(0, 120)}`, projectDir);
+  return { id: task.id, key: task.key || null, title: task.title, workstream: wsId, accepted: true, reason: why, closed, stillActive, ...git };
 }
 
 /**
