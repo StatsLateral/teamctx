@@ -182,7 +182,9 @@ task.command('reopen <id>').description('Reopen a done task').action(taskReopenC
 task.command('assign <id>').description('Reassign a task')
   .requiredOption('--owner <name>', 'New owner')
   .action(taskAssignCommand);
-task.command('rm <id>').description('Remove a task (and its compiled prompt file, if any)').action(taskRmCommand);
+task.command('rm <id>').description('Remove a task (and its compiled prompt file, if any)')
+  .option('--reason <text>', 'Why an accepted task is leaving the plan (manager only; required for an accepted task)')
+  .action(taskRmCommand);
 task.command('compile <id>').description('Generate an AI-ready prompt file for the task (AI call — writes context/tasks/<id>.md)')
   .option('--role <slug>', 'Frame the prompt for a specific role')
   .option('--force', 'Regenerate even if the workstream has not changed since last compile')
