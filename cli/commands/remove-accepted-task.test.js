@@ -12,7 +12,7 @@ import { join } from 'path';
 import { runWithActor } from '../../src/actor.js';
 import { makeConfig, makeProject, makeWorkstream } from '../../src/test-fixtures/model.js';
 import {
-  writeConfig, writeProject, writeWorkstream, readApprovals, readContributions, readTree, listOutputs, listChanges, listTasks,
+  writeConfig, writeProject, writeWorkstream, readApprovals, readContributions, readTree, listOutputs, listChanges, listTasks, readTreeMd, writeTree,
 } from '../../src/storage.js';
 import { addTask, saveOutput, submitTask, removeTask } from './task.core.js';
 import { approveReview } from './review.core.js';
@@ -82,6 +82,33 @@ describe('removing an accepted task', () => {
     const r = await remove(manager, 'Superseded');
     expect(r.stillActive).toEqual([expect.objectContaining({ kind: 'record', type: 'decision', text: 'Posts go out on Tuesdays' })]);
     expect(readTree('sales', dir).records.find(x => x.text === 'Posts go out on Tuesdays').status).toBe('active');
+  });
+});
+
+describe('what removing it does not let through', () => {
+  it('a claimed actor is not a credential', async () => {
+    await expect(as(member, () => removeTask({ id: task.id, reason: 'x', actor: manager, teamctxDir: dir }))).rejects.toThrow(/Only a manager/);
+  });
+
+  it('a new task with the same title does not take over its id, approval or outputs', async () => {
+    await remove(manager, 'Accepted by mistake');
+    const { task: again } = await as(manager, () => addTask({ title: 'Draft the post', workstream: 'sales', teamctxDir: dir }));
+    expect(again.id).not.toBe(task.id);
+    expect(listOutputs(again.id, dir)).toHaveLength(0);
+    await expect(as(member, () => saveOutput({ id: again.id, body: 'fresh start', teamctxDir: dir }))).resolves.toBeTruthy();
+  });
+
+  it('the rendered context no longer shows it, or its acceptance', async () => {
+    expect(readTreeMd('sales', dir)).toContain('Draft the post');
+    await remove(manager, 'Superseded');
+    expect(readTreeMd('sales', dir)).not.toContain('Draft the post');
+  });
+
+  it('names a record still attached to it, which now points at nothing', async () => {
+    const tree = readTree('sales', dir);
+    writeTree('sales', { ...tree, records: [...tree.records, { ...tree.records[0], id: 'r-note', text: 'Use the brand voice', createdBy: 'c-other', sourceContributionIds: ['c-other'], attachedTo: { kind: 'task', id: task.id }, status: 'active' }] }, dir);
+    const r = await remove(manager, 'Superseded');
+    expect(r.stillActive.map(x => x.text)).toContain('Use the brand voice');
   });
 });
 

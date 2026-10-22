@@ -34,8 +34,12 @@ mistake, or the work was superseded.
 - On an accepted task, by somebody who is not a manager: refused, as now.
 - By a manager without a reason: refused, saying a reason is needed.
 - By a manager with a reason: the task is removed, its acceptance record closed,
-  the removal logged with the reason, and the result names any record from the
-  acceptance still active.
+  the removal logged with the reason, and the result names what still stands:
+  anything the acceptance added, and any record still attached to the task.
+- The rendered context is rewritten so `ask` stops showing it; role files are not
+  regenerated, which would spend an AI call.
+- Its id stays taken, so a new task with the same title does not inherit its
+  approval and outputs.
 
 ## Reused
 
