@@ -138,8 +138,9 @@ The task closes only after Accept. Back-and-forth can still happen outside teamc
 Once a task has an accepted submission nobody works on it any more, the manager included: no
 more outputs, no more submissions, it cannot be reopened and it cannot be removed. Anything
 further is a **follow-on task**, which anyone can add as usual. Whether a task is accepted is
-read off the approvals, so a task somebody simply marked done by hand is not locked. A later
-version will let a manager remove an accepted task from the context (tracked as a post-MVP issue, #202).
+read off the approvals, so a task somebody simply marked done by hand is not locked. A manager
+can remove an accepted task from the plan, with a reason; its history stays (#202, see
+`docs/proposals/remove-accepted-task.md`).
 
 - **Manager's assistant helps with the response.** In "Review with AI" the assistant is given
   the outputs themselves, the task and the context. It can summarise what is good and what is
