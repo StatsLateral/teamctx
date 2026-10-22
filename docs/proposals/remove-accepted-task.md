@@ -1,6 +1,6 @@
 # Proposal: a manager can remove an accepted task
 
-**Status:** Proposed · **Issue:** [#202](https://github.com/StatsLateral/teamctx/issues/202)
+**Status:** Implemented · **Issue:** [#202](https://github.com/StatsLateral/teamctx/issues/202)
 · **Base:** `main`
 
 ## Why
@@ -58,6 +58,6 @@ removed as before.
 
 ## Plan
 
-- [ ] `removeTask` for an accepted task; tests
-- [ ] `--reason` on the command line and `reason` on `task_rm`; tests
-- [ ] README, CHANGELOG
+- [x] `removeTask` for an accepted task; tests
+- [x] `--reason` on the command line and `reason` on `task_rm`; tests
+- [x] README, CHANGELOG
