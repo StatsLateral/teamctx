@@ -199,6 +199,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   link and the member gate agree.
 
 ### Fixed
+- **Removing a task that was never compiled works on the hosted server.** It
+  deleted the task's prompt file, which was never written, and GitHub refused the
+  whole commit (422). A path the repository does not have is no longer sent as a
+  deletion.
 - **A contribution with two changes flagged against one decision can be approved.** A new
   decision that replaces an old one, sent with a new rule about the same thing, had both
   flagged against the old decision. Naming it in `--replaces` failed because a rule cannot

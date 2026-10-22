@@ -298,6 +298,11 @@ export class GithubSession {
   }
 
   del(path) {
+    // A path the repository does not have is not a deletion: GitHub refuses a
+    // tree entry that deletes it (422 BadObjectState), and the whole commit
+    // fails with it — removing a task that was never compiled did exactly that.
+    // Anything staged for it this session is simply dropped.
+    if (!this.files.has(path)) { this.changes.delete(path); return; }
     this.changes.set(path, null);
   }
 
