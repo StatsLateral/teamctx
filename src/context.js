@@ -2,6 +2,7 @@ import { statusWordsIn } from './status-words.js';
 import { proposeDiff, callClaude } from './ai.js';
 import { targetLabel } from './project-level.js';
 import { applyOps } from './ops.js';
+import { withoutDroppedSources } from './task-wording.js';
 import { workstreamNumber } from './numbering.js';
 import { renderBrief } from './brief.js';
 import {
@@ -107,12 +108,13 @@ export async function updateShared(tree, contribution, config, { intent, avoid, 
   // By position, not by identity: `applyOps` copies an operation whose record
   // attaches to a task added alongside it, so comparing the objects let a
   // dropped operation through as a kept one.
-  const kept = operations.filter((o, i) => !dropped.some(d => d.index === i));
+  const keptOps = operations.filter((o, i) => !dropped.some(d => d.index === i));
+  const kept = withoutDroppedSources(keptOps, operations.filter(o => !keptOps.includes(o)));
   // Handed back rather than written here. The caller knows whether this tree is
   // about to be written or put in a queue, and the counters have to go the same
   // way the tree does — see `mintKey`.
-  const conflicts = contradictions.filter(c => kept.includes(operations[c.operationIndex]))
-    .map(c => ({ ...c, operationIndex: kept.indexOf(operations[c.operationIndex]) }));
+  const conflicts = contradictions.filter(c => keptOps.includes(operations[c.operationIndex]))
+    .map(c => ({ ...c, operationIndex: keptOps.indexOf(operations[c.operationIndex]) }));
   return { workstream: updated, summary, operations: kept, dropped, nextKey, contradictions: conflicts };
 }
 

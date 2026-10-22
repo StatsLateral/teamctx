@@ -71,6 +71,21 @@ export function withWhereFrom(operations, records) {
   });
 }
 
+/**
+ * A task that names, as where it came from, a record that was then dropped (an
+ * invalid replacement, say) says nothing instead: the reviewer would otherwise
+ * read "from Decision: …" about a decision that is not being added.
+ */
+export function withoutDroppedSources(kept, droppedOps) {
+  const gone = new Set(droppedOps.filter(o => o?.type === 'addRecord' && o.ref).map(o => o.ref));
+  if (!gone.size) return kept;
+  return kept.map(op => {
+    if (op?.type !== 'addTask' || !gone.has(op.from)) return op;
+    const { from: _from, fromRecord: _fromRecord, ...task } = op;
+    return task;
+  });
+}
+
 export function keepPeoplesTasks(operations, input) {
   const none = saysNoTasks(input);
   const kept = [];
