@@ -103,6 +103,14 @@ describe('work in progress that the context has moved under', () => {
     expect(changedSince.more).toBe(3);
   });
 
+  it('counts plain additions above the task even when nothing else changed (#206)', async () => {
+    await save(member, { body: 'v1' });
+    change('plain', later(1000), null, { significant: false });
+    const { changedSince } = getTask({ id: task.id, teamctxDir: dir });
+    expect(changedSince.changes).toEqual([]);
+    expect(changedSince.others).toBe(1);
+  });
+
   it('treats a change at the project level as reaching a task in any part', async () => {
     await save(member, { body: 'v1' });
     change('proj', later(1000), null);

@@ -256,7 +256,7 @@ export async function readProjectView({ owner, repo, user }) {
             const ws = resolveTarget(t.workstream);
             const trees = [null, ...(ws ? [...ancestorsOf(config, ws), ws] : [])];
             const found = changesReaching({ entries: allChanges, trees, since, taskId: t.id });
-            return found.changes.length ? changedSummary(found, labelFor(config)) : null;
+            return found.changes.length || found.others ? changedSummary(found, labelFor(config)) : null;
           })(),
         };
       });

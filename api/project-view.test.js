@@ -2280,6 +2280,17 @@ describe('what changed since a task was last worked on', () => {
       expect(doc.getElementById('d-changed').innerHTML).not.toContain('<b>');
     });
 
+    it('counts plain additions when nothing else changed (#206)', async () => {
+      repo.files.delete('.teamctx/changes/2099-01-01T000000000Z-c1.json');
+      repo.files.set('.teamctx/changes/2099-01-02T000000000Z-plain.json', JSON.stringify({
+        id: 'plain', at: '2099-01-02T00:00:00.000Z', tree: null, summary: ['Add: a decision'], touched: { records: [], tasks: [] }, significant: false, by: null,
+      }));
+      await lend();
+      const doc = await drawer('pricing-page');
+      expect(doc.getElementById('d-changed-wrap').hidden).toBe(false);
+      expect(doc.getElementById('d-changed').textContent).toBe('1 other addition');
+    });
+
     it('is hidden for a task nothing is flagged on', async () => {
       repo.files.delete('.teamctx/outputs/pricing-page/o1.json');
       await lend();

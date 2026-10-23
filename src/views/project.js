@@ -466,6 +466,7 @@ const SCRIPT = `
         changedList.appendChild(li);
       });
       if (changed.more) { var more = document.createElement('li'); more.textContent = 'and ' + changed.more + ' more'; changedList.appendChild(more); }
+      if (changed.others) { var others = document.createElement('li'); others.textContent = (changed.changes.length ? 'and ' : '') + changed.others + ' other addition' + (changed.others === 1 ? '' : 's'); changedList.appendChild(others); }
     }
     // One sentence and a way in, instead of the list of records that govern it.
     var ws = el.dataset.ws || '';

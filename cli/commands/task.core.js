@@ -225,7 +225,8 @@ function changedSinceFor(task, saved, teamctxDir, read = {}) {
   // log is not read to answer a short question (#206).
   const entries = read.entries ?? listChanges({ after: since, trees }, teamctxDir);
   const found = changesReaching({ entries, trees, since, taskId: task.id });
-  if (!found.changes.length) return null;
+  // Plain additions alone are still said, as a count, never as a list.
+  if (!found.changes.length && !found.others) return null;
   return changedSummary(found, labelFor(config));
 }
 
