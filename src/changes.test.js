@@ -197,7 +197,15 @@ describe('tiers for the pickup flag (#206)', () => {
     expect(isSignificant([{ type: 'editRecord', id: 'r1', changes: { text: 'y' } }], tree, tree)).toBe(true);
     expect(isSignificant([{ type: 'setRecordStatus', id: 'a1', status: 'broken' }], tree, tree)).toBe(true);
     expect(isSignificant([{ type: 'addRecord', record: { type: 'decision', text: 'x' } }, { type: 'addTask', title: 't' }], tree, tree)).toBe(false);
-    expect(isSignificant([{ type: 'editRecord', id: 'd1', changes: { text: 'y' } }], tree, tree)).toBe(false);
+    expect(isSignificant([{ type: 'addEvidence', id: 'd1', evidence: 'e' }], tree, tree)).toBe(false);
+    expect(isSignificant([{ type: 'editRecord', id: 'd1', changes: { detail: 'y' } }], tree, tree)).toBe(false);
+  });
+
+  it('marks a change significant when it replaces, rewords or retires what was true', () => {
+    const tree = { records: [{ id: 'd1', type: 'decision' }, { id: 'a1', type: 'assumption' }] };
+    expect(isSignificant([{ type: 'addRecord', record: { type: 'decision', text: 'x', links: { replaces: 'd1' } } }], tree, tree)).toBe(true);
+    expect(isSignificant([{ type: 'editRecord', id: 'd1', changes: { text: 'y' } }], tree, tree)).toBe(true);
+    expect(isSignificant([{ type: 'setRecordStatus', id: 'a1', status: 'retired' }], tree, tree)).toBe(true);
   });
 
   it('shows significant changes and ones that touched this task in full, and counts the rest', () => {

@@ -2,6 +2,7 @@ import { descendantsOf } from './model.js';
 import { isProjectLevel } from './project-level.js';
 import { inScope } from './member-scope.js';
 import { asQuotedData } from './change-labels.js';
+import { isSignificant, tasksNamedBy } from './changes.js';
 
 /**
  * What a change reaches, in brief (accepted-work spec, section 3).
@@ -19,8 +20,13 @@ const TASK_ADDS = new Set(['addTask']);
 const TASK_CHANGES = new Set(['editTask', 'removeTask']);
 const SHOWN_TASKS = 3;
 
-export function reachOf({ operations, treeId, config, tasks, hasWork, exclude = null }) {
+export function reachOf({ operations, treeId, config, tasks, hasWork, exclude = null, records = [] }) {
   const ops = Array.isArray(operations) ? operations : [];
+  // Only what a task would actually be shown flags it (#206): a significant
+  // change flags everything below it, anything else only the tasks it names.
+  // `records` is the tree as it stands, so an edit can be told by its type.
+  const flagsAll = isSignificant(ops, { records });
+  const named = tasksNamedBy(ops);
   const workstreams = config?.workstreams || [];
   const nameOf = (id) => workstreams.find(w => w.id === id)?.name || id;
   const count = (set) => ops.filter(o => set.has(o?.type)).length;
@@ -42,7 +48,7 @@ export function reachOf({ operations, treeId, config, tasks, hasWork, exclude = 
     // Project-level tasks carry no workstream, so a change to the project has to
     // ask for them explicitly.
     inProgress: (tasks || [])
-      .filter(t => t.status !== 'done' && t.id !== exclude && (scope.has(t.workstream) || (treeId == null && isProjectLevel(t.workstream))) && hasWork(t))
+      .filter(t => t.status !== 'done' && t.id !== exclude && (flagsAll || named.has(t.id)) && (scope.has(t.workstream) || (treeId == null && isProjectLevel(t.workstream))) && hasWork(t))
       .map(t => ({ id: t.id, key: t.key || null, title: t.title, workstream: t.workstream ?? null })),
   };
 }

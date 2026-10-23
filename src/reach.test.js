@@ -17,8 +17,9 @@ const tasks = [
   task('t4', '3.1', 'support', { compiledAt: '2026-10-01T00:00:00.000Z' }),
 ];
 const hasWork = (t) => Boolean(t.compiledAt) || t.id === 't2';
+// A rule matters to everything below it, so it flags all the work there.
 const reach = (over = {}) => reachOf({
-  operations: [{ type: 'addRecord', record: { type: 'decision', text: 'x' } }], treeId: 'launch', config, tasks, hasWork, ...over,
+  operations: [{ type: 'addRecord', record: { type: 'rule', text: 'x' } }], treeId: 'launch', config, tasks, hasWork, ...over,
 });
 
 describe('reachOf', () => {
@@ -41,6 +42,18 @@ describe('reachOf', () => {
 
   it('leaves out the task being accepted', () => {
     expect(reach({ exclude: 't1' }).inProgress.map(t => t.key)).toEqual(['2.1']);
+  });
+
+  it('flags only the tasks a plain addition names, since nobody else will be shown it (#206)', () => {
+    expect(reach({ operations: [{ type: 'addRecord', record: { type: 'decision', text: 'x' } }] }).inProgress).toEqual([]);
+    const named = reach({ operations: [{ type: 'addRecord', record: { type: 'decision', text: 'x', attachedTo: { kind: 'task', id: 't2' } } }] });
+    expect(named.inProgress.map(t => t.key)).toEqual(['2.1']);
+  });
+
+  it('tells an edit by the type of what it edits', () => {
+    const edit = [{ type: 'editRecord', id: 'r1', changes: { detail: 'more' } }];
+    expect(reach({ operations: edit, records: [{ id: 'r1', type: 'rule' }] }).inProgress).toHaveLength(2);
+    expect(reach({ operations: edit, records: [{ id: 'r1', type: 'decision' }] }).inProgress).toEqual([]);
   });
 
   it('counts task changes separately from record changes', () => {

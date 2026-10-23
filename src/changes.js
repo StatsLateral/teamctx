@@ -20,18 +20,35 @@ const SIGNIFICANT_TYPES = new Set(['rule', 'exception']);
 
 /**
  * Does this change matter to every task below it (#206)? It set the goal,
- * touched a rule or an exception, or marked something broken. A plain added
- * decision, assumption or task does not; it is counted, not shown in full.
+ * touched a rule or an exception, or changed what was already true: replaced,
+ * reworded or retired a record, or marked it broken. A plain added decision,
+ * assumption or task does not; it is counted, not shown in full.
  */
 export function isSignificant(operations, before, after) {
   const typeOf = (id) => [...(before?.records || []), ...(after?.records || [])].find(r => r.id === id)?.type;
   return (operations || []).some((op) => {
     if (op?.type === 'setGoal') return true;
-    if (op?.type === 'addRecord') return SIGNIFICANT_TYPES.has(op.record?.type);
-    if (op?.type === 'setRecordStatus' && op.status === 'broken') return true;
+    if (op?.type === 'addRecord') return SIGNIFICANT_TYPES.has(op.record?.type) || !!op.record?.links?.replaces;
+    // Work may rest on what a record said, so a record that stops holding or
+    // says something else is news for everything below it.
+    if (op?.type === 'setRecordStatus' && op.status !== 'active') return true;
+    if (op?.type === 'editRecord' && op.changes?.text != null) return true;
     if (['editRecord', 'setRecordStatus', 'addEvidence'].includes(op?.type)) return SIGNIFICANT_TYPES.has(typeOf(op.id));
     return false;
   });
+}
+
+/**
+ * The tasks a change names: edited or removed, or a record attached to them.
+ * They hear about it in full whether it is significant or not.
+ */
+export function tasksNamedBy(operations) {
+  const ids = new Set();
+  for (const op of operations || []) {
+    if ((op?.type === 'editTask' || op?.type === 'removeTask') && op.id) ids.add(op.id);
+    if (op?.type === 'addRecord' && op.record?.attachedTo?.kind === 'task' && op.record.attachedTo.id) ids.add(op.record.attachedTo.id);
+  }
+  return ids;
 }
 
 export function changeEntry({ id, at, tree, operations, before, after, by }) {
