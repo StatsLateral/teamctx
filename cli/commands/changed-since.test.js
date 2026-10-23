@@ -121,6 +121,14 @@ describe('a compiled prompt', () => {
     expect(again.changedSince.changes).toHaveLength(1);
   });
 
+  it('is stale after a plain addition too, since the prompt is built from all of it (#206)', async () => {
+    await as(manager, () => compileTask({ id: task.id, teamctxDir: dir }));
+    writeChange({ id: 'plain', at: new Date(Date.now() + 1000).toISOString(), tree: null, summary: ['Add: a decision'], touched: { records: [], tasks: [] }, significant: false, by: null }, dir);
+    const again = await as(manager, () => compileTask({ id: task.id, teamctxDir: dir }));
+    expect(again.alreadyCompiled).toBe(false);
+    expect(again.changedSince.others).toBe(1);
+  });
+
   it('stays stale when an output is saved after the change, and settles once recompiled', async () => {
     await as(manager, () => compileTask({ id: task.id, teamctxDir: dir }));
     const compiledAt = readTask(task.id, dir).task.compiledAt;

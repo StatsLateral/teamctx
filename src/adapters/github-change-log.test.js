@@ -7,6 +7,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { GithubSession } from './github.js';
 import { runWithSession } from '../session-context.js';
 import { listChanges, prepareChanges } from '../storage.js';
+import { prepareTaskChanges } from '../../cli/commands/task.core.js';
+import { makeConfig, makeWorkstream } from '../test-fixtures/model.js';
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -62,5 +64,23 @@ describe('the change log on the hosted server', () => {
     await runWithSession(s, () => prepareChanges({ after: since, trees: [null, 'registration'] }));
     expect(fetched).toEqual(['.teamctx/changes/' + name(oldAt, 'registration', 'c-old')]);
     expect(runWithSession(s, () => listChanges({ after: since })).map(e => e.id)).toEqual(['c-old', 'c-recent']);
+  });
+
+  it('fetches from the compile time for a compile, which may be older than the last output', async () => {
+    const task = { id: 't1', title: 'Badges', workstream: 'registration', status: 'open', compiledAt: iso(100 * day) };
+    const withTask = {
+      ...files,
+      '.teamctx/config.json': JSON.stringify(makeConfig({ workstreams: [{ id: 'registration', number: 1, name: 'Registration' }] })),
+      '.teamctx/workstreams/registration.json': JSON.stringify(makeWorkstream('registration', { tasks: [task] })),
+      '.teamctx/outputs/t1/o1.json': JSON.stringify({ id: 'o1', at: iso(10 * day), body: 'v1' }),
+    };
+    const fetched = github(withTask);
+    const s = new GithubSession({ owner: 'o', repo: 'r', ref: 'main', ghToken: 't' });
+    await s.prefetch();
+    fetched.length = 0;
+    await runWithSession(s, () => prepareTaskChanges({ id: 't1' }));
+    expect(fetched).toEqual([]);
+    await runWithSession(s, () => prepareTaskChanges({ id: 't1', sinceCompiled: true }));
+    expect(fetched).toEqual(['.teamctx/changes/' + name(oldAt, 'registration', 'c-old')]);
   });
 });

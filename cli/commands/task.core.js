@@ -218,32 +218,35 @@ function changedSinceFor(task, saved, teamctxDir, read = {}) {
   if (task.status === 'done') return null;
   const since = lastActivity({ outputs: saved, task });
   if (!since) return null;
-  // A caller asking twice (compile does) passes `read` so config is read once.
+  // Compile passes what it already read (`read`), an older superset of these.
   const config = (read.config ??= readConfig(teamctxDir) || {});
   const trees = chainTrees(config, task);
   // Only what is newer, in this chain: decided from the file names, so a long
   // log is not read to answer a short question (#206).
-  const entries = listChanges({ after: since, trees }, teamctxDir);
+  const entries = read.entries ?? listChanges({ after: since, trees }, teamctxDir);
   const found = changesReaching({ entries, trees, since, taskId: task.id });
   if (!found.changes.length) return null;
   return changedSummary(found, labelFor(config));
 }
 
 /** The trees whose changes reach a task: the project, every ancestor and its own part. */
-function chainTrees(config, task) {
+export function chainTrees(config, task) {
   const ws = resolveTarget(task.workstream);
   return [null, ...(ws ? [...ancestorsOf(config, ws), ws] : [])];
 }
 
 /**
  * On the hosted server, fetch the change files `get_task` or compile will read
- * for this task, before they read them (see `prepareChanges`).
+ * for this task, before they read them (see `prepareChanges`). Compile judges
+ * staleness from the compile time, which may be older than the last activity,
+ * so it asks from there (`sinceCompiled`).
  */
-export async function prepareTaskChanges({ id, teamctxDir } = {}) {
+export async function prepareTaskChanges({ id, teamctxDir, sinceCompiled = false } = {}) {
   let task;
   try { ({ task } = findTask(id, teamctxDir)); } catch { return; }
-  const since = lastActivity({ outputs: listOutputs(task.id, teamctxDir), task });
-  if (!since || task.status === 'done') return;
+  if (task.status === 'done') return;
+  const since = (sinceCompiled && task.compiledAt) || lastActivity({ outputs: listOutputs(task.id, teamctxDir), task });
+  if (!since) return;
   await prepareChanges({ after: since, trees: chainTrees(readConfig(teamctxDir) || {}, task) });
 }
 
@@ -532,7 +535,7 @@ export async function removeTask({ id, teamctxDir, projectDir, actor } = {}) {
 export async function compileTask({
   id, role: roleSlug, force = false, teamctxDir, projectDir, actor, reader,
 } = {}) {
-  await prepareTaskChanges({ id, teamctxDir });
+  await prepareTaskChanges({ id, teamctxDir, sinceCompiled: true });
   const config = readConfig(teamctxDir);
   const { task } = findTask(id, teamctxDir);
   // A task is always in a workstream, so the project is always the half above it.
@@ -542,9 +545,16 @@ export async function compileTask({
   // The fingerprint covers only the task's own part, so a change in the project
   // or an ancestor would leave a stale prompt looking current. Staleness is
   // judged from the compile time alone: saving an output afterwards must not
-  // hide that the prompt predates a change.
-  const read = {};
-  const staleFlag = changedSinceFor(task, [], teamctxDir, read);
+  // hide that the prompt predates a change. Any change counts, plain additions
+  // too: the prompt is built from all of it, so tiers do not apply here.
+  const read = { config: config || {} };
+  let staleFlag = null;
+  if (task.status !== 'done' && task.compiledAt) {
+    const trees = chainTrees(read.config, task);
+    read.entries = listChanges({ after: task.compiledAt, trees }, teamctxDir);
+    const found = changesReaching({ entries: read.entries, trees, since: task.compiledAt, taskId: task.id });
+    if (found.changes.length || found.others) staleFlag = changedSummary(found, labelFor(read.config));
+  }
   // An odd task id must not stop a compile, hence the guard on this read only.
   let saved = [];
   try { saved = listOutputs(task.id, teamctxDir); } catch { saved = []; }
