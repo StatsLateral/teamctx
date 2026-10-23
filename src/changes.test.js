@@ -226,4 +226,10 @@ describe('tiers for the pickup flag (#206)', () => {
     const r = changesReaching({ entries: [e('plain', 1, { significant: false })], trees: ['sales'], since: '2026-10-19T00:00:00.000Z', taskId: 't1' });
     expect(r).toEqual({ changes: [], more: 0, others: 1 });
   });
+
+  it('asks only for the count to be mentioned when nothing is listed', () => {
+    expect(changedSummary({ changes: [], more: 0, others: 2 }, () => 'Sales').note).toMatch(/^Only a count/);
+    const listed = changedSummary({ changes: [e('rule', 1, { significant: true })], more: 0, others: 2 }, () => 'Sales');
+    expect(listed.note).toMatch(/check the existing work against it/);
+  });
 });
