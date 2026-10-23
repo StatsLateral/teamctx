@@ -1,6 +1,6 @@
 # Proposal: make the change log, impact card and pickup flag scale
 
-**Status:** Proposed · **Issue:** [#206](https://github.com/StatsLateral/teamctx/issues/206)
+**Status:** Implemented · **Issue:** [#206](https://github.com/StatsLateral/teamctx/issues/206)
 · **Base:** `main` · **Builds on:** the accepted-work design (#204,
 `docs/superpowers/specs/2026-10-14-accepted-work-updates-context-design.md`)
 
@@ -106,8 +106,8 @@ entries in full.
 
 ## Plan
 
-- [ ] The part in log file names; `listChanges({ after, trees })`; `get_task` and compile read only newer entries
-- [ ] Hosted: recent log files up front, older ones on demand
-- [ ] `mergeReach` and the overall lines in `list_pending_reviews`
-- [ ] Tiers for the pickup flag
-- [ ] CHANGELOG
+- [x] The part in log file names; `listChanges({ after, trees })`; `get_task` and compile read only newer entries
+- [x] Hosted: recent log files up front, older ones on demand
+- [x] `mergeReach` and the overall lines in `list_pending_reviews`
+- [x] Tiers for the pickup flag
+- [x] CHANGELOG
