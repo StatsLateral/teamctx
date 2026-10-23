@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { reachOf, reachLines, limitReach } from './reach.js';
+import { reachOf, reachLines, limitReach, mergeReach, overallLines } from './reach.js';
 
 const config = {
   project: 'Ledger',
@@ -24,7 +24,7 @@ const reach = (over = {}) => reachOf({
 describe('reachOf', () => {
   it('counts what is added, and names the parts that inherit it', () => {
     const r = reach();
-    expect(r.adds).toEqual({ label: 'Launch', records: 1, tasks: 0, recordsAdded: 1, recordsChanged: 0, tasksAdded: 0, tasksChanged: 0 });
+    expect(r.adds).toEqual({ tree: 'launch', label: 'Launch', records: 1, tasks: 0, recordsAdded: 1, recordsChanged: 0, tasksAdded: 0, tasksChanged: 0 });
     expect(r.inheritedBy).toEqual([{ id: 'sales', name: 'Sales' }]);
   });
 
@@ -126,5 +126,31 @@ describe('limitReach', () => {
     expect(r.inProgress.map(t => t.key)).toEqual(['2.1', '4.1']);
     expect(r.inheritedBy.map(p => p.id)).toEqual(['sales']);
     expect(r.adds).toEqual(wide().adds);
+  });
+});
+
+describe('many reaches as one (#206)', () => {
+  const a = { adds: { tree: 'launch', label: 'Launch', records: 1, tasks: 0, recordsAdded: 1, recordsChanged: 0, tasksAdded: 0, tasksChanged: 0 },
+    inheritedBy: [{ id: 'sales', name: 'Sales' }], inProgress: [{ id: 't1', key: '1.1', title: 'Draft', workstream: 'launch' }] };
+  const b = { adds: { tree: 'launch', label: 'Launch', records: 1, tasks: 1, recordsAdded: 0, recordsChanged: 1, tasksAdded: 1, tasksChanged: 0 },
+    inheritedBy: [], inProgress: [{ id: 't1', key: '1.1', title: 'Draft', workstream: 'launch' }] };
+  const c = { adds: { tree: null, label: 'Ledger', records: 1, tasks: 0, recordsAdded: 1, recordsChanged: 0, tasksAdded: 0, tasksChanged: 0 },
+    inheritedBy: [{ id: 'launch', name: 'Launch' }, { id: 'sales', name: 'Sales' }], inProgress: [{ id: 't2', key: '2.1', title: 'Call', workstream: 'sales' }] };
+
+  it('sums what is added, counts how many reach each part, and lists each task once', () => {
+    const m = mergeReach([a, b, c, null]);
+    expect(m.items).toBe(3);
+    expect(m.adds).toMatchObject({ recordsAdded: 2, recordsChanged: 1, tasksAdded: 1 });
+    expect(m.parts.map(p => [p.name, p.items])).toEqual([['Launch', 3], ['Sales', 2], ['Ledger', 1]]);
+    expect(m.inProgress.map(t => t.id)).toEqual(['t1', 't2']);
+  });
+
+  it('reads as a few lines', () => {
+    expect(overallLines(mergeReach([a, b, c]), { clashes: 1 })).toEqual([
+      '3 waiting items would add 2 records and 1 task and change 1 record.',
+      'They reach "Launch" (3), "Sales" (2), "Ledger" (1).',
+      '1 clashes with a decision or rule.',
+      '2 tasks in progress would be flagged.',
+    ]);
   });
 });
