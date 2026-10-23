@@ -72,7 +72,7 @@ year. Its numbers are assumptions; so are the ones here.
   assumption broken.
 - **A task hears about a change in full** when it is significant or when it
   touched that task. Anything else, such as a plain added decision, becomes a
-  count: "and 7 other additions".
+  count: "and 7 other changes".
 - The five-line cap stays. An entry written before this has no `significant`
   field and is shown in full, as now, so nothing goes quiet.
 

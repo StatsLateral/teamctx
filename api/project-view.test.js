@@ -2288,7 +2288,7 @@ describe('what changed since a task was last worked on', () => {
       await lend();
       const doc = await drawer('pricing-page');
       expect(doc.getElementById('d-changed-wrap').hidden).toBe(false);
-      expect(doc.getElementById('d-changed').textContent).toBe('1 other addition');
+      expect(doc.getElementById('d-changed').textContent).toBe('1 other change');
     });
 
     it('is hidden for a task nothing is flagged on', async () => {

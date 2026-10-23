@@ -546,7 +546,7 @@ export async function compileTask({
   // The fingerprint covers only the task's own part, so a change in the project
   // or an ancestor would leave a stale prompt looking current. Staleness is
   // judged from the compile time alone: saving an output afterwards must not
-  // hide that the prompt predates a change. Any change counts, plain additions
+  // hide that the prompt predates a change. Any change counts, counted ones
   // too: the prompt is built from all of it, so tiers do not apply here.
   const read = { config: config || {} };
   let staleFlag = null;

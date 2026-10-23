@@ -111,8 +111,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   summed up, the parts it reaches most, how many clash and how many tasks it
   would flag. A task picked up again hears in full about changes to the goal, a
   rule or an exception, about a record replaced, reworded, retired or broken,
-  and about anything that touched it; plain additions above it are only counted
-  (`others`). The impact card names only the work a change would flag. A
+  and about anything that touched it; other changes above it, such as a new
+  decision, are only counted (`others`). The impact card names only the work a change would flag. A
   compiled prompt still goes stale on any change in its chain.
 - **Connected sources are real (#168).** When something an assistant read in a
   connected tool (Slack, Notion, Google Drive, SharePoint, Dropbox, Coda) reaches
