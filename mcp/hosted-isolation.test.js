@@ -415,12 +415,13 @@ describe('tasks on the hosted server', () => {
     const session = fakeSession();
     const added = await asUser(session, ALICE, h => json(h.task_add({ title: 'Ship the ledger' })));
 
-    // Simulate a previous compile: the prompt file plus the hash that says it
-    // is still current. The task is in the project's only workstream.
+    // Simulate a previous compile, after the task was added: the prompt file
+    // plus the hash that says it is still current. The task is in the
+    // project's only workstream.
     session.write('.teamctx/context/tasks/t-ship-the-ledger.md', '# already compiled');
     const ws = JSON.parse(session.read('.teamctx/workstreams/engineering-hiring.json').content);
     ws.tasks = ws.tasks.map(t => t.id === added.task.id
-      ? { ...t, compiledAt: '2026-01-01T00:00:00.000Z', compiledFromHash: hashOf(ws) }
+      ? { ...t, compiledAt: new Date(Date.now() + 1000).toISOString(), compiledFromHash: hashOf(ws) }
       : t);
     session.write('.teamctx/workstreams/engineering-hiring.json', JSON.stringify(ws));
 
