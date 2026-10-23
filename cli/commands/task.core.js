@@ -7,7 +7,7 @@ import {
   readProject, readConfig, readTree, listTasks, readTask, writeTask, deleteTask,
   readWorkstream, readContributions,
   writeTaskFile, readTaskFile, taskFilePath, taskFileExists,
-  writeOutput, listOutputs, listChanges, appendContribution, writeQueueItem, readApprovals, listQueue, listRejected,
+  writeOutput, listOutputs, listChanges, prepareChanges, appendContribution, writeQueueItem, readApprovals, listQueue, listRejected,
 } from '../../src/storage.js';
 import { compileTaskPrompt } from '../../src/context.js';
 import { outputStates, latestRejection } from '../../src/outputs.js';
@@ -218,15 +218,33 @@ function changedSinceFor(task, saved, teamctxDir, read = {}) {
   if (task.status === 'done') return null;
   const since = lastActivity({ outputs: saved, task });
   if (!since) return null;
-  // A caller asking twice (compile does) passes `read` so config and the log are
-  // read once; changesReaching applies `since` itself.
+  // A caller asking twice (compile does) passes `read` so config is read once.
   const config = (read.config ??= readConfig(teamctxDir) || {});
-  const ws = resolveTarget(task.workstream);
-  const trees = [null, ...(ws ? [...ancestorsOf(config, ws), ws] : [])];
-  const entries = read.entries ?? (read.entries = listChanges({}, teamctxDir));
+  const trees = chainTrees(config, task);
+  // Only what is newer, in this chain: decided from the file names, so a long
+  // log is not read to answer a short question (#206).
+  const entries = listChanges({ after: since, trees }, teamctxDir);
   const found = changesReaching({ entries, trees, since });
   if (!found.changes.length) return null;
   return changedSummary(found, labelFor(config));
+}
+
+/** The trees whose changes reach a task: the project, every ancestor and its own part. */
+function chainTrees(config, task) {
+  const ws = resolveTarget(task.workstream);
+  return [null, ...(ws ? [...ancestorsOf(config, ws), ws] : [])];
+}
+
+/**
+ * On the hosted server, fetch the change files `get_task` or compile will read
+ * for this task, before they read them (see `prepareChanges`).
+ */
+export async function prepareTaskChanges({ id, teamctxDir } = {}) {
+  let task;
+  try { ({ task } = findTask(id, teamctxDir)); } catch { return; }
+  const since = lastActivity({ outputs: listOutputs(task.id, teamctxDir), task });
+  if (!since || task.status === 'done') return;
+  await prepareChanges({ after: since, trees: chainTrees(readConfig(teamctxDir) || {}, task) });
 }
 
 /**
@@ -514,6 +532,7 @@ export async function removeTask({ id, teamctxDir, projectDir, actor } = {}) {
 export async function compileTask({
   id, role: roleSlug, force = false, teamctxDir, projectDir, actor, reader,
 } = {}) {
+  await prepareTaskChanges({ id, teamctxDir });
   const config = readConfig(teamctxDir);
   const { task } = findTask(id, teamctxDir);
   // A task is always in a workstream, so the project is always the half above it.

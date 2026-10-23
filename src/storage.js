@@ -343,16 +343,50 @@ export function listOutputs(taskId, dir) {
 /**
  * What changed in the context, one file per change under `changes/`.
  *
- * The name starts with the time, in a fixed width that sorts as it reads, so
- * "what is newer than X" is answered from the names alone, before any file is
- * read. The id follows so two changes in the same millisecond keep both files.
+ * The name starts with the time, in a fixed width that sorts as it reads, then
+ * the part of the work it changed (`project` for project level), then the id:
+ * `<time>.<part>.<id>.json`. So "newer than X, in these parts" is answered from
+ * the names alone, before any file is read (#206). The id keeps two changes in
+ * the same millisecond apart. Names written before the part was added,
+ * `<time>-<id>.json`, still read: they are kept and filtered by their contents.
  */
 const stamp = (at) => String(at).replace(/[:.]/g, '');
 const STAMP_WIDTH = 21;
+const PART = /^[A-Za-z0-9_-]+$/;
+const PROJECT_PART = 'project';
+
+/** The part a change file names, `null` for the project, or `undefined` for an older name without one. */
+export function changeFilePart(name) {
+  if (name.charAt(STAMP_WIDTH) !== '.') return undefined;
+  const part = name.slice(STAMP_WIDTH + 1).split('.')[0];
+  return part === PROJECT_PART ? null : part;
+}
+
+export function changeFileName(entry) {
+  const tree = entry?.tree ?? null;
+  // A part id that could not be read back from the name keeps the older form.
+  if (tree !== null && (!PART.test(tree) || tree === PROJECT_PART)) return `${stamp(entry.at)}-${entry.id}.json`;
+  return `${stamp(entry.at)}.${tree ?? PROJECT_PART}.${entry.id}.json`;
+}
+
+/**
+ * The change files worth reading: newer than `after`, and in one of `trees`
+ * (`null` for the project) when given. Decided from the names alone.
+ */
+export function wantedChangeFiles(names, { after, trees } = {}) {
+  const floor = after ? stamp(after) : null;
+  const parts = Array.isArray(trees) ? new Set(trees.map(t => t ?? null)) : null;
+  return names.filter((n) => {
+    if (!n.endsWith('.json')) return false;
+    if (floor && !(n.slice(0, STAMP_WIDTH) > floor)) return false;
+    const part = changeFilePart(n);
+    return !parts || part === undefined || parts.has(part);
+  }).sort();
+}
 
 export function writeChange(entry, dir) {
   sanitizeQueueId(entry?.id);
-  const name = `${stamp(entry.at)}-${entry.id}.json`;
+  const name = changeFileName(entry);
   const body = JSON.stringify(entry, null, 2);
   if (sessionWrite(ctxPath('changes', name), body)) return;
   const d = resolve(dir, 'changes');
@@ -360,13 +394,19 @@ export function writeChange(entry, dir) {
   writeFileSync(join(d, name), body);
 }
 
-/** Entries oldest first; `after` keeps only those newer. Invalid files are skipped. */
-export function listChanges({ after } = {}, dir) {
-  const floor = after ? stamp(after) : null;
-  const wanted = (names) => names.filter(n => n.endsWith('.json') && (!floor || n.slice(0, STAMP_WIDTH) > floor)).sort();
+/**
+ * Entries oldest first. `after` keeps only those newer, `trees` only those in
+ * these parts (`null` for the project); both are applied to the names before
+ * anything is read. Invalid files are skipped.
+ */
+export function listChanges({ after, trees } = {}, dir) {
+  const wanted = (names) => wantedChangeFiles(names, { after, trees });
+  const parts = Array.isArray(trees) ? new Set(trees.map(t => t ?? null)) : null;
   const parse = (text) => { try { return JSON.parse(text); } catch { return null; } };
   const valid = (list) => list
     .filter(e => e && typeof e === 'object' && typeof e.id === 'string' && typeof e.at === 'string')
+    // An older name says no part, so its contents decide.
+    .filter(e => !parts || parts.has(typeof e.tree === 'string' ? e.tree : null))
     .sort((a, b) => a.at.localeCompare(b.at) || a.id.localeCompare(b.id));
   const s = sessionListDir(ctxPath('changes'));
   if (s !== null) {
@@ -378,6 +418,18 @@ export function listChanges({ after } = {}, dir) {
   const d = resolve(dir, 'changes');
   if (!existsSync(d)) return [];
   return valid(wanted(readdirSync(d)).map(name => parse(readFileSync(join(d, name), 'utf-8'))));
+}
+
+/**
+ * Before a log read on the hosted server: fetch the change files it will want
+ * that were not downloaded up front (see `GithubSession.prefetch`). Nothing to
+ * do locally, where every file is on disk.
+ */
+export async function prepareChanges({ after, trees } = {}) {
+  const s = getCurrentSession();
+  if (!s || typeof s.loadPaths !== 'function') return;
+  const names = s.listDir(ctxPath('changes'));
+  await s.loadPaths(wantedChangeFiles(names, { after, trees }).map(n => ctxPath('changes', n)));
 }
 
 /**

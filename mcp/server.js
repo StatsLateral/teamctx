@@ -41,7 +41,7 @@ import { assertJoinableContext } from '../src/context-gate.js';
 import { contributeCore } from '../cli/commands/contribute.core.js';
 import { buildBrief } from '../cli/commands/brief.core.js';
 import {
-  listTasksFiltered, getTask, saveOutput, submitTask, addTask, setTaskStatus, assignTask, removeTask, compileTask,
+  listTasksFiltered, getTask, prepareTaskChanges, saveOutput, submitTask, addTask, setTaskStatus, assignTask, removeTask, compileTask,
 } from '../cli/commands/task.core.js';
 import { listMembers, addMember, removeMember, setMemberWorkstreams, setMemberExternal } from '../cli/commands/member.core.js';
 import { getConfig, setConfig, repairManagerGate, setReviewPolicy } from '../cli/commands/config.core.js';
@@ -1362,6 +1362,7 @@ export function makeHandlers(projectRoot) {
     async get_task(args = {}) {
       const teamctxDir = dir();
       await assertTaskInScope(teamctxDir, args.id);
+      await prepareTaskChanges({ id: args.id, teamctxDir });
       return textResult(getTask({ id: args.id, output: args.output, teamctxDir, reader: await reader(teamctxDir) }));
     },
 
