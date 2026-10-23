@@ -102,6 +102,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `workstream_split` and `teamctx workstream suggest` / `suggest_workstream_splits`.
 
 ### Added
+- **A task added or removed directly is logged (#207).** `task_add` and
+  `task_rm` write a change entry in the task's part, in the approval card's
+  words, so someone with work in progress there or below is told the plan
+  moved. Marking a task done, reopening or assigning it still writes nothing.
 - **Connected sources are real (#168).** When something an assistant read in a
   connected tool (Slack, Notion, Google Drive, SharePoint, Dropbox, Coda) reaches
   the project, a reference to it is kept in `.teamctx/sources/`: the tool, a

@@ -1,6 +1,6 @@
 # Proposal: log the direct changes that move what people work under
 
-**Status:** Proposed · **Issue:** [#207](https://github.com/StatsLateral/teamctx/issues/207)
+**Status:** Implemented · **Issue:** [#207](https://github.com/StatsLateral/teamctx/issues/207)
 · **Base:** `main` · **Builds on:** the accepted-work design (#204,
 `docs/superpowers/specs/2026-10-14-accepted-work-updates-context-design.md`)
 
@@ -74,5 +74,5 @@ the same commit.
 
 ## Plan
 
-- [ ] Entries for `addTask` and `removeTask`, with tests
-- [ ] CHANGELOG
+- [x] Entries for `addTask` and `removeTask`, with tests
+- [x] CHANGELOG
