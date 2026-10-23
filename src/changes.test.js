@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { changeEntry, changesReaching, lastActivity, changedSummary, labelFor, SHOWN } from './changes.js';
+import { changeEntry, isSignificant, changesReaching, lastActivity, changedSummary, labelFor, SHOWN } from './changes.js';
 import { writeChange, listChanges } from './storage.js';
 
 const before = { records: [{ id: 'r1', text: 'Old rule', type: 'rule' }], tasks: [{ id: 't1', title: 'Draft the post', key: '1.1' }] };
@@ -22,6 +22,7 @@ describe('changeEntry', () => {
       id: 'c1', at: '2026-10-14T10:00:00.000Z', tree: 'sales',
       summary: ['Add: We decided: Ship Friday', 'Retitle "Draft the post" to: Draft the post for Friday'],
       touched: { records: ['r2'], tasks: ['t1'] },
+      significant: false,
       by: { key: 'git:m@x', name: 'Maya' },
     });
   });
@@ -74,7 +75,7 @@ describe('changesReaching', () => {
   });
 
   it('finds nothing for a task with no last activity', () => {
-    expect(find({ since: null })).toEqual({ changes: [], more: 0 });
+    expect(find({ since: null })).toEqual({ changes: [], more: 0, others: 0 });
   });
 
   it('survives entries of the wrong shape, ignoring or normalising them', () => {
@@ -182,5 +183,39 @@ describe('the log on disk', () => {
 
   it('refuses an id that is not a plain one', () => {
     expect(() => writeChange(e('../x', '2026-10-01T10:00:00.000Z'), dir)).toThrow(/Invalid/);
+  });
+});
+
+describe('tiers for the pickup flag (#206)', () => {
+  const at = (n) => `2026-10-20T00:00:0${n}.000Z`;
+  const e = (id, n, extra = {}) => ({ id, at: at(n), tree: 'sales', summary: [id], touched: { records: [], tasks: [] }, ...extra });
+
+  it('marks a change significant when it sets the goal, touches a rule or exception, or breaks something', () => {
+    const tree = { records: [{ id: 'r1', type: 'rule' }, { id: 'd1', type: 'decision' }, { id: 'a1', type: 'assumption' }] };
+    expect(isSignificant([{ type: 'setGoal', text: 'g' }], tree, tree)).toBe(true);
+    expect(isSignificant([{ type: 'addRecord', record: { type: 'exception', text: 'x' } }], tree, tree)).toBe(true);
+    expect(isSignificant([{ type: 'editRecord', id: 'r1', changes: { text: 'y' } }], tree, tree)).toBe(true);
+    expect(isSignificant([{ type: 'setRecordStatus', id: 'a1', status: 'broken' }], tree, tree)).toBe(true);
+    expect(isSignificant([{ type: 'addRecord', record: { type: 'decision', text: 'x' } }, { type: 'addTask', title: 't' }], tree, tree)).toBe(false);
+    expect(isSignificant([{ type: 'editRecord', id: 'd1', changes: { text: 'y' } }], tree, tree)).toBe(false);
+  });
+
+  it('shows significant changes and ones that touched this task in full, and counts the rest', () => {
+    const entries = [
+      e('plain-1', 1, { significant: false }),
+      e('plain-2', 2, { significant: false }),
+      e('rule', 3, { significant: true }),
+      e('mine', 4, { significant: false, touched: { records: [], tasks: ['t1'] } }),
+      e('old-entry', 5),
+    ];
+    const r = changesReaching({ entries, trees: ['sales'], since: '2026-10-19T00:00:00.000Z', taskId: 't1' });
+    expect(r.changes.map(c => c.id)).toEqual(['old-entry', 'mine', 'rule']);
+    expect(r.others).toBe(2);
+    expect(changedSummary(r, () => 'Sales').others).toBe(2);
+  });
+
+  it('does not flag a task with only plain additions above it', () => {
+    const r = changesReaching({ entries: [e('plain', 1, { significant: false })], trees: ['sales'], since: '2026-10-19T00:00:00.000Z', taskId: 't1' });
+    expect(r).toEqual({ changes: [], more: 0, others: 1 });
   });
 });

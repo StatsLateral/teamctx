@@ -224,7 +224,7 @@ function changedSinceFor(task, saved, teamctxDir, read = {}) {
   // Only what is newer, in this chain: decided from the file names, so a long
   // log is not read to answer a short question (#206).
   const entries = listChanges({ after: since, trees }, teamctxDir);
-  const found = changesReaching({ entries, trees, since });
+  const found = changesReaching({ entries, trees, since, taskId: task.id });
   if (!found.changes.length) return null;
   return changedSummary(found, labelFor(config));
 }

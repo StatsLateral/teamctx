@@ -255,7 +255,7 @@ export async function readProjectView({ owner, repo, user }) {
             if (!since) return null;
             const ws = resolveTarget(t.workstream);
             const trees = [null, ...(ws ? [...ancestorsOf(config, ws), ws] : [])];
-            const found = changesReaching({ entries: allChanges, trees, since });
+            const found = changesReaching({ entries: allChanges, trees, since, taskId: t.id });
             return found.changes.length ? changedSummary(found, labelFor(config)) : null;
           })(),
         };
