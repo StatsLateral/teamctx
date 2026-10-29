@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-29
+
 ### Breaking
 - **Governed records replace the Why → What → How tree.** A project now holds a
   goal and the reasons it matters, nested workstreams (1, 1.2, …) with tasks, and
