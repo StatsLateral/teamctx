@@ -1,13 +1,13 @@
 import { chainFor } from '../../src/recompile.js';
 import { flaggedInProject } from '../../src/project-records.js';
 import { isActive, ancestorsOf } from '../../src/model.js';
-import { changesReaching, lastActivity, changedSummary, labelFor } from '../../src/changes.js';
+import { changeEntry, changesReaching, lastActivity, changedSummary, labelFor } from '../../src/changes.js';
 import { createHash } from 'crypto';
 import {
   readProject, readConfig, readTree, listTasks, readTask, writeTask, deleteTask,
   readWorkstream, readContributions,
   writeTaskFile, readTaskFile, taskFilePath, taskFileExists,
-  writeOutput, listOutputs, listChanges, prepareChanges, appendContribution, writeQueueItem, readApprovals, listQueue, listRejected,
+  writeOutput, listOutputs, listChanges, prepareChanges, writeChange, appendContribution, writeQueueItem, readApprovals, listQueue, listRejected,
 } from '../../src/storage.js';
 import { compileTaskPrompt } from '../../src/context.js';
 import { outputStates, latestRejection } from '../../src/outputs.js';
@@ -348,10 +348,35 @@ export async function addTask({
     compiledAt: null,
   };
   writeTask(task, teamctxDir);
+  const changeLogWarning = logDirectChange({
+    operation: { type: 'addTask', title: task.title }, tree: targetWorkstream, taskId: id,
+    by: { key: resolvedActor.key || null, name: me }, teamctxDir,
+  });
 
   const wsLabel = ` [workstream: ${targetWorkstream}]`;
   const git = await commitAndPush(config, `task: add ${id} by ${me}${wsLabel}`, projectDir);
-  return { task, ...git };
+  return { task, ...(changeLogWarning ? { changeLogWarning } : {}), ...git };
+}
+
+/**
+ * Log a task added or removed directly (#207). Every prompt in its part and
+ * below lists the part's tasks, so work in progress there has moved. Written as
+ * the operation a contribution would carry, so it reads as it would on an
+ * approval card. A failed write leaves the change in place and says so, as on
+ * the applied contribution path.
+ */
+function logDirectChange({ operation, tree, before, taskId, by, teamctxDir }) {
+  try {
+    const entry = changeEntry({
+      id: `d-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
+      at: new Date().toISOString(), tree, operations: [operation], before, after: null, by,
+    });
+    if (!entry.touched.tasks.includes(taskId)) entry.touched.tasks.push(taskId);
+    writeChange(entry, teamctxDir);
+    return null;
+  } catch (err) {
+    return `The task was changed but its change entry could not be written (${err.message}), so work that depends on it may not be flagged.`;
+  }
 }
 
 // Outputs are ordered by when they were saved, so two saved in the same
@@ -516,10 +541,17 @@ export async function removeTask({ id, teamctxDir, projectDir, actor } = {}) {
   // Resolve first so a bad id fails before anything is deleted.
   const { task } = findTask(id, teamctxDir);
   assertNotAccepted(task, teamctxDir);
+  // Read before it goes, so the entry can name the task by its title.
+  const before = readTree(task.workstream, teamctxDir);
   const { id: removedId, workstream } = deleteTask(id, teamctxDir);
-  const me = await whoAmI({ config, teamctxDir, projectDir, actor });
+  const resolved = actor || await resolveActor({ config, cwd: projectDir });
+  const me = await resolveDisplayName({ actor: resolved, config, teamctxDir });
+  const changeLogWarning = logDirectChange({
+    operation: { type: 'removeTask', id: removedId }, tree: workstream, before, taskId: removedId,
+    by: { key: resolved?.key || null, name: me }, teamctxDir,
+  });
   const git = await commitAndPush(config, `task: rm ${removedId} by ${me}`, projectDir);
-  return { id: removedId, title: task.title, workstream, ...git };
+  return { id: removedId, title: task.title, workstream, ...(changeLogWarning ? { changeLogWarning } : {}), ...git };
 }
 
 /**

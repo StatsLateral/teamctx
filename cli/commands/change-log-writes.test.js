@@ -88,7 +88,8 @@ describe('the change log', () => {
     const r = await as(manager, () => contributeCore({ text: 'x', teamctxDir: dir, workstreamId: 'sales', apply: true }));
     expect(r.mode).toBe('applied');
     expect(r.dropped).toHaveLength(1);
-    const [e] = listChanges({}, dir);
+    // The newest: adding the task wrote one first (#207).
+    const e = listChanges({}, dir).at(-1);
     const written = storage.readTree('sales', dir).records;
     expect(e.summary.join('\n')).toContain('Ship on Friday');
     expect(e.summary.join('\n')).not.toContain('New title for the gone task');

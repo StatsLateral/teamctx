@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **A task added or removed directly is logged (#207).** `task_add` and
+  `task_rm` write a change entry in the task's part, in the approval card's
+  words, so someone with work in progress there or below is told the plan
+  moved. Like other changes that are not significant (#206), it is counted
+  rather than listed in full. Marking a task done, reopening or assigning it
+  still writes nothing.
+
 ## [0.4.0] - 2026-10-29
 
 ### Breaking
