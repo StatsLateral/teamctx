@@ -46,12 +46,16 @@ describe('the tasks kept from a sample brief', () => {
     answer([
       { type: 'addRecord', record: { type: 'decision', text: 'Article 1 is about ticket pricing' } },
       task('Score and rank the content atoms you extracted'),
-      task('Drafting native posts for the top atoms'),
+      task('Drafting the native posts for the top atoms'),
       task('Write the launch post for article 1'),
       task('Ask Maya for the speaker quotes'),
     ]);
     const r = await distil('Brief for article 1: ticket pricing. Maya has the speaker quotes.');
     expect(titles(r)).toEqual(['Write the launch post for article 1', 'Ask Maya for the speaker quotes']);
+    expect(r.dropped.map(d => d.reason)).toEqual([
+      'left out the task "Score and rank the content atoms you extracted": it is addressed to an assistant',
+      'left out the task "Drafting the native posts for the top atoms": it does not start with what a person does',
+    ]);
     for (const t of titles(r)) expect(taskTitleProblem(t)).toBeNull();
     expect(r.operations[0].type).toBe('addRecord');
   });

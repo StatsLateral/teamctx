@@ -13,6 +13,16 @@ describe('a proposed task a person picks up', () => {
     ]) expect(taskTitleProblem(t), t).toBeNull();
   });
 
+  it('passes when it names a thing that ends in -ing, or is about an agent or a model', () => {
+    for (const t of [
+      'Pricing page copy',
+      'Marketing plan review',
+      'Onboarding checklist',
+      'Call the agent at Acme',
+      'Retrain the model on March data',
+    ]) expect(taskTitleProblem(t), t).toBeNull();
+  });
+
   it('fails when it is addressed to an assistant', () => {
     for (const t of [
       'Use your web search to find three venues',
@@ -23,7 +33,7 @@ describe('a proposed task a person picks up', () => {
   });
 
   it('fails when it does not start with what a person does', () => {
-    for (const t of ['The seven extracted content atoms', 'Drafting posts for the atoms', '3 posts for LinkedIn', 'We should post on Monday'])
+    for (const t of ['The seven extracted content atoms', 'Drafting the posts for the atoms', 'Reviewing each draft', '3 posts for LinkedIn', 'We should post on Monday'])
       expect(taskTitleProblem(t), t).toMatch(/what a person does/);
   });
 
