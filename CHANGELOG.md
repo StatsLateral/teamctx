@@ -102,6 +102,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `workstream_split` and `teamctx workstream suggest` / `suggest_workstream_splits`.
 
 ### Added
+- **How fresh the context is (#183).** `teamctx status`, `get_status`
+  (`lastApprovedAt`, `waiting`) and every role file as it is read say when the
+  context was last approved and how much is waiting for review: "Context last
+  approved 12 days ago; 3 items waiting for review." Worked out from the
+  approval files and the queue, never stored; a project approved before
+  approvals were recorded says "not recorded". A scoped member counts only their
+  own parts, and a role file only its own part and the project. A queue file
+  that cannot be read leaves the line out rather than breaking the command.
 - **`teamctx doctor` (#180).** Checks the setup before it fails somewhere else:
   a git repository with a teamctx project, the Node version, an AI key for the
   configured provider and whether the provider accepts it, the manager gate, and
