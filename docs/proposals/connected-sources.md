@@ -80,6 +80,20 @@ A reference is shown only for the parts of the work a reader can see:
 - With none, it says plainly that nothing is connected, and keeps the sample
   below, still labelled as sample.
 
+## Per tool
+
+- **Slack (#169).** The shipped importer (`src/connectors/slack.js`, #22) is
+  reused for auth, listing and fetching; Activepieces and Onyx were not needed.
+  - `fetch` returns the thread's permalink, built from the workspace address
+    that `auth.test` gives once per run.
+  - It also returns a `sourceTitle` ("#pricing thread, 2023-11-14"), because the
+    document's own title is the thread's first message, and a reference must
+    not quote it.
+  - The channel is named only when it is public; a private channel or DM reads
+    "Slack thread".
+  - A Slack reference names the part of the work it feeds; a task would come
+    from sources on `task_submit` (#197), which it does not take yet.
+
 ## Existing open source first
 
 - **Route 1** needs no library: the assistant already holds the tool's
