@@ -1,6 +1,6 @@
 import { GithubSession } from '../adapters/github.js';
 import { runWithSession } from '../session-context.js';
-import { readConfig, readProject, readWorkstream, listTasks, readContributions, readApprovals, listRejected, listQueue, listOutputs, listChanges, readSourceRefs } from '../storage.js';
+import { readConfig, readProject, readWorkstream, listTasks, readContributions, readApprovals, listRejected, listQueue, listOutputs, listChanges, prepareChanges, readSourceRefs } from '../storage.js';
 import { outputStates, outputsForReader } from '../outputs.js';
 import { visibleSources } from '../sources.js';
 import { taskHistory, touchesTask } from '../task-history.js';
@@ -219,8 +219,14 @@ export async function readProjectView({ owner, repo, user }) {
     });
 
     // The log is read once and indexed in memory: on hosted storage every read
-    // is a request, so reading it per task would be one per row.
-    const allChanges = listChanges({});
+    // is a request, so reading it per task would be one per row. Only what is
+    // newer than the oldest last activity on an open task can flag anything, so
+    // that is all that is fetched and read (#206).
+    const floors = allTasks.filter(t => t.status !== 'done' && inScope(allowed, resolveTarget(t.workstream)))
+      .map(t => lastActivity({ outputs: savedOn(t), task: t })).filter(Boolean);
+    const floor = floors.length ? floors.reduce((a, b) => (a < b ? a : b)) : null;
+    if (floor) await prepareChanges({ after: floor });
+    const allChanges = floor ? listChanges({ after: floor }) : [];
     const tasks = allTasks
       .filter(t => inScope(allowed, resolveTarget(t.workstream)))
       .map(t => {
@@ -249,8 +255,8 @@ export async function readProjectView({ owner, repo, user }) {
             if (!since) return null;
             const ws = resolveTarget(t.workstream);
             const trees = [null, ...(ws ? [...ancestorsOf(config, ws), ws] : [])];
-            const found = changesReaching({ entries: allChanges, trees, since });
-            return found.changes.length ? changedSummary(found, labelFor(config)) : null;
+            const found = changesReaching({ entries: allChanges, trees, since, taskId: t.id });
+            return found.changes.length || found.others ? changedSummary(found, labelFor(config)) : null;
           })(),
         };
       });

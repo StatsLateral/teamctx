@@ -1,5 +1,7 @@
 import { readFileSync } from 'fs';
 import { join } from 'path';
+import { contextFreshness, freshnessLine, withFreshness } from '../../src/freshness.js';
+import { readConfig } from '../../src/storage.js';
 
 export default function handler(req, res) {
   const { role } = req.query;
@@ -19,6 +21,14 @@ export default function handler(req, res) {
     res.status(404).send(`Role "${role}" not found.`);
     return;
   }
+
+  // How fresh it is, under the title (#183). Worked out as it is served; a
+  // project whose approvals cannot be read still gets its file.
+  try {
+    const dir = join(process.cwd(), '.teamctx');
+    const found = (readConfig(dir).roles || []).find(r => r.slug === role) || null;
+    content = withFreshness(content, freshnessLine(contextFreshness(dir, { role: found })));
+  } catch { /* serve the file as it is */ }
 
   res.setHeader('Content-Type', 'text/plain; charset=utf-8');
   res.setHeader('Content-Disposition', `attachment; filename="${role}.md"`);
