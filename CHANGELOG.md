@@ -102,6 +102,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `workstream_split` and `teamctx workstream suggest` / `suggest_workstream_splits`.
 
 ### Added
+- **The change log, impact card and pickup flag hold up on a busy project
+  (#206).** Change files name their part as well as their time
+  (`<time>.<part>.<id>.json`; older names still read), so a task reads only what
+  is newer in its own chain, decided from the names. The hosted server downloads
+  only the last 30 days of the log up front and fetches older entries when a
+  reader needs them. `list_pending_reviews` adds `overall`: everything waiting
+  summed up, the parts it reaches most, how many clash and how many tasks it
+  would flag. A task picked up again hears in full about changes to the goal, a
+  rule or an exception, about a record replaced, reworded, retired or broken,
+  and about anything that touched it; other changes above it, such as a new
+  decision, are only counted (`others`). The impact card names only the work a change would flag. A
+  compiled prompt still goes stale on any change in its chain.
 - **Connected sources are real (#168).** When something an assistant read in a
   connected tool (Slack, Notion, Google Drive, SharePoint, Dropbox, Coda) reaches
   the project, a reference to it is kept in `.teamctx/sources/`: the tool, a
