@@ -16,6 +16,7 @@ import { briefCommand } from './commands/brief.js';
 import { pullCommand } from './commands/pull.js';
 import { contextCommand } from './commands/context.js';
 import { statusCommand } from './commands/status.js';
+import { doctorCommand } from './commands/doctor.js';
 import { statsCommand } from './commands/stats.js';
 import { DEFAULT_WINDOW_DAYS } from '../src/metrics.js';
 import { configManagerCommand, configModelCommand, configGithubRawBaseCommand, configManagerEmailCommand, configDeployUrlCommand, configProviderCommand, configNameCommand, configReviewPolicyCommand } from './commands/config.js';
@@ -85,6 +86,9 @@ program.command('auth <connector>').description('Log in to an import connector a
   .action(authCommand);
 program.command('context <role>').description('Print role context MD to stdout').action(contextCommand);
 program.command('status').description('Show project summary').action(statusCommand);
+program.command('doctor').description('Check the setup and say how to fix each problem')
+  .option('--offline', 'Skip the checks that need the network')
+  .action(doctorCommand);
 program.command('stats').description('Team metrics from your own history — no AI call, nothing leaves the machine')
   .option('--since <date>', `Start of the window (default: last ${DEFAULT_WINDOW_DAYS} days)`)
   .option('--workstream <id>', 'Narrow every metric to one workstream')

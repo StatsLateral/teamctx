@@ -102,6 +102,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `workstream_split` and `teamctx workstream suggest` / `suggest_workstream_splits`.
 
 ### Added
+- **`teamctx doctor` (#180).** Checks the setup before it fails somewhere else:
+  a git repository with a teamctx project, the Node version, an AI key for the
+  configured provider and whether the provider accepts it, the manager gate, and
+  a remote when auto-push is on. One line per check, each failure with one action
+  to fix it; "all good" and exit 0 when clean, exit 1 otherwise. `--offline`
+  skips the key check with the provider. The key check is the one the Settings
+  page already ran, now shared from `src/providers/verify-key.js`.
 - **The change log, impact card and pickup flag hold up on a busy project
   (#206).** Change files name their part as well as their time
   (`<time>.<part>.<id>.json`; older names still read), so a task reads only what

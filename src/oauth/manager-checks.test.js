@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { __resetMemory, kvSet, keys } from './kv.js';
 import { addProjectKey } from './ai-keys.js';
-import { verifyProviderKey, keyCheckFor, lendCheckFor, stepOutCheckFor } from './manager-checks.js';
+import { keyCheckFor, lendCheckFor, stepOutCheckFor } from './manager-checks.js';
+import { verifyProviderKey } from '../providers/verify-key.js';
 
 const ok = () => vi.fn(async () => ({ ok: true, status: 200 }));
 const status = code => vi.fn(async () => ({ ok: false, status: code }));
@@ -44,6 +45,12 @@ describe('checking a key with the provider', () => {
 
   it('treats a server error as worth retrying, not as a bad key', async () => {
     expect(await verifyProviderKey({ provider: 'openai', apiKey: 'sk' }, status(503))).toMatchObject({ ok: false, transient: true });
+  });
+
+  it('gives up on a provider that does not answer, as worth retrying', async () => {
+    const hangs = vi.fn(() => new Promise(() => {}));
+    expect(await verifyProviderKey({ provider: 'anthropic', apiKey: 'sk' }, hangs, { timeoutMs: 20 }))
+      .toMatchObject({ ok: false, transient: true, why: expect.stringMatching(/Could not reach anthropic/) });
   });
 
   it('refuses an unknown provider rather than guessing', async () => {

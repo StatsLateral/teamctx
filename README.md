@@ -90,6 +90,9 @@ manager's opening message is the one that lands on its own.
 
 npx teamctx init
 
+# Check the setup: each problem with how to fix it
+teamctx doctor
+
 # Add context
 teamctx contribute "We are building a Q3 product launch targeting enterprise customers"
 
@@ -111,6 +114,7 @@ teamctx contribute "We decided to use AWS. We are assuming the migration fits in
 | Command | Description |
 |---|---|
 | `teamctx init` | Set up `.teamctx/` in the current git repo |
+| `teamctx doctor [--offline]` | Check the setup (git, project, Node, AI key, manager gate, remote) and say how to fix each problem; exits 1 if any failed. `--offline` skips the key check with the provider |
 | `teamctx contribute "<text>"` | Add context — AI proposes changes and enqueues for manager approval |
 | `teamctx contribute "<text>" --decision` | Tag as a human decision (never pruned) |
 | `teamctx contribute "<text>" --auto-approve` | Skip the y/n confirmation on the proposed diff |
