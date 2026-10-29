@@ -103,6 +103,14 @@ describe('work in progress that the context has moved under', () => {
     expect(changedSince.more).toBe(3);
   });
 
+  it('counts plain additions above the task even when nothing else changed (#206)', async () => {
+    await save(member, { body: 'v1' });
+    change('plain', later(1000), null, { significant: false });
+    const { changedSince } = getTask({ id: task.id, teamctxDir: dir });
+    expect(changedSince.changes).toEqual([]);
+    expect(changedSince.others).toBe(1);
+  });
+
   it('treats a change at the project level as reaching a task in any part', async () => {
     await save(member, { body: 'v1' });
     change('proj', later(1000), null);
@@ -119,6 +127,14 @@ describe('a compiled prompt', () => {
     const again = await as(manager, () => compileTask({ id: task.id, teamctxDir: dir }));
     expect(again.alreadyCompiled).toBe(false);
     expect(again.changedSince.changes).toHaveLength(1);
+  });
+
+  it('is stale after a plain addition too, since the prompt is built from all of it (#206)', async () => {
+    await as(manager, () => compileTask({ id: task.id, teamctxDir: dir }));
+    writeChange({ id: 'plain', at: new Date(Date.now() + 1000).toISOString(), tree: null, summary: ['Add: a decision'], touched: { records: [], tasks: [] }, significant: false, by: null }, dir);
+    const again = await as(manager, () => compileTask({ id: task.id, teamctxDir: dir }));
+    expect(again.alreadyCompiled).toBe(false);
+    expect(again.changedSince.others).toBe(1);
   });
 
   it('stays stale when an output is saved after the change, and settles once recompiled', async () => {
