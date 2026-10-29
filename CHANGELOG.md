@@ -23,6 +23,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   recorded under Coda by one link made of its ids (`coda.io/d/_d<doc>/_su<page>`),
   so a link copied from the browser, or one from before a rename, lands on the
   same entry. Never the page's text, and no Coda credential is held for the
+- **Google Drive files as connected sources (#171).** A Drive file or folder,
+  imported with `teamctx import --from gdrive` or cited by an assistant with
+  `contribute`, is recorded once under Google Drive whichever link it came by
+  (the editor's, "Share", a heading or sheet tab, another signed-in account, or
+  `open?id=`), as `https://drive.google.com/file/d/<id>/view` or
+  `…/drive/folders/<id>`. The `resourcekey` some older shared files need is
+  kept. Never the file's text, and no Drive credential is held for the
   assistant route.
 - **Dropbox files as connected sources (#173).** A Dropbox file, imported with
   `teamctx import --from dropbox` or cited by an assistant with `contribute`, is
