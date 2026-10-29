@@ -94,8 +94,8 @@ const SOURCES_INPUT = {
     type: 'object',
     properties: {
       connector: { type: 'string', description: 'The tool: slack, notion, gdrive, m365, dropbox, coda, or its name' },
-      title: { type: 'string', description: 'What the item is called: a channel thread, page, file or doc title. For a Slack thread, name its channel or topic (e.g. "#pricing thread"), never quote a message. For a Notion page, its title as Notion shows it' },
-      link: { type: 'string', description: "Its https link. For Slack, the thread's link (Copy link on any message in it). For Notion, the page's link (Copy link), not a block on it" },
+      title: { type: 'string', description: 'What the item is called: a channel thread, page, file or doc title. For a Slack thread, name its channel or topic (e.g. "#pricing thread"), never quote a message. For a Notion page, its title as Notion shows it. For a Coda page, the page name' },
+      link: { type: 'string', description: "Its https link. For Slack, the thread's link (Copy link on any message in it). For Notion, the page's link (Copy link), not a block on it. For Coda, the doc or page link from the browser (coda.io/d/…)" },
       summary: { type: 'string', description: 'One line on what it says' },
     },
     additionalProperties: false,
