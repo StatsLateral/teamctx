@@ -398,3 +398,30 @@ describe('rate limits and errors', () => {
     await notion.list(authed(), '');
   });
 });
+
+describe('one link per page', () => {
+  const canonical = `https://www.notion.so/${PAGE}`;
+
+  it('is the page id link however the page was copied', () => {
+    for (const copied of [
+      `https://www.notion.so/Launch-checklist-${PAGE}`,
+      `https://www.notion.so/Launch-plan-${PAGE}`,
+      `https://www.notion.so/acme/Launch-checklist-${PAGE}?pvs=4`,
+      `https://notion.so/Launch-checklist-${PAGE}#0f1e2d3c4b5a69788796a5b4c3d2e1f0`,
+      `https://www.notion.so/${DASHED}`,
+      `https://www.notion.so/${PAGE}/`,
+      `https://www.notion.so/acme/ffffffffffffffffffffffffffffffff?v=eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee&p=${PAGE}&pm=s`,
+    ]) expect(notion.pageLink(copied), copied).toBe(canonical);
+  });
+
+  it('leaves alone a published page and what is not a link to a Notion page', () => {
+    for (const other of [
+      `https://acme.notion.site/Launch-checklist-${PAGE}`,
+      `https://www.notion.so.evil.example/${PAGE}`,
+      `http://www.notion.so/${PAGE}?pvs=4`,
+      'https://www.notion.so/acme',
+      `https://docs.google.com/document/d/${PAGE}/edit`,
+      'not a link',
+    ]) expect(notion.pageLink(other), other).toBe(other);
+  });
+});
