@@ -92,12 +92,26 @@ describe('recording references', () => {
   });
 
   it("reads a link by its own tool's rule only", () => {
+    const reply = 'https://acme.slack.com/archives/C1/p1700000555000200?thread_ts=1700000000.000100&cid=C1';
+    expect(cleanRef({ connector: 'slack', link: reply }).link).toBe(thread.link);
+    expect(cleanRef({ connector: 'other', link: reply }).link).toBe(reply);
     const copied = 'https://www.notion.so/acme/Launch-checklist-1a2b3c4d5e6f47788899aabbccddeeff?pvs=4';
     expect(cleanRef({ connector: 'notion', link: copied }).link).toBe('https://www.notion.so/1a2b3c4d5e6f47788899aabbccddeeff');
     expect(cleanRef({ connector: 'other', link: copied }).link).toBe(copied);
     const address = 'https://contoso.sharepoint.com/sites/Team/Shared%20Documents/Notes.docx?web=1';
     expect(cleanRef({ connector: 'sharepoint', link: address }).link).toBe('https://contoso.sharepoint.com/sites/Team/Shared%20Documents/Notes.docx');
     expect(cleanRef({ connector: 'other', link: address }).link).toBe(address);
+  });
+
+  it('records a Slack thread once, whether it came as the thread or a reply in it', () => {
+    const first = recordSources([thread], { by: maya, feed: { workstream: 'sales', contribution: 'c1' }, dir });
+    const again = recordSources([{ ...thread, link: 'https://acme.slack.com/archives/C1/p1700000555000200?thread_ts=1700000000.000100&cid=C1' }],
+      { by: maya, feed: { workstream: 'sales', contribution: 'c2' }, dir });
+    expect(again).toEqual(first);
+    const refs = Object.values(readSourceRefs(dir));
+    expect(refs).toHaveLength(1);
+    expect(refs[0].link).toBe(thread.link);
+    expect(refs[0].feeds.map(f => f.contribution)).toEqual(['c1', 'c2']);
   });
 
   it('records a Notion page once, renamed or copied, showing what was said of it last', () => {
