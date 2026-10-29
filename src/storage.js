@@ -136,7 +136,9 @@ export function withCounters(dir, write) {
     // committed and pushed by the next command that commits at all. Everyone who
     // pulls is then locked out of every key-allocating path until the deletion
     // is committed too.
-    ensureGitignored(dir);
+    // The command line passes no folder; every other read here falls back to
+    // the project found from the working directory, and so must this one.
+    ensureGitignored(dir || getTeamctxDir());
     try { fd = openSync(lock, 'wx'); }
     catch (error) {
       if (error.code !== 'EEXIST') throw error;

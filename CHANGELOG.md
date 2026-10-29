@@ -211,6 +211,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   link and the member gate agree.
 
 ### Fixed
+- **Command-line writes work again.** `teamctx task add`, `task rm`, `review approve` and
+  every other command that numbers something failed with `The "path" argument must be of
+  type string`: keeping the counters lock out of git looked for the project in a folder the
+  command line never passes. It now uses the project found from the working directory, as
+  every other read does.
 - **A contribution with two changes flagged against one decision can be approved.** A new
   decision that replaces an old one, sent with a new rule about the same thing, had both
   flagged against the old decision. Naming it in `--replaces` failed because a rule cannot
