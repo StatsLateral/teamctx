@@ -115,7 +115,9 @@ export async function updateShared(tree, contribution, config, { intent, avoid, 
   // way the tree does — see `mintKey`.
   const conflicts = contradictions.filter(c => keptOps.includes(operations[c.operationIndex]))
     .map(c => ({ ...c, operationIndex: keptOps.indexOf(operations[c.operationIndex]) }));
-  return { workstream: updated, summary, operations: kept, dropped, nextKey, contradictions: conflicts };
+  // Tasks the distiller proposed and the wording check left out come first, so
+  // the person is told about them too (#175).
+  return { workstream: updated, summary, operations: kept, dropped: [...(proposal.dropped || []), ...dropped], nextKey, contradictions: conflicts };
 }
 
 export async function generateRoleFile(workstream, role, projectName, config, contributions = [], { project = null, chain = null } = {}) {

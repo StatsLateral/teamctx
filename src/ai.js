@@ -249,5 +249,6 @@ export async function proposeDiff({
     summary: String(parsed.summary ?? '(no summary)'),
     operations,
     ...(contradictions.length ? { contradictions } : {}),
+    ...(fresh?.dropped.length ? { dropped: fresh.dropped } : {}),
   };
 }
