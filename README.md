@@ -1,49 +1,75 @@
 # teamctx
 
-AI-native version control for team context. Every team member gets a continuously updated, role-specific context file for Claude, ChatGPT, or Gemini.
+**Your team uses AI. You still have to make the work fit together.**
 
-**No server. No seats. Bring your own API key.**
+You delegate a task. The draft comes back polished, but it:
+
+- Sounds generic instead of speaking to your target customer.
+- Revives an option you already rejected.
+- Ignores a constraint you explained last week.
+
+Now you’re repeating the background, correcting the assumptions and doing another review.
+
+teamctx gives your team’s AI tools a shared, manager-approved understanding of the work: what you’re trying to achieve, what you’ve decided, which rules apply and what you’re still assuming.
+
+**Make corrections reusable. Make approved decisions part of the daily context your team works from.**
+
+Open source · Git-backed · Manager-approved · CLI + MCP · Bring your own API key
+
+*AI-native version control for team context.*
+
 **New:** run it entirely from your AI client via [MCP](#use-teamctx-from-your-ai-tool-mcp) — no terminal needed.
 
-## The problem
+## When teamctx helps
 
-**Your team syncs weekly. Their AIs diverge hourly.**
+- **You delegate work, then have to rebuild the context.** Give the next person—and their AI—the approved background relevant to their role.
+- **The team agrees on a change, but old thinking keeps returning.** Update the shared decisions and constraints that collaborators retrieve.
+- **AI-generated drafts look convincing but miss what matters.** Make the project’s goals, rationale and rules explicit before the next draft.
+- **A teammate takes over your work.** Keep the project’s approved context available beyond your private AI conversations, so it doesn’t leave with the person who built it up.
 
-AI is brilliant at iterating with one person — and incapable of iterating
-across people. Each teammate's AI refines work in a private loop; every
-decision and correction stays trapped in that person's thread. Teams don't
-diverge because people disagree; they diverge because their AIs never met.
-The manager inherits the gap as rework.
+## Where teamctx fits with your existing tools
 
-The same failure shows up at handoff. What made one person's AI accurate —
-the corrections, the taste, the decisions — lives in their private thread,
-so when they roll off, it rolls off with them. The next person starts from
-zero, on the same tool, on the same plan.
+You already have places to discuss work, write documents and track tasks. teamctx helps turn the decisions from that work into approved context your team’s AI tools can use.
 
-## Vision
+| What you already use | What you use it for | Where teamctx helps |
+|---|---|---|
+| **Slack / Microsoft Teams** | Discuss options, share updates and coordinate | Capture the approved outcome so teammates don’t have to reconstruct it from a conversation. |
+| **Notion / Google Docs / Confluence** | Develop plans, document knowledge and collaborate | Make the decisions, rules and assumptions relevant to a role explicit and available as an AI-ready brief. |
+| **Jira / Asana / Monday.com** | Assign work and track delivery | Give the person doing the task—and their AI—the rationale and constraints behind it. |
+| **Shared AI projects** | Work together using shared files, instructions and conversations inside an AI platform | Maintain a Git-backed record of approved project context that collaborators can use across supported AI tools. |
+| **A manually maintained project brief** | Give collaborators a common starting point | Add proposed changes, manager review, version history and role-specific context as the work evolves. |
 
-Engineering teams already have the fix — accidentally. Their AI works because
-the repo is shared ground truth: every agent reads the same code, the same
-CLAUDE.md. **teamctx is that same machinery for the context that isn't code**
-— the team's goal and why it matters, the decisions it has made, the rules it
-works by and the exceptions it allows, what it is assuming, what is still open,
-and who is doing what — which otherwise lives scattered across docs, chats, and
-people's heads.
+These tools have overlapping capabilities. teamctx brings a specific workflow: propose changes, review them and deliver approved context to collaborators using different AI tools.
 
-teamctx treats that shared context like source code: version-controlled,
-manager-approved, and compiled into a role-specific file each person hands to
-Claude, ChatGPT, or Gemini — and designed so a team can *see* it working
-(contribution cadence, approval flow, context freshness — measured locally,
-never phoned home). No server, no seats, bring your own key.
+Keep using the tools where your team already works. Bring relevant updates into teamctx through plain-language contributions, or import them from Slack, Notion, Google Drive, SharePoint and OneDrive, Dropbox and Coda. Other tools work through contributions: say what changed, and teamctx proposes the update.
 
-## Who is this for
+## What this means for you as the team lead
 
-Small teams (2–10) doing deliverable-based knowledge work — GTM, product
-strategy, marketing, ops — where each person already uses their own AI tool
-and a manager owns output quality. If you're an engineering team, your repo
-already does this; teamctx is for the teams whose work has no repo.
+### Delegate with the reasoning attached
 
----
+Share the goal, relevant decisions and constraints alongside the task, so the next person has more than an assignment to work from.
+
+### Make corrections reusable
+
+When you clarify the target customer or reject an approach, make that clarification part of shared context for subsequent work.
+
+### Keep changes deliberate
+
+A suggestion from a teammate or AI can be reviewed before it becomes an approved decision, rule or exception.
+
+### Bring people into the work without rebuilding every brief
+
+Give a new teammate or contractor the approved context relevant to their role. Support handoffs and continued collaboration as responsibilities change.
+
+### Let collaborators use their preferred AI tools
+
+Use MCP where supported, or take generated briefs into other assistants. The shared project context stays in your Git repository.
+
+## You decide what becomes shared context
+
+People and AI tools contribute updates in plain language, and teamctx proposes the changes for review.
+
+Approved context is organized by project, workstream and role, so collaborators can retrieve the parts relevant to their work. Git preserves the history, and approved snapshots provide explicit checkpoints.
 
 ## The model
 
@@ -73,13 +99,50 @@ agent — gets the same approved records for its part of the work, with each
 exception printed under its rule. New projects review every contribution; the
 manager's opening message is the one that lands on its own.
 
+
 ## How it works
 
-1. Manager runs `teamctx init` in any git repo
-2. Anyone contributes: `teamctx contribute "..."` — or the web form, or their own AI tool via MCP. AI turns it into proposed records and tasks and enqueues them
-3. **The manager reviews and approves** (`teamctx review`) — only approved contributions enter the shared context
-4. Every role's context file regenerates and auto-pushes to GitHub — accessible at a stable URL
-5. Team members (and their AI tools) pull their role file from `/context/<role>`; non-technical teammates use `/contribute` to submit updates
+1. **Define or refine the project.** Capture your existing goals, workstreams and roles with AI assistance.
+2. **Contribute what changed.** Submit an update through the CLI or a supported MCP-connected AI tool.
+3. **Review the proposed changes.** Approve or reject them before they enter shared team context.
+4. **Continue the work.** Retrieve approved context through MCP or use generated role-specific briefs and task prompts.
+
+Project state and history live in your Git repository, under your repository’s access controls. Optional web hosting has separate access settings.
+
+### Example: a launch decision changes
+
+Your team decides to sell to agencies instead of individual freelancers.
+
+The product brief, campaign draft and sales narrative all need that decision. Updating one AI conversation leaves the other collaborators to catch up separately.
+
+With teamctx, you contribute the change, review the proposed update and approve it. Collaborators can then retrieve the revised context before continuing their work.
+
+An existing AI conversation still needs to fetch or receive that update. teamctx makes the approved change available; it does not silently rewrite every conversation.
+
+## Built for small teams doing knowledge work
+
+For product, GTM, marketing and operations teams where people already use AI—and a lead or manager is responsible for the combined result.
+
+teamctx is particularly useful when you:
+
+- Delegate work across people using different AI tools.
+- Bring in contractors alongside your internal teammates.
+- Hand work over when someone changes role or leaves.
+- Need shared decisions and constraints to remain available as people join, leave or change responsibilities.
+
+## Work through your existing AI tools
+
+MCP-compatible clients can read context and submit contributions directly through teamctx. Generated Markdown or plain-text briefs can be used in other AI assistants.
+
+teamctx’s own AI processing supports Anthropic, OpenAI and Gemini using your API key. Connection methods vary by client; see the integration guides for supported configurations.
+
+The CLI and local MCP server run on your machine. Optional web deployment provides additional ways for teammates to access and contribute context.
+
+## What teamctx does—and what it doesn’t
+
+teamctx manages the shared team context you provide to AI tools. It makes approved decisions, constraints and assumptions available for the work.
+
+It does not guarantee correct outputs, force an assistant to follow every instruction or automatically keep every open conversation current. Your team still exercises judgment and reviews the resulting work.
 
 ---
 
@@ -444,6 +507,12 @@ MIT
 
 ## Project
 
+- [Installation and quickstart](#quickstart)
+- [MCP manager guide](docs/mcp-manager-guide.md)
+- [MCP technical reference](docs/mcp.md)
+- [AI provider configuration](docs/providers.md)
+- [Workstreams](docs/workstreams.md)
+- [Tasks](docs/tasks.md)
 - [Roadmap](ROADMAP.md) — where teamctx is going
 - [Contributing](CONTRIBUTING.md) — how to propose changes (DCO sign-off required)
 - [Changelog](CHANGELOG.md) — what changed, per release
