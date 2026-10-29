@@ -210,3 +210,11 @@ describe('what an assistant passes for a Google Drive file', () => {
     expect(items.properties.link.description).toMatch(/Google Drive, the file's or folder's link/);
   });
 });
+
+describe('what an assistant passes for a Coda page', () => {
+  it('is the doc or page link from the browser and the page name', () => {
+    const { items } = TOOLS.find(t => t.name === 'contribute').inputSchema.properties.sources;
+    expect(items.properties.title.description).toMatch(/Coda page, the page name/);
+    expect(items.properties.link.description).toMatch(/Coda, the doc or page link from the browser/);
+  });
+});

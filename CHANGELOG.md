@@ -18,6 +18,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   credential held by teamctx. A thread is recorded once whichever link it came by (the importer's, Slack's "Copy link",
   or a link to a reply), and the assistant is asked for a title that names the
   channel or topic, not a message.
+- **Coda pages as connected sources (#174).** A Coda doc or page, imported with
+  `teamctx import --from coda` or cited by an assistant with `contribute`, is
+  recorded under Coda by one link made of its ids (`coda.io/d/_d<doc>/_su<page>`),
+  so a link copied from the browser, or one from before a rename, lands on the
+  same entry. Never the page's text, and no Coda credential is held for the
 - **Google Drive files as connected sources (#171).** A Drive file or folder,
   imported with `teamctx import --from gdrive` or cited by an assistant with
   `contribute`, is recorded once under Google Drive whichever link it came by
