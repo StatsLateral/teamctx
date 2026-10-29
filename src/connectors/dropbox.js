@@ -413,8 +413,11 @@ export function fileLink(link) {
   if (url.protocol !== 'https:' || !/^(www\.)?dropbox\.com$/i.test(url.hostname) || !/^\/home(\/|$)/.test(url.pathname)) return link;
   let parts;
   try { parts = url.pathname.replace(/\/+$/, '').split('/').slice(2).map(decodeURIComponent); } catch { return link; }
+  // Each folder is encoded on its own, never joined and split again, so a `%2F`
+  // inside one name stays inside it.
+  const folder = parts.length ? `/${parts.map(encodeURIComponent).join('/')}` : '';
   const preview = url.searchParams.get('preview');
-  return preview ? addressFor(`/${[...parts, preview].join('/')}`) : `https://www.dropbox.com/home${parts.length ? `/${parts.map(encodeURIComponent).join('/')}` : ''}`;
+  return `https://www.dropbox.com/home${folder}${preview ? `?preview=${encodeURIComponent(preview)}` : ''}`;
 }
 
 const itemFor = (entry, kind, link) => ({
