@@ -32,7 +32,11 @@ async function collect({ from, selector, cwd, since, env = process.env }) {
     // The item's link, for its reference (#168): from what was fetched, or from
     // what the listing said, which is where Drive and Coda keep it.
     const url = [raw?.url, item?.ref?.url, item?.url].find(u => typeof u === 'string' && u);
-    if (document) documents.push(url ? { ...document, url } : document);
+    // And a title for that reference when the connector has a better one than
+    // the document's: a Slack thread's document is titled by its first message,
+    // which a reference must not quote.
+    const sourceTitle = typeof raw?.sourceTitle === 'string' && raw.sourceTitle ? raw.sourceTitle : null;
+    if (document) documents.push({ ...document, ...(url ? { url } : {}), ...(sourceTitle ? { sourceTitle } : {}) });
     else skipped.push(skip);
   }
   return { documents, skipped };
@@ -106,7 +110,7 @@ export async function importDocuments({
         // What it was drawn from, for the Connected sources drawer (#168). A
         // local file is not a connected tool, so only a connector's documents
         // leave one; the summary is the contribution's own.
-        ...(from !== 'folder' ? { sources: [{ connector: from, title: doc.title, link: doc.url, itemId: doc.id }], sourcesVia: 'import' } : {}),
+        ...(from !== 'folder' ? { sources: [{ connector: from, title: doc.sourceTitle || doc.title, link: doc.url, itemId: doc.id }], sourcesVia: 'import' } : {}),
         teamctxDir,
         projectDir,
       });

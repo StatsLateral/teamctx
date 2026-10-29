@@ -36,7 +36,9 @@ export function auth(env = process.env) {
       ok: false,
       help: 'set SLACK_TOKEN in .env.local. Create a Slack app at api.slack.com/apps '
         + 'in your own workspace, add the user-token scopes channels:history (and '
-        + 'groups:history for private channels), install it, and copy the User OAuth Token.',
+        + 'groups:history for private channels) and channels:read (optional: without it a '
+        + 'reference says "Slack thread" instead of the channel name), install it, and copy '
+        + 'the User OAuth Token.',
     };
   }
   return { ok: true, token, users: new Map() };
@@ -238,9 +240,87 @@ export async function fetch(a, ref) {
   for await (const page of paged(a.token, 'conversations.replies', { channel: ref.channel, ts: ref.ts, limit: 200 })) {
     messages.push(...(page.messages || []));
   }
+  const base = await workspaceUrl(a);
+  const channel = await channelName(a, ref.channel);
   return {
     id: `slack:${ref.channel}/${permalinkTs(ref.ts)}`,
     title: titleFrom(messages[0]?.text, users),
     text: renderThread(messages, users),
+    // For its Connected sources reference (#169): where the thread lives, and a
+    // title that says which thread without quoting anybody's message, since a
+    // reference never carries the contents.
+    ...(base ? { url: permalinkFor(base, ref.channel, ref.ts) } : {}),
+    sourceTitle: [`${channel ? `#${channel}` : 'Slack'} thread`, threadDay(ref.ts)].filter(Boolean).join(', '),
   };
+}
+
+/** The day a thread started, or nothing for a ts that is not a Slack timestamp: an import never fails over a title. */
+function threadDay(ts) {
+  const at = new Date(Number(String(ts).split('.')[0]) * 1000);
+  return /^\d{1,12}(\.\d+)?$/.test(String(ts)) && !Number.isNaN(at.getTime()) ? at.toISOString().slice(0, 10) : null;
+}
+
+/**
+ * A channel's name, asked once per channel per run, for a public channel only.
+ * The reference is kept in the team's repository, where everyone on the project
+ * reads it, so a private channel's name (an HR channel, say) would tell people
+ * outside it that it exists. `channels:read` may not be granted, and a private
+ * channel may not answer: in all of these there is no name, and the reference
+ * says "Slack thread" instead.
+ */
+async function channelName(a, channel) {
+  a.channels ??= new Map();
+  if (a.channels.has(channel)) return a.channels.get(channel);
+  let name = null;
+  try {
+    const r = await call(a.token, 'conversations.info', { channel });
+    const shown = r.channel && r.channel.is_private === false && !r.channel.is_im && !r.channel.is_mpim;
+    name = shown && typeof r.channel.name === 'string' && /^[\w.-]{1,80}$/.test(r.channel.name) ? r.channel.name : null;
+  } catch { /* no name; said without one */ }
+  a.channels.set(channel, name);
+  return name;
+}
+
+// ---- links -------------------------------------------------------------
+
+/** A workspace's own address, as Slack gives it: one or more labels on slack.com. */
+const WORKSPACE_URL = /^https:\/\/[a-z0-9-]+(?:\.[a-z0-9-]+)*\.slack\.com\/?$/i;
+
+/**
+ * The workspace's address, asked of Slack once per run (`auth.test` returns it)
+ * and kept on the auth object. A thread's link is built from it the way Slack
+ * builds its own permalinks. Anything that is not a slack.com address, or a
+ * call that fails, means no link: the reference is still kept, by the thread's
+ * id, and an import never fails over a link.
+ */
+async function workspaceUrl(a) {
+  if (a.teamUrl !== undefined) return a.teamUrl;
+  try {
+    const r = await call(a.token, 'auth.test', {});
+    a.teamUrl = typeof r.url === 'string' && WORKSPACE_URL.test(r.url) ? r.url.replace(/\/?$/, '/') : null;
+  } catch {
+    a.teamUrl = null;
+  }
+  return a.teamUrl;
+}
+
+/** Slack's permalink for a message: the workspace, the channel, and p + its ts without the dot. */
+export const permalinkFor = (workspace, channel, ts) => `${workspace.replace(/\/?$/, '/')}archives/${channel}/${permalinkTs(ts)}`;
+
+/**
+ * The one link for a thread, however it was copied (#169). The importer builds
+ * `…/archives/C1/p<ts>`; Slack's "Copy link" on the parent adds
+ * `?thread_ts=…&cid=C1`, and on a reply points at the reply with the parent's
+ * ts in `thread_ts`. All three are the same thread, so all three become the
+ * parent's permalink and are recorded once. Anything that is not a link to a
+ * Slack message comes back as it was.
+ */
+export function threadPermalink(link) {
+  let url;
+  try { url = new URL(link); } catch { return link; }
+  const path = /^\/archives\/([A-Z0-9]+)\/(p\d{7,})\/?$/i.exec(url.pathname);
+  if (url.protocol !== 'https:' || !/(^|\.)slack\.com$/i.test(url.hostname) || !path) return link;
+  const parent = url.searchParams.get('thread_ts');
+  const ts = parent && /^\d{1,12}\.\d{1,8}$/.test(parent) ? permalinkTs(parent) : path[2];
+  return `https://${url.hostname}/archives/${path[1]}/${ts}`;
 }
