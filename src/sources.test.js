@@ -98,6 +98,8 @@ describe('recording references', () => {
     const copied = 'https://www.notion.so/acme/Launch-checklist-1a2b3c4d5e6f47788899aabbccddeeff?pvs=4';
     expect(cleanRef({ connector: 'notion', link: copied }).link).toBe('https://www.notion.so/1a2b3c4d5e6f47788899aabbccddeeff');
     expect(cleanRef({ connector: 'other', link: copied }).link).toBe(copied);
+    const library = 'https://contoso.sharepoint.com/sites/Team/Shared%20Documents/Notes.docx?web=1';
+    expect(cleanRef({ connector: 'sharepoint', link: library }).link).toBe('https://contoso.sharepoint.com/sites/Team/Shared%20Documents/Notes.docx');
     const address = 'https://www.dropbox.com/home/Specs?preview=Plan.docx&di=left_nav';
     expect(cleanRef({ connector: 'dropbox', link: address }).link).toBe('https://www.dropbox.com/home/Specs?preview=Plan.docx');
     expect(cleanRef({ connector: 'other', link: address }).link).toBe(address);
@@ -128,6 +130,18 @@ describe('recording references', () => {
     expect(refs[0]).toMatchObject({ title: 'Launch plan', link: `https://www.notion.so/${page}` });
     const [shown] = visibleSources(readSourceRefs(dir), { canSee: () => true, counts: () => true });
     expect(shown.summary).toBe('Now four steps');
+  });
+
+  it('never keeps a sharing link, under any tool, and keeps the item by its title', () => {
+    const share = 'https://contoso.sharepoint.com/:w:/s/Team/EaBcDeFgHiJkLmNoPqRsTuVwXyZ?e=Xy12Ab';
+    for (const connector of ['OneDrive', 'other', 'gdrive']) {
+      const r = cleanRef({ connector, title: 'Release notes', link: share });
+      expect(r.link, connector).toBeNull();
+      expect(r.title).toBe('Release notes');
+    }
+    expect(cleanRef({ connector: 'm365', link: share })).toBeNull();
+    recordSources([{ connector: 'SharePoint', title: 'Release notes', link: share }], { by: maya, feed: { workstream: null, contribution: 'c1' }, dir });
+    expect(files()).not.toContain('EaBcDeFgHiJkLmNoPqRsTuVwXyZ');
   });
 
   it('never keeps a Dropbox shared link, under any tool, and keeps the item by its title', () => {
