@@ -141,8 +141,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   now records each thread under Slack with its permalink (built from the
   workspace address Slack gives once per run) and a title naming the channel and
   day, never a message. A private channel or DM is not named, since everyone on
-  the project reads the reference. A thread an assistant passes with `contribute` is
-  recorded the same way, with no Slack credential held by teamctx. A thread is
+  the project reads the reference. Naming a channel needs the optional
+  `channels:read` scope; without it the title says "Slack thread". A thread an
+  assistant passes with `contribute` is recorded the same way, with no Slack credential held by teamctx. A thread is
   recorded once whichever link it came by (the importer's, Slack's "Copy link",
   or a link to a reply), and the assistant is asked for a title that names the
   channel or topic, not a message.

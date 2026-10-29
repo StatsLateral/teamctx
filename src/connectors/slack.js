@@ -36,7 +36,9 @@ export function auth(env = process.env) {
       ok: false,
       help: 'set SLACK_TOKEN in .env.local. Create a Slack app at api.slack.com/apps '
         + 'in your own workspace, add the user-token scopes channels:history (and '
-        + 'groups:history for private channels), install it, and copy the User OAuth Token.',
+        + 'groups:history for private channels) and channels:read (optional: without it a '
+        + 'reference says "Slack thread" instead of the channel name), install it, and copy '
+        + 'the User OAuth Token.',
     };
   }
   return { ok: true, token, users: new Map() };
