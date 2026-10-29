@@ -23,6 +23,13 @@
 
 const API = 'https://api.github.com';
 const CONTEXT_ROOT = '.teamctx';
+const CHANGES_DIR = `${CONTEXT_ROOT}/changes/`;
+/**
+ * Change-log files newer than this are downloaded up front; older ones only
+ * when a reader asks for them (#206). Every other file is always downloaded.
+ */
+const RECENT_CHANGE_DAYS = 30;
+const changeStamp = (ms) => new Date(ms).toISOString().replace(/[:.]/g, '');
 
 export function isGithubCtx(dir) {
   return typeof dir === 'object' && dir !== null && dir.__backend === 'github';
@@ -207,6 +214,12 @@ export class GithubSession {
     this.files = new Map();
     /** Staged writes/deletes keyed by path. `null` value = delete. */
     this.changes = new Map();
+    /**
+     * Older change-log files, listed but not downloaded: path → blob sha.
+     * Fetched by `loadPaths` when a reader wants them. Kept in the tree by
+     * `base_tree` on commit, like every file this request did not touch.
+     */
+    this.unloaded = new Map();
     this.baseCommitSha = null;      // parent for the flush commit
     this.baseTreeSha = null;
     this.prefetched = false;
@@ -268,19 +281,36 @@ export class GithubSession {
       e => e.type === 'blob' && e.path.startsWith(`${CONTEXT_ROOT}/`),
     );
 
-    // 3. Fetch each blob's content in parallel.
-    await Promise.all(entries.map(async e => {
-      const blobRes = await this.#ghFetch(
-        `${API}/repos/${this.owner}/${this.repo}/git/blobs/${e.sha}`,
-      );
-      const blob = await blobRes.json();
-      const content = blob.encoding === 'base64'
-        ? Buffer.from(blob.content, 'base64').toString('utf8')
-        : String(blob.content || '');
-      this.files.set(e.path, { content, sha: e.sha });
-    }));
+    // 3. Fetch each blob's content in parallel, except older change-log files:
+    // one call per file, and a busy project's log grows by thousands a year,
+    // so downloading it all on every request does not last. The time leads the
+    // file name, so this is decided from the listing alone.
+    const cutoff = changeStamp(Date.now() - RECENT_CHANGE_DAYS * 24 * 60 * 60 * 1000);
+    const old = (e) => e.path.startsWith(CHANGES_DIR) && e.path.slice(CHANGES_DIR.length, CHANGES_DIR.length + cutoff.length) < cutoff;
+    for (const e of entries) if (old(e)) this.unloaded.set(e.path, e.sha);
+    await Promise.all(entries.filter(e => !old(e)).map(e => this.#fetchBlob(e.path, e.sha)));
 
     this.prefetched = true;
+  }
+
+  async #fetchBlob(path, sha) {
+    const blobRes = await this.#ghFetch(
+      `${API}/repos/${this.owner}/${this.repo}/git/blobs/${sha}`,
+    );
+    const blob = await blobRes.json();
+    const content = blob.encoding === 'base64'
+      ? Buffer.from(blob.content, 'base64').toString('utf8')
+      : String(blob.content || '');
+    this.files.set(path, { content, sha });
+  }
+
+  /** Download listed files that were left out up front (see `prefetch`). */
+  async loadPaths(paths) {
+    const wanted = [...new Set(paths)].filter(p => this.unloaded.has(p));
+    await Promise.all(wanted.map(async (p) => {
+      await this.#fetchBlob(p, this.unloaded.get(p));
+      this.unloaded.delete(p);
+    }));
   }
 
   // ---- Synchronous read/write against the in-memory buffer ----
@@ -314,6 +344,12 @@ export class GithubSession {
       const rest = p.slice(prefix.length);
       if (rest.includes('/')) continue;         // subdir, not direct child
       if (!this.changes.has(p) || this.changes.get(p) !== null) names.add(rest);
+    }
+    // Listed, not yet downloaded: still there, so still named.
+    for (const p of this.unloaded.keys()) {
+      if (!p.startsWith(prefix)) continue;
+      const rest = p.slice(prefix.length);
+      if (!rest.includes('/') && this.changes.get(p) !== null) names.add(rest);
     }
     for (const [p, v] of this.changes) {
       if (!p.startsWith(prefix)) continue;

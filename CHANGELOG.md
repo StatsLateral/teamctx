@@ -102,6 +102,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `workstream_split` and `teamctx workstream suggest` / `suggest_workstream_splits`.
 
 ### Added
+- **The change log, impact card and pickup flag hold up on a busy project
+  (#206).** Change files name their part as well as their time
+  (`<time>.<part>.<id>.json`; older names still read), so a task reads only what
+  is newer in its own chain, decided from the names. The hosted server downloads
+  only the last 30 days of the log up front and fetches older entries when a
+  reader needs them. `list_pending_reviews` adds `overall`: everything waiting
+  summed up, the parts it reaches most, how many clash and how many tasks it
+  would flag. A task picked up again hears in full about changes to the goal, a
+  rule or an exception, about a record replaced, reworded, retired or broken,
+  and about anything that touched it; other changes above it, such as a new
+  decision, are only counted (`others`). The impact card names only the work a change would flag. A
+  compiled prompt still goes stale on any change in its chain.
 - **Connected sources are real (#168).** When something an assistant read in a
   connected tool (Slack, Notion, Google Drive, SharePoint, Dropbox, Coda) reaches
   the project, a reference to it is kept in `.teamctx/sources/`: the tool, a
@@ -203,6 +215,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   deleted the task's prompt file, which was never written, and GitHub refused the
   whole commit (422). A path the repository does not have is no longer sent as a
   deletion.
+- **Command-line writes work again.** `teamctx task add`, `task rm`, `review approve` and
+  every other command that numbers something failed with `The "path" argument must be of
+  type string`: keeping the counters lock out of git looked for the project in a folder the
+  command line never passes. It now uses the project found from the working directory, as
+  every other read does.
 - **A contribution with two changes flagged against one decision can be approved.** A new
   decision that replaces an old one, sent with a new rule about the same thing, had both
   flagged against the old decision. Naming it in `--replaces` failed because a rule cannot
