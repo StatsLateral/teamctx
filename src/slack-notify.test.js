@@ -37,6 +37,12 @@ describe('posting', () => {
     expect(fetchImpl).toHaveBeenCalledWith(HOOK, expect.objectContaining({ method: 'POST', body: '{"text":"hi"}' }));
   });
 
+  it('never follows a redirect away from Slack', async () => {
+    const fetchImpl = ok();
+    await postToSlack(HOOK, { text: 'hi' }, { fetchImpl });
+    expect(fetchImpl.mock.calls[0][1].redirect).toBe('error');
+  });
+
   it('says why it failed, never with the address, and never throws', async () => {
     const r404 = await postToSlack(HOOK, { text: 'hi' }, { fetchImpl: vi.fn(async () => ({ ok: false, status: 404 })) });
     expect(r404).toEqual({ ok: false, why: 'Slack answered 404' });

@@ -69,6 +69,8 @@ export async function postToSlack(url, message, { fetchImpl = globalThis.fetch, 
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(message),
+        // A redirect would take the post past the hooks.slack.com check above.
+        redirect: 'error',
         signal: controller.signal,
       }),
       timedOut,
