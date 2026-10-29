@@ -48,6 +48,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   under; the item is kept by its name. Never the file's text, and no Microsoft
   credential is held for the assistant route.
 
+### Fixed
+- **Tasks the AI proposes read as work a person picks up (#175).** A proposed
+  task is one plain sentence that starts with what somebody does and names the
+  thing, never a step in an assistant's workflow or a line addressed to one; a
+  rule describing a workflow no longer turns into its steps as tasks. One that
+  still reads that way is left out of the proposal, and named in what was left
+  out so it can be added by hand. A brief that says it is only
+  source material, or says not to make tasks, gets none. Each proposed task
+  shows the decision or rule it came from, on the page and in the chat, and keeps
+  it once approved.
+
 ## [0.4.0] - 2026-10-29
 
 ### Breaking
