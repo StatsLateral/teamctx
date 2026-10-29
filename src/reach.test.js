@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { reachOf, reachLines, limitReach } from './reach.js';
+import { reachOf, reachLines, limitReach, mergeReach, overallLines } from './reach.js';
 
 const config = {
   project: 'Ledger',
@@ -17,14 +17,15 @@ const tasks = [
   task('t4', '3.1', 'support', { compiledAt: '2026-10-01T00:00:00.000Z' }),
 ];
 const hasWork = (t) => Boolean(t.compiledAt) || t.id === 't2';
+// A rule matters to everything below it, so it flags all the work there.
 const reach = (over = {}) => reachOf({
-  operations: [{ type: 'addRecord', record: { type: 'decision', text: 'x' } }], treeId: 'launch', config, tasks, hasWork, ...over,
+  operations: [{ type: 'addRecord', record: { type: 'rule', text: 'x' } }], treeId: 'launch', config, tasks, hasWork, ...over,
 });
 
 describe('reachOf', () => {
   it('counts what is added, and names the parts that inherit it', () => {
     const r = reach();
-    expect(r.adds).toEqual({ label: 'Launch', records: 1, tasks: 0, recordsAdded: 1, recordsChanged: 0, tasksAdded: 0, tasksChanged: 0 });
+    expect(r.adds).toEqual({ tree: 'launch', label: 'Launch', records: 1, tasks: 0, recordsAdded: 1, recordsChanged: 0, tasksAdded: 0, tasksChanged: 0 });
     expect(r.inheritedBy).toEqual([{ id: 'sales', name: 'Sales' }]);
   });
 
@@ -41,6 +42,18 @@ describe('reachOf', () => {
 
   it('leaves out the task being accepted', () => {
     expect(reach({ exclude: 't1' }).inProgress.map(t => t.key)).toEqual(['2.1']);
+  });
+
+  it('flags only the tasks a plain addition names, since nobody else will be shown it (#206)', () => {
+    expect(reach({ operations: [{ type: 'addRecord', record: { type: 'decision', text: 'x' } }] }).inProgress).toEqual([]);
+    const named = reach({ operations: [{ type: 'addRecord', record: { type: 'decision', text: 'x', attachedTo: { kind: 'task', id: 't2' } } }] });
+    expect(named.inProgress.map(t => t.key)).toEqual(['2.1']);
+  });
+
+  it('tells an edit by the type of what it edits', () => {
+    const edit = [{ type: 'editRecord', id: 'r1', changes: { detail: 'more' } }];
+    expect(reach({ operations: edit, records: [{ id: 'r1', type: 'rule' }] }).inProgress).toHaveLength(2);
+    expect(reach({ operations: edit, records: [{ id: 'r1', type: 'decision' }] }).inProgress).toEqual([]);
   });
 
   it('counts task changes separately from record changes', () => {
@@ -126,5 +139,31 @@ describe('limitReach', () => {
     expect(r.inProgress.map(t => t.key)).toEqual(['2.1', '4.1']);
     expect(r.inheritedBy.map(p => p.id)).toEqual(['sales']);
     expect(r.adds).toEqual(wide().adds);
+  });
+});
+
+describe('many reaches as one (#206)', () => {
+  const a = { adds: { tree: 'launch', label: 'Launch', records: 1, tasks: 0, recordsAdded: 1, recordsChanged: 0, tasksAdded: 0, tasksChanged: 0 },
+    inheritedBy: [{ id: 'sales', name: 'Sales' }], inProgress: [{ id: 't1', key: '1.1', title: 'Draft', workstream: 'launch' }] };
+  const b = { adds: { tree: 'launch', label: 'Launch', records: 1, tasks: 1, recordsAdded: 0, recordsChanged: 1, tasksAdded: 1, tasksChanged: 0 },
+    inheritedBy: [], inProgress: [{ id: 't1', key: '1.1', title: 'Draft', workstream: 'launch' }] };
+  const c = { adds: { tree: null, label: 'Ledger', records: 1, tasks: 0, recordsAdded: 1, recordsChanged: 0, tasksAdded: 0, tasksChanged: 0 },
+    inheritedBy: [{ id: 'launch', name: 'Launch' }, { id: 'sales', name: 'Sales' }], inProgress: [{ id: 't2', key: '2.1', title: 'Call', workstream: 'sales' }] };
+
+  it('sums what is added, counts how many reach each part, and lists each task once', () => {
+    const m = mergeReach([a, b, c, null]);
+    expect(m.items).toBe(3);
+    expect(m.adds).toMatchObject({ recordsAdded: 2, recordsChanged: 1, tasksAdded: 1 });
+    expect(m.parts.map(p => [p.name, p.items])).toEqual([['Launch', 3], ['Sales', 2], ['Ledger', 1]]);
+    expect(m.inProgress.map(t => t.id)).toEqual(['t1', 't2']);
+  });
+
+  it('reads as a few lines', () => {
+    expect(overallLines(mergeReach([a, b, c]), { clashes: 1 })).toEqual([
+      '3 waiting items would add 2 records and 1 task and change 1 record.',
+      'They reach "Launch" (3), "Sales" (2), "Ledger" (1).',
+      '1 clashes with a decision or rule.',
+      '2 tasks in progress would be flagged.',
+    ]);
   });
 });

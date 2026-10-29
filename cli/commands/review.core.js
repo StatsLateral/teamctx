@@ -119,6 +119,16 @@ export async function listPendingReviews({ teamctxDir } = {}) {
     }
     return worked.get(t.id);
   };
+  // Read once per part: an edit is significant or not by the type of what it edits.
+  const trees = new Map();
+  const recordsOf = (treeId) => {
+    if (!trees.has(treeId)) {
+      let records = [];
+      try { records = readTree(treeId, teamctxDir)?.records || []; } catch { /* a part that cannot be read: edits count as plain */ }
+      trees.set(treeId, records);
+    }
+    return trees.get(treeId);
+  };
   const accepted = new Set(Object.values(readApprovals(teamctxDir) || {}).map(a => a?.forTask).filter(Boolean));
   return listQueue(teamctxDir).map(item => {
     let out = item;
@@ -141,7 +151,8 @@ export async function listPendingReviews({ teamctxDir } = {}) {
     const operations = item.forTask
       ? (accepted.has(item.forTask) ? [] : [{ type: 'addRecord', record: { type: 'decision', text: '' } }])
       : item.operations;
-    const reach = reachOf({ operations, treeId: resolveTarget(item.workstream), config, tasks, hasWork, exclude: item.forTask || null });
+    const treeId = resolveTarget(item.workstream);
+    const reach = reachOf({ operations, treeId, config, tasks, hasWork, exclude: item.forTask || null, records: recordsOf(treeId) });
     return { ...out, reach, reachLines: reachLines(reach) };
   });
 }
