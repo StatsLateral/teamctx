@@ -101,6 +101,9 @@ describe('recording references', () => {
     const address = 'https://www.dropbox.com/home/Specs?preview=Plan.docx&di=left_nav';
     expect(cleanRef({ connector: 'dropbox', link: address }).link).toBe('https://www.dropbox.com/home/Specs?preview=Plan.docx');
     expect(cleanRef({ connector: 'other', link: address }).link).toBe(address);
+    const page = 'https://coda.io/d/Handbook_dAbCd1234/Onboarding_su42?searchClear=true';
+    expect(cleanRef({ connector: 'Coda', link: page }).link).toBe('https://coda.io/d/_dAbCd1234/_su42');
+    expect(cleanRef({ connector: 'other', link: page }).link).toBe(page);
   });
 
   it('records a Slack thread once, whether it came as the thread or a reply in it', () => {
