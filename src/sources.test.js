@@ -92,9 +92,25 @@ describe('recording references', () => {
   });
 
   it("reads a link by its own tool's rule only", () => {
+    const copied = 'https://www.notion.so/acme/Launch-checklist-1a2b3c4d5e6f47788899aabbccddeeff?pvs=4';
+    expect(cleanRef({ connector: 'notion', link: copied }).link).toBe('https://www.notion.so/1a2b3c4d5e6f47788899aabbccddeeff');
+    expect(cleanRef({ connector: 'other', link: copied }).link).toBe(copied);
     const page = 'https://coda.io/d/Handbook_dAbCd1234/Onboarding_su42?searchClear=true';
     expect(cleanRef({ connector: 'Coda', link: page }).link).toBe('https://coda.io/d/_dAbCd1234/_su42');
     expect(cleanRef({ connector: 'other', link: page }).link).toBe(page);
+  });
+
+  it('records a Notion page once, renamed or copied, showing what was said of it last', () => {
+    const page = '1a2b3c4d5e6f47788899aabbccddeeff';
+    recordSources([{ connector: 'notion', title: 'Launch checklist', link: `https://www.notion.so/Launch-checklist-${page}`, summary: 'Three steps' }],
+      { by: maya, at: '2026-10-01T09:00:00.000Z', feed: { workstream: null, contribution: 'c1' }, dir });
+    recordSources([{ connector: 'notion', title: 'Launch plan', link: `https://www.notion.so/acme/Launch-plan-${page}?pvs=4`, summary: 'Now four steps' }],
+      { by: maya, at: '2026-10-05T09:00:00.000Z', feed: { workstream: null, contribution: 'c2' }, dir });
+    const refs = Object.values(readSourceRefs(dir));
+    expect(refs).toHaveLength(1);
+    expect(refs[0]).toMatchObject({ title: 'Launch plan', link: `https://www.notion.so/${page}` });
+    const [shown] = visibleSources(readSourceRefs(dir), { canSee: () => true, counts: () => true });
+    expect(shown.summary).toBe('Now four steps');
   });
 
   it('never writes a body or a secret it was handed', () => {

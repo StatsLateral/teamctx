@@ -15,6 +15,7 @@
  */
 import { createHash } from 'crypto';
 import { readSourceRef, writeSourceRef } from './storage.js';
+import { pageLink } from './connectors/notion.js';
 import { docLink } from './connectors/coda.js';
 
 /** The tools a reference can name, as the drawer shows them. */
@@ -30,10 +31,11 @@ export const CONNECTORS = {
 
 /**
  * One link per item, for a tool whose items are reached by several links (a
- * Coda page under its old and new title, say). Each tool adds its own entry; a
- * link for any other tool is kept as it came.
+ * Notion page after a rename, or a Coda page under its old and new title, say).
+ * Each tool adds its own entry; a link for any other tool is kept as it came.
  */
 const NORMALIZE_LINK = {
+  notion: pageLink,
   coda: docLink,
 };
 
@@ -104,7 +106,7 @@ export function cleanRef(input) {
   if (!input || typeof input !== 'object') return null;
   const connector = connectorKey(input.connector);
   const cleaned = cleanLink(input.link);
-  const link = cleaned && NORMALIZE_LINK[connector] ? NORMALIZE_LINK[connector](cleaned) : cleaned;
+  const link = cleaned && (NORMALIZE_LINK[connector] ? NORMALIZE_LINK[connector](cleaned) : cleaned);
   const title = oneLine(input.title, TITLE_MAX);
   const itemId = oneLine(input.itemId, 200) || null;
   const summary = oneLine(input.summary, SUMMARY_MAX);
