@@ -211,6 +211,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   link and the member gate agree.
 
 ### Fixed
+- **Removing a task that was never compiled works on the hosted server.** It
+  deleted the task's prompt file, which was never written, and GitHub refused the
+  whole commit (422). A path the repository does not have is no longer sent as a
+  deletion.
 - **Command-line writes work again.** `teamctx task add`, `task rm`, `review approve` and
   every other command that numbers something failed with `The "path" argument must be of
   type string`: keeping the counters lock out of git looked for the project in a folder the
