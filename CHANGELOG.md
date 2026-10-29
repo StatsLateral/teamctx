@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **SharePoint and OneDrive files as connected sources (#172).** A library file,
+  imported with `teamctx import --from m365` or cited by an assistant with
+  `contribute`, is recorded under Microsoft SharePoint by its address: the
+  library path without `?web=1` and the like, or the Office viewer reduced to its
+  site and document GUID. A sharing link (`/:w:/s/…`, `1drv.ms`, OneDrive
+  `authkey`) is the access itself, so it is never kept, whatever tool it arrives
+  under; the item is kept by its name. Never the file's text, and no Microsoft
+  credential is held for the assistant route.
+
 ## [0.4.0] - 2026-10-29
 
 ### Breaking
@@ -139,14 +149,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and about anything that touched it; other changes above it, such as a new
   decision, are only counted (`others`). The impact card names only the work a change would flag. A
   compiled prompt still goes stale on any change in its chain.
-- **SharePoint and OneDrive files as connected sources (#172).** A library file,
-  imported with `teamctx import --from m365` or cited by an assistant with
-  `contribute`, is recorded under Microsoft SharePoint by its address: the
-  library path without `?web=1` and the like, or the Office viewer reduced to its
-  site and document GUID. A sharing link (`/:w:/s/…`, `1drv.ms`, OneDrive
-  `authkey`) is the access itself, so it is never kept, whatever tool it arrives
-  under; the item is kept by its name. Never the file's text, and no Microsoft
-  credential is held for the assistant route.
 - **Connected sources are real (#168).** When something an assistant read in a
   connected tool (Slack, Notion, Google Drive, SharePoint, Dropbox, Coda) reaches
   the project, a reference to it is kept in `.teamctx/sources/`: the tool, a
