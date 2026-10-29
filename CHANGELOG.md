@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Coda pages as connected sources (#174).** A Coda doc or page, imported with
+  `teamctx import --from coda` or cited by an assistant with `contribute`, is
+  recorded under Coda by one link made of its ids (`coda.io/d/_d<doc>/_su<page>`),
+  so a link copied from the browser, or one from before a rename, lands on the
+  same entry. Never the page's text, and no Coda credential is held for the
+  assistant route.
+
 ## [0.4.0] - 2026-10-29
 
 ### Breaking
@@ -139,12 +147,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and about anything that touched it; other changes above it, such as a new
   decision, are only counted (`others`). The impact card names only the work a change would flag. A
   compiled prompt still goes stale on any change in its chain.
-- **Coda pages as connected sources (#174).** A Coda doc or page, imported with
-  `teamctx import --from coda` or cited by an assistant with `contribute`, is
-  recorded under Coda by one link made of its ids (`coda.io/d/_d<doc>/_su<page>`),
-  so a link copied from the browser, or one from before a rename, lands on the
-  same entry. Never the page's text, and no Coda credential is held for the
-  assistant route.
 - **Connected sources are real (#168).** When something an assistant read in a
   connected tool (Slack, Notion, Google Drive, SharePoint, Dropbox, Coda) reaches
   the project, a reference to it is kept in `.teamctx/sources/`: the tool, a
