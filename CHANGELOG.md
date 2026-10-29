@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **A manager can remove an accepted task (#202).** `teamctx task rm <id>
+  --reason "…"` and `task_rm` with `reason`. A manager only, and a reason is
+  required. The task leaves the plan, not the history: its outputs, approval and
+  logs stay, its acceptance record is closed, and anything else recorded when it
+  was accepted is listed for the manager to decide about. Reopening an accepted
+  task is still not possible; add a follow-on task.
+
 ## [0.4.0] - 2026-10-29
 
 ### Breaking
@@ -139,12 +147,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and about anything that touched it; other changes above it, such as a new
   decision, are only counted (`others`). The impact card names only the work a change would flag. A
   compiled prompt still goes stale on any change in its chain.
-- **A manager can remove an accepted task (#202).** `teamctx task rm <id>
-  --reason "…"` and `task_rm` with `reason`. A manager only, and a reason is
-  required. The task leaves the plan, not the history: its outputs, approval and
-  logs stay, its acceptance record is closed, and anything else recorded when it
-  was accepted is listed for the manager to decide about. Reopening an accepted
-  task is still not possible; add a follow-on task.
 - **Connected sources are real (#168).** When something an assistant read in a
   connected tool (Slack, Notion, Google Drive, SharePoint, Dropbox, Coda) reaches
   the project, a reference to it is kept in `.teamctx/sources/`: the tool, a
