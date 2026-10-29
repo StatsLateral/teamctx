@@ -202,3 +202,11 @@ describe('what an assistant passes for a Notion page', () => {
     expect(items.properties.link.description).toMatch(/Notion, the page's link/);
   });
 });
+
+describe('what an assistant passes for a Coda page', () => {
+  it('is the doc or page link from the browser and the page name', () => {
+    const { items } = TOOLS.find(t => t.name === 'contribute').inputSchema.properties.sources;
+    expect(items.properties.title.description).toMatch(/Coda page, the page name/);
+    expect(items.properties.link.description).toMatch(/Coda, the doc or page link from the browser/);
+  });
+});

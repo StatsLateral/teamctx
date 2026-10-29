@@ -98,6 +98,9 @@ describe('recording references', () => {
     const copied = 'https://www.notion.so/acme/Launch-checklist-1a2b3c4d5e6f47788899aabbccddeeff?pvs=4';
     expect(cleanRef({ connector: 'notion', link: copied }).link).toBe('https://www.notion.so/1a2b3c4d5e6f47788899aabbccddeeff');
     expect(cleanRef({ connector: 'other', link: copied }).link).toBe(copied);
+    const page = 'https://coda.io/d/Handbook_dAbCd1234/Onboarding_su42?searchClear=true';
+    expect(cleanRef({ connector: 'Coda', link: page }).link).toBe('https://coda.io/d/_dAbCd1234/_su42');
+    expect(cleanRef({ connector: 'other', link: page }).link).toBe(page);
   });
 
   it('records a Slack thread once, whether it came as the thread or a reply in it', () => {

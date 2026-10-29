@@ -95,6 +95,26 @@ describe('parseSelector', () => {
   });
 });
 
+describe('docLink — one link per doc or page', () => {
+  it('reduces a page link to its doc and page ids, whatever the titles, query or anchor', () => {
+    const one = `https://coda.io/d/_d${DOC}/_su42`;
+    for (const link of [
+      `https://coda.io/d/Handbook_d${DOC}/Onboarding_su42`,
+      `https://coda.io/d/Old-name_d${DOC}/Welcome_su42?searchClear=true#Tasks_tu9/r5`,
+      `https://www.coda.io/d/_d${DOC}/_su42`,
+    ]) expect(coda.docLink(link), link).toBe(one);
+  });
+
+  it('reduces a doc link to its doc id', () => {
+    expect(coda.docLink(`https://coda.io/d/Handbook_d${DOC}#_lu1`)).toBe(`https://coda.io/d/_d${DOC}`);
+  });
+
+  it('leaves a published doc, another site or a link it cannot read as it came', () => {
+    for (const link of ['https://coda.io/@maya/handbook/onboarding-1', 'https://example.com/d/X_dAbc', 'http://coda.io/d/X_dAbc', 'https://coda.io/d/no-id', 'not a link'])
+      expect(coda.docLink(link)).toBe(link);
+  });
+});
+
 describe('list', () => {
   it('returns every canvas page in a doc from a single read', async () => {
     // Coda hands back the whole page tree, so listing costs one request and no
