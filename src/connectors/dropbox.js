@@ -369,6 +369,57 @@ export function classify(entry) {
  */
 const idFor = entry => `dropbox:${entry.path_display || entry.path_lower || entry.id}`;
 
+// ---- links for a connected source (#173) --------------------------------
+
+/**
+ * A link whose token is the access: `/scl/fi/…`, `/scl/fo/…` (a folder), the
+ * older `/s/…` and `/sh/…`, a direct download from `dl.dropboxusercontent.com`,
+ * and the `db.tt` short form. Dropbox's default for a shared link is "anyone with
+ * the link", and a source reference is read by everyone on the project, so these
+ * are treated as credentials and never kept.
+ */
+export function isSharedLink(link) {
+  let url;
+  try { url = new URL(link); } catch { return false; }
+  const host = url.hostname.toLowerCase();
+  if (host === 'db.tt' || /(^|\.)dropboxusercontent\.com$/.test(host)) return true;
+  return /(^|\.)dropbox\.com$/.test(host) && /^\/(scl\/f[io]|s|sh)\//i.test(url.pathname);
+}
+
+/**
+ * A file's address in Dropbox, from the path the API gave the importer: the
+ * folder it is in, with `preview` naming it. It opens only for people the file
+ * is already shared with, after signing in. Dropbox's metadata carries no web
+ * address of its own, so this is built the way the web app shows one.
+ */
+export function addressFor(pathDisplay) {
+  const parts = String(pathDisplay || '').split('/').filter(Boolean);
+  const name = parts.pop();
+  if (!name) return null;
+  const folder = parts.map(encodeURIComponent).join('/');
+  return `https://www.dropbox.com/home${folder ? `/${folder}` : ''}?preview=${encodeURIComponent(name)}`;
+}
+
+/**
+ * The one link for a file, however its address was copied: the folder and
+ * `preview` are kept, and everything the browser adds (`di`, `role`, …) is
+ * dropped, so it matches what the importer records. A shared link comes back
+ * `null` (see `isSharedLink`); anything else comes back as it was.
+ */
+export function fileLink(link) {
+  if (isSharedLink(link)) return null;
+  let url;
+  try { url = new URL(link); } catch { return link; }
+  if (url.protocol !== 'https:' || !/^(www\.)?dropbox\.com$/i.test(url.hostname) || !/^\/home(\/|$)/.test(url.pathname)) return link;
+  let parts;
+  try { parts = url.pathname.replace(/\/+$/, '').split('/').slice(2).map(decodeURIComponent); } catch { return link; }
+  // Each folder is encoded on its own, never joined and split again, so a `%2F`
+  // inside one name stays inside it.
+  const folder = parts.length ? `/${parts.map(encodeURIComponent).join('/')}` : '';
+  const preview = url.searchParams.get('preview');
+  return `https://www.dropbox.com/home${folder}${preview ? `?preview=${encodeURIComponent(preview)}` : ''}`;
+}
+
 const itemFor = (entry, kind, link) => ({
   ref: {
     // `path_lower` is the addressable form; `path_display` keeps the casing a
@@ -378,6 +429,9 @@ const itemFor = (entry, kind, link) => ({
     title: entry.name,
     exportAs: kind.exportAs,
     link,
+    // Its address, for the source reference and the queue. Not for a file
+    // reached through a shared link: that link is the access, and is not kept.
+    ...(link ? {} : { url: addressFor(entry.path_display) }),
   },
   id: idFor(entry),
   title: entry.name || 'Untitled',

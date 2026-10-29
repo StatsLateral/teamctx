@@ -154,6 +154,27 @@ export function parseSelector(input) {
   throw new Error(`not a Coda doc or page link: "${s}"`);
 }
 
+/**
+ * One link per doc or page, for the Connected sources drawer (#168).
+ *
+ * A Coda link names the doc and page twice — by a title slug and by an id — and
+ * the slug changes on a rename; a link copied from the browser also adds a
+ * query or an anchor to a table or row. Reduced to the ids, the form Coda's API
+ * uses for a doc (`coda.io/d/_d<id>`), an import and an assistant citing the
+ * same page meet on one reference. Anything else, a published doc
+ * (`coda.io/@…`) included, comes back as it was.
+ */
+export function docLink(link) {
+  let url;
+  try { url = new URL(link); } catch { return link; }
+  if (url.protocol !== 'https:' || !/^(www\.)?coda\.io$/i.test(url.hostname)) return link;
+  const [, d, doc, page] = url.pathname.split('/');
+  const docId = d === 'd' && /_d([A-Za-z0-9-]+)$/.exec(doc || '')?.[1];
+  if (!docId) return link;
+  const pageId = /_(su[A-Za-z0-9-]+)$/.exec(page || '')?.[1];
+  return `https://coda.io/d/_d${docId}${pageId ? `/_${pageId}` : ''}`;
+}
+
 // ---- pages -------------------------------------------------------------
 
 /** Only a canvas page has exportable content; embeds and sync pages do not. */

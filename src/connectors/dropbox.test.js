@@ -703,3 +703,53 @@ describe('the access token', () => {
     await expect(dropbox.list(a, '/Specs', nowait)).rejects.toThrow(/re-authorize/);
   });
 });
+
+describe('links for a connected source', () => {
+  it('treats a link whose token is the access as a shared link', () => {
+    for (const shared of [
+      'https://www.dropbox.com/scl/fi/abc123/Plan.docx?rlkey=k&dl=0',
+      'https://www.dropbox.com/scl/fo/abc123/def?rlkey=k&dl=0',
+      'https://www.dropbox.com/s/abc123/Plan.docx?dl=0',
+      'https://www.dropbox.com/sh/abc123/AAAA?dl=0',
+      'https://dl.dropboxusercontent.com/s/abc123/Plan.docx',
+      'https://db.tt/AbCdEf',
+    ]) {
+      expect(dropbox.isSharedLink(shared), shared).toBe(true);
+      expect(dropbox.fileLink(shared), shared).toBeNull();
+    }
+  });
+
+  it('gives an imported file its address, from the folder and its name', () => {
+    expect(dropbox.addressFor('/Specs/Q4 Plan.docx')).toBe('https://www.dropbox.com/home/Specs?preview=Q4%20Plan.docx');
+    expect(dropbox.addressFor('/Plan.md')).toBe('https://www.dropbox.com/home?preview=Plan.md');
+    expect(dropbox.addressFor('')).toBeNull();
+  });
+
+  it('reduces an address copied from the browser to its folder and preview', () => {
+    for (const copied of [
+      'https://www.dropbox.com/home/Specs?preview=Q4+Plan.docx&di=left_nav',
+      'https://dropbox.com/home/Specs/?preview=Q4%20Plan.docx',
+    ]) expect(dropbox.fileLink(copied), copied).toBe('https://www.dropbox.com/home/Specs?preview=Q4%20Plan.docx');
+    expect(dropbox.fileLink('https://www.dropbox.com/home/Specs?role=work')).toBe('https://www.dropbox.com/home/Specs');
+  });
+
+  it('keeps a name that is not plain English as the same name', () => {
+    expect(dropbox.fileLink('https://www.dropbox.com/home/R%C3%A9sum%C3%A9s/%E6%97%A5%E6%9C%AC')).toBe('https://www.dropbox.com/home/R%C3%A9sum%C3%A9s/%E6%97%A5%E6%9C%AC');
+    expect(dropbox.fileLink('https://www.dropbox.com/home/Résumés?preview=café+menu.pdf')).toBe('https://www.dropbox.com/home/R%C3%A9sum%C3%A9s?preview=caf%C3%A9%20menu.pdf');
+  });
+
+  it('keeps an encoded slash inside a folder name as part of that name', () => {
+    expect(dropbox.fileLink('https://www.dropbox.com/home/Q1%2FQ2/Plans')).toBe('https://www.dropbox.com/home/Q1%2FQ2/Plans');
+    expect(dropbox.fileLink('https://www.dropbox.com/home/Q1%2FQ2?preview=Plan.pdf')).toBe('https://www.dropbox.com/home/Q1%2FQ2?preview=Plan.pdf');
+  });
+
+  it('leaves alone what is not a Dropbox address', () => {
+    for (const other of [
+      'https://www.dropbox.com.evil.example/home/Specs?preview=x',
+      'http://www.dropbox.com/home/Specs?preview=x',
+      'https://www.dropbox.com/home/%zz?preview=x',
+      'https://paper.dropbox.com/doc/Plan--abc',
+      'not a link',
+    ]) expect(dropbox.fileLink(other), other).toBe(other);
+  });
+});
