@@ -76,7 +76,8 @@ describe('the whole flow, through the assistant', () => {
       expect(item.forTask).toBe(post.id);
       expect(item.submittedOutputs[0].body).toBe('The post itself.');
       expect(item.reachLines).toHaveLength(3);
-      expect(item.reachLines[2]).toContain(publish.key);
+      // Accepting alone adds a plain decision, which nobody else is shown.
+      expect(item.reachLines[2]).toBe('No work in progress is affected.');
 
       // They accept, keeping one fact and one change to the publishing task.
       const accepted = await call('review_approve', {

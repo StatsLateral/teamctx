@@ -184,6 +184,14 @@ describe('a member carrying on with earlier work', () => {
   });
 });
 
+describe('what an assistant passes for a Notion page', () => {
+  it("is the page's link and its title", () => {
+    const { items } = TOOLS.find(t => t.name === 'contribute').inputSchema.properties.sources;
+    expect(items.properties.title.description).toMatch(/Notion page, its title/);
+    expect(items.properties.link.description).toMatch(/Notion, the page's link/);
+  });
+});
+
 describe('what an assistant passes for a Google Drive file', () => {
   it("is the file's link and its name", () => {
     const { items } = TOOLS.find(t => t.name === 'contribute').inputSchema.properties.sources;

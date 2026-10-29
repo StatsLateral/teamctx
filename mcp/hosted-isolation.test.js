@@ -679,6 +679,22 @@ describe('a member scoped to one workstream', () => {
     expect(JSON.stringify(r)).not.toContain('Product');
   });
 
+  it('gets everything waiting summed up from what they may see (#206), and nothing else', async () => {
+    const s = scoped();
+    s.write('.teamctx/queue/q-proj.json', JSON.stringify({
+      id: 'q-proj', status: 'pending', workstream: null, author: 'Maya', summary: 'A project note', createdAt: '2026-10-01T00:00:00.000Z',
+      operations: [{ type: 'addRecord', record: { type: 'decision', text: 'x' } }],
+    }));
+    s.write('.teamctx/queue/q-eng.json', JSON.stringify({
+      id: 'q-eng', status: 'pending', workstream: 'engineering', author: 'Ravi', summary: 'An engineering note', createdAt: '2026-10-01T00:00:01.000Z',
+      operations: [{ type: 'addRecord', record: { type: 'decision', text: 'y' } }],
+    }));
+    const r = await asUser(s, RAVI, h => json(h.list_pending_reviews()));
+    expect(r.overall.lines[0]).toBe('2 waiting items would add 2 records.');
+    expect(r.overall.parts.map(p => p.id)).toEqual(['engineering', null]);
+    expect(JSON.stringify(r.overall)).not.toContain('Product');
+  });
+
   it('sees only their own in the listing', async () => {
     const r = await asUser(scoped(), RAVI, h => json(h.list_workstreams()));
     expect(r.workstreams.map(w => w.id)).toEqual(['engineering']);
