@@ -92,9 +92,34 @@ describe('recording references', () => {
   });
 
   it("reads a link by its own tool's rule only", () => {
+    const reply = 'https://acme.slack.com/archives/C1/p1700000555000200?thread_ts=1700000000.000100&cid=C1';
+    expect(cleanRef({ connector: 'slack', link: reply }).link).toBe(thread.link);
+    expect(cleanRef({ connector: 'other', link: reply }).link).toBe(reply);
     const copied = 'https://www.notion.so/acme/Launch-checklist-1a2b3c4d5e6f47788899aabbccddeeff?pvs=4';
     expect(cleanRef({ connector: 'notion', link: copied }).link).toBe('https://www.notion.so/1a2b3c4d5e6f47788899aabbccddeeff');
     expect(cleanRef({ connector: 'other', link: copied }).link).toBe(copied);
+    const shared = 'https://docs.google.com/document/d/1DocumentIdBbbbbbbbbbbbbbbbbbbbb/edit?usp=sharing';
+    expect(cleanRef({ connector: 'gdrive', link: shared }).link).toBe('https://drive.google.com/file/d/1DocumentIdBbbbbbbbbbbbbbbbbbbbb/view');
+    expect(cleanRef({ connector: 'other', link: shared }).link).toBe(shared);
+    const library = 'https://contoso.sharepoint.com/sites/Team/Shared%20Documents/Notes.docx?web=1';
+    expect(cleanRef({ connector: 'sharepoint', link: library }).link).toBe('https://contoso.sharepoint.com/sites/Team/Shared%20Documents/Notes.docx');
+    const address = 'https://www.dropbox.com/home/Specs?preview=Plan.docx&di=left_nav';
+    expect(cleanRef({ connector: 'dropbox', link: address }).link).toBe('https://www.dropbox.com/home/Specs?preview=Plan.docx');
+    expect(cleanRef({ connector: 'other', link: address }).link).toBe(address);
+    const page = 'https://coda.io/d/Handbook_dAbCd1234/Onboarding_su42?searchClear=true';
+    expect(cleanRef({ connector: 'Coda', link: page }).link).toBe('https://coda.io/d/_dAbCd1234/_su42');
+    expect(cleanRef({ connector: 'other', link: page }).link).toBe(page);
+  });
+
+  it('records a Slack thread once, whether it came as the thread or a reply in it', () => {
+    const first = recordSources([thread], { by: maya, feed: { workstream: 'sales', contribution: 'c1' }, dir });
+    const again = recordSources([{ ...thread, link: 'https://acme.slack.com/archives/C1/p1700000555000200?thread_ts=1700000000.000100&cid=C1' }],
+      { by: maya, feed: { workstream: 'sales', contribution: 'c2' }, dir });
+    expect(again).toEqual(first);
+    const refs = Object.values(readSourceRefs(dir));
+    expect(refs).toHaveLength(1);
+    expect(refs[0].link).toBe(thread.link);
+    expect(refs[0].feeds.map(f => f.contribution)).toEqual(['c1', 'c2']);
   });
 
   it('records a Notion page once, renamed or copied, showing what was said of it last', () => {
@@ -108,6 +133,41 @@ describe('recording references', () => {
     expect(refs[0]).toMatchObject({ title: 'Launch plan', link: `https://www.notion.so/${page}` });
     const [shown] = visibleSources(readSourceRefs(dir), { canSee: () => true, counts: () => true });
     expect(shown.summary).toBe('Now four steps');
+  });
+
+  it('records a Drive file once, from the editor or from Drive', () => {
+    const doc = '1DocumentIdBbbbbbbbbbbbbbbbbbbbb';
+    recordSources([{ connector: 'Google Drive', title: 'Hall floor plan', link: `https://docs.google.com/document/d/${doc}/edit?usp=drivesdk`, summary: 'Two halls' }],
+      { by: maya, at: '2026-10-01T09:00:00.000Z', feed: { workstream: null, contribution: 'c1' }, dir });
+    recordSources([{ connector: 'gdrive', title: 'Hall floor plan', link: `https://drive.google.com/file/d/${doc}/view?usp=drive_link`, summary: 'Now three halls' }],
+      { by: maya, at: '2026-10-05T09:00:00.000Z', feed: { workstream: null, contribution: 'c2' }, dir });
+    const refs = Object.values(readSourceRefs(dir));
+    expect(refs).toHaveLength(1);
+    expect(refs[0].link).toBe(`https://drive.google.com/file/d/${doc}/view`);
+    expect(visibleSources(readSourceRefs(dir))[0].summary).toBe('Now three halls');
+  });
+
+  it('never keeps a sharing link, under any tool, and keeps the item by its title', () => {
+    const share = 'https://contoso.sharepoint.com/:w:/s/Team/EaBcDeFgHiJkLmNoPqRsTuVwXyZ?e=Xy12Ab';
+    for (const connector of ['OneDrive', 'other', 'gdrive']) {
+      const r = cleanRef({ connector, title: 'Release notes', link: share });
+      expect(r.link, connector).toBeNull();
+      expect(r.title).toBe('Release notes');
+    }
+    expect(cleanRef({ connector: 'm365', link: share })).toBeNull();
+    recordSources([{ connector: 'SharePoint', title: 'Release notes', link: share }], { by: maya, feed: { workstream: null, contribution: 'c1' }, dir });
+    expect(files()).not.toContain('EaBcDeFgHiJkLmNoPqRsTuVwXyZ');
+  });
+
+  it('never keeps a Dropbox shared link, under any tool, and keeps the item by its title', () => {
+    const share = 'https://www.dropbox.com/scl/fi/abc123/Plan.docx?rlkey=SECRETKEY&dl=0';
+    for (const connector of ['Dropbox', 'other', 'notion']) {
+      const r = cleanRef({ connector, title: 'Plan.docx', link: share });
+      expect(r.link, connector).toBeNull();
+      expect(r.title).toBe('Plan.docx');
+    }
+    recordSources([{ connector: 'dropbox', title: 'Plan.docx', link: share }], { by: maya, feed: { workstream: null, contribution: 'c1' }, dir });
+    expect(files()).not.toContain('SECRETKEY');
   });
 
   it('never writes a body or a secret it was handed', () => {

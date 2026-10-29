@@ -8,7 +8,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- **Slack notices for what is waiting (#182).** When a contribution or a task's
+- **Slack threads as connected sources (#169).** `teamctx import --from slack`
+  now records each thread under Slack with its permalink (built from the
+  workspace address Slack gives once per run) and a title naming the channel and
+  day, never a message. A private channel or DM is not named, since everyone on
+  the project reads the reference. Naming a channel needs the optional
+  `channels:read` scope; without it the title says "Slack thread". A thread an
+  assistant passes with `contribute` is recorded the same way, with no Slack
+  credential held by teamctx. A thread is recorded once whichever link it came by (the importer's, Slack's "Copy link",
+  or a link to a reply), and the assistant is asked for a title that names the
+  channel or topic, not a message.
+- **Coda pages as connected sources (#174).** A Coda doc or page, imported with
+  `teamctx import --from coda` or cited by an assistant with `contribute`, is
+  recorded under Coda by one link made of its ids (`coda.io/d/_d<doc>/_su<page>`),
+  so a link copied from the browser, or one from before a rename, lands on the
+  same entry. Never the page's text, and no Coda credential is held for the
+- **Google Drive files as connected sources (#171).** A Drive file or folder,
+  imported with `teamctx import --from gdrive` or cited by an assistant with
+  `contribute`, is recorded once under Google Drive whichever link it came by
+  (the editor's, "Share", a heading or sheet tab, another signed-in account, or
+  `open?id=`), as `https://drive.google.com/file/d/<id>/view` or
+  `…/drive/folders/<id>`. The `resourcekey` some older shared files need is
+  kept. Never the file's text, and no Drive credential is held for the
+  assistant route.
+- **Dropbox files as connected sources (#173).** A Dropbox file, imported with
+  `teamctx import --from dropbox` or cited by an assistant with `contribute`, is
+  recorded under Dropbox by its address (`dropbox.com/home/<folder>?preview=<name>`,
+  built from the path the importer already has, or copied from the browser
+  without what it adds). A shared link (`/scl/fi/…`, `/s/…`, `db.tt`, …) is the
+  access itself, so it is never kept, whatever tool it arrives under; the item is
+  kept by its name. Never the file's text, and no Dropbox credential is held for
+  the assistant route.
+- **SharePoint and OneDrive files as connected sources (#172).** A library file,
+  imported with `teamctx import --from m365` or cited by an assistant with
+  `contribute`, is recorded under Microsoft SharePoint by its address: the
+  library path without `?web=1` and the like, or the Office viewer reduced to its
+  site and document GUID. A sharing link (`/:w:/s/…`, `1drv.ms`, OneDrive
+  `authkey`) is the access itself, so it is never kept, whatever tool it arrives
+  under; the item is kept by its name. Never the file's text, and no Microsoft
+  credential is held for the assistant route.
+- **Slack notices for what is waiting (#182).** When a contribution or a task's
   work is queued for review, one message goes to a Slack incoming webhook: the
   item's number, who sent it, a one-line summary and the link that opens it.
   Never the text. A manager sets it in Settings (kept in the deployment's store,
@@ -17,6 +56,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   pushed. An import sends one notice for the run. Only
   `https://hooks.slack.com/services/…` is accepted. A post that fails or takes
   over 3 seconds is logged and skipped.
+
+### Fixed
+- **Tasks the AI proposes read as work a person picks up (#175).** A proposed
+  task is one plain sentence that starts with what somebody does and names the
+  thing, never a step in an assistant's workflow or a line addressed to one; a
+  rule describing a workflow no longer turns into its steps as tasks. One that
+  still reads that way is left out of the proposal, and named in what was left
+  out so it can be added by hand. A brief that says it is only
+  source material, or says not to make tasks, gets none. Each proposed task
+  shows the decision or rule it came from, on the page and in the chat, and keeps
+  it once approved.
 
 ## [0.4.0] - 2026-10-29
 

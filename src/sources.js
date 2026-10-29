@@ -16,6 +16,11 @@
 import { createHash } from 'crypto';
 import { readSourceRef, writeSourceRef } from './storage.js';
 import { pageLink } from './connectors/notion.js';
+import { threadPermalink } from './connectors/slack.js';
+import { fileLink as driveLink } from './connectors/gdrive.js';
+import { fileLink as sharePointLink, isSharingLink } from './connectors/m365.js';
+import { fileLink as dropboxLink, isSharedLink } from './connectors/dropbox.js';
+import { docLink } from './connectors/coda.js';
 
 /** The tools a reference can name, as the drawer shows them. */
 export const CONNECTORS = {
@@ -30,11 +35,19 @@ export const CONNECTORS = {
 
 /**
  * One link per item, for a tool whose items are reached by several links (a
- * Notion page after a rename, say). Each tool adds its own entry; a link for
- * any other tool is kept as it came.
+ * Notion page after a rename, a Slack thread copied from a reply, a Drive file
+ * shared from the editor or from Drive, a SharePoint file through its library
+ * path or the Office viewer, a Dropbox file's address copied from the browser,
+ * or a Coda page under its old and new title, say). Each tool adds its own
+ * entry; a link for any other tool is kept as it came.
  */
 const NORMALIZE_LINK = {
+  slack: threadPermalink,
   notion: pageLink,
+  gdrive: driveLink,
+  m365: sharePointLink,
+  dropbox: dropboxLink,
+  coda: docLink,
 };
 
 /** What an assistant or an importer might call a tool, mapped to its key. */
@@ -103,8 +116,12 @@ export function sourceId(connector, handle) {
 export function cleanRef(input) {
   if (!input || typeof input !== 'object') return null;
   const connector = connectorKey(input.connector);
+  // A SharePoint or OneDrive sharing link, or a Dropbox shared link, is the
+  // access itself, whatever tool it arrives under, so it is never kept: the
+  // reference keeps its title.
   const cleaned = cleanLink(input.link);
-  const link = cleaned && (NORMALIZE_LINK[connector] ? NORMALIZE_LINK[connector](cleaned) : cleaned);
+  const kept = cleaned && (isSharingLink(cleaned) || isSharedLink(cleaned)) ? null : cleaned;
+  const link = kept && (NORMALIZE_LINK[connector] ? NORMALIZE_LINK[connector](kept) : kept);
   const title = oneLine(input.title, TITLE_MAX);
   const itemId = oneLine(input.itemId, 200) || null;
   const summary = oneLine(input.summary, SUMMARY_MAX);

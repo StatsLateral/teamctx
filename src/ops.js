@@ -261,7 +261,7 @@ export function applyOps(tree, ops, contributionId, {
     const id = mint('task');
     if (o.ref) refs.set(o.ref, id);
     return { ...t, tasks: [...t.tasks, {
-      id, key, title, owner: typeof o.owner === 'string' ? o.owner : null, status: 'open', createdAt: onDay,
+      id, key, title, owner: typeof o.owner === 'string' ? o.owner : null, ...(typeof o.from === 'string' ? { from: o.from } : {}), status: 'open', createdAt: onDay,
       doneAt: null, compiledAt: null, sourceContributionIds: [contributionId], createdBy: contributionId,
     }] };
   });
@@ -275,6 +275,16 @@ export function applyOps(tree, ops, contributionId, {
   };
   each(adds.filter(o => o?.record?.type !== 'exception').map(resolveTaskRef), (t, o) => addRecord(t, o, contributionId, refs, dropped, onDay, where));
   each(adds.filter(o => o?.record?.type === 'exception').map(resolveTaskRef), (t, o) => addRecord(t, o, contributionId, refs, dropped, onDay, where));
+  // A task names the record it came from (#175), which may have been proposed
+  // with it under a ref: now that records are in, that is an id, and a `from`
+  // that names no record here is let go.
+  next = { ...next, tasks: next.tasks.map(x => {
+    if (x.createdBy !== contributionId || !x.from) return x;
+    const from = refs.get(x.from) || x.from;
+    if (next.records.some(r => r.id === from)) return { ...x, from };
+    const { from: _gone, ...rest } = x;
+    return rest;
+  }) };
   each(of('editRecord'), (t, o) => editRecord(t, o, contributionId, dropped, onDay, where));
   each(of('editTask'), (t, o) => {
     if (!t.tasks.some(x => x.id === o.id)) { dropped.push({ op: o, reason: `no task "${o.id}"` }); return t; }

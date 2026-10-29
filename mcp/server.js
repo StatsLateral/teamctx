@@ -14,6 +14,7 @@ import {
 import { answerQuestion } from '../src/context.js';
 import { contradictionLabel, evidenceLabel } from '../src/contradictions.js';
 import { describeChange, asQuotedData } from '../src/change-labels.js';
+import { LABELS } from '../src/model.js';
 import { limitReach, reachLines, mergeReach, overallLines } from '../src/reach.js';
 import { commitContext } from '../src/git.js';
 import { connectorUrl, originRemote } from '../cli/commands/connect.core.js';
@@ -94,8 +95,8 @@ const SOURCES_INPUT = {
     type: 'object',
     properties: {
       connector: { type: 'string', description: 'The tool: slack, notion, gdrive, m365, dropbox, coda, or its name' },
-      title: { type: 'string', description: 'What the item is called: a channel thread, page, file or doc title. For a Notion page, its title as Notion shows it' },
-      link: { type: 'string', description: "Its https link. For Notion, the page's link (Copy link), not a block on it" },
+      title: { type: 'string', description: 'What the item is called: a channel thread, page, file or doc title. For a Slack thread, name its channel or topic (e.g. "#pricing thread"), never quote a message. For a Notion page, its title as Notion shows it. For a Google Drive file, its name as Drive shows it. For a SharePoint or OneDrive file, its file name. For a Dropbox file, its file name. For a Coda page, the page name' },
+      link: { type: 'string', description: "Its https link. For Slack, the thread's link (Copy link on any message in it). For Notion, the page's link (Copy link), not a block on it. For Google Drive, the file's or folder's link (Share or the address bar). For SharePoint or OneDrive, the file's address (address bar or Copy path), never a sharing link: a sharing link is the access itself and is not kept. For Dropbox, the file's address from the browser (dropbox.com/home/…), never a shared link: a shared link is the access itself and is not kept. For Coda, the doc or page link from the browser (coda.io/d/…)" },
       summary: { type: 'string', description: 'One line on what it says' },
     },
     additionalProperties: false,
@@ -752,7 +753,7 @@ function readBackQueued(r) {
   if (r.summary) parts.push(`Summary: ${asQuotedData(r.summary, 400)}`);
   if (says.length) parts.push(`What it would change, to read back to the user in these words, one line each: ${says.map(s => `- ${asQuotedData(s, 400)}`).join(' ')}`);
   if (tasks.length) {
-    parts.push(`Proposed tasks, which are decided separately from the rest (${tasks.length}): ${tasks.map(t => `- ${asQuotedData(t.title)}`).join(' ')}`
+    parts.push(`Proposed tasks, which are decided separately from the rest (${tasks.length}): ${tasks.map(t => `- ${asQuotedData(t.title)}${t.fromRecord?.text ? `, from ${LABELS[t.fromRecord.type] || 'Note:'} ${asQuotedData(t.fromRecord.text)}` : ''}`).join(' ')}`
       + ' Read these out as their own list. Never offer to approve all items at once when any of them carries tasks: take one item at a time,'
       + ' ask whether to approve it with the tasks (review_approve tasks: "include"), without them (tasks: "leave_out"), or to reject it.');
   }

@@ -3,6 +3,7 @@ import { today as todayIso } from './model.js';
 import { getProvider } from './providers/index.js';
 import { getRequestAiProvider, keyWasRejected, fallBackFromOwnKey } from './ai-context.js';
 import { normalizeContradictions } from './contradictions.js';
+import { keepPeoplesTasks, withWhereFrom } from './task-wording.js';
 
 export const MODELS_BY_PROVIDER = {
   anthropic: [
@@ -154,6 +155,7 @@ export async function proposeDiff({
     '',
     operationsToCheck ? 'Check the supplied operations for contradictions only. Do not change or regenerate them. Output STRICT JSON:' : 'Propose changes. Output STRICT JSON:',
     'A task number such as 3.2 is the handle a person uses. When a contribution names one, resolve it to the matching task id above. Records have no number: refer to them by their wording. Use internal ids in operations and links; never assign or edit a number. A task belongs to a workstream: when the contribution is to the project itself, do not propose addTask.',
+    'A task is one piece of work a person picks up and finishes. Its title is one plain sentence that starts with what they do and names the thing ("Write the launch post for article 1"). It is never a step in an assistant’s or an AI’s process, never addressed to an assistant, and uses no internal words. A rule that describes how work is done (a workflow, a checklist, a process) is not a list of tasks: do not turn its steps into tasks. Set owner only when the input names who will do it. When a task comes from a decision or rule, existing or proposed here, name it in from. If the input says it is only source material, or says not to make tasks, propose no addTask.',
     'Say only what the contribution says. Never write that work is approved, accepted, settled, final, closed, complete or done unless the contribution itself says so in those words: a draft sent "for review" is a draft for review, and only a manager\'s decision makes anything approved. Never use editTask to record progress: a task\'s title says what the work is, so do not add "draft complete", "ready for review" or any status to it. Do not propose closing or reopening a task.',
     'For setGoal: "text" is one outcome sentence that names who or what changes, not how. "why" is the reason, the buyer or user need, or the cost of not doing it, and does not restate the goal. Plain words: no headings, bullets, hedging or marketing language. Use only what the input says. If it gives no reason, leave "why" out rather than invent one.',
     `{
@@ -170,7 +172,7 @@ export async function proposeDiff({
     { "type": "editRecord", "id": "<existing id>", "changes": { "text": "..." } },
     { "type": "addEvidence", "id": "<existing assumption id>", "evidence": { "text": "the words in the contribution that bear on it" } },
     { "type": "setRecordStatus", "id": "<existing id>", "status": "replaced|broken|closed|active" },
-    { "type": "addTask", "ref": "optional local name", "title": "a concrete piece of work" },
+    { "type": "addTask", "ref": "optional local name", "title": "what a person does, e.g. Write the launch post for article 1", "owner": "who will do it, only if the input names them", "from": "<id or ref of the decision or rule it comes from>" },
     { "type": "editTask", "id": "<existing task id>", "title": "..." },
     { "type": "removeTask", "id": "<existing task id>" }
   ]
@@ -228,7 +230,16 @@ export async function proposeDiff({
 
   const raw = await callClaude({ prompt, model, system, config });
   const parsed = extractJson(raw);
-  const operations = operationsToCheck ?? (Array.isArray(parsed.operations) ? parsed.operations : []);
+  // Checked operations are the caller's and stay exactly as they were. Fresh
+  // ones lose any task a person would not pick up (#175), and the
+  // contradictions follow their operations to their new positions. One that
+  // pointed at a dropped task, or at nothing, still points at nothing, so it is
+  // refused as before.
+  const fresh = operationsToCheck ? null : keepPeoplesTasks(Array.isArray(parsed.operations) ? parsed.operations : [], contribution);
+  const operations = operationsToCheck ?? withWhereFrom(fresh.operations, [...(workstream.records || []).filter(r => r.status === 'active'), ...comparisons]);
+  if (fresh && Array.isArray(parsed.contradictions)) {
+    parsed.contradictions = parsed.contradictions.map(c => (c && fresh.at.has(c.operationIndex) ? { ...c, operationIndex: fresh.at.get(c.operationIndex) } : c));
+  }
   if (comparisons.length && operations.some(op => op?.type === 'addRecord'
     || (op?.type === 'editRecord' && typeof op.changes?.text === 'string')) && !Array.isArray(parsed.contradictions)) {
     throw new Error('The model omitted the contradiction check; no changes applied. Try the contribution again.');
@@ -238,5 +249,6 @@ export async function proposeDiff({
     summary: String(parsed.summary ?? '(no summary)'),
     operations,
     ...(contradictions.length ? { contradictions } : {}),
+    ...(fresh?.dropped.length ? { dropped: fresh.dropped } : {}),
   };
 }
