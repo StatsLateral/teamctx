@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **A task added or removed directly is logged (#207).** `task_add` and
+  `task_rm` write a change entry in the task's part, in the approval card's
+  words, so someone with work in progress there or below is told the plan
+  moved. Like other changes that are not significant (#206), it is counted
+  rather than listed in full. Marking a task done, reopening or assigning it
+  still writes nothing.
+
 ## [0.4.0] - 2026-10-29
 
 ### Breaking
@@ -139,12 +147,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and about anything that touched it; other changes above it, such as a new
   decision, are only counted (`others`). The impact card names only the work a change would flag. A
   compiled prompt still goes stale on any change in its chain.
-- **A task added or removed directly is logged (#207).** `task_add` and
-  `task_rm` write a change entry in the task's part, in the approval card's
-  words, so someone with work in progress there or below is told the plan
-  moved. Like other changes that are not significant (#206), it is counted
-  rather than listed in full. Marking a task done, reopening or assigning it
-  still writes nothing.
 - **Connected sources are real (#168).** When something an assistant read in a
   connected tool (Slack, Notion, Google Drive, SharePoint, Dropbox, Coda) reaches
   the project, a reference to it is kept in `.teamctx/sources/`: the tool, a
