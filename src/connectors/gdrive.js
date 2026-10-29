@@ -353,6 +353,34 @@ export function parseSelector(input) {
   throw new Error(`not a Google Drive link or file id: "${s}"`);
 }
 
+/**
+ * The one link for a Drive file or folder, however it was copied (#171). The API
+ * hands back the editor link (`docs.google.com/document/d/<id>/edit?usp=drivesdk`);
+ * "Share" adds `?usp=sharing` or gives `drive.google.com/file/d/<id>/view`; a
+ * link to a heading or a sheet tab adds an anchor; another signed-in account adds
+ * `/u/1/`; and the old form is `open?id=`. All are the same file, so all become
+ * `https://drive.google.com/file/d/<id>/view` (it opens Docs, Sheets and Slides
+ * too), or `…/drive/folders/<id>` for a folder, and the file is recorded once.
+ * `resourcekey` is kept: some older shared files will not open without it. A
+ * published form (`/forms/d/e/…`) names no file, and is kept as it is, as is
+ * anything that is not a link to a Drive file or folder.
+ */
+export function fileLink(link) {
+  let url;
+  try { url = new URL(link); } catch { return link; }
+  if (url.protocol !== 'https:' || !/^(docs|drive)\.google\.com$/i.test(url.hostname)) return link;
+  const folder = /\/folders\/([A-Za-z0-9_-]+)\/?$/.exec(url.pathname)?.[1];
+  const file = /\/d\/(?!e\/)([A-Za-z0-9_-]+)(?:\/|$)/.exec(url.pathname)?.[1]
+    || (/^\/(open|uc)$/.test(url.pathname) ? url.searchParams.get('id') : null);
+  const id = folder || file;
+  if (!id || !ID.test(id)) return link;
+  const key = url.searchParams.get('resourcekey');
+  const keep = key && /^[A-Za-z0-9_-]+$/.test(key) ? `?resourcekey=${key}` : '';
+  return folder
+    ? `https://drive.google.com/drive/folders/${id}${keep}`
+    : `https://drive.google.com/file/d/${id}/view${keep}`;
+}
+
 // ---- classification ----------------------------------------------------
 
 /**

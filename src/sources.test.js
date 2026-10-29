@@ -98,6 +98,9 @@ describe('recording references', () => {
     const copied = 'https://www.notion.so/acme/Launch-checklist-1a2b3c4d5e6f47788899aabbccddeeff?pvs=4';
     expect(cleanRef({ connector: 'notion', link: copied }).link).toBe('https://www.notion.so/1a2b3c4d5e6f47788899aabbccddeeff');
     expect(cleanRef({ connector: 'other', link: copied }).link).toBe(copied);
+    const shared = 'https://docs.google.com/document/d/1DocumentIdBbbbbbbbbbbbbbbbbbbbb/edit?usp=sharing';
+    expect(cleanRef({ connector: 'gdrive', link: shared }).link).toBe('https://drive.google.com/file/d/1DocumentIdBbbbbbbbbbbbbbbbbbbbb/view');
+    expect(cleanRef({ connector: 'other', link: shared }).link).toBe(shared);
     const library = 'https://contoso.sharepoint.com/sites/Team/Shared%20Documents/Notes.docx?web=1';
     expect(cleanRef({ connector: 'sharepoint', link: library }).link).toBe('https://contoso.sharepoint.com/sites/Team/Shared%20Documents/Notes.docx');
     const address = 'https://www.dropbox.com/home/Specs?preview=Plan.docx&di=left_nav';
@@ -130,6 +133,18 @@ describe('recording references', () => {
     expect(refs[0]).toMatchObject({ title: 'Launch plan', link: `https://www.notion.so/${page}` });
     const [shown] = visibleSources(readSourceRefs(dir), { canSee: () => true, counts: () => true });
     expect(shown.summary).toBe('Now four steps');
+  });
+
+  it('records a Drive file once, from the editor or from Drive', () => {
+    const doc = '1DocumentIdBbbbbbbbbbbbbbbbbbbbb';
+    recordSources([{ connector: 'Google Drive', title: 'Hall floor plan', link: `https://docs.google.com/document/d/${doc}/edit?usp=drivesdk`, summary: 'Two halls' }],
+      { by: maya, at: '2026-10-01T09:00:00.000Z', feed: { workstream: null, contribution: 'c1' }, dir });
+    recordSources([{ connector: 'gdrive', title: 'Hall floor plan', link: `https://drive.google.com/file/d/${doc}/view?usp=drive_link`, summary: 'Now three halls' }],
+      { by: maya, at: '2026-10-05T09:00:00.000Z', feed: { workstream: null, contribution: 'c2' }, dir });
+    const refs = Object.values(readSourceRefs(dir));
+    expect(refs).toHaveLength(1);
+    expect(refs[0].link).toBe(`https://drive.google.com/file/d/${doc}/view`);
+    expect(visibleSources(readSourceRefs(dir))[0].summary).toBe('Now three halls');
   });
 
   it('never keeps a sharing link, under any tool, and keeps the item by its title', () => {
