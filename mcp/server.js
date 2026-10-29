@@ -637,10 +637,13 @@ export const TOOLS = [
   },
   {
     name: 'task_rm',
-    description: RISKY + 'permanently deletes a task and its compiled prompt file, then commits. There is no undo short of a git revert. Report the task title to the user and confirm before calling.' + REPORT,
+    description: RISKY + "permanently deletes a task and its compiled prompt file, then commits. There is no undo short of a git revert. Report the task title to the user and confirm before calling. A task whose work was accepted can be removed only by a manager, with `reason` saying why; its outputs and approval stay, its acceptance is closed, and `stillActive` lists anything else recorded when it was accepted: tell the manager, who decides whether those stand." + REPORT,
     inputSchema: {
       type: 'object',
-      properties: { id: { type: 'string' } },
+      properties: {
+        id: { type: 'string' },
+        reason: { type: 'string', description: 'Why an accepted task is leaving the plan. Required for an accepted task; ask the manager for it.' },
+      },
       required: ['id'],
       additionalProperties: false,
     },
@@ -1522,10 +1525,13 @@ export function makeHandlers(projectRoot) {
     async task_rm(args = {}) {
       const teamctxDir = dir();
       await assertTaskInScope(teamctxDir, args.id);
-      const r = await removeTask({ id: args.id, teamctxDir, projectDir: gitCwd });
+      const r = await removeTask({ id: args.id, reason: args.reason, source: 'mcp', teamctxDir, projectDir: gitCwd });
+      const still = (r.stillActive || []).map(x => (x.kind === 'task' ? `task ${x.key || x.id} "${x.title}"` : `"${x.text}"`));
       return textResult({
         ...r,
-        reportBack: `Task ${r.id} ("${r.title}") permanently removed from ${targetLabel(r.workstream, readConfig(teamctxDir).project)}.`,
+        reportBack: `Task ${r.key || r.id} ("${r.title}") permanently removed from ${targetLabel(r.workstream, readConfig(teamctxDir).project)}.`
+          + (r.accepted ? ' Its accepted work and approval are kept in the history.' : '')
+          + (still.length ? ` Still in the context from when it was accepted: ${still.join('; ')}. Ask the manager whether those stand.` : ''),
       });
     },
 

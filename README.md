@@ -153,7 +153,7 @@ teamctx contribute "We decided to use AWS. We are assuming the migration fits in
 | `teamctx task show <id>` | Show a task by id or unique prefix |
 | `teamctx task done <id>` / `reopen <id>` | Toggle task status |
 | `teamctx task assign <id> --owner <name>` | Reassign a task |
-| `teamctx task rm <id>` | Remove a task (and its compiled prompt file, if any) |
+| `teamctx task rm <id> [--reason <text>]` | Remove a task (and its compiled prompt file, if any). An accepted task: a manager only, with a reason |
 | `teamctx task compile <id> [--role <slug>] [--force]` | AI-compile a focused prompt file for the task |
 
 See [docs/providers.md](docs/providers.md) for the full provider guide.

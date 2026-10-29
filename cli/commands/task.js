@@ -138,10 +138,17 @@ export async function taskAssignCommand(idOrPrefix, opts = {}) {
   reportGit(result, `✓ Task ${result.task.key || result.task.id} assigned to ${opts.owner}`);
 }
 
-export async function taskRmCommand(idOrPrefix) {
+export async function taskRmCommand(idOrPrefix, opts = {}) {
   let result;
-  try { result = await removeTask({ id: idOrPrefix }); } catch (err) { reportAndExit(err); }
-  reportGit(result, `✓ Task ${result.id} removed (workstream: ${result.workstream})`);
+  try { result = await removeTask({ id: idOrPrefix, reason: opts.reason }); } catch (err) { reportAndExit(err); }
+  reportGit(result, `✓ Task ${result.key || result.id} removed (workstream: ${result.workstream})`);
+  // An accepted task's outputs and approval stay; what else its acceptance
+  // recorded is the manager's to decide about.
+  if (result.stillActive?.length) {
+    console.log('Still in the context from when it was accepted:');
+    for (const x of result.stillActive) console.log(`  - ${x.kind === 'task' ? `task ${x.key || x.id}: ${x.title}` : `${x.type}: ${x.text}`}`);
+    console.log();
+  }
 }
 
 export async function taskCompileCommand(idOrPrefix, opts = {}) {

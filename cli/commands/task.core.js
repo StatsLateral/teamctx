@@ -1,15 +1,19 @@
-import { chainFor } from '../../src/recompile.js';
+import { chainFor, recompileInheritors } from '../../src/recompile.js';
 import { flaggedInProject } from '../../src/project-records.js';
 import { isActive, ancestorsOf } from '../../src/model.js';
-import { changesReaching, lastActivity, changedSummary, labelFor } from '../../src/changes.js';
+import { changesReaching, lastActivity, changedSummary, labelFor, changeEntry } from '../../src/changes.js';
 import { createHash } from 'crypto';
 import {
   readProject, readConfig, readTree, listTasks, readTask, writeTask, deleteTask,
   readWorkstream, readContributions,
   writeTaskFile, readTaskFile, taskFilePath, taskFileExists,
   writeOutput, listOutputs, listChanges, prepareChanges, appendContribution, writeQueueItem, readApprovals, listQueue, listRejected,
+  writeTree, writeTreeMd, deleteTaskFile, writeChange, withCounters,
 } from '../../src/storage.js';
-import { compileTaskPrompt } from '../../src/context.js';
+import { applyOps } from '../../src/ops.js';
+import { assertManager, currentIdentity, ManagerGateError } from './review.core.js';
+import { isBrokenGate } from '../../src/manager-repair.js';
+import { compileTaskPrompt, serializeToMd } from '../../src/context.js';
 import { outputStates, latestRejection } from '../../src/outputs.js';
 import { commitContext, pushContext } from '../../src/git.js';
 import { resolveActor } from '../../src/actor.js';
@@ -87,7 +91,12 @@ export function slugify(title) {
 }
 
 export function uniqueTaskId(base, dir) {
-  const existing = new Set(listTasks({}, dir).map(t => t.id));
+  // An accepted task that was removed keeps its approval and outputs under its
+  // id, so a new task must never take that id and inherit them.
+  const existing = new Set([
+    ...listTasks({}, dir).map(t => t.id),
+    ...Object.values(readApprovals(dir) || {}).map(a => a?.forTask).filter(Boolean),
+  ]);
   if (!existing.has(base)) return base;
   for (let i = 2; i < 1000; i++) {
     const candidate = `${base}-${i}`;
@@ -186,17 +195,19 @@ export function listTasksFiltered({
   };
 }
 
+/** Every approval that accepted work for this task; empty when none did. */
+const acceptancesOf = (task, teamctxDir) => Object.values(readApprovals(teamctxDir) || {}).filter(a => a?.forTask === task.id);
+
 /**
- * A task whose submitted work a manager accepted is closed for good in this
- * version: nobody works on it any more, the manager included. Anything further
- * is a follow-on task. (Letting a manager remove an accepted task from the
- * context is for a later version.)
+ * A task whose submitted work a manager accepted is closed: nobody works on it
+ * any more, and it cannot be reopened. Anything further is a follow-on task. A
+ * manager can still take it out of the plan, with a reason (#202).
  *
  * Read off the approvals, not stored on the task, so a task somebody merely
  * marked done by hand is not locked and can still be reopened.
  */
 function assertNotAccepted(task, teamctxDir) {
-  const accepted = Object.values(readApprovals(teamctxDir) || {}).find(a => a?.forTask === task.id);
+  const accepted = acceptancesOf(task, teamctxDir)[0];
   if (!accepted) return;
   const by = accepted.approvedBy?.name ? ` by ${accepted.approvedBy.name}` : '';
   throw new Error(`Task ${task.key || task.id} was accepted${by} and is closed. Add a follow-on task for anything further.`);
@@ -511,15 +522,109 @@ export async function assignTask({ id, owner, teamctxDir, projectDir } = {}) {
   return { task: updated, ...git };
 }
 
-export async function removeTask({ id, teamctxDir, projectDir, actor } = {}) {
+export const MAX_REASON_CHARS = 500;
+
+export async function removeTask({ id, reason, source = 'cli', teamctxDir, projectDir, actor } = {}) {
   const config = readConfig(teamctxDir);
   // Resolve first so a bad id fails before anything is deleted.
   const { task } = findTask(id, teamctxDir);
-  assertNotAccepted(task, teamctxDir);
+  const accepted = acceptancesOf(task, teamctxDir);
+  if (accepted.length) return removeAcceptedTask({ task, accepted, reason, source, config, teamctxDir, projectDir });
   const { id: removedId, workstream } = deleteTask(id, teamctxDir);
   const me = await whoAmI({ config, teamctxDir, projectDir, actor });
   const git = await commitAndPush(config, `task: rm ${removedId} by ${me}`, projectDir);
-  return { id: removedId, title: task.title, workstream, ...git };
+  return { id: removedId, key: task.key || null, title: task.title, workstream, ...git };
+}
+
+/**
+ * Take an accepted task out of the plan (#202). A manager only, with a reason.
+ *
+ * It leaves the plan, not the history: the outputs, the approval file and the
+ * logs stay. Its acceptance record is closed, so the context stops calling it
+ * accepted work; anything else recorded when it was accepted stands on its own
+ * and is handed back as `stillActive`, for the manager to decide about.
+ */
+async function removeAcceptedTask({ task, accepted, reason, source, config, teamctxDir, projectDir }) {
+  // Gated on who is calling, never on an actor handed in: as with approving,
+  // that is a claim, not a credential.
+  const { actor: caller, displayName: me } = await currentIdentity(config, teamctxDir, projectDir);
+  const label = task.key || task.id;
+  try {
+    assertManager(config, { actor: caller, displayName: me });
+  } catch (err) {
+    // A broken gate keeps its own message, which says how to repair it.
+    if (!(err instanceof ManagerGateError) || isBrokenGate(config)) throw err;
+    const by = accepted[0].approvedBy?.name ? ` by ${accepted[0].approvedBy.name}` : '';
+    throw new Error(`Task ${label} was accepted${by} and is closed. Only a manager can remove it; add a follow-on task for anything further.`);
+  }
+  const why = String(reason ?? '').trim();
+  if (!why) throw new Error(`Task ${label} was accepted, so removing it needs a reason: say why it is leaving the plan.`);
+  if (why.length > MAX_REASON_CHARS) throw new Error(`The reason is too long (${why.length} characters; at most ${MAX_REASON_CHARS}).`);
+
+  const at = new Date().toISOString();
+  const cid = `${source === 'mcp' ? 'mcp' : 'c'}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+  const wsId = task.workstream;
+  // Every acceptance of it: a task can have more than one, and only the first
+  // wrote the "accepted" record.
+  const ids = new Set(accepted.map(a => a.id));
+  const fromAcceptance = (x) => (x?.sourceContributionIds || []).some(id => ids.has(id));
+  const createdByAcceptance = (x) => ids.has(x?.createdBy);
+  const onTask = (r) => r.attachedTo?.kind === 'task' && r.attachedTo.id === task.id;
+  let closed = [];
+  let stillActive = [];
+  let updated;
+  withCounters(teamctxDir, () => {
+    const before = readTree(wsId, teamctxDir);
+    const acceptance = (before.records || []).filter(r => fromAcceptance(r) && onTask(r) && r.status === 'active');
+    const operations = [
+      ...acceptance.map(r => ({ type: 'setRecordStatus', id: r.id, status: 'closed' })),
+      { type: 'removeTask', id: task.id },
+    ];
+    const { tree, dropped } = applyOps(before, operations, cid, { at });
+    // Nothing is written, and nothing logged, unless all of it happened.
+    if (dropped.length) throw new Error(`Task ${label} could not be removed: ${dropped.map(d => d.reason).join('; ')}.`);
+    writeTree(wsId, tree, teamctxDir);
+    deleteTaskFile(task.id, teamctxDir);
+    updated = tree;
+    try {
+      writeChange(changeEntry({ id: cid, at, tree: wsId, operations, before, after: tree, by: { key: caller?.key || null, name: me } }), teamctxDir);
+    } catch { /* the change log is a convenience; the removal itself is done and logged below */ }
+    closed = acceptance.map(r => r.id);
+    // What the acceptance added that still stands, and anything else still on
+    // the task, which is now attached to nothing.
+    stillActive = [
+      ...(tree.records || []).filter(r => isActive(r) && (createdByAcceptance(r) || onTask(r)))
+        .map(r => ({ kind: 'record', id: r.id, type: r.type, text: r.text })),
+      ...(tree.tasks || []).filter(t => createdByAcceptance(t) && t.status !== 'done')
+        .map(t => ({ kind: 'task', id: t.id, key: t.key || null, title: t.title })),
+    ];
+  });
+  rerender(wsId, updated, me, config, teamctxDir);
+  // Who took it out and why, beside every other change to the context.
+  appendContribution({
+    id: cid, ts: at, author: me, ...(caller?.key ? { authorKey: caller.key } : {}),
+    text: `Removed accepted task ${label} ("${task.title}"): ${why}`,
+    tagged: null, source, workstream: wsId, status: 'applied', removedTask: task.id,
+  }, teamctxDir);
+  const git = await commitAndPush(config, `task: rm accepted ${task.id} by ${me}: ${why.split(/\r?\n/)[0].slice(0, 120)}`, projectDir);
+  return { id: task.id, key: task.key || null, title: task.title, workstream: wsId, accepted: true, reason: why, closed, stillActive, ...git };
+}
+
+/**
+ * Rewrite the rendered context after a removal, the way approving does, so what
+ * `ask` and the assistants read stops showing the task. No role file is
+ * regenerated, which would spend an AI call; approving work with nothing picked
+ * does not either.
+ */
+function rerender(wsId, tree, by, config, teamctxDir) {
+  const contributions = readContributions(teamctxDir);
+  const project = isProjectLevel(wsId) ? null : readProject(teamctxDir);
+  const chain = isProjectLevel(wsId) ? null
+    : chainFor({ config, id: wsId, teamctxDir }).map(w => (w.id === wsId ? { ...tree, name: w.name, number: w.number } : w));
+  const name = isProjectLevel(wsId) ? (config.project || tree.name || 'project')
+    : config.workstreams?.find(w => w.id === wsId)?.name || tree.name || config.project;
+  writeTreeMd(wsId, serializeToMd(tree, name, by, contributions, { project, chain }), teamctxDir);
+  recompileInheritors({ project: project ?? tree, config, contributions, teamctxDir });
 }
 
 /**
