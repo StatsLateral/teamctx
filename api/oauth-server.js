@@ -40,7 +40,7 @@ import {
   createAgentToken, listAgents, revokeAgent, projectsWithAgentsBy,
   setAgentKey, clearAgentKey, agentKeyStatus,
 } from '../src/oauth/agent-tokens.js';
-import { verifyProviderKey } from '../src/oauth/manager-checks.js';
+import { verifyProviderKey } from '../src/providers/verify-key.js';
 
 /**
  * Single Vercel function serving every OAuth surface. `vercel.json` rewrites

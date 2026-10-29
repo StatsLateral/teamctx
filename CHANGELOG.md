@@ -102,6 +102,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `workstream_split` and `teamctx workstream suggest` / `suggest_workstream_splits`.
 
 ### Added
+- **Notion pages as connected sources (#170).** A Notion page, imported with
+  `teamctx import --from notion` or cited by an assistant with `contribute`, is
+  recorded once under Notion whichever link it came by (the API's, one from
+  after a rename, "Copy link", a link to a block on it, or a database view), as
+  `https://www.notion.so/<page id>`. So a changed page brought in again shows
+  its new summary on the same entry. Published `notion.site` links are kept as
+  they are. Never the page's text, and no Notion credential is held for the
+  assistant route.
+- **How fresh the context is (#183).** `teamctx status`, `get_status`
+  (`lastApprovedAt`, `waiting`) and every role file as it is read say when the
+  context was last approved and how much is waiting for review: "Context last
+  approved 12 days ago; 3 items waiting for review." Worked out from the
+  approval files and the queue, never stored; a project approved before
+  approvals were recorded says "not recorded". A scoped member counts only their
+  own parts, and a role file only its own part and the project. A queue file
+  that cannot be read leaves the line out rather than breaking the command.
+- **`teamctx doctor` (#180).** Checks the setup before it fails somewhere else:
+  a git repository with a teamctx project, the Node version, an AI key for the
+  configured provider and whether the provider accepts it, the manager gate, and
+  a remote when auto-push is on. One line per check, each failure with one action
+  to fix it; "all good" and exit 0 when clean, exit 1 otherwise. `--offline`
+  skips the key check with the provider. The key check is the one the Settings
+  page already ran, now shared from `src/providers/verify-key.js`.
+- **The change log, impact card and pickup flag hold up on a busy project
+  (#206).** Change files name their part as well as their time
+  (`<time>.<part>.<id>.json`; older names still read), so a task reads only what
+  is newer in its own chain, decided from the names. The hosted server downloads
+  only the last 30 days of the log up front and fetches older entries when a
+  reader needs them. `list_pending_reviews` adds `overall`: everything waiting
+  summed up, the parts it reaches most, how many clash and how many tasks it
+  would flag. A task picked up again hears in full about changes to the goal, a
+  rule or an exception, about a record replaced, reworded, retired or broken,
+  and about anything that touched it; other changes above it, such as a new
+  decision, are only counted (`others`). The impact card names only the work a change would flag. A
+  compiled prompt still goes stale on any change in its chain.
 - **A manager can remove an accepted task (#202).** `teamctx task rm <id>
   --reason "…"` and `task_rm` with `reason`. A manager only, and a reason is
   required. The task leaves the plan, not the history: its outputs, approval and
@@ -205,6 +240,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   link and the member gate agree.
 
 ### Fixed
+- **Removing a task that was never compiled works on the hosted server.** It
+  deleted the task's prompt file, which was never written, and GitHub refused the
+  whole commit (422). A path the repository does not have is no longer sent as a
+  deletion.
+- **Command-line writes work again.** `teamctx task add`, `task rm`, `review approve` and
+  every other command that numbers something failed with `The "path" argument must be of
+  type string`: keeping the counters lock out of git looked for the project in a folder the
+  command line never passes. It now uses the project found from the working directory, as
+  every other read does.
 - **A contribution with two changes flagged against one decision can be approved.** A new
   decision that replaces an old one, sent with a new rule about the same thing, had both
   flagged against the old decision. Naming it in `--replaces` failed because a rule cannot
