@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Google Drive files as connected sources (#171).** A Drive file or folder,
+  imported with `teamctx import --from gdrive` or cited by an assistant with
+  `contribute`, is recorded once under Google Drive whichever link it came by
+  (the editor's, "Share", a heading or sheet tab, another signed-in account, or
+  `open?id=`), as `https://drive.google.com/file/d/<id>/view` or
+  `…/drive/folders/<id>`. The `resourcekey` some older shared files need is
+  kept. Never the file's text, and no Drive credential is held for the
+  assistant route.
+
 ## [0.4.0] - 2026-10-29
 
 ### Breaking
@@ -139,14 +149,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and about anything that touched it; other changes above it, such as a new
   decision, are only counted (`others`). The impact card names only the work a change would flag. A
   compiled prompt still goes stale on any change in its chain.
-- **Google Drive files as connected sources (#171).** A Drive file or folder,
-  imported with `teamctx import --from gdrive` or cited by an assistant with
-  `contribute`, is recorded once under Google Drive whichever link it came by
-  (the editor's, "Share", a heading or sheet tab, another signed-in account, or
-  `open?id=`), as `https://drive.google.com/file/d/<id>/view` or
-  `…/drive/folders/<id>`. The `resourcekey` some older shared files need is
-  kept. Never the file's text, and no Drive credential is held for the
-  assistant route.
 - **Connected sources are real (#168).** When something an assistant read in a
   connected tool (Slack, Notion, Google Drive, SharePoint, Dropbox, Coda) reaches
   the project, a reference to it is kept in `.teamctx/sources/`: the tool, a
