@@ -16,6 +16,9 @@ vi.mock('../../src/storage.js', () => ({
   listTasks: vi.fn(() => []),
   listOutputs: vi.fn(() => []),
   listWorkstreamIds: vi.fn(() => ['delivery', 'docs']),
+  // How fresh the role file is (#183): nothing approved on record, nothing waiting.
+  readApprovals: vi.fn(() => ({})),
+  listQueue: vi.fn(() => []),
   // The brief now also asks what rests on a broken assumption, which needs every
   // record in the project rather than the reader's own chain — so the whole-tree
   // read is part of this path. `null` is the project's own tree.
@@ -142,7 +145,7 @@ describe('the role, if they hold one', () => {
   it('names a role bound to where they are', async () => {
     const r = await buildBrief({ activeWorkstream: 'delivery', teamctxDir: '/x' });
     expect(r.role.name).toBe('Delivery Lead');
-    expect(r.role.markdown).toBe('# role file');
+    expect(r.role.markdown).toBe('# role file\n\n*Context last approved: not recorded; nothing waiting for review.*');
   });
 
   it('is null when no role sits there', async () => {

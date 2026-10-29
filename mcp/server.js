@@ -60,6 +60,7 @@ import {
   AGENT_TOOLS, agentOnRoster, agentOwnsTask, AgentRefusedError,
 } from '../src/agents.js';
 import { takeDailyContribution } from '../src/oauth/agent-tokens.js';
+import { contextFreshness, freshnessLine, withFreshness } from '../src/freshness.js';
 
 export function resolveProjectDir(argv = process.argv.slice(2), env = process.env, cwd = process.cwd()) {
   const flagIdx = argv.findIndex(a => a === '--project' || a === '-p');
@@ -68,6 +69,14 @@ export function resolveProjectDir(argv = process.argv.slice(2), env = process.en
   if (eqArg) return pathResolve(eqArg.slice('--project='.length));
   if (env.TEAMCTX_PROJECT_DIR) return pathResolve(env.TEAMCTX_PROJECT_DIR);
   return cwd;
+}
+
+/**
+ * How fresh the context is, for a caller who may see only part of the queue:
+ * a scoped member counts what is waiting in their own parts.
+ */
+function freshness(teamctxDir, allowed, role = null) {
+  return contextFreshness(teamctxDir, { scope: allowed, role }) || {};
 }
 
 const RISKY = '⚠ RISKY: ';
@@ -179,7 +188,7 @@ export const TOOLS = [
   },
   {
     name: 'get_status',
-    description: "**Call this first when you do not know where you are.** Answers who is calling, which project, whether it is set up at all, and whether the caller is the manager — all in one read. `managerGateBroken: true` means the gate is a display name nobody can match, so every approval on this project is already failing — tell the user plainly and offer repair_manager_gate if they set the project up. Returns project name, provider, model, manager identity, workstreams with why-counts, roles, contribution/decision totals. `me` and `activeWorkstream` are the calling user's, not the project defaults. Read-only. Returns `viewUrl`, the page where this can be read — always end your reply with it, on its own line, as a plain URL, and directly beneath it `tipsUrl` (the Tips & Tricks page), also on its own line as a plain URL. Give `tipsUrl` every time, even when `viewUrl` is null. `view` carries the ids it was built from (owner, repo and the ws/item/task/review it names), so a link can still be assembled from the project address if you need to. When `viewUrl` is null there is no address recorded for this project: say that rather than inventing one, and `viewUrlError` says why.",
+    description: "**Call this first when you do not know where you are.** Answers who is calling, which project, whether it is set up at all, and whether the caller is the manager — all in one read. `managerGateBroken: true` means the gate is a display name nobody can match, so every approval on this project is already failing — tell the user plainly and offer repair_manager_gate if they set the project up. Returns project name, provider, model, manager identity, workstreams with why-counts, roles, contribution/decision totals. `lastApprovedAt` and `waiting` say how fresh the context is: when something was last approved into it (null when none was recorded) and how many items wait for review; mention them when the context looks old or a lot is waiting. `me` and `activeWorkstream` are the calling user's, not the project defaults. Read-only. Returns `viewUrl`, the page where this can be read — always end your reply with it, on its own line, as a plain URL, and directly beneath it `tipsUrl` (the Tips & Tricks page), also on its own line as a plain URL. Give `tipsUrl` every time, even when `viewUrl` is null. `view` carries the ids it was built from (owner, repo and the ws/item/task/review it names), so a link can still be assembled from the project address if you need to. When `viewUrl` is null there is no address recorded for this project: say that rather than inventing one, and `viewUrlError` says why.",
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
   },
   {
@@ -1006,8 +1015,12 @@ export function makeHandlers(projectRoot) {
       // that workstream — a scope that stopped at get_workstream would be
       // walked around by asking for the role instead.
       const found = (config.roles || []).find(r => r.slug === role);
-      if (found) assertInScope(await scope(teamctxDir, config), resolveTarget(found.workstream));
-      return textResult(readRoleFile(role, teamctxDir));
+      const allowed = await scope(teamctxDir, config);
+      if (found) assertInScope(allowed, resolveTarget(found.workstream));
+      // With how fresh it is under the title (#183), worked out now: a line
+      // written into the file would always say "today".
+      const md = readRoleFile(role, teamctxDir);
+      return textResult(withFreshness(md, freshnessLine(contextFreshness(teamctxDir, { scope: allowed, role: found || null }))));
     },
 
     async list_roles() {
@@ -1153,6 +1166,10 @@ export function makeHandlers(projectRoot) {
         workstreams,
         ...(allowed ? { scopedTo: allowed } : {}),
         contributions: { total: contributions.length, decisions: decisions.length },
+        // How fresh the context is (#183). `lastApprovedAt` is null on a project
+        // approved before approvals were recorded; a scoped caller counts only
+        // what is waiting in their own parts, as list_pending_reviews shows it.
+        ...freshness(teamctxDir, allowed),
         // Filtered for the same reason `list_roles` is: a role name and the
         // workstream behind it are two of the things a scope keeps back, and
         // this response hides those workstream ids three lines above.
