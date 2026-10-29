@@ -203,6 +203,14 @@ describe('what an assistant passes for a Notion page', () => {
   });
 });
 
+describe('what an assistant passes for a Dropbox file', () => {
+  it("is the file's address and its name, never a shared link", () => {
+    const { items } = TOOLS.find(t => t.name === 'contribute').inputSchema.properties.sources;
+    expect(items.properties.title.description).toMatch(/Dropbox file, its file name/);
+    expect(items.properties.link.description).toMatch(/Dropbox, the file's address.*never a shared link/);
+  });
+});
+
 describe('what an assistant passes for a Coda page', () => {
   it('is the doc or page link from the browser and the page name', () => {
     const { items } = TOOLS.find(t => t.name === 'contribute').inputSchema.properties.sources;
