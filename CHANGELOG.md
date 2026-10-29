@@ -31,6 +31,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `…/drive/folders/<id>`. The `resourcekey` some older shared files need is
   kept. Never the file's text, and no Drive credential is held for the
   assistant route.
+- **Dropbox files as connected sources (#173).** A Dropbox file, imported with
+  `teamctx import --from dropbox` or cited by an assistant with `contribute`, is
+  recorded under Dropbox by its address (`dropbox.com/home/<folder>?preview=<name>`,
+  built from the path the importer already has, or copied from the browser
+  without what it adds). A shared link (`/scl/fi/…`, `/s/…`, `db.tt`, …) is the
+  access itself, so it is never kept, whatever tool it arrives under; the item is
+  kept by its name. Never the file's text, and no Dropbox credential is held for
+  the assistant route.
 
 ## [0.4.0] - 2026-10-29
 

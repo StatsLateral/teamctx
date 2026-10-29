@@ -101,6 +101,9 @@ describe('recording references', () => {
     const shared = 'https://docs.google.com/document/d/1DocumentIdBbbbbbbbbbbbbbbbbbbbb/edit?usp=sharing';
     expect(cleanRef({ connector: 'gdrive', link: shared }).link).toBe('https://drive.google.com/file/d/1DocumentIdBbbbbbbbbbbbbbbbbbbbb/view');
     expect(cleanRef({ connector: 'other', link: shared }).link).toBe(shared);
+    const address = 'https://www.dropbox.com/home/Specs?preview=Plan.docx&di=left_nav';
+    expect(cleanRef({ connector: 'dropbox', link: address }).link).toBe('https://www.dropbox.com/home/Specs?preview=Plan.docx');
+    expect(cleanRef({ connector: 'other', link: address }).link).toBe(address);
     const page = 'https://coda.io/d/Handbook_dAbCd1234/Onboarding_su42?searchClear=true';
     expect(cleanRef({ connector: 'Coda', link: page }).link).toBe('https://coda.io/d/_dAbCd1234/_su42');
     expect(cleanRef({ connector: 'other', link: page }).link).toBe(page);
@@ -140,6 +143,17 @@ describe('recording references', () => {
     expect(refs).toHaveLength(1);
     expect(refs[0].link).toBe(`https://drive.google.com/file/d/${doc}/view`);
     expect(visibleSources(readSourceRefs(dir))[0].summary).toBe('Now three halls');
+  });
+
+  it('never keeps a Dropbox shared link, under any tool, and keeps the item by its title', () => {
+    const share = 'https://www.dropbox.com/scl/fi/abc123/Plan.docx?rlkey=SECRETKEY&dl=0';
+    for (const connector of ['Dropbox', 'other', 'notion']) {
+      const r = cleanRef({ connector, title: 'Plan.docx', link: share });
+      expect(r.link, connector).toBeNull();
+      expect(r.title).toBe('Plan.docx');
+    }
+    recordSources([{ connector: 'dropbox', title: 'Plan.docx', link: share }], { by: maya, feed: { workstream: null, contribution: 'c1' }, dir });
+    expect(files()).not.toContain('SECRETKEY');
   });
 
   it('never writes a body or a secret it was handed', () => {
