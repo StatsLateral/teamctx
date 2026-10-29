@@ -15,6 +15,7 @@
  */
 import { createHash } from 'crypto';
 import { readSourceRef, writeSourceRef } from './storage.js';
+import { pageLink } from './connectors/notion.js';
 import { threadPermalink } from './connectors/slack.js';
 
 /** The tools a reference can name, as the drawer shows them. */
@@ -30,11 +31,12 @@ export const CONNECTORS = {
 
 /**
  * One link per item, for a tool whose items are reached by several links (a
- * Slack thread copied from a reply, say). Each tool adds its own entry; a link
- * for any other tool is kept as it came.
+ * Notion page after a rename, or a Slack thread copied from a reply, say). Each
+ * tool adds its own entry; a link for any other tool is kept as it came.
  */
 const NORMALIZE_LINK = {
   slack: threadPermalink,
+  notion: pageLink,
 };
 
 /** What an assistant or an importer might call a tool, mapped to its key. */
