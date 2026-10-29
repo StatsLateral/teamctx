@@ -101,6 +101,8 @@ describe('recording references', () => {
     const shared = 'https://docs.google.com/document/d/1DocumentIdBbbbbbbbbbbbbbbbbbbbb/edit?usp=sharing';
     expect(cleanRef({ connector: 'gdrive', link: shared }).link).toBe('https://drive.google.com/file/d/1DocumentIdBbbbbbbbbbbbbbbbbbbbb/view');
     expect(cleanRef({ connector: 'other', link: shared }).link).toBe(shared);
+    const library = 'https://contoso.sharepoint.com/sites/Team/Shared%20Documents/Notes.docx?web=1';
+    expect(cleanRef({ connector: 'sharepoint', link: library }).link).toBe('https://contoso.sharepoint.com/sites/Team/Shared%20Documents/Notes.docx');
     const address = 'https://www.dropbox.com/home/Specs?preview=Plan.docx&di=left_nav';
     expect(cleanRef({ connector: 'dropbox', link: address }).link).toBe('https://www.dropbox.com/home/Specs?preview=Plan.docx');
     expect(cleanRef({ connector: 'other', link: address }).link).toBe(address);
@@ -143,6 +145,18 @@ describe('recording references', () => {
     expect(refs).toHaveLength(1);
     expect(refs[0].link).toBe(`https://drive.google.com/file/d/${doc}/view`);
     expect(visibleSources(readSourceRefs(dir))[0].summary).toBe('Now three halls');
+  });
+
+  it('never keeps a sharing link, under any tool, and keeps the item by its title', () => {
+    const share = 'https://contoso.sharepoint.com/:w:/s/Team/EaBcDeFgHiJkLmNoPqRsTuVwXyZ?e=Xy12Ab';
+    for (const connector of ['OneDrive', 'other', 'gdrive']) {
+      const r = cleanRef({ connector, title: 'Release notes', link: share });
+      expect(r.link, connector).toBeNull();
+      expect(r.title).toBe('Release notes');
+    }
+    expect(cleanRef({ connector: 'm365', link: share })).toBeNull();
+    recordSources([{ connector: 'SharePoint', title: 'Release notes', link: share }], { by: maya, feed: { workstream: null, contribution: 'c1' }, dir });
+    expect(files()).not.toContain('EaBcDeFgHiJkLmNoPqRsTuVwXyZ');
   });
 
   it('never keeps a Dropbox shared link, under any tool, and keeps the item by its title', () => {

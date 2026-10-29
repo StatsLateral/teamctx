@@ -219,6 +219,14 @@ describe('what an assistant passes for a Dropbox file', () => {
   });
 });
 
+describe('what an assistant passes for a SharePoint or OneDrive file', () => {
+  it("is the file's address and its name, never a sharing link", () => {
+    const { items } = TOOLS.find(t => t.name === 'contribute').inputSchema.properties.sources;
+    expect(items.properties.title.description).toMatch(/SharePoint or OneDrive file, its file name/);
+    expect(items.properties.link.description).toMatch(/SharePoint or OneDrive, the file's address.*never a sharing link/);
+  });
+});
+
 describe('what an assistant passes for a Coda page', () => {
   it('is the doc or page link from the browser and the page name', () => {
     const { items } = TOOLS.find(t => t.name === 'contribute').inputSchema.properties.sources;
