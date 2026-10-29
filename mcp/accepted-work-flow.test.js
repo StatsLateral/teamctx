@@ -112,9 +112,9 @@ describe('the whole flow, through the assistant', () => {
       await as(PRIYA, () => call('task_output', { id: publish.id, body: 'Publishing plan v1' }));
       await pause();
       const extra = (await call('task_add', { title: 'Book the photographer', workstream: 'finance' })).task;
-      expect((await as(PRIYA, () => call('get_task', { id: publish.id }))).changedSince.changes[0].summary).toBe('"Add a task: Book the photographer"');
+      expect((await as(PRIYA, () => call('get_task', { id: publish.id }))).changedSince).toMatchObject({ changes: [], others: 1 });
       await call('task_rm', { id: extra.id });
-      expect((await as(PRIYA, () => call('get_task', { id: publish.id }))).changedSince.changes).toHaveLength(2);
+      expect((await as(PRIYA, () => call('get_task', { id: publish.id }))).changedSince.others).toBe(2);
       expect([...getCurrentSession().listDir('.teamctx/changes')]).toHaveLength(3);
     });
   });

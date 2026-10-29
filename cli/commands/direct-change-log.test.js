@@ -66,15 +66,15 @@ describe('a task added or removed directly', () => {
 
     const { task } = await add('Price the EMEA plan', 'sales');
     const said = (t) => getTask({ id: t.id, teamctxDir: dir }).changedSince;
-    expect(said(own).changes[0].summary).toBe('"Add a task: Price the EMEA plan"');
-    expect(said(below).changes).toHaveLength(1);
+    expect(said(own)).toMatchObject({ changes: [], others: 1 });
+    expect(said(below).others).toBe(1);
     expect(said(sibling)).toBeNull();
 
     await pause();
     await as(member, () => saveOutput({ id: own.id, body: 'v2', teamctxDir: dir }));
     await pause();
     await as(manager, () => removeTask({ id: task.id, teamctxDir: dir }));
-    expect(said(own).changes[0].summary).toBe(`"Remove the task 'Price the EMEA plan'"`);
+    expect(said(own)).toMatchObject({ changes: [], others: 1 });
   });
 
   it('does not flag the added task with its own entry', async () => {
