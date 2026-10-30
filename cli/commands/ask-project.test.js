@@ -17,6 +17,8 @@ vi.mock('../../src/storage.js', () => ({
   readProject: vi.fn(),
   readContributions: vi.fn(() => []),
   listTasks: vi.fn(() => []),
+  listWorkstreamIds: vi.fn(() => ['delivery']),
+  readWorkstream: vi.fn(() => ({ id: 'delivery', records: [], tasks: [] })),
 }));
 vi.mock('../../src/context.js', () => ({ answerQuestion: vi.fn(async () => 'an answer') }));
 vi.mock('../identity.js', () => ({ currentIdentity: vi.fn(async () => ({ activeWorkstream: null })) }));
@@ -60,6 +62,12 @@ describe('at project level', () => {
     // every Why in the prompt twice.
     await askCommand('what are we doing?', {});
     expect(args().project).toBe(null);
+  });
+
+  it('reads every part of the work too, by name', async () => {
+    readConfig.mockReturnValue({ ...readConfig(), workstreams: [{ id: 'delivery', name: 'Delivery' }] });
+    await askCommand('what are we doing?', {});
+    expect(args().parts).toEqual([{ name: 'Delivery', tree: expect.objectContaining({ id: 'delivery' }) }]);
   });
 
   it('scopes open tasks to project level rather than to no workstream', async () => {

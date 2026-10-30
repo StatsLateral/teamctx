@@ -69,6 +69,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   workstream first" when one existed. The goal now goes to the project and the
   tasks to its only part of the work; with several parts, a task is left out
   with a reason that says to name its part. The read-back lists every part.
+- **Asking about the whole project reads every part of it.** `ask` read only
+  the project's own level, so "how many cruises?" got "no information" while a
+  workstream held that decision. It now reads each part the asker may see. The
+  brief for somebody on the whole project also carries each part they have open
+  work in, and names its task groups as people say them.
 - **Searching for a project finds it the way its name reads.** "vietnam 3" said
   nothing matched while `vietnam-3` was on the list below; a space, a dash and an
   underscore now count as the same.

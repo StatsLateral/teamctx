@@ -110,7 +110,16 @@ describe('how the work is laid out', () => {
 
   it('names a workstream group the way a person would say it', async () => {
     const r = await buildBrief({ teamctxDir: '/x' });
-    expect(r.tasks.open[1].name).toBe('delivery');
+    expect(r.tasks.open[1].name).toBe('Delivery');
+  });
+});
+
+describe('somebody on the whole project', () => {
+  it('reads the project and each part they have open work in', async () => {
+    const r = await buildBrief({ teamctxDir: '/x' });
+    expect(r.context.map(c => c.workstream)).toEqual([null, 'delivery']);
+    expect(r.context[1].name).toBe('Delivery');
+    expect(r.context[1].markdown).toContain('We decided: delivery decision');
   });
 });
 

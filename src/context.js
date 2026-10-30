@@ -238,7 +238,13 @@ function parseCitations(answer) {
   return { body, citedIds };
 }
 
-export async function answerQuestion({ sharedMd, roleMd, question, config, openTasks, workstream, contributions, audit, project = null }) {
+/**
+ * `parts`: when the question is asked of the whole project, each part of the
+ * work the asker may see, `{ name, tree }`. The project's own tree holds only
+ * what is common to all of them, so an answer from it alone said "nothing
+ * here" about a decision every part of a trip was built on.
+ */
+export async function answerQuestion({ sharedMd, roleMd, question, config, openTasks, workstream, contributions, audit, project = null, parts = [] }) {
   const contribs = contributions || [];
   const useCitedTags = !!workstream;
   const shared = useCitedTags
@@ -248,9 +254,13 @@ export async function answerQuestion({ sharedMd, roleMd, question, config, openT
     ? `## Open Tasks\n\n${openTasks.map(t => `- ${t.key || t.id} — ${t.title} (owner: ${t.owner || '?'})`).join('\n')}`
     : '';
 
+  const partsMd = (parts || [])
+    .map(p => serializeToMd(p.tree, p.name, '', contribs, { includeSourceTags: useCitedTags }))
+    .join('\n\n');
   const context = [
     roleMd ? `## Your Role Context\n\n${roleMd}` : '',
     shared ? `## Shared Project Context\n\n${shared}` : '',
+    partsMd ? `## Parts of the Work\n\n${partsMd}` : '',
     tasksMd,
   ].filter(Boolean).join('\n\n---\n\n');
 

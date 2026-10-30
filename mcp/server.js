@@ -1669,9 +1669,16 @@ export function makeHandlers(projectRoot) {
       // so a project full of context answered "there is nothing here yet".
       const workstream = readTree(activeWorkstreamId, teamctxDir);
       const contributions = readContributions(teamctxDir);
+      // Asked of the whole project, it reads every part the caller may see: the
+      // description promises the whole project, and the project's own tree is
+      // only what the parts have in common.
+      const parts = isProjectLevel(activeWorkstreamId)
+        ? visibleWorkstreams(await scope(teamctxDir, config), listWorkstreamIds(teamctxDir))
+          .map(id => ({ name: (config.workstreams || []).find(w => w.id === id)?.name || id, tree: readWorkstream(id, teamctxDir) }))
+        : [];
       const answer = await answerQuestion({
         sharedMd: readTreeMd(activeWorkstreamId, teamctxDir), roleMd, question, config,
-        workstream, contributions, audit: !!audit,
+        workstream, contributions, audit: !!audit, parts,
         // A workstream answers with the project above it; the project answers
         // with itself, and passing it twice would repeat every Why.
         project: isProjectLevel(activeWorkstreamId) ? null : readProject(teamctxDir),
