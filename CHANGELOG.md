@@ -66,6 +66,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Searching for a project finds it the way its name reads.** "vietnam 3" said
   nothing matched while `vietnam-3` was on the list below; a space, a dash and an
   underscore now count as the same.
+- **The same task work is not sent for review twice.** Submitting outputs that
+  were already waiting, as an assistant retrying does, queued a second copy
+  under the same number, which could then be accepted again after the first.
+  It is refused now; a different choice of outputs still waits beside it.
 - **Tasks the AI proposes read as work a person picks up (#175).** A proposed
   task is one plain sentence that starts with what somebody does and names the
   thing, never a step in an assistant's workflow or a line addressed to one; a

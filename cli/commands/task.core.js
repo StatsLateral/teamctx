@@ -435,6 +435,13 @@ export async function submitTask({
       return found;
     });
   } else chosen = [saved[saved.length - 1]];
+  // The same outputs sent again, say by an assistant retrying, would wait twice
+  // under one number, and the copy left after an acceptance could be accepted
+  // a second time.
+  const sending = chosen.map(o => o.id).sort().join('\n');
+  const waiting = listQueue(teamctxDir)
+    .find(q => q?.forTask === task.id && (Array.isArray(q.outputs) ? [...q.outputs] : []).sort().join('\n') === sending);
+  if (waiting) throw new Error(`that work on task ${task.key || task.id} is already waiting for review (${waiting.id}); there is nothing new to send`);
 
   const resolved = actor || await resolveActor({ config, cwd: projectDir });
   const me = await resolveDisplayName({ actor: resolved, config, teamctxDir });
