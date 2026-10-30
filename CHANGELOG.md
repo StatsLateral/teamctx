@@ -53,6 +53,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   nothing recorded, the drawer said so and then listed sample Slack threads,
   pages and files with task numbers, which read as the project's own. It now
   says only that nothing is connected yet and how something gets there.
+- **A team rule about tasks no longer drops the tasks sent with it.** "Rule:
+  never create tasks for hotel bookings before the budget is approved", sent
+  with two tasks, was read as "make no tasks" and both were left out. Only a
+  plain "don't make tasks" (or "…from this") is read that way now.
 - **Tasks the AI proposes read as work a person picks up (#175).** A proposed
   task is one plain sentence that starts with what somebody does and names the
   thing, never a step in an assistant's workflow or a line addressed to one; a
