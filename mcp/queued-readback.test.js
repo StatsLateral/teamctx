@@ -54,6 +54,23 @@ describe('what the chat is told about a queued contribution', () => {
   });
 });
 
+describe('what the chat is told when everything proposed was left out', () => {
+  it('says what was missing and to ask for it, not that nothing was proposed', () => {
+    const said = reportBackContribute({
+      id: 'mcp-2', mode: 'no-op', workstream: 'article', operations: [],
+      dropped: [{ reason: 'expiresAt: missing' }],
+    });
+    expect(said).toContain('expiresAt: missing');
+    expect(said).toMatch(/ask them for what is missing/i);
+    expect(said).not.toMatch(/proposed no changes/);
+  });
+
+  it('still says nothing was proposed when nothing was', () => {
+    expect(reportBackContribute({ id: 'mcp-3', mode: 'no-op', workstream: 'article', operations: [], dropped: [] }))
+      .toMatch(/proposed no changes/);
+  });
+});
+
 // ---- approving, with the tasks decided on their own ---------------------------
 
 const rec = (id, type, text) => ({

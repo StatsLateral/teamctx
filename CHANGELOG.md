@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **A contribution left out for something missing says so.** "Allowed: …" with
+  no end date was dropped, and the reply said the AI proposed no changes, with
+  the reason as raw schema text. It now says what was missing and asks for it.
 - **The same task work is not sent for review twice.** Submitting outputs that
   were already waiting, as an assistant retrying does, queued a second copy
   under the same number, which could then be accepted again after the first.
