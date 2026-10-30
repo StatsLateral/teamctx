@@ -335,6 +335,7 @@ export async function contributeCore({
     touched: touchedBy(updated, contribution.id).filter(id => id !== 'goal'),
     // Only on the founding one. Every contribution after it lands beside
     // context the team already knows, and a digest each time would be noise.
-    ...(founding ? { founding: true, digest: digestProject({ project: project ?? updated, workstreams: isProjectLevel(targetId) ? [] : [updated] }) } : {}),
+    // A workstream's number is kept in the config, not on its tree.
+    ...(founding ? { founding: true, digest: digestProject({ project: project ?? updated, workstreams: isProjectLevel(targetId) ? [] : [{ ...updated, number: workstreamNumber(config, targetId) }] }) } : {}),
   };
 }
