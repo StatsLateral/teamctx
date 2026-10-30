@@ -49,6 +49,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   credential is held for the assistant route.
 
 ### Fixed
+- **Connected sources no longer shows made-up items in a new project.** With
+  nothing recorded, the drawer said so and then listed sample Slack threads,
+  pages and files with task numbers, which read as the project's own. It now
+  says only that nothing is connected yet and how something gets there.
+- **A team rule about tasks no longer drops the tasks sent with it.** "Rule:
+  never create tasks for hotel bookings before the budget is approved", sent
+  with two tasks, was read as "make no tasks" and both were left out. Only a
+  plain "don't make tasks" (or "…from this") is read that way now.
+- **An error page no longer offers "Sign in" to someone signed in.** A project
+  that could not be read, and the other errors met while signed in, showed the
+  signed-out bar; they now show the person's own.
+- **The read-back after a project's first contribution numbers its part of the
+  work.** It gave the workstream with no number, so the assistant could not say
+  "part 1".
+- **A project's first contribution keeps both its goal and its tasks.** Sent to
+  a workstream it lost the goal, so the project read "Goal: none yet" and nobody
+  could be invited; sent to the project it lost every task, with "add a
+  workstream first" when one existed. The goal now goes to the project and the
+  tasks to its only part of the work; with several parts, a task is left out
+  with a reason that says to name its part. The read-back lists every part.
+- **Asking about the whole project reads every part of it.** `ask` read only
+  the project's own level, so "how many cruises?" got "no information" while a
+  workstream held that decision. It now reads each part the asker may see. The
+  brief for somebody on the whole project also carries each part they have open
+  work in, and names its task groups as people say them.
+- **Searching for a project finds it the way its name reads.** "vietnam 3" said
+  nothing matched while `vietnam-3` was on the list below; a space, a dash and an
+  underscore now count as the same.
+- **The same task work is not sent for review twice.** Submitting outputs that
+  were already waiting, as an assistant retrying does, queued a second copy
+  under the same number, which could then be accepted again after the first.
+  It is refused now; a different choice of outputs still waits beside it.
+- **A contribution left out for something missing says so.** "Allowed: …" with
+  no end date was dropped, and the reply said the AI proposed no changes, with
+  the reason as raw schema text. It now says what was missing and asks for it.
+- **Asking for a role that does not exist names the ones that do.** It failed
+  with ENOENT and a file path from the server's disk.
 - **Tasks the AI proposes read as work a person picks up (#175).** A proposed
   task is one plain sentence that starts with what somebody does and names the
   thing, never a step in an assistant's workflow or a line addressed to one; a

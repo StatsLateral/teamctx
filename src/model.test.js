@@ -28,7 +28,9 @@ describe('validateRecord', () => {
     const r = validateRecord(makeRecord({ type: 'exception', links: { bends: null }, expiresAt: undefined }));
     expect(r.ok).toBe(false);
     expect(r.errors.join(' ')).toMatch(/bends/);
-    expect(r.errors.join(' ')).toMatch(/expiresAt/);
+    expect(r.errors.join(' ')).toMatch(/expiresAt: missing/);
+    // Schema plumbing is not something a person can act on.
+    expect(r.errors.join(' ')).not.toMatch(/schema|must have required property/);
   });
   it('rejects an unknown or retired type and a malformed date', () => {
     expect(validateRecord(makeRecord({ type: 'fact' })).ok).toBe(false);

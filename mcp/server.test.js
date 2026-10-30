@@ -290,6 +290,14 @@ describe('get_role_context', () => {
     expect(readRoleFile).toHaveBeenCalledWith('cpo', TDIR);
     expect(result.content[0].text).toContain('# CPO Context');
   });
+
+  it('names the roles there are when asked for one that is not, not a file path', async () => {
+    readConfig.mockReturnValue({ ...baseConfig, roles: [{ slug: 'pm', name: 'PM', workstream: null }] });
+    readRoleFile.mockImplementation(() => { throw Object.assign(new Error("ENOENT: no such file, open 'D:\\x\\nope.md'"), { code: 'ENOENT' }); });
+    const handlers = makeHandlers(ROOT);
+    await expect(handlers.get_role_context({ role: 'nope' })).rejects.toThrow('No role "nope". Available: pm');
+    readRoleFile.mockReset();
+  });
 });
 
 describe('ask', () => {
@@ -322,6 +330,18 @@ describe('ask', () => {
       workstream: expect.objectContaining({ records: [{ id: 'p1' }] }),
       project: null,
     }));
+  });
+
+  it('asked of the whole project, reads every part of the work too', async () => {
+    readConfig.mockReturnValue({ ...baseConfig, roles: [], workstreams: [{ id: 'itin', name: 'Itinerary' }] });
+    listWorkstreamIds.mockReturnValue(['itin']);
+    readWorkstream.mockReturnValue({ id: 'itin', records: [{ id: 'r1' }], tasks: [] });
+    answerQuestion.mockResolvedValue('answer');
+    await makeHandlers(ROOT).ask({ question: 'q?' });
+    expect(answerQuestion).toHaveBeenCalledWith(expect.objectContaining({
+      parts: [{ name: 'Itinerary', tree: expect.objectContaining({ id: 'itin' }) }],
+    }));
+    listWorkstreamIds.mockReturnValue([]);
   });
 
   it('includes role markdown when role is provided', async () => {

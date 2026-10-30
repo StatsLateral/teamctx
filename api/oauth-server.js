@@ -617,7 +617,7 @@ app.post('/settings/new-project', async (req, res) => {
             : 'GitHub would not let this account create a repository.',
         }));
       }
-      return res.status(500).send(errorPage(e.message));
+      return res.status(500).send(errorPage(e.message, { user }));
     }
   }
 
@@ -697,7 +697,7 @@ app.post('/settings', async (req, res) => {
       : '/settings?saved=1');
   }
   if (!apiKey) {
-    return res.status(400).send(errorPage('Paste a key, or leave the page.'));
+    return res.status(400).send(errorPage('Paste a key, or leave the page.', { user }));
   }
   const saved = await writePersonalKey({
     email: user.email, githubId: user.id, githubLogin: user.login, provider: provider_, apiKey,
@@ -1210,10 +1210,13 @@ async function renderProjects(req, res, user, { typed = '', error = null, search
   // browser decides to match, and several of them match only the start of the
   // value — so with `owner/repo` in the list, typing a repository's own name
   // found nothing at all while the owner's name found every one of them. This
-  // matches either, and anywhere in the name.
+  // matches either, and anywhere in the name. A space, a dash and an underscore
+  // count as the same, so "vietnam 3" finds vietnam-3: a repository name has no
+  // spaces, and people type a project's name the way it reads.
   const needle = search ? typed.trim().toLowerCase() : '';
+  const loose = (s) => String(s).toLowerCase().replace(/[\s_-]+/g, '-');
   const matches = needle
-    ? repos.map(r => r.fullName).filter(name => String(name).toLowerCase().includes(needle)).slice(0, 25)
+    ? repos.map(r => r.fullName).filter(name => loose(name).includes(loose(needle))).slice(0, 25)
     : [];
   res.send(projectsPage({
     user, projects, repos, typed, error, query: needle ? typed.trim() : null, matches,
@@ -1345,7 +1348,7 @@ app.get('/project/:owner/:repo', async (req, res) => {
     const denied = e instanceof ProjectViewError || e.code === 'MEMBER_ACCESS_DENIED';
     // An old-format project is not a failure of this server: say what to do.
     const status = e.code === 'LEGACY_FORMAT' ? 409 : denied ? 403 : 500;
-    res.status(status).send(errorPage(e.message));
+    res.status(status).send(errorPage(e.message, { user }));
   }
 });
 
@@ -1364,7 +1367,7 @@ app.get('/project/:owner/:repo/contributions', async (req, res) => {
     res.send(contributionsPage({ user, view: await readContributionsView({ owner, repo, user }), by }));
   } catch (e) {
     const denied = e instanceof ProjectViewError || e.code === 'MEMBER_ACCESS_DENIED';
-    res.status(e.code === 'LEGACY_FORMAT' ? 409 : denied ? 403 : 500).send(errorPage(e.message));
+    res.status(e.code === 'LEGACY_FORMAT' ? 409 : denied ? 403 : 500).send(errorPage(e.message, { user }));
   }
 });
 

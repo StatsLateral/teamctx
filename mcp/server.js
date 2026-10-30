@@ -784,7 +784,17 @@ export function reportBackContribute(r) {
       + " manager's alone. The contribution was kept and took the ordinary path, so tell the user"
       + ' where it went and do not call contribute again for the same text.'
     : '';
-  if (r.mode === 'no-op') return `Tell the user: contribution logged for ${where} but the AI proposed no changes to the tree.${refused}`;
+  if (r.mode === 'no-op') {
+    // Everything proposed was left out: "no changes proposed" would tell the
+    // person it was ignored, when what it needs is the missing piece.
+    const left = (r.dropped || []).map(d => d?.reason).filter(Boolean);
+    if (left.length) {
+      return `Tell the user: nothing from this was added to ${where}, because what it proposed was incomplete: ${left.join('; ')}.`
+        + ' Ask them for what is missing (for an exception, until when it holds; for an assumption, who owns it and when to check it) and send it again.'
+        + refused;
+    }
+    return `Tell the user: contribution logged for ${where} but the AI proposed no changes to the tree.${refused}`;
+  }
   if (r.mode === 'queued') return `Tell the user: contribution ${r.id}${r.number ? ` (item ${r.number})` : ''} queued for manager approval on ${where} (${r.operations.length} op${r.operations.length === 1 ? '' : 's'}). Manager must run \`teamctx review approve ${r.id}\` or call the review_approve tool.${readBackQueued(r)}${(r.contradictions || []).map(c => ` ${contradictionLabel(c)}. Resolve with a replacement or reject; do not retry direct apply.`).join('')}${(r.operations || []).filter(o => o?.type === 'addEvidence').map(o => ` ${evidenceLabel(o)}. The manager decides whether it holds; nothing changes until they do.`).join('')}${refused}`;
   const keys = (r.tasks || []).map(x => x.key).filter(Boolean);
   const applied = `Tell the user: contribution ${r.id} applied to ${where} (${r.operations.length} op${r.operations.length === 1 ? '' : 's'})${r.rolesRegenerated?.length ? `, regenerated roles: ${r.rolesRegenerated.join(', ')}` : ''}${r.pushed ? ', committed and pushed' : ', committed'}.${keys.length ? ` Tasks: ${keys.join(', ')}.` : ''}${refused}${r.changeLogWarning ? ` ${r.changeLogWarning}` : ''}`;
@@ -1020,7 +1030,16 @@ export function makeHandlers(projectRoot) {
       if (found) assertInScope(allowed, resolveTarget(found.workstream));
       // With how fresh it is under the title (#183), worked out now: a line
       // written into the file would always say "today".
-      const md = readRoleFile(role, teamctxDir);
+      let md;
+      try {
+        md = readRoleFile(role, teamctxDir);
+      } catch (e) {
+        if (e?.code !== 'ENOENT') throw e;
+        // Said the way `ask` says it, naming only roles this caller may see: a
+        // missing file came back as ENOENT with a path on the server's disk.
+        const available = (config.roles || []).filter(r => inScope(allowed, resolveTarget(r.workstream))).map(r => r.slug).join(', ') || '(none)';
+        throw new Error(`No role "${role}". Available: ${available}`);
+      }
       return textResult(withFreshness(md, freshnessLine(contextFreshness(teamctxDir, { scope: allowed, role: found || null }))));
     },
 
@@ -1650,9 +1669,16 @@ export function makeHandlers(projectRoot) {
       // so a project full of context answered "there is nothing here yet".
       const workstream = readTree(activeWorkstreamId, teamctxDir);
       const contributions = readContributions(teamctxDir);
+      // Asked of the whole project, it reads every part the caller may see: the
+      // description promises the whole project, and the project's own tree is
+      // only what the parts have in common.
+      const parts = isProjectLevel(activeWorkstreamId)
+        ? visibleWorkstreams(await scope(teamctxDir, config), listWorkstreamIds(teamctxDir))
+          .map(id => ({ name: (config.workstreams || []).find(w => w.id === id)?.name || id, tree: readWorkstream(id, teamctxDir) }))
+        : [];
       const answer = await answerQuestion({
         sharedMd: readTreeMd(activeWorkstreamId, teamctxDir), roleMd, question, config,
-        workstream, contributions, audit: !!audit,
+        workstream, contributions, audit: !!audit, parts,
         // A workstream answers with the project above it; the project answers
         // with itself, and passing it twice would repeat every Why.
         project: isProjectLevel(activeWorkstreamId) ? null : readProject(teamctxDir),

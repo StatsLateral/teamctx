@@ -268,6 +268,13 @@ describe('getting there', () => {
     expect(body).toMatch(/could not be read/);
   });
 
+  it('keeps the person signed in on the error page, not offering "Sign in"', async () => {
+    repo.prefetchError = 'github: repo acme/ledger not found (or PAT lacks access)';
+    const { body } = await visit('/project/acme/ledger', MANAGER);
+    expect(body).toMatch(/Sign out/);
+    expect(body).not.toMatch(/href="\/signin"/);
+  });
+
   describe('when GitHub rejects the credential itself', () => {
     const BAD = 'github GET https://api.github.com/repos/acme/ledger → 401: { "message": "Bad credentials" }';
 
@@ -677,24 +684,15 @@ describe('My Team', () => {
 describe('Connected sources, with nothing recorded yet', () => {
   const sources = (body) => /<section class="dpanel" id="dp-sources"[\s\S]*?<\/section>/.exec(body)?.[0] || '';
 
-  it('says plainly that nothing is connected, labels the sample as sample, and invites contributions', async () => {
+  it('says plainly that nothing is connected, and how something gets here', async () => {
     const html = sources((await visit('/project/acme/ledger', MANAGER)).body);
     expect(html).toMatch(/Nothing is connected yet/);
-    expect(html).toMatch(/sample data/i);
-    expect(html).toMatch(/contribut/i);
-    // The issue that lists every connector, not the general issues page.
-    expect(html).toContain('href="https://github.com/StatsLateral/teamctx/issues/168"');
+    expect(html).toMatch(/teamctx import/);
   });
 
-  it('shows a few connectors and what came from them, as the demo does', async () => {
+  it('lists nothing, so a made-up example is never read as the project\'s own', async () => {
     const html = sources((await visit('/project/acme/ledger', MANAGER)).body);
-    expect((html.match(/class="srcgroup"/g) || []).length).toBeGreaterThanOrEqual(3);
-    expect(html).toMatch(/context items?/);
-  });
-
-  it('carries no real client names', async () => {
-    const html = sources((await visit('/project/acme/ledger', MANAGER)).body);
-    for (const name of ['Pycube', 'Henry Ford', 'BayCare', 'Baptist', 'UM Health']) expect(html).not.toContain(name);
+    expect(html).not.toMatch(/class="srcgroup"|context items?|sample/i);
   });
 
   it('says on the settings link that none are recorded yet', async () => {
