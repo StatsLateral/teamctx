@@ -47,6 +47,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `authkey`) is the access itself, so it is never kept, whatever tool it arrives
   under; the item is kept by its name. Never the file's text, and no Microsoft
   credential is held for the assistant route.
+- **Slack notices for what is waiting (#182).** When a contribution or a task's
+  work is queued for review, one message goes to a Slack incoming webhook: the
+  item's number, who sent it, a one-line summary and the link that opens it.
+  Never the text. A manager sets it in Settings (kept in the deployment's store,
+  never the repository, never shown again); the command line reads
+  `TEAMCTX_SLACK_WEBHOOK` on the sender's machine, and posts once the item is
+  pushed. An import sends one notice for the run. Only
+  `https://hooks.slack.com/services/…` is accepted. A post that fails or takes
+  over 3 seconds is logged and skipped.
 
 ### Fixed
 - **Tasks the AI proposes read as work a person picks up (#175).** A proposed

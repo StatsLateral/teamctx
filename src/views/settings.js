@@ -6,7 +6,7 @@ import { esc, navBar, shell } from './theme.js';
  * agents. Moved here whole from the routes file — see src/views/theme.js.
  */
 export const settingsPage = ({
-  user, hasKey, saved, error, confirmRemove = null, shared = [], lent = [], repos = [], agents = [], newAgent = null, rotated = [], stillShared = [] }) => shell('Settings', `
+  user, hasKey, saved, error, confirmRemove = null, shared = [], lent = [], repos = [], agents = [], newAgent = null, rotated = [], stillShared = [], slack = [] }) => shell('Settings', `
 ${navBar({ user, current: '/settings' })}
 <h1>Settings</h1>
 ${saved ? '<div class="ok">Saved.</div>' : ''}
@@ -168,6 +168,31 @@ ${agents.map(group => `<p class="muted"><code>${esc(group.project)}</code></p>${
   <input id="agentApiKey" name="agentApiKey" type="password" autocomplete="off" placeholder="Leave empty to run on the project key">
   <p class="muted">If the provider ever rejects it, the agent runs on the project key and this page says so.</p>
   <button type="submit">Create agent</button>
+</form>
+</section>
+
+<section class="card">
+<h2>Slack</h2>
+<p class="muted">Posts to a Slack channel when something is waiting for your
+approval: its number, who sent it, a one-line summary and a link to it. The text
+of what was sent never leaves teamctx. Approving stays in your assistant. The
+webhook is kept here, never in your repository, and is not shown again. Managers
+only.</p>
+${slack.map(s => `
+<form method="POST" action="/settings/slack" style="margin:.35rem 0">
+  <input type="hidden" name="project" value="${esc(s.project)}">
+  <input type="hidden" name="clear" value="1">
+  <code>${esc(s.project)}</code>
+  <span class="muted">— set by ${esc(s.setBy || 'a manager')}${s.setAt ? ` on ${esc(String(s.setAt).slice(0, 10))}` : ''}</span>
+  <button type="submit" class="link">Stop</button>
+</form>`).join('')}
+<form method="POST" action="/settings/slack">
+  <label for="slackProject">Project</label>
+  ${projectPicker('slackProject', repos)}
+  <label for="slackWebhook">Slack incoming webhook</label>
+  <input id="slackWebhook" name="webhook" type="password" autocomplete="off" placeholder="https://hooks.slack.com/services/…" required>
+  <p class="muted">Create one in Slack under Apps → Incoming Webhooks. Setting it again replaces it.</p>
+  <button type="submit">Save</button>
 </form>
 </section>
 </div>`, { wide: true });

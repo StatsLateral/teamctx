@@ -27,6 +27,7 @@ import { parseProjectRef } from '../src/project-ref.js';
 // Page templates. They used to sit at the bottom of this file, which left it
 // mostly HTML with the routes buried in it — see #103 part 1.
 import { settingsPage } from '../src/views/settings.js';
+import { isSlackWebhook } from '../src/slack-notify.js';
 import { projectsPage } from '../src/views/projects.js';
 import { projectPage } from '../src/views/project.js';
 import { tipsPage } from '../src/views/tips.js';
@@ -413,9 +414,10 @@ async function renderSettings(req, res, user, { newAgent = null } = {}) {
     ...(user.email ? (await kvGet(keys.lentByAddress(user.email)))?.projects || [] : []),
   ])].sort();
   const agents = await agentsFor(user);
+  const slack = await slackFor(user, repos);
   if (newAgent) res.setHeader('Cache-Control', 'no-store');
   res.send(settingsPage({
-    user, hasKey: !!existing, shared, lent, repos, agents, newAgent,
+    user, hasKey: !!existing, shared, lent, repos, agents, newAgent, slack,
     saved: req.query.saved === '1',
     rotated: req.query.rotated ? String(req.query.rotated).split(',').filter(Boolean) : [],
     stillShared: req.query.stillShared ? String(req.query.stillShared).split(',').filter(Boolean) : [],
@@ -445,6 +447,30 @@ async function agentsFor(user) {
     if (!(await agentManagerAccess(user, { owner, repo })).ok) continue;
     for (const agent of list) agent.key = await agentKeyStatus(agent.id);
     out.push({ project: slug, agents: list });
+  }
+  return out;
+}
+
+/**
+ * The Slack notices set on projects this person manages (#182): who set each and
+ * when, never the webhook itself, which is a credential.
+ */
+async function slackFor(user, repos = []) {
+  if (!user.email) return [];
+  // The repositories they can push to as well, so a co-manager can see and stop
+  // a notice another manager set. Only those with a webhook are checked.
+  const projects = [...new Set([
+    ...((await kvGet(keys.slackSetBy(user.email)))?.projects || []),
+    ...(await projectsKnownFor(user.email)),
+    ...repos.map(r => r.fullName),
+  ].filter(Boolean).map(p => p.toLowerCase()))].sort();
+  const out = [];
+  for (const slug of projects) {
+    const [owner, repo] = slug.split('/');
+    const saved = await kvGet(keys.slackWebhook(owner, repo));
+    if (!saved?.url) continue;
+    if (!(await slackManagerAccess(user, { owner, repo })).ok) continue;
+    out.push({ project: slug, setBy: saved.setBy || null, setAt: saved.setAt || null });
   }
   return out;
 }
@@ -1002,6 +1028,28 @@ app.post('/settings/unlend', async (req, res) => {
 });
 
 /**
+ * The identity a signed-in person matches the project's manager gate with, or
+ * null when they are not a manager. Whichever identity the gate recognised is
+ * the one handed on: a manager recorded as github:<id> passed a check by
+ * address and was then refused by a roster write, which checks the gate again
+ * with the actor it is given.
+ */
+function matchManager(config, user) {
+  if (!user.email) return null;
+  const actor = {
+    key: `git:${String(user.email).toLowerCase()}`,
+    name: user.name || user.login || user.email,
+    email: String(user.email).toLowerCase(),
+    login: user.login || null,
+    source: user.id ? 'github' : 'google',
+  };
+  const managers = managerKeys(config);
+  const byId = user.id ? { ...actor, key: `github:${user.id}` } : null;
+  return managers.some(k => matchesActor(k, actor)) ? actor
+    : (byId && managers.some(k => matchesActor(k, byId)) ? byId : null);
+}
+
+/**
  * Is this person a manager of this project, and can an agent reach it?
  *
  * Read through the project's lent GitHub access, because that is what an agent
@@ -1023,26 +1071,65 @@ async function agentManagerAccess(user, ref) {
   try { config = await readConfigJson({ owner: ref.owner, repo: ref.repo, token: lent.token }); } catch (e) {
     return { ok: false, why: e.message };
   }
-  const actor = {
-    key: `git:${String(user.email).toLowerCase()}`,
-    name: user.name || user.login || user.email,
-    email: String(user.email).toLowerCase(),
-    login: user.login || null,
-    source: user.id ? 'github' : 'google',
-  };
-  const managers = managerKeys(config);
-  if (!managers.length) return { ok: false, why: `${slug} has no manager on record, so nobody can issue agents for it.` };
-  const byId = user.id ? { ...actor, key: `github:${user.id}` } : null;
-  // Whichever identity the gate recognised is the one handed on. A manager
-  // recorded as github:<id> passed here but was refused by the roster write,
-  // which checks the gate again with the actor it is given.
-  const matched = managers.some(k => matchesActor(k, actor)) ? actor
-    : (byId && managers.some(k => matchesActor(k, byId)) ? byId : null);
+  if (!managerKeys(config).length) return { ok: false, why: `${slug} has no manager on record, so nobody can issue agents for it.` };
+  const matched = matchManager(config, user);
   if (!matched) {
     return { ok: false, why: `Only a manager of ${slug} can issue or revoke its agents.` };
   }
   return { ok: true, actor: matched, token: lent.token };
 }
+
+/**
+ * Whether this person may set or clear a project's Slack notices: a manager of
+ * it, read through their own GitHub sign-in or the access the project lends.
+ */
+async function slackManagerAccess(user, ref) {
+  const slug = `${ref.owner}/${ref.repo}`;
+  // Their own sign-in first, then the access the project lends: a GitHub
+  // account an organisation keeps out of the repository can still be a manager.
+  const tokens = [user.token, (await kvGet(keys.projectGhCred(ref.owner, ref.repo)))?.token].filter(Boolean);
+  if (!tokens.length) {
+    return { ok: false, why: `${slug} cannot be read without GitHub access. Sign in with GitHub, or ask its manager to lend access below.` };
+  }
+  let config = null;
+  let lastError = null;
+  for (const token of tokens) {
+    try { config = await readConfigJson({ owner: ref.owner, repo: ref.repo, token }); break; } catch (e) { lastError = e; }
+  }
+  if (!config) return { ok: false, why: lastError.message };
+  if (!matchManager(config, user)) return { ok: false, why: `Only a manager of ${slug} can set its Slack notices.` };
+  return { ok: true };
+}
+
+/**
+ * Set or clear the Slack webhook a project's waiting items are announced to
+ * (#182). Kept in the store, never the repository, and never shown again.
+ */
+app.post('/settings/slack', async (req, res) => {
+  const user = await currentUser(req);
+  if (!user) return res.redirect(303, '/settings');
+  const ref = parseRepoRef(req.body?.project);
+  if (!ref) return backToSettings(res, 'Pick a project first.');
+  if (!user.email) {
+    return backToSettings(res, 'Your sign-in did not come with a verified email address, so who set this could not be recorded. Sign out and sign in again.');
+  }
+  const access = await slackManagerAccess(user, ref);
+  if (!access.ok) return backToSettings(res, access.why);
+
+  const slug = `${ref.owner}/${ref.repo}`.toLowerCase();
+  if (req.body?.clear) {
+    await kvDelete(keys.slackWebhook(ref.owner, ref.repo));
+    return backToSettings(res);
+  }
+  const url = String(req.body?.webhook || '').trim();
+  if (!isSlackWebhook(url)) {
+    return backToSettings(res, 'That is not a Slack incoming webhook. It starts with https://hooks.slack.com/services/.');
+  }
+  await kvSet(keys.slackWebhook(ref.owner, ref.repo), { url, setBy: user.email, setAt: new Date().toISOString() });
+  const mine = (await kvGet(keys.slackSetBy(user.email)))?.projects || [];
+  if (!mine.includes(slug)) await kvSet(keys.slackSetBy(user.email), { projects: [...mine, slug] });
+  backToSettings(res);
+});
 
 /** Run a roster change against the repository, as the manager, through the lent access. */
 async function asManagerOnRepo(ref, access, fn) {
