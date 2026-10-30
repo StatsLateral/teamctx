@@ -2,7 +2,6 @@ import { esc } from './theme.js';
 import { contextGroups } from '../prompts.js';
 import { CHATBOTS, MENU_NOTE, stepsFor } from '../connect-steps.js';
 import { mcpUrl } from './mcp-url.js';
-import { SAMPLE_SOURCES, ISSUES_URL } from './sources-sample.js';
 import { CONNECTORS } from '../sources.js';
 import { CLAUDE_ICON, CHATGPT_ICON, COPILOT_ICON, COPY_ICON } from './assistant-icons.js';
 
@@ -102,16 +101,6 @@ function teamPanel(view) {
   </section>`;
 }
 
-/** The sample the drawer showed before anything was recorded, still labelled as sample. */
-function sampleGroups() {
-  return SAMPLE_SOURCES.map(src => `<div class="srcgroup">
-      <h3 class="tg"><span class="mark" aria-hidden="true">${esc(src.mark)}</span>${esc(src.name)} · ${src.items.length}</h3>
-      <p class="muted">${esc(src.about)}</p>
-      <ul class="srcitems">${src.items.map(it => `<li><strong>${esc(it.title)}</strong>
-        <span class="m">${esc(it.meta)} · on ${it.tasks.map(t => `<span class="chip">${esc(t)}</span>`).join(' ')} · ${it.context} context item${it.context === 1 ? '' : 's'}</span></li>`).join('')}</ul>
-    </div>`).join('');
-}
-
 /**
  * One recorded reference: its title, linked when it has a link, a line on what it
  * says, when it was last read and by whom, and what it feeds. Everything in it was
@@ -132,18 +121,16 @@ function sourceItem(src) {
 /**
  * What the project draws on (#168): the references recorded when what somebody's
  * assistant read in a connected tool, or what `teamctx import` brought in, reached
- * the project. Grouped by tool. With none recorded it says so, and keeps the
- * sample below as a picture of what it will hold.
+ * the project. Grouped by tool. With none recorded it says so and how one gets
+ * here, and lists nothing: a made-up example read as the project's own.
  */
 function sourcesPanel(view) {
   const sources = Array.isArray(view?.sources) ? view.sources : [];
   const intro = '<p class="muted">teamctx keeps links and short summaries, never copies of your files. Each app stays where it is. Detail is handled by your assistant or an agent, not shown here.</p>';
   if (!sources.length) {
     return `<section class="dpanel" id="dp-sources" data-scope="project" data-title="Connected sources" data-noassist hidden>
-    <p class="notice"><strong>Nothing is connected yet.</strong> When your assistant sends something it read in Slack, Notion, Google Drive, SharePoint, Dropbox or Coda, or <code>teamctx import</code> brings it in, it is listed here. Below is sample data showing what that looks like. Each tool is an open issue, and contributions are welcome: <a href="${ISSUES_URL}" target="_blank" rel="noopener">pick one up on GitHub</a>.</p>
-    <p class="statement">What the project can draw on</p>
+    <p class="notice"><strong>Nothing is connected yet.</strong> When your assistant sends something it read in Slack, Notion, Google Drive, SharePoint, Dropbox or Coda, or <code>teamctx import</code> brings it in, it is listed here.</p>
     ${intro}
-    ${sampleGroups()}
   </section>`;
   }
   const groups = Object.entries(CONNECTORS)
