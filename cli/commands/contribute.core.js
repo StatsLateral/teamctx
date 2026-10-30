@@ -58,6 +58,29 @@ export function sourceTrailer(source) {
 Source: ${source}`;
 }
 
+/**
+ * Which of a founding contribution's operations belong in another tree than the
+ * one it was sent to, or null: the goal when it was sent to a workstream, and
+ * tasks when it was sent to the project and there is exactly one workstream.
+ * With several, a task is left out and the reason says to name its part.
+ */
+function foundingSplit({ operations, targetId, config, teamctxDir }) {
+  if (!isProjectLevel(targetId)) {
+    const ops = operations.filter(o => o?.type === 'setGoal');
+    return ops.length ? { id: resolveTarget(null), ops, before: readTree(resolveTarget(null), teamctxDir) } : null;
+  }
+  const ids = (config.workstreams || []).map(w => w.id);
+  const ops = operations.filter(o => o?.type === 'addTask');
+  if (ids.length !== 1 || !ops.length) return null;
+  return { id: ids[0], ops, before: readTree(ids[0], teamctxDir) };
+}
+
+/** "Add a workstream first" is wrong advice to a project that has some. */
+function tasksReason(reason, config) {
+  if (!/^a task belongs to a workstream/.test(reason) || !(config.workstreams || []).length) return reason;
+  return 'a task belongs to a part of the work, not to the project: send it to the part it is for';
+}
+
 function workstreamDisplayName(id, workstream, config) {
   if (isProjectLevel(id)) return config.project || workstream.name || 'project';
   return config.workstreams?.find(w => w.id === id)?.name || workstream.name || config.project;
@@ -143,14 +166,14 @@ export async function contributeCore({
   appendContribution(contribution, teamctxDir);
 
   let comparisons = comparisonRecords({ config, target: targetId, teamctxDir });
-  let proposal = await updateShared(workstream, contribution, config, { intent, avoid, comparisonRecords: comparisons });
+  let proposal = await updateShared(workstream, contribution, config, { intent, avoid, comparisonRecords: comparisons, founding: founding && mayApply });
   // An AI call can outlive another contribution. Recheck once against the
   // current comparison set rather than applying a verdict on obsolete context.
   const latestConfig = readConfig(teamctxDir);
   const latestComparisons = comparisonRecords({ config: latestConfig, target: targetId, teamctxDir });
   if (comparisonFingerprint(comparisons) !== comparisonFingerprint(latestComparisons)) {
     comparisons = latestComparisons;
-    const checked = await updateShared(readTree(targetId, teamctxDir), contribution, latestConfig, { intent, avoid, comparisonRecords: comparisons, operationsToCheck: proposal.operations });
+    const checked = await updateShared(readTree(targetId, teamctxDir), contribution, latestConfig, { intent, avoid, comparisonRecords: comparisons, operationsToCheck: proposal.operations, founding: founding && mayApply });
     proposal = { ...checked, summary: proposal.summary, dropped: [...(proposal.dropped || []), ...(checked.dropped || [])] };
     if (comparisonFingerprint(comparisons) !== comparisonFingerprint(comparisonRecords({ config: readConfig(teamctxDir), target: targetId, teamctxDir }))) {
       throw new Error('Context changed again during the contradiction check. The contribution was logged; try it again before applying.');
@@ -250,17 +273,38 @@ export async function contributeCore({
     };
   }
 
+  // The founding contribution is the whole project in one message: its goal and
+  // the first tasks together. A goal belongs to the project and a task to a part
+  // of the work, so whichever one it was sent to, the other half was dropped —
+  // a project started from a workstream had no goal, and one started from the
+  // project lost every task. Here the goal goes to the project, and tasks to the
+  // project's only part of the work when there is exactly one to put them in.
+  const elsewhere = founding && mayApply ? foundingSplit({ operations, targetId, config, teamctxDir }) : null;
+  const here = elsewhere ? operations.filter(o => !elsewhere.ops.includes(o)) : operations;
+
   // Positions, kept for the change entry: what the apply dropped did not happen.
   const notApplied = new Set();
+  let elsewhereTree = null;
   const updated = withCounters(teamctxDir, current => {
     if (comparisonFingerprint(comparisons) !== comparisonFingerprint(comparisonRecords({ config: current, target: targetId, teamctxDir }))) {
       throw new Error('Context changed after the contradiction check. The contribution was logged; try it again before applying.');
     }
-    const applied = applyOps(readTree(targetId, teamctxDir), operations, contribution.id, {
-      nextKey: current.nextKey, workstreamNumber: workstreamNumber(current, targetId),
+    let nextKey = current.nextKey;
+    if (elsewhere) {
+      const moved = applyOps(readTree(elsewhere.id, teamctxDir), elsewhere.ops, contribution.id, {
+        nextKey, workstreamNumber: workstreamNumber(current, elsewhere.id),
+      });
+      droppedReasons.push(...moved.dropped.map(d => ({ reason: d.reason })));
+      for (const d of moved.dropped) notApplied.add(operations.indexOf(elsewhere.ops[d.index]));
+      nextKey = moved.nextKey;
+      writeTree(elsewhere.id, moved.tree, teamctxDir);
+      elsewhereTree = moved.tree;
+    }
+    const applied = applyOps(readTree(targetId, teamctxDir), here, contribution.id, {
+      nextKey, workstreamNumber: workstreamNumber(current, targetId),
     });
-    droppedReasons.push(...applied.dropped.map(d => ({ reason: d.reason })));
-    for (const d of applied.dropped) notApplied.add(d.index);
+    droppedReasons.push(...applied.dropped.map(d => ({ reason: tasksReason(d.reason, config) })));
+    for (const d of applied.dropped) notApplied.add(operations.indexOf(here[d.index]));
     writeConfig({ ...current, nextKey: applied.nextKey }, teamctxDir);
     writeTree(targetId, applied.tree, teamctxDir);
     return applied.tree;
@@ -276,6 +320,11 @@ export async function contributeCore({
     serializeToMd(updated, workstreamDisplayName(targetId, updated, config), actor, contributions, { project, chain: isProjectLevel(targetId) ? null : chain }),
     teamctxDir,
   );
+  // The founding goal moved to the project: its own page says so too. Moved
+  // tasks land in a workstream, which the recompile below rewrites.
+  if (elsewhere && isProjectLevel(elsewhere.id)) {
+    writeTreeMd(elsewhere.id, serializeToMd(elsewhereTree, workstreamDisplayName(elsewhere.id, elsewhereTree, config), actor, contributions, { project: null, chain: null }), teamctxDir);
+  }
   recompileInheritors({ project: project ?? updated, config, contributions, teamctxDir });
 
   const rolesOnTarget = (config.roles || []).filter(r => resolveTarget(r.workstream) === targetId);
@@ -298,9 +347,15 @@ export async function contributeCore({
   let changeLogWarning = null;
   try {
     writeChange(changeEntry({
-      id: contribution.id, at: new Date().toISOString(), tree: targetId, operations: operations.filter((_, i) => !notApplied.has(i)),
+      id: contribution.id, at: new Date().toISOString(), tree: targetId, operations: here.filter(o => !notApplied.has(operations.indexOf(o))),
       before: workstream, after: updated, by: { key: resolved.key || null, name: resolvedName },
     }), teamctxDir);
+    if (elsewhere) {
+      writeChange(changeEntry({
+        id: contribution.id, at: new Date().toISOString(), tree: elsewhere.id, operations: elsewhere.ops.filter(o => !notApplied.has(operations.indexOf(o))),
+        before: elsewhere.before, after: elsewhereTree, by: { key: resolved.key || null, name: resolvedName },
+      }), teamctxDir);
+    }
   } catch (err) {
     changeLogWarning = `The change was applied but its entry could not be written (${err.message}), so work that depends on it may not be flagged.`;
   }
@@ -320,7 +375,7 @@ export async function contributeCore({
     dropped: droppedReasons,
     // Only a task has a number a person can say. A record is found by its
     // wording and by asking, never by a number.
-    tasks: updated.tasks
+    tasks: [...updated.tasks, ...(elsewhereTree?.tasks || [])]
       .filter(x => (x.sourceContributionIds || []).includes(contribution.id))
       .map(x => ({ id: x.id, key: x.key })),
     // Reachable: a project on `none` requires review of nothing, so a member who
@@ -336,6 +391,13 @@ export async function contributeCore({
     // Only on the founding one. Every contribution after it lands beside
     // context the team already knows, and a digest each time would be noise.
     // A workstream's number is kept in the config, not on its tree.
-    ...(founding ? { founding: true, digest: digestProject({ project: project ?? updated, workstreams: isProjectLevel(targetId) ? [] : [{ ...updated, number: workstreamNumber(config, targetId) }] }) } : {}),
+    // Every part of the work, so "how the work is split" has an answer.
+    ...(founding ? { founding: true, digest: digestProject({
+      project: isProjectLevel(targetId) ? updated : (elsewhere && isProjectLevel(elsewhere.id) ? elsewhereTree : project),
+      workstreams: (config.workstreams || []).map(w => ({
+        ...(w.id === targetId ? updated : w.id === elsewhere?.id ? elsewhereTree : readTree(w.id, teamctxDir)),
+        name: w.name, number: workstreamNumber(config, w.id),
+      })),
+    }) } : {}),
   };
 }

@@ -84,7 +84,10 @@ function honestSummary(summary, contribution) {
   return `Proposed by ${contribution.author}: ${first.length > 140 ? `${first.slice(0, 140)}…` : first}`;
 }
 
-export async function updateShared(tree, contribution, config, { intent, avoid, comparisonRecords, operationsToCheck } = {}) {
+/** Dropped only for being sent to the other tree, which a founding contribution routes. */
+const WRONG_TREE = /^(?:the goal belongs to the project|a task belongs to a workstream)/;
+
+export async function updateShared(tree, contribution, config, { intent, avoid, comparisonRecords, operationsToCheck, founding = false } = {}) {
   const proposal = await proposeDiff({
     workstream: tree,
     contribution: contribution.text,
@@ -99,10 +102,13 @@ export async function updateShared(tree, contribution, config, { intent, avoid, 
   const { contradictions = [] } = proposal;
   const summary = honestSummary(proposal.summary, contribution);
   const operations = stampEvidence(operationsToCheck ?? proposal.operations, contribution, tree);
-  const { tree: updated, dropped, nextKey } = applyOps(tree, operations, contribution.id, {
+  const { tree: updated, dropped: refused, nextKey } = applyOps(tree, operations, contribution.id, {
     nextKey: config?.nextKey,
     workstreamNumber: workstreamNumber(config, tree?.id),
   });
+  // A founding contribution's goal or tasks sent to the other tree are kept: the
+  // caller moves them where they belong, and drops what it cannot place.
+  const dropped = founding ? refused.filter(d => !WRONG_TREE.test(d.reason)) : refused;
   // What was dropped never reaches the queue or the tree: a reviewer approving
   // a proposal should see exactly what will be written.
   // By position, not by identity: `applyOps` copies an operation whose record

@@ -100,8 +100,10 @@ describe('the first contribution to a project', () => {
 describe("the manager's opening message", () => {
   const base = { project: 'Ledger', me: 'Maya', autoPush: false, roles: [], reviewPolicy: 'none' };
   const withConfig = async (over) => {
-    const { readConfig } = await import('../../src/storage.js');
+    const { readConfig, withCounters } = await import('../../src/storage.js');
     readConfig.mockImplementation(() => ({ ...base, ...over }));
+    // The counters are kept in the config, so the lock hands over the same one.
+    withCounters.mockImplementation((dir, write) => write({ ...base, ...over, nextKey: {} }));
   };
   afterEach(() => withConfig({}));
 
@@ -120,6 +122,41 @@ describe("the manager's opening message", () => {
     const r = await contributeCore({ text: 'the trip', workstreamId: 'itinerary', apply: true });
     expect(r.founding).toBe(true);
     expect(r.digest.workstreams).toEqual([expect.objectContaining({ number: 1, name: 'Itinerary' })]);
+  });
+
+  // The mocked proposal carries a goal and a task, as a founding message does.
+  const written = async (id) => {
+    const { writeTree } = await import('../../src/storage.js');
+    return writeTree.mock.calls.filter(([tid]) => tid === id).map(([, tree]) => tree).pop();
+  };
+
+  it('sent to a workstream, still gives the project its goal', async () => {
+    await withConfig({ workstreams: [{ id: 'itinerary', name: 'Itinerary', number: 1 }] });
+    repo.trees.set(null, { name: 'Ledger', goal: null, records: [], tasks: [] });
+    repo.trees.set('itinerary', { id: 'itinerary', name: 'Itinerary', records: [], tasks: [] });
+    const r = await contributeCore({ text: 'the trip', workstreamId: 'itinerary', apply: true });
+    expect((await written(null)).goal.text).toBe('Ship the ledger by March');
+    expect((await written('itinerary')).tasks.map(t => t.title)).toEqual(['Import the bank feed']);
+    expect(r.dropped).toEqual([]);
+  });
+
+  it("sent to the project, puts its tasks in the project's only part of the work", async () => {
+    await withConfig({ workstreams: [{ id: 'itinerary', name: 'Itinerary', number: 1 }] });
+    repo.trees.set(null, { name: 'Ledger', goal: null, records: [], tasks: [] });
+    repo.trees.set('itinerary', { id: 'itinerary', name: 'Itinerary', records: [], tasks: [] });
+    const r = await contributeCore({ text: 'the trip', apply: true });
+    expect((await written('itinerary')).tasks.map(t => t.key)).toEqual(['1.1']);
+    expect(r.tasks).toEqual([expect.objectContaining({ key: '1.1' })]);
+    expect(r.digest.workstreams).toEqual([expect.objectContaining({ name: 'Itinerary', tasks: 1 })]);
+    expect(r.dropped).toEqual([]);
+  });
+
+  it('with several parts of the work, leaves a task out and says to name its part', async () => {
+    await withConfig({ workstreams: [{ id: 'a', name: 'A', number: 1 }, { id: 'b', name: 'B', number: 2 }] });
+    repo.trees.set(null, { name: 'Ledger', goal: null, records: [], tasks: [] });
+    const r = await contributeCore({ text: 'the trip', apply: true });
+    expect(r.dropped.map(d => d.reason).join(' ')).toMatch(/send it to the part it is for/);
+    expect(r.dropped.map(d => d.reason).join(' ')).not.toMatch(/add a workstream first/);
   });
 
   it("still queues a member's first contribution to an empty project", async () => {
