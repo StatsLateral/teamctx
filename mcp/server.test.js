@@ -290,6 +290,14 @@ describe('get_role_context', () => {
     expect(readRoleFile).toHaveBeenCalledWith('cpo', TDIR);
     expect(result.content[0].text).toContain('# CPO Context');
   });
+
+  it('names the roles there are when asked for one that is not, not a file path', async () => {
+    readConfig.mockReturnValue({ ...baseConfig, roles: [{ slug: 'pm', name: 'PM', workstream: null }] });
+    readRoleFile.mockImplementation(() => { throw Object.assign(new Error("ENOENT: no such file, open 'D:\\x\\nope.md'"), { code: 'ENOENT' }); });
+    const handlers = makeHandlers(ROOT);
+    await expect(handlers.get_role_context({ role: 'nope' })).rejects.toThrow('No role "nope". Available: pm');
+    readRoleFile.mockReset();
+  });
 });
 
 describe('ask', () => {

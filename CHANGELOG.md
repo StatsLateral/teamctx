@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **Asking for a role that does not exist names the ones that do.** It failed
+  with ENOENT and a file path from the server's disk.
 - **A contribution left out for something missing says so.** "Allowed: …" with
   no end date was dropped, and the reply said the AI proposed no changes, with
   the reason as raw schema text. It now says what was missing and asks for it.
