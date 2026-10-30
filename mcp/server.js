@@ -1030,7 +1030,16 @@ export function makeHandlers(projectRoot) {
       if (found) assertInScope(allowed, resolveTarget(found.workstream));
       // With how fresh it is under the title (#183), worked out now: a line
       // written into the file would always say "today".
-      const md = readRoleFile(role, teamctxDir);
+      let md;
+      try {
+        md = readRoleFile(role, teamctxDir);
+      } catch (e) {
+        if (e?.code !== 'ENOENT') throw e;
+        // Said the way `ask` says it, naming only roles this caller may see: a
+        // missing file came back as ENOENT with a path on the server's disk.
+        const available = (config.roles || []).filter(r => inScope(allowed, resolveTarget(r.workstream))).map(r => r.slug).join(', ') || '(none)';
+        throw new Error(`No role "${role}". Available: ${available}`);
+      }
       return textResult(withFreshness(md, freshnessLine(contextFreshness(teamctxDir, { scope: allowed, role: found || null }))));
     },
 
