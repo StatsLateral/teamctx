@@ -15,6 +15,7 @@ import { needsReview } from '../../src/review-policy.js';
 import { recordSources } from '../../src/sources.js';
 import { resolveActor } from '../../src/actor.js';
 import { resolveActiveWorkstream, resolveDisplayName } from '../../src/prefs.js';
+import { announceQueued } from '../../src/slack-notify.js';
 import { comparisonRecords, comparisonFingerprint } from '../../src/contradictions.js';
 
 function newContribution({ text, author, authorKey, tagged, source, workstream }) {
@@ -90,6 +91,11 @@ export async function contributeCore({
   // kept as references, never as contents. `sourcesVia` says how they came:
   // through the person's assistant, or through `teamctx import`.
   sources, sourcesVia = 'assistant',
+  // The address this server answers on, for the link in a Slack notice (#182).
+  // The command line has none and falls back to the project's deployUrl.
+  baseUrl = null,
+  // False for a bulk import, which says it once for the whole run.
+  notify = true,
 } = {}) {
   if (!text) throw new Error('contribution text is required');
   const config = readConfig(teamctxDir);
@@ -238,6 +244,9 @@ export async function contributeCore({
       `queue: ${actor} submission pending approval (${contribution.id})${sourceTrailer(source)}`,
       projectDir,
     );
+    // After the commit, so it never announces an item that was not written.
+    // Never throws, and a failed post changes nothing about the contribution.
+    if (notify) await announceQueued({ id: contribution.id, number: queuedNumber, author: contribution.author, summary }, { baseUrl, config, projectDir, pushed });
     return {
       id: contribution.id, workstream: targetId, author: actor, source,
       mode: 'queued', summary, operations, pushed, pushError,

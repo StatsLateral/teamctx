@@ -4,10 +4,12 @@ import { join } from 'path';
 import { tmpdir } from 'os';
 
 vi.mock('./contribute.core.js', () => ({ contributeCore: vi.fn() }));
+vi.mock('../../src/slack-notify.js', () => ({ announceQueued: vi.fn(async () => ({ sent: true })) }));
 
 import { importDocuments } from './import.core.js';
 import { contributeCore } from './contribute.core.js';
 import { UnknownWorkstreamError } from './role.core.js';
+import { announceQueued } from '../../src/slack-notify.js';
 
 let root;
 const write = (rel, text) => {
@@ -27,6 +29,21 @@ beforeEach(() => {
 afterEach(() => rmSync(root, { recursive: true, force: true }));
 
 describe('importDocuments', () => {
+  it('tells Slack once for the run, not once per document', async () => {
+    write('docs/a.md', '# A' + String.fromCharCode(10) + 'alpha');
+    write('docs/b.md', '# B' + String.fromCharCode(10) + 'bravo');
+    contributeCore.mockResolvedValueOnce({ ...queued('c-1'), author: 'Ravi', pushed: true }).mockResolvedValueOnce({ ...queued('c-2'), author: 'Ravi', pushed: true });
+
+    await importDocuments({ paths: ['docs'], cwd: root });
+
+    expect(contributeCore).toHaveBeenCalledWith(expect.objectContaining({ notify: false }));
+    expect(announceQueued).toHaveBeenCalledTimes(1);
+    expect(announceQueued).toHaveBeenCalledWith(
+      { id: 'c-1', author: 'Ravi', summary: '2 imported documents from folder' },
+      expect.objectContaining({ pushed: true }),
+    );
+  });
+
   it('enqueues one contribution per document', async () => {
     write('docs/a.md', '# A\n\nalpha');
     write('docs/b.md', '# B\n\nbravo');

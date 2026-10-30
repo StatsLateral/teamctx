@@ -262,6 +262,14 @@ export const keys = {
   agentLastUsed: id => `teamctx:agent:last-used:${id}`,
   /** How many contributions an agent has sent on one UTC day. 2 days. */
   agentDaily: (id, day) => `teamctx:agent:daily:${id}:${day}`,
+  /**
+   * A project's Slack incoming webhook (#182), set by a manager in Settings:
+   * `{ url, setBy, setAt }`. A credential, so it lives here and never in the
+   * repository; the page shows who set it and when, never the URL. Long-lived.
+   */
+  slackWebhook: (owner, repo) => `teamctx:slack:project:${slug(owner, repo)}`,
+  /** Projects this address has set a Slack webhook on, so the page can list them. */
+  slackSetBy: email => `teamctx:slack:set-by:${String(email).toLowerCase()}`,
   /** Browser session for the settings page. 1 hour. */
   session: sid => `teamctx:session:${sid}`,
 };
