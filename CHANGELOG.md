@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **Asking about the whole project reads every part of it.** `ask` read only
+  the project's own level, so "how many cruises?" got "no information" while a
+  workstream held that decision. It now reads each part the asker may see. The
+  brief for somebody on the whole project also carries each part they have open
+  work in, and names its task groups as people say them.
 - **A project's first contribution keeps both its goal and its tasks.** Sent to
   a workstream it lost the goal, so the project read "Goal: none yet" and nobody
   could be invited; sent to the project it lost every task, with "add a

@@ -332,6 +332,18 @@ describe('ask', () => {
     }));
   });
 
+  it('asked of the whole project, reads every part of the work too', async () => {
+    readConfig.mockReturnValue({ ...baseConfig, roles: [], workstreams: [{ id: 'itin', name: 'Itinerary' }] });
+    listWorkstreamIds.mockReturnValue(['itin']);
+    readWorkstream.mockReturnValue({ id: 'itin', records: [{ id: 'r1' }], tasks: [] });
+    answerQuestion.mockResolvedValue('answer');
+    await makeHandlers(ROOT).ask({ question: 'q?' });
+    expect(answerQuestion).toHaveBeenCalledWith(expect.objectContaining({
+      parts: [{ name: 'Itinerary', tree: expect.objectContaining({ id: 'itin' }) }],
+    }));
+    listWorkstreamIds.mockReturnValue([]);
+  });
+
   it('includes role markdown when role is provided', async () => {
     readConfig.mockReturnValue({ ...baseConfig, roles: [{ slug: 'cpo' }] });
     readTreeMd.mockReturnValue('# Shared');

@@ -158,6 +158,18 @@ describe('answerQuestion', () => {
     expect(result).toBe('The launch date is Q3.');
   });
 
+  it('reads each part of the work it is given, under its own name', async () => {
+    callClaude.mockResolvedValue('Two cruises.');
+    await answerQuestion({
+      sharedMd: '# Trip', roleMd: '', question: 'How many cruises?', config: { model: 'm' },
+      parts: [{ name: 'Itinerary', tree: { id: 'itin', tasks: [], records: [{ id: 'r1', type: 'decision', text: 'Two cruises in Ha Long Bay', status: 'active' }] } }],
+    });
+    const { prompt } = callClaude.mock.calls[0][0];
+    expect(prompt).toContain('Parts of the Work');
+    expect(prompt).toContain('Itinerary');
+    expect(prompt).toContain('Two cruises in Ha Long Bay');
+  });
+
   it('omits the role context section when roleMd is empty', async () => {
     callClaude.mockResolvedValue('answer');
     await answerQuestion({
