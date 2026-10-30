@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **Searching for a project finds it the way its name reads.** "vietnam 3" said
+  nothing matched while `vietnam-3` was on the list below; a space, a dash and an
+  underscore now count as the same.
 - **The read-back after a project's first contribution numbers its part of the
   work.** It gave the workstream with no number, so the assistant could not say
   "part 1".
