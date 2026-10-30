@@ -44,8 +44,13 @@ describe('a proposed task a person picks up', () => {
 
 describe('an input that says not to make tasks', () => {
   it('is one that says it is source material, or says no tasks in as many words', () => {
-    for (const t of ['This is source material only.', 'Sharing this just as source material for later.', "Don't create any tasks from this.", 'No tasks needed, it is background.', 'Please add no tasks.'])
+    for (const t of ['This is source material only.', 'Sharing this just as source material for later.', "Don't create any tasks from this.", 'No tasks needed, it is background.', 'Please add no tasks.', "Don't make tasks", 'Never create tasks for it.'])
       expect(saysNoTasks(t), t).toBe(true);
+  });
+
+  it('is not a team rule about which tasks to make', () => {
+    for (const t of ['Rule: never create tasks for hotel bookings before the budget is approved. To do: Smita books the cooking class.', "Don't add tasks to the sponsor list until the deal is signed."])
+      expect(saysNoTasks(t), t).toBe(false);
   });
 
   it('is not one that only mentions tasks or material', () => {

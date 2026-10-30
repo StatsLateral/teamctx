@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **A team rule about tasks no longer drops the tasks sent with it.** "Rule:
+  never create tasks for hotel bookings before the budget is approved", sent
+  with two tasks, was read as "make no tasks" and both were left out. Only a
+  plain "don't make tasks" (or "…from this") is read that way now.
+
 ## [0.5.1] - 2026-11-03
 
 ### Fixed
