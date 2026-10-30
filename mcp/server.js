@@ -784,7 +784,17 @@ export function reportBackContribute(r) {
       + " manager's alone. The contribution was kept and took the ordinary path, so tell the user"
       + ' where it went and do not call contribute again for the same text.'
     : '';
-  if (r.mode === 'no-op') return `Tell the user: contribution logged for ${where} but the AI proposed no changes to the tree.${refused}`;
+  if (r.mode === 'no-op') {
+    // Everything proposed was left out: "no changes proposed" would tell the
+    // person it was ignored, when what it needs is the missing piece.
+    const left = (r.dropped || []).map(d => d?.reason).filter(Boolean);
+    if (left.length) {
+      return `Tell the user: nothing from this was added to ${where}, because what it proposed was incomplete: ${left.join('; ')}.`
+        + ' Ask them for what is missing (for an exception, until when it holds; for an assumption, who owns it and when to check it) and send it again.'
+        + refused;
+    }
+    return `Tell the user: contribution logged for ${where} but the AI proposed no changes to the tree.${refused}`;
+  }
   if (r.mode === 'queued') return `Tell the user: contribution ${r.id}${r.number ? ` (item ${r.number})` : ''} queued for manager approval on ${where} (${r.operations.length} op${r.operations.length === 1 ? '' : 's'}). Manager must run \`teamctx review approve ${r.id}\` or call the review_approve tool.${readBackQueued(r)}${(r.contradictions || []).map(c => ` ${contradictionLabel(c)}. Resolve with a replacement or reject; do not retry direct apply.`).join('')}${(r.operations || []).filter(o => o?.type === 'addEvidence').map(o => ` ${evidenceLabel(o)}. The manager decides whether it holds; nothing changes until they do.`).join('')}${refused}`;
   const keys = (r.tasks || []).map(x => x.key).filter(Boolean);
   const applied = `Tell the user: contribution ${r.id} applied to ${where} (${r.operations.length} op${r.operations.length === 1 ? '' : 's'})${r.rolesRegenerated?.length ? `, regenerated roles: ${r.rolesRegenerated.join(', ')}` : ''}${r.pushed ? ', committed and pushed' : ', committed'}.${keys.length ? ` Tasks: ${keys.join(', ')}.` : ''}${refused}${r.changeLogWarning ? ` ${r.changeLogWarning}` : ''}`;
