@@ -617,7 +617,7 @@ app.post('/settings/new-project', async (req, res) => {
             : 'GitHub would not let this account create a repository.',
         }));
       }
-      return res.status(500).send(errorPage(e.message));
+      return res.status(500).send(errorPage(e.message, { user }));
     }
   }
 
@@ -697,7 +697,7 @@ app.post('/settings', async (req, res) => {
       : '/settings?saved=1');
   }
   if (!apiKey) {
-    return res.status(400).send(errorPage('Paste a key, or leave the page.'));
+    return res.status(400).send(errorPage('Paste a key, or leave the page.', { user }));
   }
   const saved = await writePersonalKey({
     email: user.email, githubId: user.id, githubLogin: user.login, provider: provider_, apiKey,
@@ -1345,7 +1345,7 @@ app.get('/project/:owner/:repo', async (req, res) => {
     const denied = e instanceof ProjectViewError || e.code === 'MEMBER_ACCESS_DENIED';
     // An old-format project is not a failure of this server: say what to do.
     const status = e.code === 'LEGACY_FORMAT' ? 409 : denied ? 403 : 500;
-    res.status(status).send(errorPage(e.message));
+    res.status(status).send(errorPage(e.message, { user }));
   }
 });
 
@@ -1364,7 +1364,7 @@ app.get('/project/:owner/:repo/contributions', async (req, res) => {
     res.send(contributionsPage({ user, view: await readContributionsView({ owner, repo, user }), by }));
   } catch (e) {
     const denied = e instanceof ProjectViewError || e.code === 'MEMBER_ACCESS_DENIED';
-    res.status(e.code === 'LEGACY_FORMAT' ? 409 : denied ? 403 : 500).send(errorPage(e.message));
+    res.status(e.code === 'LEGACY_FORMAT' ? 409 : denied ? 403 : 500).send(errorPage(e.message, { user }));
   }
 });
 

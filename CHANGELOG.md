@@ -57,6 +57,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   never create tasks for hotel bookings before the budget is approved", sent
   with two tasks, was read as "make no tasks" and both were left out. Only a
   plain "don't make tasks" (or "…from this") is read that way now.
+- **An error page no longer offers "Sign in" to someone signed in.** A project
+  that could not be read, and the other errors met while signed in, showed the
+  signed-out bar; they now show the person's own.
 - **Tasks the AI proposes read as work a person picks up (#175).** A proposed
   task is one plain sentence that starts with what somebody does and names the
   thing, never a step in an assistant's workflow or a line addressed to one; a
