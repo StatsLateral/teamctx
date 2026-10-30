@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **A project's first contribution keeps both its goal and its tasks.** Sent to
+  a workstream it lost the goal, so the project read "Goal: none yet" and nobody
+  could be invited; sent to the project it lost every task, with "add a
+  workstream first" when one existed. The goal now goes to the project and the
+  tasks to its only part of the work; with several parts, a task is left out
+  with a reason that says to name its part. The read-back lists every part.
 - **Asking for a role that does not exist names the ones that do.** It failed
   with ENOENT and a file path from the server's disk.
 - **A contribution left out for something missing says so.** "Allowed: …" with
