@@ -1210,10 +1210,13 @@ async function renderProjects(req, res, user, { typed = '', error = null, search
   // browser decides to match, and several of them match only the start of the
   // value — so with `owner/repo` in the list, typing a repository's own name
   // found nothing at all while the owner's name found every one of them. This
-  // matches either, and anywhere in the name.
+  // matches either, and anywhere in the name. A space, a dash and an underscore
+  // count as the same, so "vietnam 3" finds vietnam-3: a repository name has no
+  // spaces, and people type a project's name the way it reads.
   const needle = search ? typed.trim().toLowerCase() : '';
+  const loose = (s) => String(s).toLowerCase().replace(/[\s_-]+/g, '-');
   const matches = needle
-    ? repos.map(r => r.fullName).filter(name => String(name).toLowerCase().includes(needle)).slice(0, 25)
+    ? repos.map(r => r.fullName).filter(name => loose(name).includes(loose(needle))).slice(0, 25)
     : [];
   res.send(projectsPage({
     user, projects, repos, typed, error, query: needle ? typed.trim() : null, matches,
