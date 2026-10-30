@@ -113,6 +113,15 @@ describe("the manager's opening message", () => {
     expect(r.founding).toBe(true);
   });
 
+  it('names the part of the work it went to by its number', async () => {
+    await withConfig({ workstreams: [{ id: 'itinerary', name: 'Itinerary', number: 1 }] });
+    repo.trees.set(null, { name: 'Ledger', goal: null, records: [], tasks: [] });
+    repo.trees.set('itinerary', { id: 'itinerary', name: 'Itinerary', records: [], tasks: [] });
+    const r = await contributeCore({ text: 'the trip', workstreamId: 'itinerary', apply: true });
+    expect(r.founding).toBe(true);
+    expect(r.digest.workstreams).toEqual([expect.objectContaining({ number: 1, name: 'Itinerary' })]);
+  });
+
   it("still queues a member's first contribution to an empty project", async () => {
     await withConfig({ reviewPolicy: 'all', managerKey: 'git:boss@example.com' });
     const r = await contributeCore({ text: 'hello' });

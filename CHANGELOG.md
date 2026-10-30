@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **The read-back after a project's first contribution numbers its part of the
+  work.** It gave the workstream with no number, so the assistant could not say
+  "part 1".
 - **An error page no longer offers "Sign in" to someone signed in.** A project
   that could not be read, and the other errors met while signed in, showed the
   signed-out bar; they now show the person's own.
