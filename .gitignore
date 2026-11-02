@@ -14,3 +14,6 @@ docs/private/
 # Screenshots dropped in the root for review — never part of the project.
 image*.png
 /*.png
+
+# This repo's own working context: private, never committed
+.teamctx/
