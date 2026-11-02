@@ -106,6 +106,19 @@ describe('the whole flow, through the assistant', () => {
     });
   });
 
+  it('tells the person with work in progress about a task added or removed directly (#207)', async () => {
+    await flow(async ({ call, as }) => {
+      const publish = (await call('task_add', { title: 'Publish the post', workstream: 'finance' })).task;
+      await as(PRIYA, () => call('task_output', { id: publish.id, body: 'Publishing plan v1' }));
+      await pause();
+      const extra = (await call('task_add', { title: 'Book the photographer', workstream: 'finance' })).task;
+      expect((await as(PRIYA, () => call('get_task', { id: publish.id }))).changedSince).toMatchObject({ changes: [], others: 1 });
+      await call('task_rm', { id: extra.id });
+      expect((await as(PRIYA, () => call('get_task', { id: publish.id }))).changedSince.others).toBe(2);
+      expect([...getCurrentSession().listDir('.teamctx/changes')]).toHaveLength(3);
+    });
+  });
+
   it('accepts with no picks when facts is not a list, and quotes what it could not apply', async () => {
     await flow(async ({ call, as }) => {
       const a = (await call('task_add', { title: 'Draft A', workstream: 'finance' })).task;

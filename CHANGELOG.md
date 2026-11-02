@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **A task added or removed directly is logged (#207).** `task_add` and
+  `task_rm` write a change entry in the task's part, in the approval card's
+  words, so someone with work in progress there or below is told the plan
+  moved. Like other changes that are not significant (#206), it is counted
+  rather than listed in full. Marking a task done, reopening or assigning it
+  still writes nothing.
 - **Slack threads as connected sources (#169).** `teamctx import --from slack`
   now records each thread under Slack with its permalink (built from the
   workspace address Slack gives once per run) and a title naming the channel and
