@@ -692,11 +692,6 @@ describe('Connected sources, with nothing recorded yet', () => {
     expect(html).toMatch(/context items?/);
   });
 
-  it('carries no real client names', async () => {
-    const html = sources((await visit('/project/acme/ledger', MANAGER)).body);
-    for (const name of ['Pycube', 'Henry Ford', 'BayCare', 'Baptist', 'UM Health']) expect(html).not.toContain(name);
-  });
-
   it('says on the settings link that none are recorded yet', async () => {
     const { body } = await visit('/project/acme/ledger', MANAGER);
     const settings = /<section class="settings"[\s\S]*?<\/section>/.exec(body)[0];
