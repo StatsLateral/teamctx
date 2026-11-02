@@ -184,10 +184,53 @@ describe('a member carrying on with earlier work', () => {
   });
 });
 
+describe('what an assistant passes for a Slack thread', () => {
+  // A thread's first message is the obvious title, and a reference must not
+  // quote it (#169): both places the assistant reads say so.
+  it('is a link to the thread and a title that names it, not a message', () => {
+    const { items } = TOOLS.find(t => t.name === 'contribute').inputSchema.properties.sources;
+    expect(items.properties.title.description).toMatch(/Slack thread.*never quote a message/);
+    expect(items.properties.link.description).toMatch(/Slack, the thread's link/);
+    expect(INSTRUCTIONS).toMatch(/Slack thread, the title names\s+its channel or topic, never a message/);
+  });
+});
+
 describe('what an assistant passes for a Notion page', () => {
   it("is the page's link and its title", () => {
     const { items } = TOOLS.find(t => t.name === 'contribute').inputSchema.properties.sources;
     expect(items.properties.title.description).toMatch(/Notion page, its title/);
     expect(items.properties.link.description).toMatch(/Notion, the page's link/);
+  });
+});
+
+describe('what an assistant passes for a Google Drive file', () => {
+  it("is the file's link and its name", () => {
+    const { items } = TOOLS.find(t => t.name === 'contribute').inputSchema.properties.sources;
+    expect(items.properties.title.description).toMatch(/Google Drive file, its name/);
+    expect(items.properties.link.description).toMatch(/Google Drive, the file's or folder's link/);
+  });
+});
+
+describe('what an assistant passes for a Dropbox file', () => {
+  it("is the file's address and its name, never a shared link", () => {
+    const { items } = TOOLS.find(t => t.name === 'contribute').inputSchema.properties.sources;
+    expect(items.properties.title.description).toMatch(/Dropbox file, its file name/);
+    expect(items.properties.link.description).toMatch(/Dropbox, the file's address.*never a shared link/);
+  });
+});
+
+describe('what an assistant passes for a SharePoint or OneDrive file', () => {
+  it("is the file's address and its name, never a sharing link", () => {
+    const { items } = TOOLS.find(t => t.name === 'contribute').inputSchema.properties.sources;
+    expect(items.properties.title.description).toMatch(/SharePoint or OneDrive file, its file name/);
+    expect(items.properties.link.description).toMatch(/SharePoint or OneDrive, the file's address.*never a sharing link/);
+  });
+});
+
+describe('what an assistant passes for a Coda page', () => {
+  it('is the doc or page link from the browser and the page name', () => {
+    const { items } = TOOLS.find(t => t.name === 'contribute').inputSchema.properties.sources;
+    expect(items.properties.title.description).toMatch(/Coda page, the page name/);
+    expect(items.properties.link.description).toMatch(/Coda, the doc or page link from the browser/);
   });
 });

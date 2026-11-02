@@ -591,3 +591,57 @@ describe('authorize', () => {
     expect(lb).not.toHaveBeenCalled();
   });
 });
+
+describe('links for a connected source', () => {
+  const T = 'https://contoso.sharepoint.com';
+  const GUID = '1A2B3C4D-5E6F-4A7B-8C9D-0E1F2A3B4C5D';
+
+  it('treats a link whose token is the access as a sharing link', () => {
+    for (const shared of [
+      `${T}/:w:/s/Team/EaBcDeFgHiJkLmNoPqRsTuVwXyZ?e=Xy12Ab`,
+      `${T}/:x:/g/Team/EZyXwVuTsRqPoNmLkJiHgFeDcBa?e=Q1`,
+      `${T}/:f:/p/user/EQaaaaaaaaaaaaaaaaaaaaaa`,
+      'https://1drv.ms/w/s!AbCdEfGhIjKlMn',
+      'https://onedrive.live.com/?authkey=%21AbC&id=ABC%21123&cid=ABC',
+      'https://onedrive.live.com/redir?resid=ABC%21123&redeem=aHR0cHM6',
+    ]) {
+      expect(m365.isSharingLink(shared), shared).toBe(true);
+      expect(m365.fileLink(shared), shared).toBeNull();
+    }
+  });
+
+  it('keeps an address, which opens only for people who already have access', () => {
+    for (const address of [
+      `${T}/sites/Team/Shared%20Documents/Release%20notes.docx`,
+      `${T}/:w:/r/sites/Team/_layouts/15/Doc.aspx?sourcedoc=%7B${GUID}%7D&file=Release%20notes.docx`,
+      'https://contoso-my.sharepoint.com/personal/maya_contoso_com/Documents/Plan.docx',
+    ]) expect(m365.isSharingLink(address), address).toBe(false);
+  });
+
+  it('reduces a library address to its path', () => {
+    for (const copied of [
+      `${T}/sites/Team/Shared%20Documents/Release%20notes.docx?web=1`,
+      `${T}/sites/Team/Shared%20Documents/Release%20notes.docx#section`,
+      `${T}/:w:/r/sites/Team/Shared%20Documents/Release%20notes.docx?d=w123&csf=1&web=1`,
+    ]) expect(m365.fileLink(copied), copied).toBe(`${T}/sites/Team/Shared%20Documents/Release%20notes.docx`);
+  });
+
+  it('reduces the Office viewer to its site and the document GUID', () => {
+    const one = `${T}/sites/Team/_layouts/15/Doc.aspx?sourcedoc=%7B${GUID}%7D`;
+    for (const copied of [
+      `${T}/:w:/r/sites/Team/_layouts/15/Doc.aspx?sourcedoc=%7B${GUID}%7D&file=Release%20notes.docx&action=default&mobileredirect=true`,
+      `${T}/sites/Team/_layouts/15/Doc.aspx?sourcedoc={${GUID.toLowerCase()}}&action=edit`,
+      `${T}/sites/Team/_layouts/15/WopiFrame.aspx?sourcedoc=${GUID}&file=x.docx`,
+    ]) expect(m365.fileLink(copied), copied).toBe(one);
+  });
+
+  it('leaves alone what is not a SharePoint file link', () => {
+    for (const other of [
+      `${T}/sites/Team/_layouts/15/Doc.aspx?file=x.docx`,
+      'https://contoso.sharepoint.com.evil.example/sites/Team/x.docx',
+      'http://contoso.sharepoint.com/sites/Team/x.docx',
+      'https://docs.google.com/document/d/abc/edit',
+      'not a link',
+    ]) expect(m365.fileLink(other), other).toBe(other);
+  });
+});

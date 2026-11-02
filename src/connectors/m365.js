@@ -339,6 +339,50 @@ export function parseSelector(input) {
   return { drivePath: encodePath(s) === '' ? '' : s.replace(/^\/+/, '') };
 }
 
+// ---- links for a connected source (#172) --------------------------------
+
+const SHAREPOINT = /(^|\.)sharepoint\.com$/i;
+
+/**
+ * A link whose token is the access itself: SharePoint's `/:w:/s/<site>/<token>`
+ * (any letter, any of s, g, p, t, u…), `1drv.ms`, and a OneDrive link carrying
+ * `authkey` or `redeem`. "Anyone with the link" opens the file for whoever holds
+ * one, and a source reference is read by everyone on the project, so these are
+ * treated as credentials and never kept. `/:w:/r/…` is a plain redirect to the
+ * file's address, not a sharing link.
+ */
+export function isSharingLink(link) {
+  let url;
+  try { url = new URL(link); } catch { return false; }
+  const host = url.hostname.toLowerCase();
+  if (host === '1drv.ms') return true;
+  if (/(^|\.)onedrive\.live\.com$/.test(host)) return url.searchParams.has('authkey') || url.searchParams.has('redeem');
+  return SHAREPOINT.test(host) && /^\/:[a-z]+:\/(?!r\/)[a-z]\//i.test(url.pathname);
+}
+
+/**
+ * The one link for a library file, as far as the link itself can tell. A file's
+ * address (`…/sites/Team/Shared Documents/Notes.docx`) keeps its path and drops
+ * `?web=1` and the like; the Office viewer (`…/_layouts/15/Doc.aspx?sourcedoc={…}`)
+ * keeps its site and the document's GUID and drops `file`, `action` and the rest;
+ * `/:w:/r/` in front of either is dropped. Both open only for people who already
+ * have access. The two forms of the same file stay two references: matching them
+ * needs a Graph call, which the assistant route never makes. A sharing link
+ * comes back `null` (see `isSharingLink`); anything else comes back as it was.
+ */
+export function fileLink(link) {
+  if (isSharingLink(link)) return null;
+  let url;
+  try { url = new URL(link); } catch { return link; }
+  if (url.protocol !== 'https:' || !SHAREPOINT.test(url.hostname)) return link;
+  const path = url.pathname.replace(/^\/:[a-z]+:\/r(?=\/)/i, '');
+  if (/\/_layouts\/15\/(Doc|WopiFrame)\.aspx$/i.test(path)) {
+    const guid = /^\{?([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\}?$/i.exec(url.searchParams.get('sourcedoc') || '')?.[1];
+    return guid ? `https://${url.hostname.toLowerCase()}${path.replace(/WopiFrame\.aspx$/i, 'Doc.aspx')}?sourcedoc=%7B${guid.toUpperCase()}%7D` : link;
+  }
+  return `https://${url.hostname.toLowerCase()}${path}`;
+}
+
 /** Base64url with a `u!` prefix — Graph's own encoding for a sharing URL. */
 export function encodeSharingUrl(url) {
   return `u!${Buffer.from(String(url), 'utf8').toString('base64')

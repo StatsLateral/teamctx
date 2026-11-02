@@ -610,3 +610,43 @@ describe('the access token', () => {
     expect(a.expiresAt).toBeLessThan(Date.now() + 3600 * 1000);
   });
 });
+
+describe('one link per file or folder', () => {
+  const canonical = `https://drive.google.com/file/d/${DOC}/view`;
+
+  it('is the file link however the file was copied', () => {
+    for (const copied of [
+      `https://docs.google.com/document/d/${DOC}/edit?usp=drivesdk`,
+      `https://docs.google.com/document/d/${DOC}/edit?usp=sharing`,
+      `https://docs.google.com/document/d/${DOC}/edit#heading=h.abc123`,
+      `https://docs.google.com/spreadsheets/d/${DOC}/edit#gid=0`,
+      `https://docs.google.com/presentation/u/1/d/${DOC}/edit?authuser=1`,
+      `https://drive.google.com/file/d/${DOC}/view?usp=drive_link`,
+      `https://drive.google.com/open?id=${DOC}`,
+      `https://drive.google.com/uc?id=${DOC}&export=download`,
+    ]) expect(gdrive.fileLink(copied), copied).toBe(canonical);
+  });
+
+  it('is the folder link for a folder, from Drive or another account', () => {
+    for (const copied of [
+      `https://drive.google.com/drive/folders/${FOLDER}?usp=sharing`,
+      `https://drive.google.com/drive/u/0/folders/${FOLDER}`,
+    ]) expect(gdrive.fileLink(copied), copied).toBe(`https://drive.google.com/drive/folders/${FOLDER}`);
+  });
+
+  it('keeps the resource key an older shared file needs to open', () => {
+    expect(gdrive.fileLink(`https://drive.google.com/file/d/${DOC}/view?usp=sharing&resourcekey=0-AbC_d-1`))
+      .toBe(`${canonical}?resourcekey=0-AbC_d-1`);
+  });
+
+  it('leaves alone a published form and what is not a link to a Drive file or folder', () => {
+    for (const other of [
+      'https://docs.google.com/forms/d/e/1FAIpQLSfPublishedFormIdxxxxxxxx/viewform',
+      `https://docs.google.com.evil.example/document/d/${DOC}/edit`,
+      `http://docs.google.com/document/d/${DOC}/edit`,
+      'https://drive.google.com/drive/my-drive',
+      `https://www.notion.so/${DOC}`,
+      'not a link',
+    ]) expect(gdrive.fileLink(other), other).toBe(other);
+  });
+});
