@@ -74,7 +74,8 @@ describe('accepting a task submission', () => {
     const r = await submit(member);
     await as(manager, () => approveReview({ id: r.id, teamctxDir: dir }));
     expect(readApprovals(dir)[r.id]).toMatchObject({ forTask: task.id, outputs: [o.id] });
-    const entries = listChanges({}, dir);
+    // The task added in setup has an entry of its own (#207).
+    const entries = listChanges({}, dir).filter(e => e.id === r.id);
     expect(entries).toHaveLength(1);
     expect(entries[0]).toMatchObject({ id: r.id, tree: 'sales' });
     expect(entries[0].touched.tasks).toContain(task.id);
@@ -131,7 +132,7 @@ describe('accepting a task submission', () => {
         { type: 'assumption', text: 'Buyers read on Fridays' },
       ],
     }));
-    const [entry] = listChanges({}, dir);
+    const entry = listChanges({}, dir).find(e => e.id === r.id);
     const written = readTree('sales', dir).records;
     expect(written.map(x => x.text)).toContain('Posts go out on Fridays');
     expect(written.map(x => x.text)).not.toContain('Buyers read on Fridays');
