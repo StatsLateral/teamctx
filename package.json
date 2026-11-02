@@ -45,7 +45,7 @@
   },
   "devDependencies": {
     "jsdom": "^25.0.1",
-    "vitest": "^2.0.0"
+    "vitest": "^5.1.0"
   },
   "engines": {
     "node": ">=18"
