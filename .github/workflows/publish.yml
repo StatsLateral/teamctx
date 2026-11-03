@@ -1,0 +1,67 @@
+name: publish
+
+# Publishes to npm when a version tag (v1.2.3) is pushed, or on demand from main.
+# Uses npm trusted publishing (OIDC): no npm token or one-time code is stored.
+# One-time setup on npmjs.com: package teamctx > Settings > Trusted Publisher >
+# GitHub Actions, repository StatsLateral/teamctx, workflow file publish.yml.
+#
+# Two jobs, so the publish permission is never given to code that installs
+# dependencies or runs tests: "build" has read-only access and produces the
+# tarball; "publish" only uploads that tarball.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    # Only a tag, or a manual run on main, may produce a release.
+    if: startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Release commit must be on main
+        run: git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Tag must match package.json
+        run: |
+          v=$(node -p "require('./package.json').version")
+          if [ "${GITHUB_REF_TYPE}" = "tag" ] && [ "${GITHUB_REF_NAME}" != "v${v}" ]; then
+            echo "tag ${GITHUB_REF_NAME} does not match package.json ${v}"; exit 1
+          fi
+      - run: npm ci
+      - run: npm test
+        env:
+          ANTHROPIC_API_KEY: test-key-not-used
+      - run: npm pack
+      - uses: actions/upload-artifact@v4
+        with:
+          name: package
+          path: teamctx-*.tgz
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # lets npm verify this run is the trusted publisher
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      # Trusted publishing needs npm 11.5.1 or later. No dependencies are installed here.
+      - run: npm install -g npm@11.5.1
+      - uses: actions/download-artifact@v4
+        with:
+          name: package
+      - run: npm publish ./teamctx-*.tgz
