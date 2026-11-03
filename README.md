@@ -153,6 +153,9 @@ It does not guarantee correct outputs, force an assistant to follow every instru
 
 npx teamctx init
 
+# The commands below say `teamctx`. If you have not installed it
+# (`npm i -g teamctx`), write `npx teamctx` instead, e.g. `npx teamctx doctor`.
+
 # Check the setup: each problem with how to fix it
 teamctx doctor
 
