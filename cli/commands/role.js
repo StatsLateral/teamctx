@@ -73,7 +73,7 @@ async function addRoleInteractive(prefill = {}, opts = {}) {
   let defaultExcludes = prefill.excludes || '';
 
   if (!prefill.responsibilities) {
-    process.stdout.write('  → Asking Haiku to suggest...');
+    process.stdout.write('  → Asking the AI to suggest...');
     try {
       const workstream = readTree(workstreamId);
       const suggestion = await suggestRoleDetails({ name, workstream, config });
@@ -111,10 +111,15 @@ async function addRoleInteractive(prefill = {}, opts = {}) {
     console.log(`Note: push failed (${result.pushError}) — check your git remote.`);
   }
 
-  const url = config.deployUrl ? `${config.deployUrl}/context/${result.slug}` : `[your-vercel-url]/context/${result.slug}`;
   console.log(`\n✓ Role created: ${name} (${result.slug})`);
-  console.log(`  Context URL: ${url}`);
-  console.log(`  Share this — team member opens URL, copies MD, pastes into ChatGPT / Claude.\n`);
+  if (config.deployUrl) {
+    console.log(`  Context URL: ${config.deployUrl}/context/${result.slug}`);
+    console.log(`  Share this — team member opens URL, copies MD, pastes into ChatGPT / Claude.\n`);
+  } else {
+    // No deploy URL yet, so there is no link to share: point at the file itself.
+    console.log(`  Role file: .teamctx/context/roles/${result.slug}.md`);
+    console.log(`  Copy its contents into ChatGPT / Claude. For a shareable link, set a deploy URL: teamctx config deploy-url <url>\n`);
+  }
 }
 
 async function suggestAndAdd(opts = {}) {

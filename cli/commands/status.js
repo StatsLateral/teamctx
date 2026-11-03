@@ -10,7 +10,6 @@ export async function statusCommand() {
   const identity = await resolveIdentity({ actor, config });
   const activeWorkstream = await resolveActiveWorkstream({ actor, config });
   const contributions = readContributions();
-  const decisions = contributions.filter(c => c.tagged === 'decision');
 
   const wsIds = [...new Set([
     ...(config.workstreams || []).map(w => w.id),
@@ -25,10 +24,14 @@ export async function statusCommand() {
   const allTasks = listTasks({});
   const openTasks = allTasks.filter(t => t.status === 'open').length;
   const doneTasks = allTasks.filter(t => t.status === 'done').length;
+  const countOf = (type) => [project, ...workstreams.map(w => w.tree)].reduce((n, t) => n + (t.records || []).filter(r => r.type === type && r.status === 'active').length, 0);
+  const decisionCount = countOf('decision');
   const compiledTasks = allTasks.filter(t => t.compiledAt).length;
 
   console.log(`\n${config.project} — teamctx status\n`);
-  console.log(`  You:          ${identity.name} (${identity.source})`);
+  // A name you set yourself needs no explanation; say where any other came from.
+  const fromWhere = ['override', 'config'].includes(identity.source) ? '' : ` (${identity.source})`;
+  console.log(`  You:          ${identity.name}${fromWhere}`);
   console.log(`  Model:        ${config.model}`);
   console.log(`  Provider:     ${config.provider || 'anthropic'}`);
   console.log(`  Auto-push:    ${config.autoPush ? 'on' : 'off'}`);
@@ -40,7 +43,8 @@ export async function statusCommand() {
       console.log(`    - ${w.id.padEnd(20)} ${(w.tree.records || []).length} records${mark}`);
     });
   }
-  console.log(`  Contributions: ${contributions.length} total, ${decisions.length} decisions`);
+  console.log(`  Contributions: ${contributions.length} total`);
+  console.log(`  Decisions:    ${decisionCount} active`);
   console.log(`  Tasks:        ${openTasks} open, ${doneTasks} done${compiledTasks ? ` (${compiledTasks} compiled)` : ''}`);
   const fresh = freshnessLine(contextFreshness());
   if (fresh) console.log(`  Freshness:    ${fresh}`);
