@@ -1,6 +1,6 @@
 {
   "name": "teamctx",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "AI-native version control for team context",
   "type": "module",
   "license": "MIT",
