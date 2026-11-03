@@ -1,0 +1,39 @@
+name: publish
+
+# Publishes to npm when a version tag (v1.2.3) is pushed, or on demand.
+# Uses npm trusted publishing (OIDC): no npm token or one-time code is stored.
+# One-time setup on npmjs.com: package teamctx > Settings > Trusted Publisher >
+# GitHub Actions, repository StatsLateral/teamctx, workflow file publish.yml.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write # lets npm verify this run is the trusted publisher
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          cache: npm
+      # Trusted publishing needs npm 11.5.1 or later.
+      - run: npm install -g npm@^11.5.1
+      - run: npm ci
+      - run: npm test
+        env:
+          ANTHROPIC_API_KEY: test-key-not-used
+      - name: Tag must match package.json
+        run: |
+          v=$(node -p "require('./package.json').version")
+          if [ "${GITHUB_REF_TYPE}" = "tag" ] && [ "${GITHUB_REF_NAME}" != "v${v}" ]; then
+            echo "tag ${GITHUB_REF_NAME} does not match package.json ${v}"; exit 1
+          fi
+      - run: npm publish
