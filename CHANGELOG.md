@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-03
+
+**Upgrading from 0.3.0 (the last version on npm):** 0.4.0, released as part of
+this, changed the project format (see Breaking under 0.4.0 below). There is no
+migration: run `teamctx init` again in an existing project.
+
+
 ### Added
 - **A task added or removed directly is logged (#207).** `task_add` and
   `task_rm` write a change entry in the task's part, in the approval card's
