@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-11-03
+
+### Fixed
+- **First-run wording found by following the README as a new user.** The
+  quickstart says to write `npx teamctx` when the command is not installed
+  globally, so `teamctx doctor` no longer fails with "command not found".
+  `role add` says "the AI" instead of naming Haiku under another provider, and
+  with no deploy URL prints the role file instead of a placeholder link. A
+  queued contribution tells a solo manager to approve it now. `status` drops
+  "(override)" beside a name you set, and shows active decisions counted from
+  the records (it used to read 0 whenever a decision existed).
+
 ## [0.5.0] - 2026-11-03
 
 **Upgrading from 0.3.0 (the last version on npm):** 0.4.0, released as part of
