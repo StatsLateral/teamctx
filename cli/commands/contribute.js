@@ -71,7 +71,8 @@ export async function contributeCommand(text, opts = {}) {
   const where = isProjectLevel(r.workstream) ? '' : ` [workstream: ${r.workstream}]`;
   if (r.mode === 'queued') {
     console.log(`\n✓ Submitted for approval (id: ${r.id}${r.number ? `, item ${r.number}` : ''})${where} — committed.${pushNote(r)}`);
-    console.log(`  Manager: after \`git pull\`, run \`teamctx review approve ${r.id}\` or \`teamctx review reject ${r.id}\`.`);
+    console.log(`  A manager approves it: \`teamctx review approve ${r.id}\` or \`teamctx review reject ${r.id}\`.`);
+    console.log('  If you are the manager, run that now. Otherwise your manager runs it after `git pull`.');
     return;
   }
 
