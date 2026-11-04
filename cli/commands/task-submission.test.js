@@ -293,10 +293,11 @@ describe('an accepted task', () => {
     await expect(as(manager, () => saveOutput({ id: task.id, body: 'more', teamctxDir: dir }))).rejects.toThrow(/follow-on task/i);
   });
 
-  it('cannot be reopened or removed, in this version', async () => {
+  it('cannot be reopened, and is removed only by a manager who says why (#202)', async () => {
     await accept();
     await expect(as(manager, () => setTaskStatus({ id: task.id, status: 'open', teamctxDir: dir }))).rejects.toThrow(/accepted.* and is closed/i);
-    await expect(as(manager, () => removeTask({ id: task.id, teamctxDir: dir }))).rejects.toThrow(/accepted.* and is closed/i);
+    await expect(as(member, () => removeTask({ id: task.id, reason: 'done twice', teamctxDir: dir }))).rejects.toThrow(/accepted.* and is closed\. Only a manager can remove it/i);
+    await expect(as(manager, () => removeTask({ id: task.id, teamctxDir: dir }))).rejects.toThrow(/needs a reason/);
     expect(readTask(task.id, dir).task.status).toBe('done');
   });
 
