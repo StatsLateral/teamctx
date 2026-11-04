@@ -69,8 +69,28 @@ Vercel project → **Settings** → **Environment Variables**. Apply to
 | `UPSTASH_REDIS_REST_URL` | from step 2 |
 | `UPSTASH_REDIS_REST_TOKEN` | from step 2 |
 | `TEAMCTX_BASE_URL` | `https://<your-deployment>.vercel.app` — no trailing slash |
+| `TEAMCTX_SECRET_KEYS` | JSON `{"<kid>":"<base64 32-byte key>"}` — see below |
+| `TEAMCTX_SECRET_KEY_ACTIVE` | the `kid` from `TEAMCTX_SECRET_KEYS` used for new writes |
 | `GOOGLE_OAUTH_CLIENT_ID` | optional — see below |
 | `GOOGLE_OAUTH_CLIENT_SECRET` | optional — see below |
+
+### Encryption key (required to store secrets)
+
+AI keys, lent GitHub credentials, Slack webhooks, OAuth tokens and web sessions
+are encrypted at rest. The deployment needs a key, or every attempt to store one
+of those is refused (reads of anything written before still work).
+
+Generate a 32-byte key and set the two variables:
+
+```bash
+node -e "console.log(JSON.stringify({ k1: require('crypto').randomBytes(32).toString('base64') }))"
+# -> {"k1":"<base64>"}  put that in TEAMCTX_SECRET_KEYS, and TEAMCTX_SECRET_KEY_ACTIVE=k1
+```
+
+To rotate later, add a second entry (`k2`), set `TEAMCTX_SECRET_KEY_ACTIVE=k2`,
+deploy, then run `node scripts/rotate-secrets.js` and drop the old key. Keep the
+key out of git; store it only in the deployment's environment. Losing every key
+makes the encrypted records unreadable.
 
 ### Optional: let members join without a GitHub account
 

@@ -6,9 +6,10 @@ import { esc, navBar, shell } from './theme.js';
  * agents. Moved here whole from the routes file — see src/views/theme.js.
  */
 export const settingsPage = ({
-  user, hasKey, saved, error, confirmRemove = null, shared = [], lent = [], repos = [], agents = [], newAgent = null, rotated = [], stillShared = [], slack = [] }) => shell('Settings', `
+  user, hasKey, saved, error, confirmRemove = null, shared = [], lent = [], repos = [], agents = [], newAgent = null, rotated = [], stillShared = [], slack = [], secretsMissing = false }) => shell('Settings', `
 ${navBar({ user, current: '/settings' })}
 <h1>Settings</h1>
+${secretsMissing ? '<div class="bad">An administrator must set <code>TEAMCTX_SECRET_KEYS</code> on this deployment before a key or credential can be saved — until then those writes are refused rather than stored in the clear.</div>' : ''}
 ${saved ? '<div class="ok">Saved.</div>' : ''}
 ${rotated.length ? `<div class="ok">The projects you had shared your old key with are now on the new one:
 ${rotated.map(esc).join(', ')}. Nothing else about them changed.</div>` : ''}

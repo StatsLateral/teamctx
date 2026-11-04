@@ -3,7 +3,7 @@ import rateLimit from 'express-rate-limit';
 import { randomBytes } from 'crypto';
 import { mcpAuthRouter } from '@modelcontextprotocol/sdk/server/auth/router.js';
 import { providerFromEnv, oauthConfigStatus, GITHUB_SCOPES, OAuthCallbackError, setBindCookie, readBindCookie, bindMatches, tokenHash, redirectTarget } from '../src/oauth/provider.js';
-import { kvGet, kvSet, kvTake, kvDelete, keys, TTL, isPersistent } from '../src/oauth/kv.js';
+import { kvGet, kvSet, kvTake, kvDelete, keys, TTL, isPersistent, secretsConfigured } from '../src/oauth/kv.js';
 import { liveProjects } from '../src/oauth/live-projects.js';
 import { googleAuthorizeUrl, googleUserFromCode } from '../src/oauth/google.js';
 import { projectKeyDecision } from '../src/oauth/project-key-decision.js';
@@ -59,6 +59,14 @@ import { verifyProviderKey } from '../src/providers/verify-key.js';
  */
 
 const provider = providerFromEnv();
+
+// A persistent deployment with no encryption key cannot store secrets (writes
+// are refused) and any pre-encryption plaintext stays readable in the clear.
+// Warn at startup so an operator sees it in the logs.
+if (isPersistent() && !secretsConfigured()) {
+  console.warn('teamctx: TEAMCTX_SECRET_KEYS is not set — secrets cannot be stored encrypted. '
+    + 'Set TEAMCTX_SECRET_KEYS and TEAMCTX_SECRET_KEY_ACTIVE; see scripts/encrypt-existing-secrets.js.');
+}
 
 const app = express();
 // Hop count, not `true` — express-rate-limit rejects blanket trust with
@@ -159,7 +167,7 @@ app.get('/oauth/status', async (req, res) => {
     googleSignIn: cfg.googleClientId && cfg.googleClientSecret
       ? 'enabled'
       : 'not configured — sign-in goes straight to GitHub',
-    missing: Object.entries({ ...cfg, kv: isPersistent() })
+    missing: Object.entries({ ...cfg, kv: isPersistent(), secretKeys: !isPersistent() || secretsConfigured() })
       .filter(([name, present]) => !present && !name.startsWith('google'))
       .map(([name]) => name),
     // Which code is actually answering, so "it is deployed" stops being a
@@ -482,6 +490,7 @@ async function renderSettings(req, res, user, { newAgent = null } = {}) {
   if (newAgent) res.setHeader('Cache-Control', 'no-store');
   res.send(settingsPage({
     user, hasKey: !!existing, shared, lent, repos, agents, newAgent, slack,
+    secretsMissing: isPersistent() && !secretsConfigured(),
     saved: req.query.saved === '1',
     rotated: req.query.rotated ? String(req.query.rotated).split(',').filter(Boolean) : [],
     stillShared: req.query.stillShared ? String(req.query.stillShared).split(',').filter(Boolean) : [],

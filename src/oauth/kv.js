@@ -11,11 +11,90 @@
  *   UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN ← Upstash direct
  */
 
+import { randomBytes } from 'crypto';
+import { seal, open, isEnvelope, loadSecretKeys, activeKid } from './secret-box.js';
+
 function restConfig(env = process.env) {
   const url = env.KV_REST_API_URL || env.UPSTASH_REDIS_REST_URL;
   const token = env.KV_REST_API_TOKEN || env.UPSTASH_REDIS_REST_TOKEN;
   return url && token ? { url: url.replace(/\/$/, ''), token } : null;
 }
+
+// --- secrets at rest ----------------------------------------------------
+// Keys whose value is a credential and must be encrypted before it leaves the
+// process. A table-driven test checks every secret-bearing key builder matches
+// one of these, so a new one cannot quietly store plaintext.
+export const SECRET_PREFIXES = [
+  'teamctx:aikey:',          // personal, project and shared AI provider keys
+  'teamctx:agent:aikey:',    // an agent's AI key
+  'teamctx:ghcred:project:', // a GitHub credential a project lends
+  'teamctx:slack:project:',  // a Slack incoming-webhook URL
+  'oauth:token:',            // access-token payloads (carry the GitHub token)
+  'oauth:refresh:',          // refresh-token payloads
+  'oauth:code:',             // authorization-code records (the GitHub branch carries the token)
+  'oauth:consent-pending:',  // a sign-in held at the consent page (its code record carries the token)
+  'teamctx:session:',        // web sessions (carry the GitHub token)
+];
+
+export function isSecretKey(key) {
+  return SECRET_PREFIXES.some(p => String(key).startsWith(p));
+}
+
+/**
+ * True when a usable encryption key is configured: an active kid that is present
+ * in the key set. On a persistent deployment without one, writing a secret is
+ * refused, so the startup check and the settings page use this to warn.
+ */
+export function secretsConfigured(env = process.env) {
+  try {
+    const kid = activeKid(env);
+    return !!kid && !!loadSecretKeys(env)[kid];
+  } catch {
+    return false;   // malformed TEAMCTX_SECRET_KEYS counts as not configured
+  }
+}
+
+// In dev and test there is no KV and no configured key: use a per-process
+// ephemeral key so secrets still round-trip without any setup. A real
+// (persistent) deployment with no key configured refuses to write — never
+// plaintext.
+let ephemeral = null;
+function writeConfig(env = process.env) {
+  const keys = loadSecretKeys(env);
+  const kid = activeKid(env);
+  if (kid && keys[kid]) return { keys, kid };
+  if (restConfig(env)) return null;                 // persistent + no key → caller refuses
+  if (!ephemeral) ephemeral = { keys: { dev: randomBytes(32) }, kid: 'dev' };
+  return ephemeral;
+}
+function readKeys(env = process.env) {
+  const keys = loadSecretKeys(env);
+  if (Object.keys(keys).length) return keys;
+  if (ephemeral && !restConfig(env)) return ephemeral.keys;
+  return keys;
+}
+
+/** Decode a value read for a secret key: decrypt an envelope, flag legacy plaintext, drop on failure. */
+function decodeSecret(key, value, env) {
+  if (value === null || value === undefined || !isSecretKey(key)) return { value, legacy: false };
+  if (isEnvelope(value)) {
+    try { return { value: open(value, key, { keys: readKeys(env) }), legacy: false }; }
+    catch (e) {
+      // Wrong/removed key or tampered record: treat as absent, name the key never the value.
+      console.warn(`teamctx: could not decrypt the secret at ${key}: ${e.message}`);
+      return { value: null, legacy: false };
+    }
+  }
+  return { value, legacy: true };   // a pre-encryption plaintext record
+}
+
+/** Test helper — forget the per-process ephemeral key. */
+export function __resetSecrets() { ephemeral = null; }
+
+/** Test helpers — reach the store beneath the secret layer, and dump it. */
+export async function __rawSet(key, value, opts = {}, env = process.env) { return rawSet(key, value, opts, env); }
+export async function __rawGet(key, env = process.env) { return rawGet(key, env); }
+export function __dumpMemory() { return JSON.stringify([...memory.entries()]); }
 
 export function isPersistent(env = process.env) {
   return restConfig(env) !== null;
@@ -68,8 +147,8 @@ async function restCommand(cfg, command) {
 
 // --- public API ---------------------------------------------------------
 
-/** Read a JSON value. Returns null when absent or expired. */
-export async function kvGet(key, env = process.env) {
+/** Read a JSON value from the store, with no secret handling. */
+async function rawGet(key, env = process.env) {
   const cfg = restConfig(env);
   if (!cfg) return memGet(key);
   const raw = await restCommand(cfg, ['GET', key]);
@@ -78,8 +157,8 @@ export async function kvGet(key, env = process.env) {
   catch { return raw; }
 }
 
-/** Write a JSON value, optionally with a TTL in seconds. */
-export async function kvSet(key, value, { ttlSeconds } = {}, env = process.env) {
+/** Write a JSON value to the store, with no secret handling. */
+async function rawSet(key, value, { ttlSeconds } = {}, env = process.env) {
   const cfg = restConfig(env);
   if (!cfg) return memSet(key, value, ttlSeconds);
   const payload = JSON.stringify(value);
@@ -89,10 +168,89 @@ export async function kvSet(key, value, { ttlSeconds } = {}, env = process.env) 
   await restCommand(cfg, cmd);
 }
 
+/**
+ * Remaining time-to-live in whole seconds, or null when the key has no expiry
+ * or is gone. Used to carry a record's TTL across a re-write so a lazy upgrade
+ * does not turn an expiring secret (an access token, a session) into a
+ * permanent one.
+ */
+async function rawTtl(key, env = process.env) {
+  const cfg = restConfig(env);
+  if (!cfg) {
+    const rec = memory.get(key);
+    if (!rec || !rec.expiresAt) return null;
+    const ms = rec.expiresAt - Date.now();
+    return ms > 0 ? Math.ceil(ms / 1000) : null;
+  }
+  const pttl = await restCommand(cfg, ['PTTL', key]); // ms; -1 no expiry, -2 missing
+  return (typeof pttl === 'number' && pttl > 0) ? Math.ceil(pttl / 1000) : null;
+}
+
+/**
+ * Read a JSON value. Returns null when absent or expired. A secret key is
+ * decrypted; a legacy plaintext secret is read and lazily re-written encrypted.
+ */
+export async function kvGet(key, env = process.env) {
+  const raw = await rawGet(key, env);
+  const { value, legacy } = decodeSecret(key, raw, env);
+  if (legacy) {
+    const cfg = writeConfig(env);
+    if (cfg) {
+      try {
+        // Keep whatever life the plaintext record had left, so upgrading an
+        // access token or a session in place does not make it immortal.
+        const ttlSeconds = await rawTtl(key, env);
+        await rawSet(key, seal(value, key, cfg), ttlSeconds ? { ttlSeconds } : {}, env);
+      } catch { /* best effort upgrade */ }
+    }
+  }
+  return value;
+}
+
+/**
+ * Write a JSON value, optionally with a TTL. A secret key is encrypted first;
+ * with no key configured on a real deployment the write is refused rather than
+ * stored in the clear.
+ */
+export async function kvSet(key, value, opts = {}, env = process.env) {
+  if (!isSecretKey(key)) return rawSet(key, value, opts, env);
+  const cfg = writeConfig(env);
+  if (!cfg) {
+    throw new Error(`Refusing to store a secret at ${key} with no encryption key configured. `
+      + 'Set TEAMCTX_SECRET_KEYS and TEAMCTX_SECRET_KEY_ACTIVE.');
+  }
+  return rawSet(key, seal(value, key, cfg), opts, env);
+}
+
+/** Explicit secret write/read, for callers that want to be unmistakable. Same behaviour as kvSet/kvGet on a secret key. */
+export const kvSetSecret = kvSet;
+export const kvGetSecret = kvGet;
+
 export async function kvDelete(key, env = process.env) {
   const cfg = restConfig(env);
   if (!cfg) { memory.delete(key); return; }
   await restCommand(cfg, ['DEL', key]);
+}
+
+/**
+ * Every key matching a glob pattern. For one-off maintenance scripts only
+ * (encrypting and rotating secrets), never a request path: it pages the whole
+ * keyspace. In memory it filters the Map; against Redis it uses SCAN.
+ */
+export async function kvScanKeys(pattern, env = process.env) {
+  const cfg = restConfig(env);
+  if (!cfg) {
+    const re = new RegExp('^' + pattern.replace(/[.*+?^${}()|[\]\\]/g, m => (m === '*' ? '.*' : '\\' + m)) + '$');
+    return [...memory.keys()].filter(k => re.test(k));
+  }
+  const found = [];
+  let cursor = '0';
+  do {
+    const [next, batch] = await restCommand(cfg, ['SCAN', cursor, 'MATCH', pattern, 'COUNT', '500']);
+    cursor = next;
+    if (Array.isArray(batch)) found.push(...batch);
+  } while (cursor !== '0');
+  return found;
 }
 
 /**
@@ -155,27 +313,30 @@ export async function kvIncr(key, { ttlSeconds } = {}, env = process.env) {
  */
 export async function kvTake(key, env = process.env) {
   const cfg = restConfig(env);
+  let raw;
   if (!cfg) {
     // In-memory: read and delete happen in one synchronous turn, so no
     // interleaving is possible.
-    const value = memGet(key);
-    if (value !== null) memory.delete(key);
-    return value;
+    raw = memGet(key);
+    if (raw !== null) memory.delete(key);
+  } else {
+    // GETDEL is a single round trip, so two concurrent exchanges of the same
+    // code cannot both see it. Redis < 6.2 lacks the command — fall back to the
+    // non-atomic pair rather than failing the request outright.
+    try {
+      const got = await restCommand(cfg, ['GETDEL', key]);
+      if (got === null || got === undefined) raw = null;
+      else { try { raw = typeof got === 'string' ? JSON.parse(got) : got; } catch { raw = got; } }
+    } catch {
+      // kvGet decrypts a secret already, so return its value straight.
+      const value = await kvGet(key, env);
+      if (value !== null) await kvDelete(key, env);
+      return value;
+    }
   }
-  // GETDEL is a single round trip, so two concurrent exchanges of the same
-  // code cannot both see it. Redis < 6.2 lacks the command — fall back to the
-  // non-atomic pair rather than failing the request outright.
-  let raw;
-  try {
-    raw = await restCommand(cfg, ['GETDEL', key]);
-  } catch {
-    const value = await kvGet(key, env);
-    if (value !== null) await kvDelete(key, env);
-    return value;
-  }
-  if (raw === null || raw === undefined) return null;
-  try { return typeof raw === 'string' ? JSON.parse(raw) : raw; }
-  catch { return raw; }
+  // A one-shot secret (a refresh-token payload) is decrypted here too; no lazy
+  // upgrade, since it is being deleted.
+  return decodeSecret(key, raw, env).value;
 }
 
 // --- key namespaces -----------------------------------------------------
