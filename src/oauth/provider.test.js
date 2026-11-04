@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
-import { TeamctxOAuthProvider, providerFromEnv, oauthConfigStatus, tokenHash, validateClientRegistration } from './provider.js';
+import { TeamctxOAuthProvider, providerFromEnv, oauthConfigStatus, tokenHash, validateClientRegistration, redirectTarget } from './provider.js';
 import { __resetMemory, kvGet, kvSet, keys } from './kv.js';
 import { consentPage } from '../views/consent.js';
 
@@ -585,10 +585,22 @@ describe('consent before a client is first let in', () => {
   });
 
   it('escapes a hostile client name and shows the redirect host', () => {
-    const html = consentPage({ clientName: '<script>alert(1)</script>', redirectHost: 'claude.ai', identity: 'github:1', cToken: 'x' });
+    const html = consentPage({ clientName: '<script>alert(1)</script>', redirectTarget: 'https://claude.ai', identity: 'github:1', cToken: 'x' });
     expect(html).not.toContain('<script>alert(1)</script>');
     expect(html).toContain('&lt;script&gt;');
     expect(html).toContain('claude.ai');
+  });
+
+  it('names the scheme and host a redirect goes to, and says when it is a desktop app', () => {
+    expect(redirectTarget('https://claude.ai/api/mcp/auth_callback')).toBe('https://claude.ai');
+    expect(redirectTarget('vscode://vscode.github-authentication/did-authenticate')).toBe('vscode://vscode.github-authentication');
+    // Not "null" for a custom scheme, so two apps are never the same approval.
+    expect(redirectTarget('evil-app://github.com/cb')).not.toBe(redirectTarget('vscode://github.com/cb'));
+    const web = consentPage({ clientName: 'X', redirectTarget: 'https://claude.ai', identity: 'github:1', cToken: 'x' });
+    expect(web).toContain('https://claude.ai');
+    expect(web).not.toContain('desktop app');
+    const app = consentPage({ clientName: 'X', redirectTarget: 'evil-app://github.com', identity: 'github:1', cToken: 'x' });
+    expect(app).toContain('A desktop app on this computer (evil-app://github.com)');
   });
 });
 

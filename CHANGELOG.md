@@ -14,6 +14,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   now `>=20` and CI tests Node 20 and 22. `teamctx doctor` names the new floor.
 
 ### Security
+- **The consent page shows where the result goes, scheme included.** It named
+  only the host, so `evil-app://github.com` read as github.com, and every custom
+  scheme was remembered under the same key. It now shows scheme and host, says
+  when it is a desktop app on this computer, and remembers an approval per
+  scheme and host. Approvals given to a desktop app before this lapse once.
 - **A revoked sign-in stays revoked.** Revoking a sign-in, or a replay of an old
   refresh token, now leaves a marker that a refresh already in flight cannot
   write over, and a token minted before the revoke is refused too.

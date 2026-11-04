@@ -82,6 +82,21 @@ const CONTROL_CHARS = /[\u0000-\u001f\u007f]/g;
 // http is allowed only to a loopback address, for desktop and CLI clients.
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]', '::1']);
 // Schemes that could run or read in the browser if a redirect ever reached one.
+/**
+ * Where a redirect URI sends the browser, as scheme plus host: `https://claude.ai`,
+ * `vscode://vscode.github-authentication`. Not `URL.origin`, which is the string
+ * "null" for every custom scheme and so cannot tell one desktop app from another.
+ * This is what the consent page names and what a remembered approval is keyed on.
+ */
+export function redirectTarget(uri) {
+  try {
+    const u = new URL(uri);
+    return `${u.protocol}//${u.host}`.toLowerCase();
+  } catch {
+    return String(uri);
+  }
+}
+
 const DANGEROUS_SCHEMES = new Set(['javascript:', 'data:', 'vbscript:', 'file:', 'blob:', 'about:']);
 const MAX_REDIRECT_URIS = 10;
 const MAX_CLIENT_NAME = 100;
@@ -291,7 +306,7 @@ export class TeamctxOAuthProvider {
    * there.
    */
   async #finishIdentity({ pending, codeRecord, subject, label }) {
-    const redirectOrigin = new URL(pending.redirectUri).origin;
+    const redirectOrigin = redirectTarget(pending.redirectUri);
     const back = new URL(pending.redirectUri);
     if (pending.clientState) back.searchParams.set('state', pending.clientState);
 
