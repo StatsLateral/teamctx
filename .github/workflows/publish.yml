@@ -28,7 +28,7 @@ jobs:
           fetch-depth: 0
       - name: Release commit must be on main
         run: git merge-base --is-ancestor "$GITHUB_SHA" origin/main
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
       - name: Tag must match package.json
@@ -55,7 +55,7 @@ jobs:
       contents: read
       id-token: write # lets npm verify this run is the trusted publisher
     steps:
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
