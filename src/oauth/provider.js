@@ -567,9 +567,9 @@ export class TeamctxOAuthProvider {
     const familyId = family || newToken(16);
     // A family revoked while this rotation was in flight must stay revoked: do
     // not issue a fresh pair into it, and never write `revoked: false` over it.
-    if (family) {
-      const existing = await kvGet(keys.tokenFamily(familyId));
-      if (existing?.revoked) throw new InvalidGrantError('This sign-in has been revoked. Sign in again.');
+    const revokedNow = async () => Boolean(await kvGet(keys.familyRevoked(familyId)));
+    if (family && await revokedNow()) {
+      throw new InvalidGrantError('This sign-in has been revoked. Sign in again.');
     }
     // Exactly one of githubUser / googleUser is set. A Google session carries no
     // GitHub token at all — that is the point of it, and what makes the
@@ -587,6 +587,13 @@ export class TeamctxOAuthProvider {
     // can reach both. TTL tracks the refresh token, the longer-lived of the two.
     await kvSet(keys.tokenFamily(familyId), { access: accessHash, refresh: refreshHash, revoked: false },
       { ttlSeconds: TTL.refreshToken });
+    // The store has no compare-and-set, so check the revocation marker again now
+    // the new pair exists: a revoke that landed while this was running leaves the
+    // marker, and the pair is withdrawn rather than left live.
+    if (family && await revokedNow()) {
+      await Promise.all([kvDelete(keys.tokenV2(accessHash)), kvDelete(keys.refreshV2(refreshHash))]);
+      throw new InvalidGrantError('This sign-in has been revoked. Sign in again.');
+    }
 
     return {
       access_token: accessToken,
@@ -599,6 +606,8 @@ export class TeamctxOAuthProvider {
 
   /** Revoke a whole sign-in: delete its current access and refresh records and mark it revoked. */
   async #revokeFamily(familyId) {
+    // Marker first, so a rotation in flight sees it however it interleaves.
+    await kvSet(keys.familyRevoked(familyId), { at: new Date().toISOString() }, { ttlSeconds: TTL.refreshToken });
     const fam = await kvGet(keys.tokenFamily(familyId));
     if (!fam) return;
     await Promise.all([
@@ -622,8 +631,10 @@ export class TeamctxOAuthProvider {
     // hour is up. Reject it here too, so a detected replay kills every access
     // token in the family, not only the current pair.
     if (record.family) {
-      const fam = await kvGet(keys.tokenFamily(record.family));
-      if (fam?.revoked) throw new InvalidTokenError('Access token is invalid or has expired');
+      const [fam, marker] = await Promise.all([
+        kvGet(keys.tokenFamily(record.family)), kvGet(keys.familyRevoked(record.family)),
+      ]);
+      if (fam?.revoked || marker) throw new InvalidTokenError('Access token is invalid or has expired');
     }
     return {
       token,

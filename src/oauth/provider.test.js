@@ -654,6 +654,17 @@ describe('tokens are hashed, project-bound and reuse-aware', () => {
     await expectOAuthError(provider.exchangeRefreshToken(CLIENT, tokens.refresh_token), 'invalid_grant');
   });
 
+  it('keeps a revoked sign-in revoked even if a rotation rewrites its family record', async () => {
+    const provider = makeProvider();
+    const tokens = await issue(provider);
+    const rec = await kvGet(keys.tokenV2(tokenHash(tokens.access_token)));
+    await provider.revokeToken(null, { token: tokens.access_token });
+    // A rotation that was mid-write puts the family record back as live.
+    await kvSet(keys.tokenFamily(rec.family), { access: 'x', refresh: 'y', revoked: false }, { ttlSeconds: 60 });
+    await kvSet(keys.tokenV2(tokenHash(tokens.access_token)), rec, { ttlSeconds: 60 });
+    await expectOAuthError(provider.verifyAccessToken(tokens.access_token), 'invalid_token');
+  });
+
   it('revokeToken on either token kills both', async () => {
     const provider = makeProvider();
     const tokens = await issue(provider);

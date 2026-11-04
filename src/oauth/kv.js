@@ -223,6 +223,9 @@ export const keys = {
    * revokes the whole family. TTL tracks the refresh token.
    */
   tokenFamily: id => `oauth:family:${id}`,
+  // A sign-in's revocation marker. Written once by a revoke and never overwritten
+  // by a rotation, which is what lets a rotation in flight see it.
+  familyRevoked: id => `oauth:family-revoked:${id}`,
   /**
    * Tombstone for a refresh token that has already been rotated away, value is
    * its family id. A later presentation of the same token is replay: it is
