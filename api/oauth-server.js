@@ -2,7 +2,7 @@ import express from 'express';
 import rateLimit from 'express-rate-limit';
 import { randomBytes } from 'crypto';
 import { mcpAuthRouter } from '@modelcontextprotocol/sdk/server/auth/router.js';
-import { providerFromEnv, oauthConfigStatus, GITHUB_SCOPES, OAuthCallbackError, setBindCookie, readBindCookie, bindMatches, tokenHash } from '../src/oauth/provider.js';
+import { providerFromEnv, oauthConfigStatus, GITHUB_SCOPES, OAuthCallbackError, setBindCookie, readBindCookie, bindMatches, tokenHash, redirectTarget } from '../src/oauth/provider.js';
 import { kvGet, kvSet, kvTake, kvDelete, keys, TTL, isPersistent, secretsConfigured } from '../src/oauth/kv.js';
 import { liveProjects } from '../src/oauth/live-projects.js';
 import { googleAuthorizeUrl, googleUserFromCode } from '../src/oauth/google.js';
@@ -380,7 +380,7 @@ app.get('/oauth/consent', async (req, res) => {
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
   res.send(consentPage({
     clientName: client?.client_name || null,
-    redirectHost: (() => { try { return new URL(rec.redirectUri).host; } catch { return rec.redirectUri; } })(),
+    redirectTarget: redirectTarget(rec.redirectUri),
     identity: rec.identity || rec.subject,
     cToken: c,
   }));

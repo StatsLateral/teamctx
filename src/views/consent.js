@@ -11,8 +11,14 @@ const escape = (s) => String(s ?? '')
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
   .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 
-export function consentPage({ clientName, redirectHost, identity, cToken }) {
+export function consentPage({ clientName, redirectTarget, identity, cToken }) {
   const name = clientName ? escape(clientName) : 'An application';
+  // A custom scheme opens an app on this computer, not a website. Say so, and
+  // show the scheme, so `evil-app://github.com` cannot pass for github.com.
+  const isWeb = /^https?:\/\//i.test(String(redirectTarget));
+  const target = isWeb
+    ? escape(redirectTarget)
+    : `A desktop app on this computer (${escape(redirectTarget)})`;
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -38,7 +44,7 @@ export function consentPage({ clientName, redirectHost, identity, cToken }) {
     <p><strong>${name}</strong> is asking to connect to teamctx on your behalf.</p>
     <dl>
       <dt>Signed in as</dt><dd>${escape(identity)}</dd>
-      <dt>Sends the result to</dt><dd>${escape(redirectHost)}</dd>
+      <dt>Sends the result to</dt><dd>${target}</dd>
     </dl>
     <p>Approve only if you started this from this application.</p>
     <div class="row">
