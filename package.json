@@ -43,7 +43,7 @@
     "express": "^5.3.0",
     "express-rate-limit": "^8.6.0",
     "jsonrepair": "^3.0.0",
-    "openai": "^6.46.0"
+    "openai": "^7.47.0"
   },
   "devDependencies": {
     "jsdom": "^25.0.1",
