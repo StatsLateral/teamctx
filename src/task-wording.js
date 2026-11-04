@@ -49,8 +49,13 @@ export function taskTitleProblem(title) {
  * Whether the input itself says not to make tasks: it is only source material,
  * or it says so in as many words. That is the person's instruction, so it holds
  * whatever the model proposed.
+ *
+ * "Don't create tasks" counts only when it ends there or says from what ("from
+ * this"): a team rule such as "never create tasks for hotels before the budget
+ * is approved" is about the team's own work, and would otherwise drop every
+ * task the same message asks for.
  */
-const NO_TASKS = /\b(?:(?:do not|don't|dont|no need to|never) (?:create|add|make|propose|generate|suggest) (?:any )?tasks|(?:create|add|make|propose|generate|suggest) no tasks|no tasks (?:needed|please|for this|from this)|(?:only|just|purely) (?:as )?source material|source material only|is source material)\b/i;
+const NO_TASKS = /\b(?:(?:do not|don't|dont|no need to|never) (?:create|add|make|propose|generate|suggest) (?:any )?tasks(?=\s*(?:[.!,;:)]|$|(?:from|for|out of|based on) (?:this|it|that|these|here)\b))|(?:create|add|make|propose|generate|suggest) no tasks|no tasks (?:needed|please|for this|from this)|(?:only|just|purely) (?:as )?source material|source material only|is source material)\b/i;
 
 export function saysNoTasks(text) {
   return NO_TASKS.test(String(text ?? ''));

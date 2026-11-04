@@ -20,6 +20,7 @@ vi.mock('../src/adapters/github.js', async (orig) => ({
     return [
       { fullName: 'acme/ledger', private: true },
       { fullName: 'acme/atlas', private: false },
+      { fullName: 'acme/trip_plan-2', private: true },
     ];
   },
   listUserOrgs: async () => [],
@@ -195,6 +196,12 @@ describe('searching for a project by name', () => {
   it('matches part of a name, anywhere in it', async () => {
     const { body } = await openRef(MANAGER, 'edge');
     expect(body).toContain('name="ref" value="acme/ledger"');
+  });
+
+  it('finds a name typed with spaces where the repository has dashes or underscores', async () => {
+    const { body } = await openRef(MANAGER, 'trip plan 2');
+    expect(body).toContain('name="ref" value="acme/trip_plan-2"');
+    expect(body).not.toContain('Nothing you can reach matches');
   });
 
   it('opens a match in one click', async () => {

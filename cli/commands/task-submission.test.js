@@ -121,6 +121,16 @@ describe('submitting outputs for a task', () => {
     expect(listQueue(dir).map(q => q.number)).toEqual([task.key, task.key]);
   });
 
+  it('refuses the same work sent again while it is still waiting', async () => {
+    const a = (await save(member, { body: 'v1', title: 'A' })).output;
+    const b = (await save(member, { body: 'v2', title: 'B' })).output;
+    await submit(member, { outputs: [a.id, b.id] });
+    await expect(submit(member, { outputs: [b.id, a.id] })).rejects.toThrow(/already waiting for review/);
+    // A different choice of outputs is new work, and waits beside it.
+    await submit(member);
+    expect(listQueue(dir)).toHaveLength(2);
+  });
+
   it('is counted as touching the task, so the task history shows it', async () => {
     await save(member, { body: 'v1' });
     await submit(member);

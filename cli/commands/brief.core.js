@@ -31,6 +31,12 @@ import { contextFreshness, freshnessLine, withFreshness } from '../../src/freshn
  * Everything here was compiled when it was written.
  */
 
+/** A part of the work by the name people use, the project by its own. */
+function placeName(id, config) {
+  if (isProjectLevel(id)) return targetLabel(id, config.project);
+  return (config.workstreams || []).find(w => w.id === id)?.name || id;
+}
+
 /** Their tasks, under the thing they belong to. */
 function groupByTarget(tasks, config) {
   const groups = new Map();
@@ -41,7 +47,7 @@ function groupByTarget(tasks, config) {
         workstream: id,
         // Named the way a person would say it. Project-level tasks are a group
         // like any other rather than an unlabelled remainder.
-        name: targetLabel(id, config.project),
+        name: placeName(id, config),
         tasks: [],
       });
     }
@@ -110,11 +116,18 @@ export async function buildBrief({
 
   // The context for each place they stand, the project and every part above it
   // included, so this is the merged view rather than halves to staple together.
-  const context = places
+  //
+  // Somebody on the whole project reads the project, and also each part they
+  // have open work in: the project alone said nothing of the decisions and
+  // rules their tasks sit under, and read "no context yet" when the project's
+  // context had all gone to a workstream.
+  const reading = scope && scope.length ? places
+    : [...new Set([...places, ...open.map(t => resolveTarget(t.workstream))])];
+  const context = reading
     .filter(id => isProjectLevel(id) || known.has(id))
     .map(id => ({
       workstream: id,
-      name: targetLabel(id, config.project),
+      name: placeName(id, config),
       markdown: rendered(id, config, teamctxDir),
     }));
 

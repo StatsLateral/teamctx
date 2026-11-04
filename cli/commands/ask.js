@@ -1,4 +1,4 @@
-import { readConfig, readRoleFile, readTree, readTreeMd, readProject, readContributions, listTasks } from '../../src/storage.js';
+import { readConfig, readRoleFile, readTree, readTreeMd, readProject, readContributions, listTasks, listWorkstreamIds, readWorkstream } from '../../src/storage.js';
 import { answerQuestion } from '../../src/context.js';
 import { currentIdentity } from '../identity.js';
 import { resolveTarget, isProjectLevel } from '../../src/project-level.js';
@@ -37,6 +37,11 @@ export async function askCommand(question, opts) {
   const answer = await answerQuestion({
     sharedMd: readTreeMd(target), roleMd, question, config, openTasks,
     workstream: tree, contributions, audit: !!opts.audit,
+    // Asked of the whole project, every part of it: the project's own tree is
+    // only what the parts have in common.
+    parts: isProjectLevel(target)
+      ? listWorkstreamIds().map(id => ({ name: (config.workstreams || []).find(w => w.id === id)?.name || id, tree: readWorkstream(id) }))
+      : [],
     // A workstream answers with the project above it. The project answers with
     // itself, and passing it twice would put every Why in the prompt twice.
     project: isProjectLevel(target) ? null : project,

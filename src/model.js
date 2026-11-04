@@ -65,9 +65,11 @@ const checkRecord = ajv.compile(recordSchema);
 export function validateRecord(record) {
   const ok = checkRecord(record);
   if (ok) return { ok: true, errors: [] };
-  const errors = (checkRecord.errors || []).map(e => {
+  // "must match \"then\" schema" only repeats the error under it, and reached the
+  // person as it was.
+  const errors = (checkRecord.errors || []).filter(e => e.keyword !== 'if').map(e => {
     const field = e.params?.missingProperty || e.instancePath.replace(/^\//, '').replace(/\//g, '.') || 'record';
-    return `${field}: ${e.message}`;
+    return e.keyword === 'required' ? `${field}: missing` : `${field}: ${e.message}`;
   });
   return { ok: false, errors: [...new Set(errors)] };
 }

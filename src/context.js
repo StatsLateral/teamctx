@@ -84,7 +84,10 @@ function honestSummary(summary, contribution) {
   return `Proposed by ${contribution.author}: ${first.length > 140 ? `${first.slice(0, 140)}…` : first}`;
 }
 
-export async function updateShared(tree, contribution, config, { intent, avoid, comparisonRecords, operationsToCheck } = {}) {
+/** Dropped only for being sent to the other tree, which a founding contribution routes. */
+const WRONG_TREE = /^(?:the goal belongs to the project|a task belongs to a workstream)/;
+
+export async function updateShared(tree, contribution, config, { intent, avoid, comparisonRecords, operationsToCheck, founding = false } = {}) {
   const proposal = await proposeDiff({
     workstream: tree,
     contribution: contribution.text,
@@ -99,10 +102,13 @@ export async function updateShared(tree, contribution, config, { intent, avoid, 
   const { contradictions = [] } = proposal;
   const summary = honestSummary(proposal.summary, contribution);
   const operations = stampEvidence(operationsToCheck ?? proposal.operations, contribution, tree);
-  const { tree: updated, dropped, nextKey } = applyOps(tree, operations, contribution.id, {
+  const { tree: updated, dropped: refused, nextKey } = applyOps(tree, operations, contribution.id, {
     nextKey: config?.nextKey,
     workstreamNumber: workstreamNumber(config, tree?.id),
   });
+  // A founding contribution's goal or tasks sent to the other tree are kept: the
+  // caller moves them where they belong, and drops what it cannot place.
+  const dropped = founding ? refused.filter(d => !WRONG_TREE.test(d.reason)) : refused;
   // What was dropped never reaches the queue or the tree: a reviewer approving
   // a proposal should see exactly what will be written.
   // By position, not by identity: `applyOps` copies an operation whose record
@@ -232,7 +238,13 @@ function parseCitations(answer) {
   return { body, citedIds };
 }
 
-export async function answerQuestion({ sharedMd, roleMd, question, config, openTasks, workstream, contributions, audit, project = null }) {
+/**
+ * `parts`: when the question is asked of the whole project, each part of the
+ * work the asker may see, `{ name, tree }`. The project's own tree holds only
+ * what is common to all of them, so an answer from it alone said "nothing
+ * here" about a decision every part of a trip was built on.
+ */
+export async function answerQuestion({ sharedMd, roleMd, question, config, openTasks, workstream, contributions, audit, project = null, parts = [] }) {
   const contribs = contributions || [];
   const useCitedTags = !!workstream;
   const shared = useCitedTags
@@ -242,9 +254,13 @@ export async function answerQuestion({ sharedMd, roleMd, question, config, openT
     ? `## Open Tasks\n\n${openTasks.map(t => `- ${t.key || t.id} — ${t.title} (owner: ${t.owner || '?'})`).join('\n')}`
     : '';
 
+  const partsMd = (parts || [])
+    .map(p => serializeToMd(p.tree, p.name, '', contribs, { includeSourceTags: useCitedTags }))
+    .join('\n\n');
   const context = [
     roleMd ? `## Your Role Context\n\n${roleMd}` : '',
     shared ? `## Shared Project Context\n\n${shared}` : '',
+    partsMd ? `## Parts of the Work\n\n${partsMd}` : '',
     tasksMd,
   ].filter(Boolean).join('\n\n---\n\n');
 

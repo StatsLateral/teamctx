@@ -268,6 +268,13 @@ describe('getting there', () => {
     expect(body).toMatch(/could not be read/);
   });
 
+  it('keeps the person signed in on the error page, not offering "Sign in"', async () => {
+    repo.prefetchError = 'github: repo acme/ledger not found (or PAT lacks access)';
+    const { body } = await visit('/project/acme/ledger', MANAGER);
+    expect(body).toMatch(/Sign out/);
+    expect(body).not.toMatch(/href="\/signin"/);
+  });
+
   describe('when GitHub rejects the credential itself', () => {
     const BAD = 'github GET https://api.github.com/repos/acme/ledger → 401: { "message": "Bad credentials" }';
 
