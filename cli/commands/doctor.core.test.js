@@ -52,7 +52,7 @@ describe('each check, failing, says how to fix it', () => {
   it('on a Node older than package.json allows, and does not blame the network too', async () => {
     project();
     const checks = await doctor({ nodeVersion: 'v16.20.0' });
-    expect(line(checks, 'Node version')).toMatchObject({ status: 'fail', fix: expect.stringMatching(/Install Node 18 or later/) });
+    expect(line(checks, 'Node version')).toMatchObject({ status: 'fail', fix: expect.stringMatching(/Install Node 20 or later/) });
     expect(line(checks, 'AI key accepted')).toMatchObject({ status: 'skip', fix: 'needs a supported Node' });
     expect(accepted).not.toHaveBeenCalled();
   });

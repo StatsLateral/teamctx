@@ -51,7 +51,7 @@
     "vitest": "^3.2.7"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=20"
   },
   "overrides": {
     "@hono/node-server": "^2.1.3"

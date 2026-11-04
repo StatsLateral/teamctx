@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Node 20 or newer is required.** Node 18 reached end of life in April 2025,
+  and the patched `@hono/node-server` that clears the dependency advisory needs
+  Node 20, so the server's HTTP transport no longer works on 18. `engines` is
+  now `>=20` and CI tests Node 20 and 22. `teamctx doctor` names the new floor.
+
 ### Security
 - **A revoked sign-in stays revoked.** Revoking a sign-in, or a replay of an old
   refresh token, now leaves a marker that a refresh already in flight cannot

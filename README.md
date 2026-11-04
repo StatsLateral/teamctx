@@ -149,7 +149,7 @@ It does not guarantee correct outputs, force an assistant to follow every instru
 ## Quickstart
 
 ```bash
-# Prerequisites: Node 18+, git, and an Anthropic, OpenAI, or Gemini API key in .env.local
+# Prerequisites: Node 20+, git, and an Anthropic, OpenAI, or Gemini API key in .env.local
 
 npx teamctx init
 
@@ -256,7 +256,7 @@ reference for every tool: [docs/mcp.md](docs/mcp.md).
 
 ### Prerequisites
 
-- Node 18+ and `teamctx` on your PATH (`npm i -g teamctx`).
+- Node 20+ and `teamctx` on your PATH (`npm i -g teamctx`).
 - A teamctx project on disk (run `teamctx init` in a git repo first).
 - An Anthropic API key at [console.anthropic.com](https://console.anthropic.com)
   — either exported in your shell, in `.env.local` next to your project,
@@ -384,7 +384,7 @@ Manager runs `teamctx pull` to process web submissions.
 
 ### Setup
 
-**Prerequisites:** Node 18+, git, [Vercel CLI](https://vercel.com/docs/cli), Anthropic API key, GitHub account.
+**Prerequisites:** Node 20+, git, [Vercel CLI](https://vercel.com/docs/cli), Anthropic API key, GitHub account.
 
 **1. Create a private GitHub repo**
 

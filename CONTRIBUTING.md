@@ -104,7 +104,7 @@ CLA is required.
 
 A pull request can merge only when **both** are true:
 
-1. **CI is green** — the Vitest suite passes on Node 18 and 20.
+1. **CI is green** — the Vitest suite passes on Node 20 and 22.
 2. **A maintainer approves** — you'll be auto-requested via `CODEOWNERS`.
 
 Branch protection on `main` enforces this; there are no direct pushes to `main`.
