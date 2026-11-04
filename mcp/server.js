@@ -707,21 +707,33 @@ function withLink(text, link) {
  * currently in — which is what makes it usable as a warning rather than only as
  * a report.
  */
-function breakingImpact(teamctxDir, operations) {
+function breakingImpact(teamctxDir, operations, allowed = null) {
   const breaks = (operations || []).filter(o => o?.type === 'setRecordStatus' && o.status === 'broken');
   if (!breaks.length) return null;
   const records = projectRecords(teamctxDir);
   const tasks = listTasks({}, teamctxDir);
+  // The walk crosses every part of the work, because that is where the records
+  // resting on an assumption are. What it hands back must not: a caller sees
+  // the ones in their scope, and only a count of the rest — the flag crosses
+  // the line, the content does not (see src/impact.js).
+  const treeOf = new Map();
+  for (const id of [null, ...listWorkstreamIds(teamctxDir)]) {
+    for (const r of readTree(id, teamctxDir)?.records || []) if (!treeOf.has(r.id)) treeOf.set(r.id, id);
+  }
+  const visible = r => inScope(allowed, treeOf.get(r.id) ?? null);
   const out = [];
   for (const op of breaks) {
     const target = records.find(r => r.id === op.id);
     if (!target || target.type !== 'assumption') continue;
     const { records: resting, tasks: onTasks } = restingOn(records, op.id, { tasks });
+    const shown = resting.filter(visible);
+    const shownTasks = onTasks.filter(t => inScope(allowed, t.workstream ?? null));
     out.push({
       id: target.id,
       text: target.text,
-      records: resting.map(r => ({ id: r.id, type: r.type, text: r.text })),
-      tasks: onTasks.map(t => ({ id: t.id, title: t.title })),
+      records: shown.map(r => ({ id: r.id, type: r.type, text: r.text })),
+      tasks: shownTasks.map(t => ({ id: t.id, title: t.title })),
+      ...(resting.length > shown.length ? { elsewhere: resting.length - shown.length } : {}),
     });
   }
   return out.length ? out : null;
@@ -730,13 +742,16 @@ function breakingImpact(teamctxDir, operations) {
 /** The same thing in the words the assistant reads back. */
 function sayImpact(impact) {
   if (!impact) return '';
-  return impact.map(({ text, records, tasks }) => {
-    if (!records.length) return ` Nothing on record rests on "${text}".`;
+  return impact.map(({ text, records, tasks, elsewhere = 0 }) => {
+    const hidden = elsewhere
+      ? ` ${elsewhere} more in parts of the work you are not on ${elsewhere === 1 ? 'rests' : 'rest'} on it too; say that whoever runs ${elsewhere === 1 ? 'that part' : 'those parts'} will need to take a second look.`
+      : '';
+    if (!records.length) return elsewhere ? ` "${text}":${hidden}` : ` Nothing on record rests on "${text}".`;
     const n = records.length;
     const list = records.map(r => `"${r.text}"`).join(', ');
     const work = tasks.length ? ` Tasks affected: ${tasks.map(t => t.title).join(', ')}.` : '';
     return ` ${n} thing${n === 1 ? '' : 's'} rest${n === 1 ? 's' : ''} on "${text}": ${list}.`
-      + ` Say so, and that ${n === 1 ? 'it needs' : 'they need'} a second look.${work}`;
+      + ` Say so, and that ${n === 1 ? 'it needs' : 'they need'} a second look.${work}${hidden}`;
   }).join('');
 }
 
@@ -1743,7 +1758,7 @@ export function makeHandlers(projectRoot) {
           ? { review: r.id }
           : { ws: r.workstream })
         : { ws: r.workstream, item: changed });
-      const impact = breakingImpact(teamctxDir, r.operations);
+      const impact = breakingImpact(teamctxDir, r.operations, await scope(teamctxDir, readConfig(teamctxDir)));
       return textResult({
         ...r,
         ...link,

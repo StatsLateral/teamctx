@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- **Breaking an assumption shows only what the caller may see.** `contribute`
+  says what rests on an assumption it breaks. For somebody on some parts of the
+  work it now names only the decisions and tasks in those parts, with a count of
+  the rest, instead of the text of every part.
+
 ### Added
 - **A manager can remove an accepted task (#202).** `teamctx task rm <id>
   --reason "…"` and `task_rm` with `reason`. A manager only, and a reason is
@@ -80,7 +86,8 @@ migration: run `teamctx init` again in an existing project.
   `authkey`) is the access itself, so it is never kept, whatever tool it arrives
   under; the item is kept by its name. Never the file's text, and no Microsoft
   credential is held for the assistant route.
-- **Slack notices for what is waiting (#182).** When a contribution or a task's
+
+- **Slack notices for what is waiting (#182).** When a contribution or a task's
   work is queued for review, one message goes to a Slack incoming webhook: the
   item's number, who sent it, a one-line summary and the link that opens it.
   Never the text. A manager sets it in Settings (kept in the deployment's store,
