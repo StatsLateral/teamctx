@@ -42,6 +42,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with two tasks, was read as "make no tasks" and both were left out. Only a
   plain "don't make tasks" (or "…from this") is read that way now.
 
+### Added
+- **A manager can remove an accepted task (#202).** `teamctx task rm <id>
+  --reason "…"` and `task_rm` with `reason`. A manager only, and a reason is
+  required. The task leaves the plan, not the history: its outputs, approval and
+  logs stay, its acceptance record is closed, and anything else recorded when it
+  was accepted is listed for the manager to decide about. Reopening an accepted
+  task is still not possible; add a follow-on task.
+
 ## [0.5.1] - 2026-11-03
 
 ### Fixed
@@ -107,7 +115,8 @@ migration: run `teamctx init` again in an existing project.
   `authkey`) is the access itself, so it is never kept, whatever tool it arrives
   under; the item is kept by its name. Never the file's text, and no Microsoft
   credential is held for the assistant route.
-- **Slack notices for what is waiting (#182).** When a contribution or a task's
+
+- **Slack notices for what is waiting (#182).** When a contribution or a task's
   work is queued for review, one message goes to a Slack incoming webhook: the
   item's number, who sent it, a one-line summary and the link that opens it.
   Never the text. A manager sets it in Settings (kept in the deployment's store,
