@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- **Breaking an assumption shows only what the caller may see.** `contribute`
+  says what rests on an assumption it breaks. For somebody on some parts of the
+  work it now names only the decisions and tasks in those parts, with a count of
+  the rest, instead of the text of every part.
+- **Moving a role checks the part of the work it leaves.** `role_assign`
+  checked only where a role was going, so somebody on one part of the work could
+  take another part's role into their own. Both ends are now in the caller's
+  scope or the move is refused. `ask` with a role that does not exist lists only
+  the roles the caller may see.
+
 ### Fixed
 - **Asking about the whole project reads every part of it.** `ask` read only
   the project's own level, so "how many cruises?" got "no information" while a
