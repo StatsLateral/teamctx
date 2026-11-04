@@ -871,6 +871,35 @@ describe('a member scoped to one workstream', () => {
     await refused(h => h.role_assign({ slug: 'pm', workstream: 'product' }));
   });
 
+  /** Ravi's project with a role on each workstream and one at project level. */
+  const withRoles = () => {
+    const s = withTasks();
+    const cfg = s.configJson();
+    cfg.roles = [
+      { slug: 'pm', name: 'PM', workstream: 'product' },
+      { slug: 'recruiter', name: 'Recruiter', workstream: 'engineering' },
+      { slug: 'ops', name: 'Ops', workstream: null },
+    ];
+    s.write('.teamctx/config.json', JSON.stringify(cfg));
+    return s;
+  };
+
+  it('cannot move a sibling workstream\'s role into their own, which takes it from that workstream', async () => {
+    const s = withRoles();
+    await expect(asUser(s, RAVI, h => h.role_assign({ slug: 'pm', workstream: 'engineering' })))
+      .rejects.toThrow(/no workstream "product"/);
+    expect(s.configJson().roles.find(r => r.slug === 'pm').workstream).toBe('product');
+  });
+
+  it('is not told a sibling\'s role names when asking with one that does not exist', async () => {
+    let message = '';
+    try { await asUser(withRoles(), RAVI, h => h.ask({ question: 'x', role: 'nope' })); }
+    catch (err) { message = err.message; }
+    expect(message).toMatch(/No role "nope"/);
+    expect(message).toContain('recruiter');
+    expect(message).not.toContain('pm');
+  });
+
   it('is still told which argument is missing when role_assign gets none', async () => {
     await expect(asUser(withTasks(), RAVI, h => h.role_assign({ slug: 'pm' })))
       .rejects.toThrow(/workstreamId is required|no role "pm"/);

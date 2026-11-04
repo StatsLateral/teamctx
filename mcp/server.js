@@ -1657,7 +1657,12 @@ export function makeHandlers(projectRoot) {
       if (role) {
         const found = (config.roles || []).find(r => r.slug === role);
         if (!found) {
-          const available = (config.roles || []).map(r => r.slug).join(', ') || '(none)';
+          // Only the roles this caller may read, as `list_roles` lists them: a
+          // role's name is one of the things a scope keeps back.
+          const allowed = await scope(teamctxDir, config);
+          const available = (config.roles || [])
+            .filter(r => inScope(allowed, resolveTarget(r.workstream)))
+            .map(r => r.slug).join(', ') || '(none)';
           throw new Error(`No role "${role}". Available: ${available}`);
         }
         // Same walk-around `get_role_context` closes: a role file is a compiled
@@ -1821,8 +1826,15 @@ export function makeHandlers(projectRoot) {
       // Checked rather than resolved: this argument is required, and routing it
       // through the default would turn a missing one into a silent assignment
       // to wherever the caller happens to be standing.
+      // Both ends: where the role goes, and where it is now. Moving a role out of
+      // a part of the work changes that part — it loses the role, and its file is
+      // rebuilt from somewhere else — so the caller must be on it too.
+      const config = readConfig(teamctxDir);
+      const allowed = await scope(teamctxDir, config);
+      const current = (config.roles || []).find(r => r.slug === args.slug);
+      if (current) assertInScope(allowed, resolveTarget(current.workstream));
       if (args.workstream !== undefined) {
-        assertInScope(await scope(teamctxDir, readConfig(teamctxDir)), resolveTarget(args.workstream));
+        assertInScope(allowed, resolveTarget(args.workstream));
       }
       const r = await assignRole({
         slug: args.slug, workstreamId: args.workstream,

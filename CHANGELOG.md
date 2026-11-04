@@ -12,6 +12,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   says what rests on an assumption it breaks. For somebody on some parts of the
   work it now names only the decisions and tasks in those parts, with a count of
   the rest, instead of the text of every part.
+- **Moving a role checks the part of the work it leaves.** `role_assign`
+  checked only where a role was going, so somebody on one part of the work could
+  take another part's role into their own. Both ends are now in the caller's
+  scope or the move is refused. `ask` with a role that does not exist lists only
+  the roles the caller may see.
 
 ### Added
 - **A manager can remove an accepted task (#202).** `teamctx task rm <id>
