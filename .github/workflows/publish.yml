@@ -42,7 +42,7 @@ jobs:
         env:
           ANTHROPIC_API_KEY: test-key-not-used
       - run: npm pack
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: package
           path: teamctx-*.tgz
