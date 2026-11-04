@@ -17,6 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   take another part's role into their own. Both ends are now in the caller's
   scope or the move is refused. `ask` with a role that does not exist lists only
   the roles the caller may see.
+- **Dependencies with known advisories are updated.** The MCP SDK is now at
+  least 1.32.2, `@hono/node-server` is on the patched 2.x line, `npm audit fix`
+  cleared the rest of the production advisories, and `express`, which the server
+  imports, is declared rather than arriving through the SDK.
 
 ### Fixed
 - **Asking about the whole project reads every part of it.** `ask` read only
