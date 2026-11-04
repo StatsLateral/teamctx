@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Security
+- **A revoked sign-in stays revoked.** Revoking a sign-in, or a replay of an old
+  refresh token, now leaves a marker that a refresh already in flight cannot
+  write over, and a token minted before the revoke is refused too.
 - **Breaking an assumption shows only what the caller may see.** `contribute`
   says what rests on an assumption it breaks. For somebody on some parts of the
   work it now names only the decisions and tasks in those parts, with a count of
