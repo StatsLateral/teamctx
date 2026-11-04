@@ -167,6 +167,18 @@ export default async function handler(req, res) {
     if (!provider) return unauthorized(req, res, owner, repo, 'OAuth is not configured on this deployment');
     try {
       const auth = await provider.verifyAccessToken(bearer);
+      // A token works only on the project it was issued for; a token with no
+      // project of its own binds to the first one it is used on. Stops a token
+      // minted for one repo from being replayed against another the user's
+      // GitHub also reaches.
+      const bound = await provider.enforceResource(bearer, mcpUrl({ origin: baseUrlFrom(req), owner, repo }));
+      if (!bound.ok) {
+        return unauthorized(req, res, owner, repo,
+          bound.boundTo
+            ? `This connection was authorized for a different project (${bound.boundTo}). Reconnect from ${owner}/${repo}.`
+            : 'The access token is invalid or has expired',
+          { invalidToken: true });
+      }
       ghToken = auth.extra?.githubToken ?? null;
       // The identity behind the token. This is what contributions get attributed
       // to and what the manager gate compares against, instead of the shared
@@ -196,7 +208,10 @@ export default async function handler(req, res) {
           // the token.
           console.warn(`teamctx: GitHub rejected the sign-in held for ${who} on ${owner}/${repo}, `
             + (Number.isNaN(since) ? 'signed in at a time that was not recorded' : `signed in ${Math.round((Date.now() - since) / 60000)} minutes ago`));
-          await kvDelete(keys.token(bearer));
+          // Revoke the whole sign-in, not just this access token: the GitHub
+          // credential behind the family is dead, so its refresh token must stop
+          // working too.
+          await provider.revokeToken(null, { token: bearer });
           unauthorized(req, out, owner, repo, 'GitHub no longer accepts the sign-in this connection holds. Sign in again.', { invalidToken: true });
         };
       }

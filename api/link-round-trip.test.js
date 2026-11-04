@@ -112,13 +112,13 @@ describe('following a link with no session at all', () => {
   it('keeps the destination through the GitHub kickoff', async () => {
     const r = await go(`/settings/signin?returnTo=${encodeURIComponent(LINK)}`);
     const state = new URL(r.headers.get('location')).searchParams.get('state');
-    expect(await kvGet(keys.pending(`settings:${state}`))).toEqual({ kind: 'settings', returnTo: LINK });
+    expect(await kvGet(keys.pending(`settings:${state}`))).toMatchObject({ kind: 'settings', returnTo: LINK });
   });
 
   it('keeps it through the Google kickoff too', async () => {
     const r = await go(`/settings/signin/google?returnTo=${encodeURIComponent(LINK)}`);
     const state = new URL(r.headers.get('location')).searchParams.get('state');
-    expect(await kvGet(keys.pending(`settings-google:${state}`))).toEqual({ kind: 'settings', returnTo: LINK });
+    expect(await kvGet(keys.pending(`settings-google:${state}`))).toMatchObject({ kind: 'settings', returnTo: LINK });
   });
 
   it('lands back on the item after the callback, not on the project', async () => {

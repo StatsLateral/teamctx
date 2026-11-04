@@ -96,6 +96,39 @@ export async function kvDelete(key, env = process.env) {
 }
 
 /**
+ * Delete every key matching a glob pattern, skipping any whose name starts with
+ * `excludePrefix`, and return how many were removed.
+ *
+ * For one-off maintenance only (the legacy-token purge), never a request path:
+ * it pages through the whole keyspace. In memory it filters the Map; against
+ * Redis it uses SCAN so it never blocks the server the way KEYS would. The
+ * exclusion lets the legacy purge match `oauth:token:*` yet keep the live
+ * `oauth:token:v2:*` records.
+ */
+export async function kvScanDelete(pattern, { excludePrefix } = {}, env = process.env) {
+  const keep = k => excludePrefix && k.startsWith(excludePrefix);
+  const cfg = restConfig(env);
+  if (!cfg) {
+    const re = new RegExp('^' + pattern.replace(/[.*+?^${}()|[\]\\]/g, m => (m === '*' ? '.*' : '\\' + m)) + '$');
+    let n = 0;
+    for (const key of [...memory.keys()]) if (re.test(key) && !keep(key)) { memory.delete(key); n++; }
+    return n;
+  }
+  let cursor = '0';
+  let removed = 0;
+  do {
+    const [next, batch] = await restCommand(cfg, ['SCAN', cursor, 'MATCH', pattern, 'COUNT', '500']);
+    cursor = next;
+    const doomed = Array.isArray(batch) ? batch.filter(k => !keep(k)) : [];
+    if (doomed.length) {
+      await restCommand(cfg, ['DEL', ...doomed]);
+      removed += doomed.length;
+    }
+  } while (cursor !== '0');
+  return removed;
+}
+
+/**
  * Add one to a counter and return the new count, atomically.
  *
  * A read followed by a write lets two concurrent callers read the same count
@@ -167,10 +200,47 @@ export const keys = {
   pending: state => `oauth:pending:${state}`,
   /** Authorization code awaiting exchange at /token. 10 min, one-shot. */
   code: code => `oauth:code:${code}`,
-  /** Access token → { githubToken, githubUser, clientId }. Matches token TTL. */
+  /**
+   * Legacy access/refresh keys, under the raw token. No longer written or read
+   * by the provider — kept only so the one-off purge script can find and delete
+   * the records left from before hashing. Remove once the purge has run
+   * everywhere and the TTLs behind it have expired.
+   */
   token: token => `oauth:token:${token}`,
-  /** Refresh token → same payload. Long-lived, rotated on use. */
   refresh: token => `oauth:refresh:${token}`,
+  /**
+   * Access and refresh tokens, keyed by the SHA-256 of the token, never the
+   * token itself: a read of the store hands nobody a working credential. The
+   * `v2` prefix is a clean break, so a legacy record under the old key can never
+   * be read by mistake. Payload carries the project it was issued for and the
+   * sign-in family it belongs to.
+   */
+  tokenV2: hash => `oauth:token:v2:${hash}`,
+  refreshV2: hash => `oauth:refresh:v2:${hash}`,
+  /**
+   * One sign-in's token family: `{ access, refresh, revoked }`, the hashes of
+   * its current pair. Revoking any token, or replaying a used refresh token,
+   * revokes the whole family. TTL tracks the refresh token.
+   */
+  tokenFamily: id => `oauth:family:${id}`,
+  /**
+   * Tombstone for a refresh token that has already been rotated away, value is
+   * its family id. A later presentation of the same token is replay: it is
+   * refused and the family is revoked. TTL tracks the refresh token.
+   */
+  usedRefresh: hash => `oauth:used:${hash}`,
+  /**
+   * Everything needed to mint a code once the user approves, stashed while the
+   * consent page is shown. One-shot, short-lived: the browser is sent to the
+   * page with this token and it is consumed when they decide.
+   */
+  consentPending: token => `oauth:consent-pending:${token}`,
+  /**
+   * A standing approval: this signed-in person has let this client, for this
+   * redirect origin, in before, so the consent page is skipped next time. Keyed
+   * by the hash of the subject so the store never names who approved what.
+   */
+  consentApproval: (subjectHash, clientId, origin) => `oauth:consent:${subjectHash}:${clientId}:${origin}`,
   /** Per-user AI provider key, set via the settings page. Long-lived. */
   aiKey: githubUserId => `teamctx:aikey:${githubUserId}`,
   /**
@@ -278,6 +348,11 @@ export const TTL = {
   pending: 10 * 60,          // 10 min — user is mid-consent
   code: 10 * 60,             // 10 min — RFC 6749 says ≤10 min
   accessToken: 60 * 60,      // 1 hour — Claude refreshes reactively on 401
-  refreshToken: 90 * 24 * 60 * 60,
+  client: 30 * 24 * 60 * 60, // 30 days from last use — abandoned DCR clients lapse
+  consentApproval: 90 * 24 * 60 * 60, // 90 days — a remembered client approval
+  // 30-day idle: each rotation writes a fresh 30-day token, so a connection in
+  // use never expires, but one left unused for 30 days does. Shorter than the
+  // old 90 days to narrow the window a stolen refresh token is useful for.
+  refreshToken: 30 * 24 * 60 * 60,
   session: 60 * 60,
 };

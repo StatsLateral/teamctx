@@ -1,7 +1,8 @@
 import express from 'express';
+import rateLimit from 'express-rate-limit';
 import { randomBytes } from 'crypto';
 import { mcpAuthRouter } from '@modelcontextprotocol/sdk/server/auth/router.js';
-import { providerFromEnv, oauthConfigStatus, GITHUB_SCOPES, OAuthCallbackError } from '../src/oauth/provider.js';
+import { providerFromEnv, oauthConfigStatus, GITHUB_SCOPES, OAuthCallbackError, setBindCookie, readBindCookie, bindMatches, tokenHash } from '../src/oauth/provider.js';
 import { kvGet, kvSet, kvTake, kvDelete, keys, TTL, isPersistent } from '../src/oauth/kv.js';
 import { liveProjects } from '../src/oauth/live-projects.js';
 import { googleAuthorizeUrl, googleUserFromCode } from '../src/oauth/google.js';
@@ -33,6 +34,7 @@ import { projectPage } from '../src/views/project.js';
 import { tipsPage } from '../src/views/tips.js';
 import { contributionsPage } from '../src/views/contributions.js';
 import { choosePage, signInPage, lendsNothing } from '../src/views/connect.js';
+import { consentPage } from '../src/views/consent.js';
 import { homePage } from '../src/views/home.js';
 import { newProjectPage, newProjectSuccessPage, newProjectRetryPage } from '../src/views/new-project.js';
 import { errorPage } from '../src/views/error.js';
@@ -63,6 +65,28 @@ const app = express();
 // ERR_ERL_PERMISSIVE_TRUST_PROXY because it makes IP limiting bypassable.
 app.set('trust proxy', 1);
 app.use(express.urlencoded({ extended: true }));
+
+// Security headers on every response: no content-type sniffing, keep the
+// Referer to this origin, force HTTPS, and forbid framing (clickjacking). Only
+// `frame-ancestors` for the CSP — a fuller policy would break the inline styles
+// these pages use, and is out of scope here.
+app.use((_req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Referrer-Policy', 'same-origin');
+  res.setHeader('Strict-Transport-Security', 'max-age=31536000');
+  res.setHeader('Content-Security-Policy', "frame-ancestors 'none'");
+  next();
+});
+
+// Per-IP limits on the two endpoints an attacker would hammer: registration is
+// the abuse vector, so it is the tighter. Only on a hosted deployment — the
+// in-memory store would otherwise make the test suite order-dependent, and
+// there is nothing to rate-limit in local dev.
+if (isPersistent()) {
+  const perHour = (limit) => rateLimit({ windowMs: 60 * 60 * 1000, limit, standardHeaders: true, legacyHeaders: false });
+  app.use('/register', perHour(10));
+  app.use('/authorize', perHour(30));
+}
 
 function baseUrlFor(req) {
   // See src/base-url.js: the request names the address, but only a host this
@@ -249,6 +273,9 @@ app.get('/oauth/google/callback', async (req, res) => {
   const settingsPending = await kvTake(keys.pending(`settings-google:${state}`));
   if (settingsPending) {
     if (error) return res.status(400).send(errorPage(`Google returned: ${error}`));
+    if (!bindMatches(settingsPending, readBindCookie(req))) {
+      return res.status(400).send(errorPage('This sign-in was started in another browser. Start it again from the settings page.'));
+    }
     try {
       const googleUser = await googleUserFromCode({
         code: String(code),
@@ -275,6 +302,7 @@ app.get('/oauth/google/callback', async (req, res) => {
       state: String(state),
       error: error ? String(error) : null,
       errorDescription: errorDescription ? String(errorDescription) : null,
+      bind: readBindCookie(req),
     });
     return res.redirect(redirectTo);
   } catch (e) {
@@ -294,6 +322,9 @@ app.get('/oauth/github/callback', async (req, res) => {
   const settingsPending = await kvTake(keys.pending(`settings:${state}`));
   if (settingsPending) {
     if (error) return res.status(400).send(errorPage(`GitHub returned: ${error}`));
+    if (!bindMatches(settingsPending, readBindCookie(req))) {
+      return res.status(400).send(errorPage('This sign-in was started in another browser. Start it again from the settings page.'));
+    }
     try {
       const githubUser = await loginViaGithub(String(code), baseUrlFor(req));
       // Here, not when some later page happens to render: this is the moment
@@ -320,10 +351,43 @@ app.get('/oauth/github/callback', async (req, res) => {
       state: String(state),
       error: error ? String(error) : undefined,
       errorDescription: errorDescription ? String(errorDescription) : undefined,
+      bind: readBindCookie(req),
     });
     return res.redirect(redirectTo);
   } catch (e) {
     const msg = e instanceof OAuthCallbackError ? e.message : 'Authorization failed.';
+    return res.status(400).send(errorPage(msg));
+  }
+});
+
+// ---- Consent ----------------------------------------------------------
+// Shown once per client and redirect origin, after the sign-in, before the
+// first authorization code is issued.
+
+app.get('/oauth/consent', async (req, res) => {
+  const c = String(req.query.c || '');
+  const rec = provider && c ? await provider.getConsent(c) : null;
+  if (!rec) return res.status(400).send(errorPage('This approval request expired. Start the connection again from your assistant.'));
+  const client = await kvGet(keys.client(rec.clientId));
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.send(consentPage({
+    clientName: client?.client_name || null,
+    redirectHost: (() => { try { return new URL(rec.redirectUri).host; } catch { return rec.redirectUri; } })(),
+    identity: rec.identity || rec.subject,
+    cToken: c,
+  }));
+});
+
+app.post('/oauth/consent', async (req, res) => {
+  const c = String(req.body?.c || '');
+  if (!provider || !c) return res.status(400).send(errorPage('Missing approval token.'));
+  try {
+    const redirectTo = String(req.body?.decision) === 'approve'
+      ? await provider.approveConsent(c, readBindCookie(req))
+      : await provider.denyConsent(c);
+    return res.redirect(redirectTo);
+  } catch (e) {
+    const msg = e instanceof OAuthCallbackError ? e.message : 'Could not complete the approval.';
     return res.status(400).send(errorPage(msg));
   }
 });
@@ -537,11 +601,13 @@ app.get('/settings/signin/google', async (req, res) => {
   const state = randomBytes(18).toString('base64url');
   const requestedReturnTo = String(req.query.returnTo || '');
   const returnTo = isReturnable(requestedReturnTo) ? requestedReturnTo : null;
+  const bind = randomBytes(18).toString('base64url');
   await kvSet(
     keys.pending(`settings-google:${state}`),
-    returnTo ? { kind: 'settings', returnTo } : { kind: 'settings' },
+    { kind: 'settings', bindHash: tokenHash(bind), ...(returnTo ? { returnTo } : {}) },
     { ttlSeconds: TTL.pending },
   );
+  setBindCookie(res, bind);
   res.redirect(googleAuthorizeUrl({
     clientId: provider.googleClientId,
     redirectUri: provider.googleCallbackUrl,
@@ -554,11 +620,13 @@ app.get('/settings/signin', async (req, res) => {
   const state = randomBytes(18).toString('base64url');
   const requestedReturnTo = String(req.query.returnTo || '');
   const returnTo = isReturnable(requestedReturnTo) ? requestedReturnTo : null;
+  const bind = randomBytes(18).toString('base64url');
   await kvSet(
     keys.pending(`settings:${state}`),
-    returnTo ? { kind: 'settings', returnTo } : { kind: 'settings' },
+    { kind: 'settings', bindHash: tokenHash(bind), ...(returnTo ? { returnTo } : {}) },
     { ttlSeconds: TTL.pending },
   );
+  setBindCookie(res, bind);
   const url = new URL('https://github.com/login/oauth/authorize');
   url.searchParams.set('client_id', process.env.GITHUB_OAUTH_CLIENT_ID || '');
   url.searchParams.set('redirect_uri', `${baseUrlFor(req)}/oauth/github/callback`);

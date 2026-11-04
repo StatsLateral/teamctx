@@ -13,6 +13,7 @@ vi.mock('../mcp/http.js', () => ({
 
 const { default: handler } = await import('./mcp/[owner]/[repo].js');
 const { __resetMemory, kvGet, kvSet, keys } = await import('../src/oauth/kv.js');
+const { tokenHash } = await import('../src/oauth/provider.js');
 
 const b64 = obj => Buffer.from(JSON.stringify(obj)).toString('base64');
 const CONFIG = {
@@ -22,7 +23,7 @@ const CONFIG = {
 };
 
 async function connectAs(email) {
-  await kvSet(keys.token('tok'), { clientId: 'c', googleUser: { email, name: 'Someone' } });
+  await kvSet(keys.tokenV2(tokenHash('tok')), { clientId: 'c', googleUser: { email, name: 'Someone' } });
   const req = { method: 'POST', query: { owner: 'acme', repo: 'ledger' }, headers: { host: 'x.test', authorization: 'Bearer tok' } };
   const res = { statusCode: 0, setHeader() {}, end() {} };
   await handler(req, res);

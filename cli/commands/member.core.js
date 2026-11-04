@@ -139,6 +139,19 @@ async function commitAndPush(config, message, projectDir, actor) {
  * way; rolling one back because GitHub was unavailable would be the wrong
  * trade.
  */
+// GitHub collaborator levels, least to most. On the hosted path teamctx never
+// invites above `push`; a higher ask is clamped down to it.
+const PERMISSION_RANK = { pull: 0, triage: 1, push: 2, maintain: 3, admin: 4 };
+const HOSTED_MAX = 'push';
+function capHostedPermission(permission) {
+  // Fail closed: an unknown value (a custom organisation role name, odd casing)
+  // could carry more than `push`, so it is capped the same as a known higher one.
+  const level = String(permission ?? '').trim().toLowerCase();
+  const rank = PERMISSION_RANK[level];
+  if (rank === undefined) return HOSTED_MAX;
+  return rank > PERMISSION_RANK[HOSTED_MAX] ? HOSTED_MAX : level;
+}
+
 export async function inviteCollaborator({
   login, owner, repo, permission = 'push', projectDir, ghToken,
 } = {}) {
@@ -148,7 +161,10 @@ export async function inviteCollaborator({
   const path = `repos/${owner}/${repo}/collaborators/${login}`;
 
   // Hosted: the caller's OAuth token already carries `repo`, which is what the
-  // collaborator endpoint needs.
+  // collaborator endpoint needs. Cap the invite at `push` on this path
+  // (GHSA-4997-47j2-9w2q, step 5): the token belongs to whoever signed in, and
+  // nothing teamctx does needs a collaborator above `push`, so a stolen token
+  // must not be able to invite an admin to a project the victim manages.
   if (ghToken) {
     const res = await globalThis.fetch(`https://api.github.com/${path}`, {
       method: 'PUT',
@@ -157,7 +173,7 @@ export async function inviteCollaborator({
         Accept: 'application/vnd.github+json',
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ permission }),
+      body: JSON.stringify({ permission: capHostedPermission(permission) }),
     });
     // 201 creates an invitation; 204 means they already had access.
     if (res.status === 204) return { invited: false, alreadyCollaborator: true };

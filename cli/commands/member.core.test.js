@@ -189,6 +189,24 @@ describe('inviting', () => {
     expect(JSON.parse(init.body)).toEqual({ permission: 'pull' });
   });
 
+  it('caps a hosted invite at push, so a stolen token cannot invite an admin', async () => {
+    globalThis.fetch = vi.fn(async () => ({ ok: true, status: 201, json: async () => ({}) }));
+    for (const asked of ['maintain', 'admin']) {
+      globalThis.fetch.mockClear();
+      await addMember({ ref: 'priyar', invite: true, permission: asked, owner: 'o', repo: 'r', ghToken: 'gho_x', actor: MANAGER });
+      expect(JSON.parse(globalThis.fetch.mock.calls[0][1].body), asked).toEqual({ permission: 'push' });
+    }
+  });
+
+  it('caps an unknown or oddly cased permission too, rather than passing it to GitHub', async () => {
+    globalThis.fetch = vi.fn(async () => ({ ok: true, status: 201, json: async () => ({}) }));
+    for (const asked of ['ADMIN', ' Maintain ', 'custom-org-role', '']) {
+      globalThis.fetch.mockClear();
+      await addMember({ ref: 'priyar', invite: true, permission: asked, owner: 'o', repo: 'r', ghToken: 'gho_x', actor: MANAGER });
+      expect(JSON.parse(globalThis.fetch.mock.calls[0][1].body), JSON.stringify(asked)).toEqual({ permission: 'push' });
+    }
+  });
+
   it('does not touch GitHub when invite was not asked for', async () => {
     globalThis.fetch = vi.fn();
     await addMember({ ref: 'priyar', actor: MANAGER });

@@ -19,6 +19,7 @@ vi.mock('../mcp/http.js', () => ({
 
 const { default: handler } = await import('./mcp/[owner]/[repo].js');
 const { __resetMemory, kvGet, kvSet, keys } = await import('../src/oauth/kv.js');
+const { tokenHash } = await import('../src/oauth/provider.js');
 
 const b64 = obj => Buffer.from(JSON.stringify(obj)).toString('base64');
 const CONFIG = { project: 'Ledger', managerKey: 'git:maya@example.com', members: [{ key: 'git:priya@example.com', name: 'Priya', email: 'priya@example.com' }] };
@@ -46,25 +47,25 @@ beforeEach(async () => {
 
 describe('the endpoint, when GitHub rejects the token it holds for the caller', () => {
   it('forgets the access token and answers 401 so the client signs in again', async () => {
-    await kvSet(keys.token('tok'), { clientId: 'c', githubToken: 'gho_dead', githubUser: { id: 1, login: 'maya', email: 'maya@example.com' } });
+    await kvSet(keys.tokenV2(tokenHash('tok')), { clientId: 'c', githubToken: 'gho_dead', githubUser: { id: 1, login: 'maya', email: 'maya@example.com' } });
     const r = await call('tok');
     expect(r.statusCode).toBe(401);
     expect(r.headers['www-authenticate']).toMatch(/error="invalid_token"/);
     expect(r.headers['www-authenticate']).toMatch(/resource_metadata=/);
     expect(r.body).toMatch(/GitHub/);
-    expect(await kvGet(keys.token('tok'))).toBeNull();
+    expect(await kvGet(keys.tokenV2(tokenHash('tok')))).toBeNull();
   });
 
   it('offers nothing of the kind to somebody signed in with Google, who has no GitHub token to lose', async () => {
-    await kvSet(keys.token('g'), { clientId: 'c', googleUser: { email: 'priya@example.com', name: 'Priya' } });
+    await kvSet(keys.tokenV2(tokenHash('g')), { clientId: 'c', googleUser: { email: 'priya@example.com', name: 'Priya' } });
     await call('g');
     expect(seen.ctx.signInAgain).toBeUndefined();
-    expect(await kvGet(keys.token('g'))).not.toBeNull();
+    expect(await kvGet(keys.tokenV2(tokenHash('g')))).not.toBeNull();
   });
 
   it('writes down how old the sign-in was, never the token', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    await kvSet(keys.token('tok'), { clientId: 'c', githubToken: 'gho_secretvalue', githubSignedInAt: new Date(Date.now() - 125 * 60000).toISOString(), githubUser: { id: 1, login: 'maya' } });
+    await kvSet(keys.tokenV2(tokenHash('tok')), { clientId: 'c', githubToken: 'gho_secretvalue', githubSignedInAt: new Date(Date.now() - 125 * 60000).toISOString(), githubUser: { id: 1, login: 'maya' } });
     await call('tok');
     const said = warn.mock.calls.map(c => c.join(' ')).join('\n');
     expect(said).toMatch(/GitHub rejected .*sign-in.*12\d minutes/s);

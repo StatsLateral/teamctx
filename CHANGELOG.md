@@ -21,6 +21,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   least 1.32.2, `@hono/node-server` is on the patched 2.x line, `npm audit fix`
   cleared the rest of the production advisories, and `express`, which the server
   imports, is declared rather than arriving through the SDK.
+- **A client is approved once before it is first let in.** After sign-in, an
+  unapproved client reaches a page naming it, the redirect host and the
+  signed-in identity; no authorization code is issued until Approve, which must
+  come from the same browser. Cancel returns `access_denied`. The approval is
+  remembered per client and redirect origin for 90 days, so it is at most one
+  extra click.
+- **A sign-in can only be finished in the browser that started it.** The
+  connector and settings sign-ins set a one-time, HttpOnly cookie and store
+  only its hash; a callback that arrives without it, or with another browser's,
+  is refused and no code is issued. Closes the web sign-in request-forgery.
+- **Dynamic client registration is checked.** A redirect URI must be https,
+  http to a loopback address, or a native client's private-use scheme (how VS
+  Code and Cursor receive the redirect); a fragment, userinfo, or a scheme that
+  could execute in a browser (`javascript:`, `data:`, `file:`, …) is refused,
+  at most ten are kept, and the client name is bounded and stripped of control
+  characters before it is ever shown. An optional `TEAMCTX_ALLOWED_REDIRECT_HOSTS`
+  narrows the https hosts further. A client record lapses after 30 days unused.
+- **The OAuth endpoints carry security headers and per-IP limits.** Every
+  response sets `nosniff`, a same-origin `Referrer-Policy`, HSTS and a
+  `frame-ancestors 'none'` CSP; `/register` and `/authorize` are rate-limited
+  per IP on the hosted deployment.
+- **OAuth tokens are stored by their hash, and bound to one project.** A read
+  of the hosted key-value store no longer yields a working bearer or refresh
+  token, and a token minted for one project is refused on another. Everyone
+  reconnects once on the deploy that ships this.
+- **A replayed refresh token ends the whole sign-in.** Rotated refresh tokens
+  are tracked per sign-in; presenting one that was already used revokes every
+  token issued from it, including any access token minted earlier in the
+  family. Refresh tokens now lapse after 30 idle days, not 90.
+- **A hosted repository invite is capped at `push`.** Adding somebody to a
+  project over the hosted server invites them to the GitHub repository at no
+  more than `push`, whatever level is asked for, so a stolen connector token
+  cannot escalate a project the signed-in user manages by inviting an admin.
+  An unknown or oddly cased level (a custom organisation role) is capped too.
 
 ### Fixed
 - **Asking about the whole project reads every part of it.** `ask` read only

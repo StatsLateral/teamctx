@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
-import { TeamctxOAuthProvider, providerFromEnv, oauthConfigStatus } from './provider.js';
+import { TeamctxOAuthProvider, providerFromEnv, oauthConfigStatus, tokenHash, validateClientRegistration } from './provider.js';
 import { __resetMemory, kvGet, kvSet, keys } from './kv.js';
+import { consentPage } from '../views/consent.js';
 
 const BASE = 'https://teamctx.example';
 
@@ -28,13 +29,28 @@ async function expectOAuthError(promise, code) {
   expect(caught.errorCode).toBe(code);
 }
 
-/** Captures whatever `authorize()` redirects to. */
+/** Captures whatever `authorize()` redirects to, and the cookies it sets. */
 function fakeRes() {
-  return { redirectedTo: null, redirect(url) { this.redirectedTo = url; } };
+  return {
+    redirectedTo: null, headers: {},
+    redirect(url) { this.redirectedTo = url; },
+    setHeader(k, v) { this.headers[String(k).toLowerCase()] = v; },
+  };
 }
 
-/** Drive authorize → GitHub callback and return our authorization code. */
-async function runAuthFlow(provider, { fetchMock, params = {} } = {}) {
+/** The value of one cookie from a Set-Cookie header. */
+function cookieValue(setCookie, name) {
+  const m = String(setCookie || '').match(new RegExp(`(?:^|;\\s*)${name}=([^;]+)`));
+  return m ? m[1] : null;
+}
+
+/**
+ * Drive authorize → GitHub callback → consent and return our authorization
+ * code, binding the browser. The callback now lands on the consent page the
+ * first time, so by default this approves to reach the code; `approve: false`
+ * cancels, and a flow whose client is already approved skips the page.
+ */
+async function runAuthFlow(provider, { fetchMock, params = {}, bind, approve = true } = {}) {
   const res = fakeRes();
   await provider.authorize(CLIENT, {
     redirectUri: CLIENT.redirect_uris[0],
@@ -45,9 +61,21 @@ async function runAuthFlow(provider, { fetchMock, params = {} } = {}) {
   }, res);
 
   const state = new URL(res.redirectedTo).searchParams.get('state');
+  // The nonce the browser would carry back on the callback, unless the test
+  // overrides it to simulate another browser.
+  const carried = bind === undefined ? cookieValue(res.headers['set-cookie'], 'teamctx_bind') : bind;
   if (fetchMock) vi.stubGlobal('fetch', fetchMock);
-  const back = await provider.handleGithubCallback({ code: 'gh-code', state });
-  return { redirectedTo: res.redirectedTo, back, code: new URL(back).searchParams.get('code') };
+  const back = await provider.handleGithubCallback({ code: 'gh-code', state, bind: carried });
+
+  const url = new URL(back);
+  if (url.pathname === '/oauth/consent') {
+    const c = url.searchParams.get('c');
+    const final = approve
+      ? await provider.approveConsent(c, carried)
+      : await provider.denyConsent(c);
+    return { redirectedTo: res.redirectedTo, consentUrl: back, back: final, code: new URL(final).searchParams.get('code') };
+  }
+  return { redirectedTo: res.redirectedTo, back, code: url.searchParams.get('code') };
 }
 
 /** Happy-path GitHub: token exchange then profile lookup. */
@@ -187,11 +215,22 @@ describe('handleGithubCallback', () => {
     const res = fakeRes();
     await provider.authorize(CLIENT, { redirectUri: CLIENT.redirect_uris[0], codeChallenge: 'c' }, res);
     const state = new URL(res.redirectedTo).searchParams.get('state');
+    const bind = cookieValue(res.headers['set-cookie'], 'teamctx_bind');
 
     vi.stubGlobal('fetch', githubHappyPath());
-    await provider.handleGithubCallback({ code: 'gh-code', state });
-    await expect(provider.handleGithubCallback({ code: 'gh-code', state }))
+    await provider.handleGithubCallback({ code: 'gh-code', state, bind });
+    await expect(provider.handleGithubCallback({ code: 'gh-code', state, bind }))
       .rejects.toThrow(/expired or was already used/);
+  });
+
+  it('refuses a callback from a browser that did not start the flow (no or wrong cookie)', async () => {
+    const provider = makeProvider();
+    // No cookie at all.
+    await expect(runAuthFlow(provider, { fetchMock: githubHappyPath(), bind: null }))
+      .rejects.toThrow(/another browser/);
+    // A different browser's cookie.
+    await expect(runAuthFlow(provider, { fetchMock: githubHappyPath(), bind: 'someone-elses-nonce' }))
+      .rejects.toThrow(/another browser/);
   });
 
   it('propagates a GitHub denial back to the client as an OAuth error', async () => {
@@ -215,11 +254,12 @@ describe('handleGithubCallback', () => {
     const res = fakeRes();
     await provider.authorize(CLIENT, { redirectUri: CLIENT.redirect_uris[0], codeChallenge: 'c' }, res);
     const state = new URL(res.redirectedTo).searchParams.get('state');
+    const bind = cookieValue(res.headers['set-cookie'], 'teamctx_bind');
 
     vi.stubGlobal('fetch', vi.fn(async () => ({
       ok: true, json: async () => ({ error: 'bad_verification_code', error_description: 'expired' }),
     })));
-    await expect(provider.handleGithubCallback({ code: 'x', state })).rejects.toThrow(/expired/);
+    await expect(provider.handleGithubCallback({ code: 'x', state, bind })).rejects.toThrow(/expired/);
   });
 });
 
@@ -324,7 +364,7 @@ describe('a refresh and the GitHub sign-in behind it', () => {
 
   it('does not ask GitHub about a sign-in that never had a GitHub token', async () => {
     const provider = makeProvider();
-    await kvSet(keys.refresh('google-refresh'), { clientId: CLIENT.client_id, googleUser: { email: 'p@example.com' }, scopes: [] });
+    await kvSet(keys.refreshV2(tokenHash('google-refresh')), { clientId: CLIENT.client_id, googleUser: { email: 'p@example.com' }, scopes: [], family: 'fam-google' });
     const spy = vi.fn(async () => { throw new Error('GitHub must not be asked'); });
     vi.stubGlobal('fetch', spy);
     const tokens = await provider.exchangeRefreshToken(CLIENT, 'google-refresh');
@@ -378,6 +418,58 @@ describe('clientsStore', () => {
 
   it('returns undefined for an unknown client', async () => {
     expect(await makeProvider().clientsStore.getClient('ghost')).toBeUndefined();
+  });
+
+  it('accepts https and loopback http redirect URIs', async () => {
+    const provider = makeProvider();
+    await provider.clientsStore.registerClient({ client_id: 'a', redirect_uris: ['https://claude.ai/cb', 'http://127.0.0.1:5173/cb', 'http://localhost/cb'] });
+    expect((await provider.clientsStore.getClient('a')).redirect_uris.length).toBe(3);
+  });
+
+  it('refuses a redirect that cannot belong to a real client', async () => {
+    const provider = makeProvider();
+    const bad = [
+      'http://evil.example/cb',           // http to a non-loopback host
+      'javascript:alert(1)',              // scheme that could execute in a browser
+      'https://user:pass@claude.ai/cb',   // userinfo
+      'https://claude.ai/cb#frag',        // fragment
+    ];
+    for (const uri of bad) {
+      await expectOAuthError(provider.clientsStore.registerClient({ client_id: 'x', redirect_uris: [uri] }), 'invalid_client_metadata');
+    }
+  });
+
+  it('accepts a native client private-use scheme (VS Code, Cursor), but not a browser scheme', async () => {
+    const provider = makeProvider();
+    await provider.clientsStore.registerClient({ client_id: 'native', redirect_uris: ['vscode://anthropic.claude/auth', 'cursor://auth/callback'] });
+    expect((await provider.clientsStore.getClient('native')).redirect_uris.length).toBe(2);
+    for (const uri of ['data:text/html,x', 'file:///etc/passwd', 'vbscript:msgbox']) {
+      await expectOAuthError(provider.clientsStore.registerClient({ client_id: 'bad', redirect_uris: [uri] }), 'invalid_client_metadata');
+    }
+  });
+
+  it('caps the number of redirect URIs', async () => {
+    const provider = makeProvider();
+    const uris = Array.from({ length: 11 }, (_, i) => `https://c.example/cb${i}`);
+    await expectOAuthError(provider.clientsStore.registerClient({ client_id: 'x', redirect_uris: uris }), 'invalid_client_metadata');
+  });
+
+  it('bounds and strips the client name shown on the consent page', async () => {
+    const provider = makeProvider();
+    await provider.clientsStore.registerClient({
+      client_id: 'n', redirect_uris: ['https://c.example/cb'],
+      client_name: 'Ev\u0007il<script>' + 'x'.repeat(200),
+    });
+    const name = (await provider.clientsStore.getClient('n')).client_name;
+    expect(name).not.toContain('\u0007');
+    expect(name.length).toBe(100);
+  });
+
+  it('honours TEAMCTX_ALLOWED_REDIRECT_HOSTS when set, always allowing loopback', () => {
+    const env = { TEAMCTX_ALLOWED_REDIRECT_HOSTS: 'claude.ai, chatgpt.com' };
+    expect(() => validateClientRegistration({ client_id: 'a', redirect_uris: ['https://claude.ai/cb'] }, env)).not.toThrow();
+    expect(() => validateClientRegistration({ client_id: 'a', redirect_uris: ['http://127.0.0.1/cb'] }, env)).not.toThrow();
+    expect(() => validateClientRegistration({ client_id: 'a', redirect_uris: ['https://evil.example/cb'] }, env)).toThrow();
   });
 });
 
@@ -445,11 +537,152 @@ describe('signing in through Google does not claim a project', () => {
       resource: new URL(`${BASE}/api/mcp/Acme/ledger`),
     }, res);
     const state = new URL(res.redirectedTo).searchParams.get('state');
+    const bind = cookieValue(res.headers['set-cookie'], 'teamctx_bind');
     vi.stubGlobal('fetch', vi.fn(async (url) => {
       if (String(url).includes('oauth2.googleapis.com/token')) return { ok: true, json: async () => ({ access_token: 'g' }) };
       return { ok: true, json: async () => ({ email: 'Priya@Example.com', email_verified: true, name: 'Priya' }) };
     }));
-    await provider.handleGoogleCallback({ code: 'code', state });
+    await provider.handleGoogleCallback({ code: 'code', state, bind });
     expect(await kvGet(keys.connectedProjects('priya@example.com'))).toBe(null);
+  });
+});
+
+describe('consent before a client is first let in', () => {
+  it('shows the consent page and issues no code until the user approves', async () => {
+    const provider = makeProvider();
+    const { consentUrl, back, code } = await runAuthFlow(provider, { fetchMock: githubHappyPath(), approve: true });
+    expect(consentUrl).toMatch(/\/oauth\/consent\?c=/);
+    expect(code).toBeTruthy();
+    expect(back.startsWith('https://claude.ai')).toBe(true);
+  });
+
+  it('cancelling returns access_denied and no code', async () => {
+    const provider = makeProvider();
+    const { back, code } = await runAuthFlow(provider, { fetchMock: githubHappyPath(), approve: false });
+    expect(new URL(back).searchParams.get('error')).toBe('access_denied');
+    expect(code).toBeNull();
+  });
+
+  it('skips the page for the same client and origin the second time', async () => {
+    const provider = makeProvider();
+    const first = await runAuthFlow(provider, { fetchMock: githubHappyPath() });
+    expect(first.consentUrl).toBeTruthy();
+    const second = await runAuthFlow(provider, { fetchMock: githubHappyPath() });
+    expect(second.consentUrl).toBeUndefined();
+    expect(second.code).toBeTruthy();
+  });
+
+  it('requires the approval to come from the browser that signed in', async () => {
+    const provider = makeProvider();
+    const res = fakeRes();
+    await provider.authorize(CLIENT, { redirectUri: CLIENT.redirect_uris[0], codeChallenge: 'c', state: 's' }, res);
+    const state = new URL(res.redirectedTo).searchParams.get('state');
+    const bind = cookieValue(res.headers['set-cookie'], 'teamctx_bind');
+    vi.stubGlobal('fetch', githubHappyPath());
+    const back = await provider.handleGithubCallback({ code: 'gh-code', state, bind });
+    const c = new URL(back).searchParams.get('c');
+    await expect(provider.approveConsent(c, 'another-browser')).rejects.toThrow(/browser/);
+  });
+
+  it('escapes a hostile client name and shows the redirect host', () => {
+    const html = consentPage({ clientName: '<script>alert(1)</script>', redirectHost: 'claude.ai', identity: 'github:1', cToken: 'x' });
+    expect(html).not.toContain('<script>alert(1)</script>');
+    expect(html).toContain('&lt;script&gt;');
+    expect(html).toContain('claude.ai');
+  });
+});
+
+describe('tokens are hashed, project-bound and reuse-aware', () => {
+  const RES_A = `${BASE}/api/mcp/acme/ledger`;
+  const RES_B = `${BASE}/api/mcp/acme/other`;
+
+  async function issue(provider, resource) {
+    const { code } = await runAuthFlow(provider, {
+      fetchMock: githubHappyPath(), params: resource ? { resource } : {},
+    });
+    return provider.exchangeAuthorizationCode(CLIENT, code);
+  }
+
+  it('stores no key or value that works as a token', async () => {
+    const provider = makeProvider();
+    const tokens = await issue(provider);
+    // The raw token is never a key…
+    expect(await kvGet(keys.token(tokens.access_token))).toBeNull();
+    expect(await kvGet(keys.refresh(tokens.refresh_token))).toBeNull();
+    // …the record lives under its hash instead.
+    expect(await kvGet(keys.tokenV2(tokenHash(tokens.access_token)))).toBeTruthy();
+    expect(await kvGet(keys.refreshV2(tokenHash(tokens.refresh_token)))).toBeTruthy();
+  });
+
+  it('accepts a token only on the project it was issued for, either case', async () => {
+    const provider = makeProvider();
+    const tokens = await issue(provider, RES_A);
+    expect((await provider.enforceResource(tokens.access_token, RES_A)).ok).toBe(true);
+    expect((await provider.enforceResource(tokens.access_token, RES_A.toUpperCase())).ok).toBe(true);
+    const other = await provider.enforceResource(tokens.access_token, RES_B);
+    expect(other.ok).toBe(false);
+    expect(other.boundTo).toBe(RES_A);
+  });
+
+  it('binds a no-resource token to the first project it is used on, then enforces', async () => {
+    const provider = makeProvider();
+    const tokens = await issue(provider);
+    expect((await provider.enforceResource(tokens.access_token, RES_A)).ok).toBe(true);
+    expect((await provider.enforceResource(tokens.access_token, RES_B)).ok).toBe(false);
+  });
+
+  it('revokes the whole sign-in when a used refresh token is replayed', async () => {
+    const provider = makeProvider();
+    const first = await issue(provider);
+    const second = await provider.exchangeRefreshToken(CLIENT, first.refresh_token);
+    expect((await provider.verifyAccessToken(second.access_token)).clientId).toBe(CLIENT.client_id);
+    // Replaying the already-rotated token is treated as theft: the family dies.
+    await expectOAuthError(provider.exchangeRefreshToken(CLIENT, first.refresh_token), 'invalid_grant');
+    await expectOAuthError(provider.verifyAccessToken(second.access_token), 'invalid_token');
+    await expectOAuthError(provider.exchangeRefreshToken(CLIENT, second.refresh_token), 'invalid_grant');
+  });
+
+  it('does not un-revoke a sign-in whose refresh was already in flight', async () => {
+    const provider = makeProvider();
+    const tokens = await issue(provider);
+    // The refresh has consumed its record when the sign-in is revoked underneath
+    // it (here, during the GitHub liveness check). It must not issue a new pair.
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      await provider.revokeToken(null, { token: tokens.access_token });
+      return { ok: true, status: 200, json: async () => ({}) };
+    }));
+    await expectOAuthError(provider.exchangeRefreshToken(CLIENT, tokens.refresh_token), 'invalid_grant');
+  });
+
+  it('revokeToken on either token kills both', async () => {
+    const provider = makeProvider();
+    const tokens = await issue(provider);
+    await provider.revokeToken(null, { token: tokens.access_token });
+    await expectOAuthError(provider.verifyAccessToken(tokens.access_token), 'invalid_token');
+    await expectOAuthError(provider.exchangeRefreshToken(CLIENT, tokens.refresh_token), 'invalid_grant');
+  });
+
+  it('keeps a first-use binding across a refresh rather than rebinding on the next project', async () => {
+    const provider = makeProvider();
+    const first = await issue(provider); // no resource on the token
+    expect((await provider.enforceResource(first.access_token, RES_A)).ok).toBe(true);
+    // After a refresh the binding must still hold: the refresh record used to
+    // stay null, so the new token rebound to whatever project it next hit.
+    const second = await provider.exchangeRefreshToken(CLIENT, first.refresh_token);
+    expect((await provider.enforceResource(second.access_token, RES_B)).ok).toBe(false);
+    expect((await provider.enforceResource(second.access_token, RES_A)).ok).toBe(true);
+  });
+
+  it('kills an earlier access token in the family on replay, not only the current pair', async () => {
+    const provider = makeProvider();
+    const first = await issue(provider);
+    const second = await provider.exchangeRefreshToken(CLIENT, first.refresh_token);
+    // One clean refresh leaves the earlier access token valid on its own.
+    expect((await provider.verifyAccessToken(first.access_token)).clientId).toBe(CLIENT.client_id);
+    // Replaying the consumed refresh revokes the whole family.
+    await expectOAuthError(provider.exchangeRefreshToken(CLIENT, first.refresh_token), 'invalid_grant');
+    // revokeFamily deleted the current pair; the earlier access token survives
+    // deletion, so verifyAccessToken must reject it by its revoked family.
+    await expectOAuthError(provider.verifyAccessToken(first.access_token), 'invalid_token');
   });
 });
