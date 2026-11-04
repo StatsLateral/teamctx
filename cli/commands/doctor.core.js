@@ -21,7 +21,7 @@ import { PROVIDER_KEYS } from './config.core.js';
 const execFileAsync = promisify(execFile);
 const realGit = async (args, { cwd }) => (await execFileAsync('git', args, { cwd })).stdout;
 
-const ENGINES = JSON.parse(readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../../package.json'), 'utf-8')).engines?.node || '>=18';
+const ENGINES = JSON.parse(readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../../package.json'), 'utf-8')).engines?.node || '>=20';
 
 /** The lowest Node `engines` allows, for the fix line. */
 export const minimumNode = (range = ENGINES) => /^\s*>=\s*v?([\d.]+)\s*$/.exec(range)?.[1] || range;

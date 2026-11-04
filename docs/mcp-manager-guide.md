@@ -15,7 +15,7 @@ MCP-aware client works).
 Ask a teammate (or your own developer self, for five minutes) to do this once
 on your laptop:
 
-1. **Install Node.js 18+** — [nodejs.org](https://nodejs.org/) has an installer.
+1. **Install Node.js 20+** — [nodejs.org](https://nodejs.org/) has an installer.
 2. **Install teamctx globally:**
    ```
    npm install -g teamctx
