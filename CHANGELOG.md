@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-11-04
+
+**Security release.** If you run the hosted server, before you deploy: set
+`TEAMCTX_SECRET_KEYS` and `TEAMCTX_SECRET_KEY_ACTIVE` (see the hosted setup
+guide), then run `scripts/encrypt-existing-secrets.js` once. Everyone signs in
+to their assistant again, because tokens are now stored by their hash. Node 20
+or newer is required.
+
 ### Changed
 - **Node 20 or newer is required.** Node 18 reached end of life in April 2025,
   and the patched `@hono/node-server` that clears the dependency advisory needs
