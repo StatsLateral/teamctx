@@ -64,6 +64,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   more than `push`, whatever level is asked for, so a stolen connector token
   cannot escalate a project the signed-in user manages by inviting an admin.
   An unknown or oddly cased level (a custom organisation role) is capped too.
+- **Secrets are encrypted at rest.** AI provider keys, the GitHub credential a
+  project lends, Slack webhook URLs, OAuth token payloads and web sessions are
+  sealed with AES-256-GCM (the key name as additional data) before they reach
+  the key-value store, so a store dump, a leaked REST token or a backup yields
+  no usable secret. Keys are set with `TEAMCTX_SECRET_KEYS` and rotated without
+  downtime; with none configured a hosted deployment refuses to write a secret
+  rather than store it in the clear, warns at startup, and tells an
+  administrator so on the settings page. Authorization-code records and a
+  sign-in held at the consent page, which briefly hold the GitHub token, are
+  sealed too. Records written before this
+  are read and upgraded to encrypted on first access, keeping whatever time to
+  live they had left.
 
 ### Fixed
 - **Asking about the whole project reads every part of it.** `ask` read only
