@@ -233,14 +233,14 @@ describe('work submitted for a task', () => {
   it('carries the outputs in full for the drawer, not only a label', () => {
     const html = render(view({ pending: [submitted()] }));
     const attr = html.match(/data-outputs="([^"]*)"/)[1].replace(/&quot;/g, '"').replace(/&amp;/g, '&');
-    expect(JSON.parse(attr)).toEqual([{ title: 'Draft 2', kind: 'text', body: 'The whole post.\n\nSecond paragraph.', file: null, notes: 'Trim it', prompt: 'Write a short post' }]);
+    expect(JSON.parse(attr)).toEqual([{ title: 'Draft 2', kind: 'text', body: 'The whole post.\n\nSecond paragraph.', file: null, link: null, notes: 'Trim it', prompt: 'Write a short post' }]);
   });
 
   it('carries a file output as its kind and metadata, not a body', () => {
     const file = { id: 'o2', title: 'banner.png', kind: 'file', file: { name: 'banner.png', type: 'image/png', size: 69, sha256: 'abc', path: 'outputs/t-post/files/o2-banner.png' } };
     const html = render(view({ pending: [waiting({ number: '1.5', summary: 'Submitted: banner.png', operations: [], forTask: 't-post', submittedOutputs: [file] })] }));
     const attr = html.match(/data-outputs="([^"]*)"/)[1].replace(/&quot;/g, '"').replace(/&amp;/g, '&');
-    expect(JSON.parse(attr)).toEqual([{ title: 'banner.png', kind: 'file', body: '', file: file.file, notes: null, prompt: null }]);
+    expect(JSON.parse(attr)).toEqual([{ title: 'banner.png', kind: 'file', body: '', file: file.file, link: null, notes: null, prompt: null }]);
   });
 
   it('says what approving does, and that it records the acceptance in the context', () => {
