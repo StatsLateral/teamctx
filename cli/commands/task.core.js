@@ -7,7 +7,7 @@ import {
   readProject, readConfig, readTree, listTasks, readTask, writeTask, deleteTask,
   readWorkstream, readContributions,
   writeTaskFile, readTaskFile, taskFilePath, taskFileExists,
-  writeOutput, listOutputs, listChanges, prepareChanges, writeChange, appendContribution, writeQueueItem, readApprovals, listQueue, listRejected,
+  writeOutput, listOutputs, writeOutputFile, listChanges, prepareChanges, writeChange, appendContribution, writeQueueItem, readApprovals, listQueue, listRejected,
   writeTree, writeTreeMd, deleteTaskFile, withCounters,
 } from '../../src/storage.js';
 import { applyOps } from '../../src/ops.js';
@@ -21,6 +21,7 @@ import { resolveDisplayName, resolveActiveWorkstream } from '../../src/prefs.js'
 import { resolveTarget, isProjectLevel } from '../../src/project-level.js';
 import { announceQueued } from '../../src/slack-notify.js';
 import { TaskWithoutWorkstreamError } from '../../src/numbering.js';
+import { validateFileOutput, MAX_OUTPUT_FILE_BYTES } from '../../src/file-output.js';
 
 /**
  * Task operations, with no terminal in them.
@@ -441,6 +442,53 @@ export async function saveOutput({
   };
   writeOutput(output, teamctxDir);
   const git = await commitAndPush(config, `output: ${me} saved ${output.id} on ${task.id}`, projectDir);
+  return { output, task, ...git };
+}
+
+/**
+ * Attach a file as a working output (#244).
+ *
+ * Like {@link saveOutput}, but the deliverable is a file the person uploaded,
+ * not text. The bytes are checked (size, allowed type, real type matches the
+ * name) and stored in the repository beside the record; the record keeps only
+ * the file's name, type, size and hash, never its bytes, so an assistant never
+ * carries them. `maxBytes` is the limit for the route the file came in by
+ * (10 MB from the command line, less from the hosted page).
+ */
+export async function saveFileOutput({
+  id, bytes, name, title, prompt, notes, basedOn, source,
+  maxBytes = MAX_OUTPUT_FILE_BYTES, teamctxDir, projectDir, actor,
+} = {}) {
+  const config = readConfig(teamctxDir);
+  const { task } = findTask(id, teamctxDir);
+  assertNotAccepted(task, teamctxDir);
+  const file = await validateFileOutput(bytes, name, { maxBytes });
+  const saved = listOutputs(task.id, teamctxDir);
+  if (basedOn && !saved.some(o => o.id === basedOn)) {
+    throw new Error(`no output "${basedOn}" on task ${task.key || task.id} to build on`);
+  }
+  const resolved = actor || await resolveActor({ config, cwd: projectDir });
+  const me = await resolveDisplayName({ actor: resolved, config, teamctxDir });
+  const stamp = nextStamp();
+  const outputId = `o-${stamp.toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+  // The id prefix keeps two uploads of the same name apart on disk.
+  const path = writeOutputFile(task.id, `${outputId}-${file.name}`, bytes, teamctxDir);
+  const output = {
+    id: outputId,
+    task: task.id,
+    kind: 'file',
+    title: (typeof title === 'string' && title.trim() ? title.trim() : file.name).slice(0, 120),
+    file: { ...file, path },
+    author: { key: resolved?.key || null, name: me },
+    source: source || null,
+    at: new Date(stamp).toISOString(),
+    prompt: typeof prompt === 'string' && prompt.trim() ? prompt : null,
+    notes: typeof notes === 'string' && notes.trim() ? notes : null,
+    basedOn: basedOn || null,
+    state: 'working',
+  };
+  writeOutput(output, teamctxDir);
+  const git = await commitAndPush(config, `output: ${me} attached ${output.id} (${file.name}) on ${task.id}`, projectDir);
   return { output, task, ...git };
 }
 
