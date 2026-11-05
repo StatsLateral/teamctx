@@ -180,7 +180,7 @@ function waitingItem({ q, view, origin, marked }) {
   const outputs = q.forTask && Array.isArray(q.submittedOutputs)
     ? q.submittedOutputs.map(o => ({
       title: o.title || '', kind: o.kind || 'text', body: o.body || '',
-      file: o.file || null, notes: o.notes || null, prompt: o.prompt || null,
+      file: o.file || null, link: o.link || null, notes: o.notes || null, prompt: o.prompt || null,
     }))
     : [];
   const changes = q.forTask
