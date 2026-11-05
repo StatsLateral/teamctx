@@ -46,6 +46,13 @@ describe('safeFileName', () => {
   it('falls back to a name when nothing usable is left', () => {
     expect(safeFileName('***.png')).toBe('file.png');
   });
+  it('collapses consecutive dots so the name is never path-rejected later', () => {
+    expect(safeFileName('report..v2.pdf')).toBe('report.v2.pdf');
+    expect(safeFileName('a...b.csv')).toBe('a.b.csv');
+    for (const n of ['report..v2.pdf', 'a...b.csv', '..hidden.md']) {
+      expect(safeFileName(n)).not.toContain('..');
+    }
+  });
 });
 
 describe('sha256Hex', () => {
