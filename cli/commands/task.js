@@ -1,10 +1,13 @@
+import { readFileSync, statSync } from 'fs';
+import { basename } from 'path';
 import { readConfig } from '../../src/storage.js';
 import { currentIdentity } from '../identity.js';
 import {
-  listTasksFiltered, getTask, addTask, setTaskStatus, assignTask, removeTask,
+  listTasksFiltered, getTask, addTask, setTaskStatus, assignTask, removeTask, saveFileOutput,
   compileTask, TaskNotFoundError, UnknownTaskWorkstreamError, TaskWithoutWorkstreamError, UnknownRoleError,
   slugify, uniqueTaskId,
 } from './task.core.js';
+import { FileOutputError, FILE_OUTPUT_WARNING, MAX_OUTPUT_FILE_BYTES, humanBytes } from '../../src/file-output.js';
 
 /**
  * Presentation for the task commands.
@@ -169,6 +172,47 @@ export async function taskCompileCommand(idOrPrefix, opts = {}) {
   reportGit(result, `✓ Task prompt compiled for ${result.task.key || result.task.id}${roleTag}`);
   console.log(`  Prompt file: ${result.promptPath}`);
   console.log(`  Copy that file's contents into your AI (ChatGPT, Claude, Cursor, ...).\n`);
+}
+
+export async function taskAttachCommand(idOrPrefix, path, opts = {}) {
+  // Check the size before reading, so an enormous file is refused cheaply
+  // rather than buffered whole into memory first.
+  let stat;
+  try {
+    stat = statSync(path);
+  } catch (err) {
+    if (err.code === 'ENOENT') fail(`file not found: ${path}`);
+    throw err;
+  }
+  if (stat.isDirectory()) fail(`that is a folder, not a file: ${path}`, 'Attach one file at a time');
+  if (stat.size > MAX_OUTPUT_FILE_BYTES) {
+    fail(`the file is too large to attach (${humanBytes(stat.size)}; the most from the command line is ${humanBytes(MAX_OUTPUT_FILE_BYTES)}). `
+      + 'Keep it in a cloud or local folder and attach a part or a summary, or link it.');
+  }
+  let bytes;
+  try {
+    bytes = readFileSync(path);
+  } catch (err) {
+    fail(`could not read ${path}: ${err.message}`);
+  }
+
+  let result;
+  try {
+    result = await saveFileOutput({
+      id: idOrPrefix, bytes, name: basename(path), title: opts.title, notes: opts.note, source: 'cli',
+    });
+  } catch (err) {
+    // A file refused for its size, type or a name mismatch carries its own
+    // message meant for the person; print it without a stack trace.
+    if (err instanceof FileOutputError) fail(err.message);
+    reportAndExit(err);
+  }
+
+  const { output, task } = result;
+  reportGit(result, `✓ Attached ${output.file.name} to task ${task.key || task.id}`);
+  console.log(`  ${output.file.type}, ${humanBytes(output.file.size)} · output ${output.id}`);
+  console.log(`  ${FILE_OUTPUT_WARNING}`);
+  console.log(`  Send it to the manager with: teamctx task submit ${task.key || task.id}\n`);
 }
 
 export { slugify, uniqueTaskId };

@@ -178,7 +178,10 @@ function waitingItem({ q, view, origin, marked }) {
   // Accepting work submitted for a task marks the task done and records the
   // acceptance in the context. The work itself is shown beside, in full.
   const outputs = q.forTask && Array.isArray(q.submittedOutputs)
-    ? q.submittedOutputs.map(o => ({ title: o.title || '', body: o.body || '', notes: o.notes || null, prompt: o.prompt || null }))
+    ? q.submittedOutputs.map(o => ({
+      title: o.title || '', kind: o.kind || 'text', body: o.body || '',
+      file: o.file || null, notes: o.notes || null, prompt: o.prompt || null,
+    }))
     : [];
   const changes = q.forTask
     ? ['Accepting it marks the task done and closes it, and records the acceptance in the context. Feedback instead leaves the task open.']

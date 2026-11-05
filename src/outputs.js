@@ -49,7 +49,9 @@ export function outputsForReader({ outputs, rejected = [], actorKeys = [], isMan
       return {
         id: o.id,
         title: o.title,
+        kind: o.kind || 'text',
         body: o.body,
+        file: o.file || null,
         notes: o.notes || null,
         prompt: o.prompt || null,
         basedOn: o.basedOn || null,
