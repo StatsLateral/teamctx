@@ -1,10 +1,13 @@
+import { readFileSync } from 'fs';
+import { basename } from 'path';
 import { readConfig } from '../../src/storage.js';
 import { currentIdentity } from '../identity.js';
 import {
-  listTasksFiltered, getTask, addTask, setTaskStatus, assignTask, removeTask,
+  listTasksFiltered, getTask, addTask, setTaskStatus, assignTask, removeTask, saveFileOutput,
   compileTask, TaskNotFoundError, UnknownTaskWorkstreamError, TaskWithoutWorkstreamError, UnknownRoleError,
   slugify, uniqueTaskId,
 } from './task.core.js';
+import { FileOutputError, FILE_OUTPUT_WARNING } from '../../src/file-output.js';
 
 /**
  * Presentation for the task commands.
@@ -169,6 +172,42 @@ export async function taskCompileCommand(idOrPrefix, opts = {}) {
   reportGit(result, `✓ Task prompt compiled for ${result.task.key || result.task.id}${roleTag}`);
   console.log(`  Prompt file: ${result.promptPath}`);
   console.log(`  Copy that file's contents into your AI (ChatGPT, Claude, Cursor, ...).\n`);
+}
+
+/** Readable file size for the line printed back: 4 MB, 1.5 MB, 900 KB, 12 B. */
+function humanSize(n) {
+  if (n >= 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+  if (n >= 1024) return `${Math.ceil(n / 1024)} KB`;
+  return `${n} B`;
+}
+
+export async function taskAttachCommand(idOrPrefix, path, opts = {}) {
+  let bytes;
+  try {
+    bytes = readFileSync(path);
+  } catch (err) {
+    if (err.code === 'ENOENT') fail(`file not found: ${path}`);
+    if (err.code === 'EISDIR') fail(`that is a folder, not a file: ${path}`, 'Attach one file at a time');
+    throw err;
+  }
+
+  let result;
+  try {
+    result = await saveFileOutput({
+      id: idOrPrefix, bytes, name: basename(path), title: opts.title, notes: opts.note, source: 'cli',
+    });
+  } catch (err) {
+    // A file refused for its size, type or a name mismatch carries its own
+    // message meant for the person; print it without a stack trace.
+    if (err instanceof FileOutputError) fail(err.message);
+    reportAndExit(err);
+  }
+
+  const { output, task } = result;
+  reportGit(result, `✓ Attached ${output.file.name} to task ${task.key || task.id}`);
+  console.log(`  ${output.file.type}, ${humanSize(output.file.size)} · output ${output.id}`);
+  console.log(`  ${FILE_OUTPUT_WARNING}`);
+  console.log(`  Send it to the manager with: teamctx task submit ${task.key || task.id}\n`);
 }
 
 export { slugify, uniqueTaskId };
