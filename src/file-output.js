@@ -76,8 +76,8 @@ export class FileOutputError extends Error {
   }
 }
 
-/** Human-readable size, for messages: 4 MB, 1.5 MB, 900 KB. */
-function humanBytes(n) {
+/** Human-readable size, for messages and the CLI line: 4 MB, 1.5 MB, 900 KB. */
+export function humanBytes(n) {
   if (n >= 1024 * 1024) {
     const mb = n / (1024 * 1024);
     return `${Number.isInteger(mb) ? mb : mb.toFixed(1)} MB`;
@@ -107,6 +107,7 @@ export function safeFileName(name) {
   // trim the leading dots and dashes that make a name awkward or hidden.
   stem = stem
     .replace(/[^A-Za-z0-9._-]+/g, '_')
+    .replace(/\.{2,}/g, '.')          // no "..", which a path-safety check rejects
     .replace(/^[.\-_]+/, '')
     .replace(/_{2,}/g, '_')
     .slice(0, 80)

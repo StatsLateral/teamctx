@@ -375,7 +375,13 @@ export function writeOutputFile(taskId, fileName, bytes, dir) {
   return ['outputs', taskId, 'files', safe].join('/');
 }
 
-/** The bytes of a file output previously written by {@link writeOutputFile}. */
+/**
+ * The bytes of a file output previously written by {@link writeOutputFile}.
+ *
+ * `fileName` is the on-disk name, which carries the output-id prefix — i.e.
+ * `basename(output.file.path)`, not `output.file.name` (that is the display
+ * name without the prefix). Read bytes by deriving from the record's `path`.
+ */
 export function readOutputFile(taskId, fileName, dir) {
   sanitizeTaskId(taskId);
   const safe = String(fileName);
