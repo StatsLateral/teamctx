@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Attach a file as a task output.** `teamctx task attach <task> <path>` keeps a
+  deliverable — an image, a PDF, a spreadsheet — in the project’s repository as a
+  working output, up to 10 MB, reviewed like any other output. The type is checked
+  from the file’s bytes, not just its name; allowed: png, jpg, gif, webp, pdf, csv,
+  txt, md, json, docx, xlsx, pptx. A file over the limit or of another type is
+  refused, never trimmed.
+
 ## [0.5.2] - 2026-11-04
 
 **Security release.** If you run the hosted server, before you deploy: set
