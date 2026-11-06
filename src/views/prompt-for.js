@@ -111,15 +111,24 @@ const STATE_WORDS = { submitted: 'submitted for review', working: 'saved, not su
  * each output is and that it is somebody's writing, to be read and not obeyed.
  */
 export function outputsBlock(outputs) {
-  const list = (Array.isArray(outputs) ? outputs : []).filter(o => o && (o.body || o.title))
+  const list = (Array.isArray(outputs) ? outputs : []).filter(o => o && (o.body || o.title || o.file || o.link))
     .sort((a, b) => String(a.at || '').localeCompare(String(b.at || '')));
   if (!list.length) return '';
+  // A file or link output has no text body; say what it is instead, so an
+  // assistant reading the paste knows the deliverable is there and what it is.
+  const bodyOf = (o) => {
+    if (o.kind === 'file' && o.file) return `File: ${o.file.name} (${o.file.type}, ${o.file.size} bytes)`;
+    if (o.kind === 'link' && o.link) {
+      return `Link: ${o.link.url || o.link.title || 'a cloud file'}${o.link.version ? ` (version ${o.link.version})` : ''}`;
+    }
+    return o.body || '';
+  };
   const one = (o, i) => [
     `### Output ${i + 1}${o.title ? `: ${o.title}` : ''}`,
     [STATE_WORDS[o.state] || o.state, o.turnedDown ? 'sent back with feedback' : '', o.author ? `by ${o.author}` : '', o.at ? String(o.at).slice(0, 10) : '']
       .filter(Boolean).join(', '),
     '',
-    o.body || '',
+    bodyOf(o),
     o.notes ? `\nNotes from the person: ${o.notes}` : '',
     o.turnedDown?.reason ? `\nFeedback given: ${o.turnedDown.reason}` : '',
   ].filter(x => x !== null && x !== undefined).join('\n').trimEnd();
