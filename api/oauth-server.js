@@ -19,7 +19,9 @@ import { lendDecision } from '../src/oauth/lend-decision.js';
 import { GithubSession, listUserOrgs, createRepo, slugifyProjectName, suggestAvailableName, listPushableRepos, repoExistence } from '../src/adapters/github.js';
 import { runWithSession } from '../src/session-context.js';
 import { initProject } from '../cli/commands/init.core.js';
-import { readProjectView, readContributionsView, ProjectViewError } from '../src/oauth/project-view.js';
+import { readProjectView, readContributionsView, attachFileOutput, readFileOutput, ProjectViewError } from '../src/oauth/project-view.js';
+import { FileOutputError, MAX_PAGE_UPLOAD_BYTES, MAX_OUTPUT_FILE_BYTES, humanBytes } from '../src/file-output.js';
+import Busboy from 'busboy';
 import { TOOLS, callTool } from '../mcp/server.js';
 import { baseUrlFrom } from '../src/base-url.js';
 import { resolveKey } from '../src/numbering.js';
@@ -1514,6 +1516,109 @@ app.get('/project/:owner/:repo', async (req, res) => {
     const status = e.code === 'LEGACY_FORMAT' ? 409 : denied ? 403 : 500;
     res.status(status).send(errorPage(e.message, { user }));
   }
+});
+
+/**
+ * Read a single file off a multipart upload, into memory, with a hard size
+ * cap. busboy stops at the cap and marks the stream truncated rather than
+ * buffering an unbounded body; `title` and `note` ride along as fields. One
+ * file only — the page attaches one output at a time.
+ */
+function readUpload(req) {
+  return new Promise((resolve, reject) => {
+    let bb;
+    try {
+      bb = Busboy({ headers: req.headers, limits: { files: 1, fileSize: MAX_PAGE_UPLOAD_BYTES, fields: 10, fieldSize: 4000 } });
+    } catch (e) { reject(e); return; }
+    const fields = {};
+    let file = null;
+    let truncated = false;
+    bb.on('file', (_name, stream, info) => {
+      const chunks = [];
+      stream.on('data', (c) => chunks.push(c));
+      stream.on('limit', () => { truncated = true; });
+      stream.on('close', () => { file = { bytes: Buffer.concat(chunks), name: info?.filename || 'file' }; });
+    });
+    bb.on('field', (name, val) => { if (name === 'title' || name === 'note') fields[name] = val; });
+    bb.on('error', reject);
+    bb.on('close', () => resolve({ file, fields, truncated }));
+    req.pipe(bb);
+  });
+}
+
+/**
+ * Attach a file as a working output on a task, from the page (#247). A member
+ * uploads one file; it is size- and type-checked, stored in the repository and
+ * recorded like any other output. Large files and other types are refused with
+ * a message, never trimmed, and the command line takes a larger file.
+ */
+app.post('/project/:owner/:repo/task/:taskId/attach', async (req, res) => {
+  const user = await currentUser(req);
+  const owner = String(req.params.owner || '');
+  const repo = String(req.params.repo || '');
+  const taskId = String(req.params.taskId || '');
+  const back = `/project/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}?task=${encodeURIComponent(taskId)}`;
+  if (!user) return signInFor(res, back);
+
+  let parsed;
+  try {
+    parsed = await readUpload(req);
+  } catch {
+    return res.status(400).send(errorPage('That upload could not be read. Try choosing the file again.', { user }));
+  }
+  if (parsed.truncated) {
+    return res.status(413).send(errorPage(
+      `That file is larger than the ${humanBytes(MAX_PAGE_UPLOAD_BYTES)} the page takes. `
+      + `The command line takes up to ${humanBytes(MAX_OUTPUT_FILE_BYTES)}: teamctx task attach.`, { user }));
+  }
+  if (!parsed.file || !parsed.file.bytes.length) {
+    return res.status(400).send(errorPage('No file was chosen.', { user }));
+  }
+  try {
+    await attachFileOutput({
+      owner, repo, user, taskId,
+      bytes: parsed.file.bytes, fileName: parsed.file.name,
+      title: parsed.fields.title, note: parsed.fields.note,
+    });
+  } catch (e) {
+    if (e instanceof FileOutputError) return res.status(400).send(errorPage(e.message, { user }));
+    const denied = e instanceof ProjectViewError || e.code === 'MEMBER_ACCESS_DENIED';
+    if (!denied) console.warn(`attach: ${owner}/${repo} task ${taskId} failed:`, e);
+    return res.status(denied ? 403 : 500).send(errorPage(
+      denied ? e.message : 'The file could not be saved. Try again.', { user }));
+  }
+  res.redirect(303, back);
+});
+
+/**
+ * Download a file output as an attachment (#247), with the type teamctx sniffed
+ * when it was attached and never inline, so a file never renders in the browser.
+ * The same scope gate as the page: an out-of-scope task serves nothing.
+ */
+app.get('/project/:owner/:repo/task/:taskId/file/:outputId', async (req, res) => {
+  const user = await currentUser(req);
+  const owner = String(req.params.owner || '');
+  const repo = String(req.params.repo || '');
+  const taskId = String(req.params.taskId || '');
+  const outputId = String(req.params.outputId || '');
+  if (!user) return signInFor(res, `/project/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`);
+  let file;
+  try {
+    file = await readFileOutput({ owner, repo, user, taskId, outputId });
+  } catch (e) {
+    const denied = e instanceof ProjectViewError || e.code === 'MEMBER_ACCESS_DENIED';
+    if (!denied) console.warn(`download: ${owner}/${repo} task ${taskId} failed:`, e);
+    return res.status(denied ? 403 : 500).send(errorPage(
+      denied ? e.message : 'That file could not be read.', { user }));
+  }
+  if (!file) return res.status(404).send(errorPage('That file is not here, or not yours to see.', { user }));
+  // Attachment, never inline, with nosniff: a downloaded file is saved, not
+  // opened in the page, so an uploaded document can never run as one.
+  const safeName = String(file.name).replace(/[^\x20-\x7e]/g, '_').replace(/["\\]/g, '_') || 'file';
+  res.setHeader('Content-Type', file.type);
+  res.setHeader('Content-Disposition', `attachment; filename="${safeName}"`);
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.send(file.bytes);
 });
 
 /**

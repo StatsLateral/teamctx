@@ -7,7 +7,7 @@ import {
   readProject, readConfig, readTree, listTasks, readTask, writeTask, deleteTask,
   readWorkstream, readContributions,
   writeTaskFile, readTaskFile, taskFilePath, taskFileExists,
-  writeOutput, listOutputs, listChanges, prepareChanges, writeChange, appendContribution, writeQueueItem, readApprovals, listQueue, listRejected,
+  writeOutput, listOutputs, writeOutputFile, listChanges, prepareChanges, writeChange, appendContribution, writeQueueItem, readApprovals, listQueue, listRejected,
   writeTree, writeTreeMd, deleteTaskFile, withCounters,
 } from '../../src/storage.js';
 import { applyOps } from '../../src/ops.js';
@@ -21,6 +21,9 @@ import { resolveDisplayName, resolveActiveWorkstream } from '../../src/prefs.js'
 import { resolveTarget, isProjectLevel } from '../../src/project-level.js';
 import { announceQueued } from '../../src/slack-notify.js';
 import { TaskWithoutWorkstreamError } from '../../src/numbering.js';
+import { validateFileOutput, MAX_OUTPUT_FILE_BYTES } from '../../src/file-output.js';
+import { validateLinkOutput } from '../../src/link-output.js';
+import { recordSources } from '../../src/sources.js';
 
 /**
  * Task operations, with no terminal in them.
@@ -207,7 +210,7 @@ const acceptancesOf = (task, teamctxDir) => Object.values(readApprovals(teamctxD
  * Read off the approvals, not stored on the task, so a task somebody merely
  * marked done by hand is not locked and can still be reopened.
  */
-function assertNotAccepted(task, teamctxDir) {
+export function assertNotAccepted(task, teamctxDir) {
   const accepted = acceptancesOf(task, teamctxDir)[0];
   if (!accepted) return;
   const by = accepted.approvedBy?.name ? ` by ${accepted.approvedBy.name}` : '';
@@ -445,6 +448,97 @@ export async function saveOutput({
 }
 
 /**
+ * Attach a file as a working output (#244).
+ *
+ * Like {@link saveOutput}, but the deliverable is a file the person uploaded,
+ * not text. The bytes are checked (size, allowed type, real type matches the
+ * name) and stored in the repository beside the record; the record keeps only
+ * the file's name, type, size and hash, never its bytes, so an assistant never
+ * carries them. `maxBytes` is the limit for the route the file came in by
+ * (10 MB from the command line, less from the hosted page).
+ */
+export async function saveFileOutput({
+  id, bytes, name, title, prompt, notes, basedOn, source,
+  maxBytes = MAX_OUTPUT_FILE_BYTES, teamctxDir, projectDir, actor,
+} = {}) {
+  const config = readConfig(teamctxDir);
+  const { task } = findTask(id, teamctxDir);
+  assertNotAccepted(task, teamctxDir);
+  const file = await validateFileOutput(bytes, name, { maxBytes });
+  const saved = listOutputs(task.id, teamctxDir);
+  if (basedOn && !saved.some(o => o.id === basedOn)) {
+    throw new Error(`no output "${basedOn}" on task ${task.key || task.id} to build on`);
+  }
+  const resolved = actor || await resolveActor({ config, cwd: projectDir });
+  const me = await resolveDisplayName({ actor: resolved, config, teamctxDir });
+  const stamp = nextStamp();
+  const outputId = `o-${stamp.toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+  // The id prefix keeps two uploads of the same name apart on disk.
+  const path = writeOutputFile(task.id, `${outputId}-${file.name}`, bytes, teamctxDir);
+  const output = {
+    id: outputId,
+    task: task.id,
+    kind: 'file',
+    title: (typeof title === 'string' && title.trim() ? title.trim() : file.name).slice(0, 120),
+    file: { ...file, path },
+    author: { key: resolved?.key || null, name: me },
+    source: source || null,
+    at: new Date(stamp).toISOString(),
+    prompt: typeof prompt === 'string' && prompt.trim() ? prompt : null,
+    notes: typeof notes === 'string' && notes.trim() ? notes : null,
+    basedOn: basedOn || null,
+    state: 'working',
+  };
+  writeOutput(output, teamctxDir);
+  const git = await commitAndPush(config, `output: ${me} attached ${output.id} (${file.name}) on ${task.id}`, projectDir);
+  return { output, task, ...git };
+}
+
+/**
+ * Attach a link to a cloud file as a working output (#245).
+ *
+ * Like {@link saveFileOutput}, but nothing is copied: the deliverable lives in a
+ * connected tool (Drive, SharePoint, Dropbox…) and the record keeps only a
+ * normalised link, a name and — if the tool gave one — a version marker. No
+ * credential is held; a bare sharing link is not stored. The file is recorded
+ * as a connected source against the task when the work is submitted (see
+ * {@link submitTask}), which is when it has a contribution to hang from.
+ */
+export async function saveLinkOutput({
+  id, connector, url, title, version, prompt, notes, basedOn, source,
+  teamctxDir, projectDir, actor,
+} = {}) {
+  const config = readConfig(teamctxDir);
+  const { task } = findTask(id, teamctxDir);
+  assertNotAccepted(task, teamctxDir);
+  const link = validateLinkOutput({ connector, url, title, version });
+  const saved = listOutputs(task.id, teamctxDir);
+  if (basedOn && !saved.some(o => o.id === basedOn)) {
+    throw new Error(`no output "${basedOn}" on task ${task.key || task.id} to build on`);
+  }
+  const resolved = actor || await resolveActor({ config, cwd: projectDir });
+  const me = await resolveDisplayName({ actor: resolved, config, teamctxDir });
+  const stamp = nextStamp();
+  const output = {
+    id: `o-${stamp.toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
+    task: task.id,
+    kind: 'link',
+    title: (typeof title === 'string' && title.trim() ? title.trim() : link.title).slice(0, 120),
+    link,
+    author: { key: resolved?.key || null, name: me },
+    source: source || null,
+    at: new Date(stamp).toISOString(),
+    prompt: typeof prompt === 'string' && prompt.trim() ? prompt : null,
+    notes: typeof notes === 'string' && notes.trim() ? notes : null,
+    basedOn: basedOn || null,
+    state: 'working',
+  };
+  writeOutput(output, teamctxDir);
+  const git = await commitAndPush(config, `output: ${me} linked ${output.id} on ${task.id}`, projectDir);
+  return { output, task, ...git };
+}
+
+/**
  * Put outputs in front of the manager for approval.
  *
  * Deliberately not `contribute`: nothing here is read by an AI and turned into
@@ -505,6 +599,21 @@ export async function submitTask({
     text: contribution.text, tagged: null, summary, operations: [],
     forTask: task.id, outputs: chosen.map(o => o.id),
   }, teamctxDir);
+  // A submitted link output is recorded as a connected source against the task,
+  // so it appears in the Connected sources drawer once the submission is seen —
+  // waiting for the manager, then approved. Nothing is fetched; the reference is
+  // what the output already holds, and `recordSources` strips any credential in
+  // the link again on the way in. #245.
+  const linkRefs = chosen
+    .filter(o => o.kind === 'link' && o.link)
+    .map(o => ({ connector: o.link.connector, link: o.link.url, title: o.link.title, itemId: o.link.itemId, summary: o.notes || '' }));
+  if (linkRefs.length) {
+    recordSources(linkRefs, {
+      by: { name: me, key: resolved?.key || null },
+      feed: { workstream: task.workstream, contribution: contribution.id, task: task.id },
+      dir: teamctxDir,
+    });
+  }
   const trailer = src === 'cli' ? '' : `\n\nSource: ${src}`;
   const git = await commitAndPush(config, `queue: ${me} submission for ${task.id} pending approval (${contribution.id})${trailer}`, projectDir);
   // After the commit, like a queued contribution (#182).

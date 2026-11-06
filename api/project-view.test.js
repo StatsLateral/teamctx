@@ -1802,6 +1802,28 @@ describe('waiting on you', () => {
       expect(page.window.scrolledTo).toEqual([]);
     });
 
+    it('shows a file output\'s download link and aims the attach form at the task (#247)', async () => {
+      repo.files.set('.teamctx/outputs/pricing-page/o-f.json', JSON.stringify({
+        id: 'o-f', task: 'pricing-page', kind: 'file', title: 'banner.png', state: 'working',
+        author: 'Priya', at: '2026-11-01T10:00:00Z',
+        file: { name: 'banner.png', type: 'image/png', size: 69, sha256: 'abc', path: 'outputs/pricing-page/files/o-f-banner.png' },
+      }));
+      const page = await live();
+      page.$('#t-pricing-page').click();
+      const dl = page.$('#d-work a.dl');
+      expect(dl).toBeTruthy();
+      expect(dl.getAttribute('href')).toBe('/project/acme/ledger/task/pricing-page/file/o-f');
+      const form = page.$('#d-attach');
+      expect(form.hidden).toBe(false);
+      expect(form.getAttribute('action')).toBe('/project/acme/ledger/task/pricing-page/attach');
+    });
+
+    it('does not show the attach form on a waiting item, which takes no file (#247)', async () => {
+      const page = await live();
+      page.review.click();
+      expect(page.$('#d-attach').hidden).toBe(true);
+    });
+
     it('opens it at the decision from the Review icon', async () => {
       const page = await live();
       page.review.click();
