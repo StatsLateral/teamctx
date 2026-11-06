@@ -173,6 +173,20 @@ describe('the working outputs on a task', () => {
     expect(got[0]).toMatchObject({ id: 'o1', kind: 'file', file: { name: 'banner.png', type: 'image/png', size: 69 }, link: null });
     expect(got[1]).toMatchObject({ id: 'o2', kind: 'link', link: { connector: 'gdrive', url: 'https://drive.google.com/file/d/ID/view', version: 'rev-9' }, file: null });
   });
+
+  it('gives the task row an attach action and a file output its download URL (#247)', () => {
+    const t = {
+      ...task('t1', 'a', 'Build the deck'),
+      outputs: [{ id: 'o1', title: 'banner.png', kind: 'file', body: '', file: { name: 'banner.png', type: 'image/png', size: 69, sha256: 'abc', path: 'outputs/t1/files/o1-banner.png' }, at: '2026-11-01T10:00:00Z', state: 'working', author: 'Priya', mine: true }],
+    };
+    const html = render(view({ tasks: { open: [t], done: [] } }), 'a');
+    expect(html).toMatch(/data-attach="\/project\/acme\/ledger\/task\/t1\/attach"/);
+    // Only file outputs get a download URL, and it points at this task + output.
+    expect(work(html)[0].dl).toBe('/project/acme/ledger/task/t1/file/o1');
+    // A text output has none.
+    const textTask = { ...task('t2', 'a', 'Write'), outputs: [{ id: 'ox', title: 'Draft', body: 'words', state: 'working', author: 'P' }] };
+    expect(work(render(view({ tasks: { open: [textTask], done: [] } }), 'a'))[0].dl).toBeUndefined();
+  });
 });
 
 describe('asking an assistant about a task that has working outputs', () => {
@@ -261,14 +275,14 @@ describe('work submitted for a task', () => {
   it('carries the outputs in full for the drawer, not only a label', () => {
     const html = render(view({ pending: [submitted()] }));
     const attr = html.match(/data-outputs="([^"]*)"/)[1].replace(/&quot;/g, '"').replace(/&amp;/g, '&');
-    expect(JSON.parse(attr)).toEqual([{ title: 'Draft 2', kind: 'text', body: 'The whole post.\n\nSecond paragraph.', file: null, link: null, notes: 'Trim it', prompt: 'Write a short post' }]);
+    expect(JSON.parse(attr)).toEqual([{ id: 'o1', title: 'Draft 2', kind: 'text', body: 'The whole post.\n\nSecond paragraph.', file: null, link: null, notes: 'Trim it', prompt: 'Write a short post' }]);
   });
 
-  it('carries a file output as its kind and metadata, not a body', () => {
+  it('carries a file output as its kind and metadata, not a body, with a download URL', () => {
     const file = { id: 'o2', title: 'banner.png', kind: 'file', file: { name: 'banner.png', type: 'image/png', size: 69, sha256: 'abc', path: 'outputs/t-post/files/o2-banner.png' } };
     const html = render(view({ pending: [waiting({ number: '1.5', summary: 'Submitted: banner.png', operations: [], forTask: 't-post', submittedOutputs: [file] })] }));
     const attr = html.match(/data-outputs="([^"]*)"/)[1].replace(/&quot;/g, '"').replace(/&amp;/g, '&');
-    expect(JSON.parse(attr)).toEqual([{ title: 'banner.png', kind: 'file', body: '', file: file.file, link: null, notes: null, prompt: null }]);
+    expect(JSON.parse(attr)).toEqual([{ id: 'o2', title: 'banner.png', kind: 'file', body: '', file: file.file, link: null, notes: null, prompt: null, dl: '/project/acme/ledger/task/t-post/file/o2' }]);
   });
 
   it('says what approving does, and that it records the acceptance in the context', () => {
