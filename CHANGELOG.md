@@ -14,6 +14,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   from the file’s bytes, not just its name; allowed: png, jpg, gif, webp, pdf, csv,
   txt, md, json, docx, xlsx, pptx. A file over the limit or of another type is
   refused, never trimmed.
+- **Link a cloud file as a task output.** When a deliverable already lives in
+  Google Drive, SharePoint, OneDrive or Dropbox, an assistant can attach it by
+  link with the `task_attach_link` tool instead of copying it in. teamctx stores
+  no credential: the link is normalised to one reference and stripped of any
+  access token, and a bare “anyone with the link” sharing URL is recorded by
+  name only. Submitting the task also records the file as a connected source.
 
 ## [0.5.2] - 2026-11-04
 
