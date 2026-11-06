@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **A failed sign-in no longer shows the internal error.** A hosted deployment
+  with no encryption key configured refused to store the session and rendered
+  the raw error — including the session key — on the page. The person now sees a
+  clean message (and, when a key is missing, a note to configure one); the
+  detail goes to the server log.
+
 ## [0.5.2] - 2026-11-04
 
 **Security release.** If you run the hosted server, before you deploy: set

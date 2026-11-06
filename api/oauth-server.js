@@ -268,6 +268,28 @@ app.get('/oauth/choose/google', (req, res) => {
   }));
 });
 
+/**
+ * A sign-in callback failed. The raw error must never reach the person: it can
+ * carry internal keys and ids — a deployment with no encryption key configured
+ * leaked the session key this way, because storing the session is refused and
+ * the message names the key. Log the detail server-side, and show a clean
+ * message: a specific one when the deployment has no key set (nobody can sign
+ * in until its administrator configures one), the safe message of a known
+ * OAuth error, or a generic fallback otherwise.
+ */
+export function signInFailed(res, e, fallback = 'Sign-in could not be completed. Please try again.') {
+  console.warn('teamctx sign-in failed:', e?.message || e);
+  // The hint fires only on the condition that actually refuses the write — a
+  // persistent deployment with no key. In local/in-memory mode an ephemeral key
+  // is used, so a failure there is something else and gets the plain message.
+  const msg = isPersistent() && !secretsConfigured()
+    ? 'This deployment is not finished being set up: its administrator needs to configure an '
+      + 'encryption key (TEAMCTX_SECRET_KEYS) before anyone can sign in. You were not signed in, '
+      + 'and nothing was stored.'
+    : e instanceof OAuthCallbackError ? e.message : fallback;
+  return res.status(400).send(errorPage(msg));
+}
+
 // ---- Google callback --------------------------------------------------
 
 app.get('/oauth/google/callback', async (req, res) => {
@@ -301,7 +323,7 @@ app.get('/oauth/google/callback', async (req, res) => {
         `teamctx_sid=${sid}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${TTL.session}`);
       return res.redirect(303, settingsPending.returnTo || '/settings');
     } catch (e) {
-      return res.status(400).send(errorPage(e.message));
+      return signInFailed(res, e);
     }
   }
   try {
@@ -347,7 +369,7 @@ app.get('/oauth/github/callback', async (req, res) => {
         `teamctx_sid=${sid}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${TTL.session}`);
       return res.redirect(303, settingsPending.returnTo || '/settings');
     } catch (e) {
-      return res.status(400).send(errorPage(e.message));
+      return signInFailed(res, e);
     }
   }
 
