@@ -145,6 +145,15 @@ describe('attaching a file from the project page', () => {
     expect(r.status).toBe(403);
     expect(savedOutput('tech-task')).toBeNull();
   });
+
+  it('refuses a closed task cleanly, not as a 500 to retry forever', async () => {
+    // The task was accepted and closed; attaching is a dead end, said plainly.
+    repo.files.set('.teamctx/approved/a1.json', JSON.stringify({ id: 'a1', forTask: 'prod-task', approvedBy: { name: 'Maya' } }));
+    const r = await attach('prod-task');
+    expect(r.status).toBe(403);
+    expect(r.body).toMatch(/accepted|closed/i);
+    expect(savedOutput('prod-task')).toBeNull();
+  });
 });
 
 describe('downloading a file output', () => {

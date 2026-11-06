@@ -487,7 +487,7 @@ const SCRIPT = `
     // A task takes a file; a waiting item does not. The route checks scope again,
     // so this only points the form at the task it is open on.
     var attach = document.getElementById('d-attach');
-    if (!queued && el.dataset.attach) {
+    if (!queued && el.dataset.attach && el.dataset.done !== '1') {
       attach.action = el.dataset.attach;
       attach.hidden = false;
       try { attach.reset(); } catch (e) { /* older browsers */ }

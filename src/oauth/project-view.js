@@ -1,7 +1,7 @@
 import { GithubSession } from '../adapters/github.js';
 import { runWithSession } from '../session-context.js';
 import { readConfig, readProject, readWorkstream, listTasks, readContributions, readApprovals, listRejected, listQueue, listOutputs, listChanges, prepareChanges, readSourceRefs, readOutputFileBytes } from '../storage.js';
-import { saveFileOutput } from '../../cli/commands/task.core.js';
+import { saveFileOutput, assertNotAccepted } from '../../cli/commands/task.core.js';
 import { MAX_PAGE_UPLOAD_BYTES } from '../file-output.js';
 import { outputStates, outputsForReader } from '../outputs.js';
 import { visibleSources } from '../sources.js';
@@ -442,9 +442,13 @@ export async function readContributionsView({ owner, repo, user }) {
 export async function attachFileOutput({ owner, repo, user, taskId, bytes, fileName, title, note }) {
   return openProject({ owner, repo, user }, async ({ actor, allowed }) => {
     const task = listTasks({}, undefined).find(t => t.id === taskId);
-    if (!task || !inScope(allowed, task.workstream)) {
+    if (!task || !inScope(allowed, resolveTarget(task.workstream))) {
       throw new ProjectViewError('That task is not here, or not yours to add to.');
     }
+    // A closed task takes no more work. saveFileOutput would refuse it too, but
+    // with a plain Error the route cannot tell from a real failure — so say it
+    // here, as the clean refusal it is, rather than a 500 with "try again".
+    try { assertNotAccepted(task); } catch (e) { throw new ProjectViewError(e.message); }
     const { output } = await saveFileOutput({
       id: task.id, bytes, name: fileName, title, notes: note,
       source: 'web', actor, maxBytes: MAX_PAGE_UPLOAD_BYTES,
@@ -463,7 +467,7 @@ export async function attachFileOutput({ owner, repo, user, taskId, bytes, fileN
 export async function readFileOutput({ owner, repo, user, taskId, outputId }) {
   return openProject({ owner, repo, user }, async ({ allowed }) => {
     const task = listTasks({}, undefined).find(t => t.id === taskId);
-    if (!task || !inScope(allowed, task.workstream)) return null;
+    if (!task || !inScope(allowed, resolveTarget(task.workstream))) return null;
     const output = (listOutputs(task.id) || []).find(o => o.id === outputId && o.kind === 'file' && o.file);
     if (!output) return null;
     const onDisk = String(output.file.path || '').split('/').pop();
