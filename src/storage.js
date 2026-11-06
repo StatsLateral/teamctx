@@ -70,6 +70,13 @@ function sessionDelete(path) {
   return true;
 }
 
+function sessionWriteBytes(path, bytes) {
+  const s = getCurrentSession();
+  if (!s) return false;
+  s.writeBytes(path, bytes);
+  return true;
+}
+
 function sessionListDir(dirPath) {
   const s = getCurrentSession();
   if (!s) return null;
@@ -345,11 +352,10 @@ export function listOutputs(taskId, dir) {
  * (#244). The name already carries the output id, so it is unique; the file is
  * written once and never overwritten, matching the append-only output records.
  *
- * Binary cannot pass through the hosted session, which keeps file contents as
- * UTF-8 text, so writing one there is refused until the hosted upload path is
- * built (#247). Local and clone-backed writes go straight to disk.
- *
- * Returns the repository-relative path stored on the record.
+ * On the hosted server the bytes are staged on the session as a Buffer and
+ * committed as their own base64 (#247); local and clone-backed writes go
+ * straight to disk. Either way the record keeps the same repository-relative
+ * path, which this returns.
  */
 export function writeOutputFile(taskId, fileName, bytes, dir) {
   sanitizeTaskId(taskId);
@@ -358,9 +364,10 @@ export function writeOutputFile(taskId, fileName, bytes, dir) {
     throw new Error(`unsafe output file name: ${fileName}`);
   }
   if (!(bytes instanceof Uint8Array)) throw new Error('output file bytes must be a Uint8Array');
-  if (getCurrentSession()) {
-    throw new Error('attaching a file is not supported in hosted mode yet; use the command line');
-  }
+  const rel = ['outputs', taskId, 'files', safe].join('/');
+  // The name carries the output id, so it is unique and append-only: a hosted
+  // write never needs the `wx` guard a local one does, since nothing reuses it.
+  if (sessionWriteBytes(ctxPath('outputs', taskId, 'files', safe), bytes)) return rel;
   const d = resolve(dir, 'outputs', taskId, 'files');
   mkdirSync(d, { recursive: true });
   const full = join(d, safe);
@@ -372,7 +379,7 @@ export function writeOutputFile(taskId, fileName, bytes, dir) {
   } finally {
     closeSync(fd);
   }
-  return ['outputs', taskId, 'files', safe].join('/');
+  return rel;
 }
 
 /**
@@ -391,6 +398,24 @@ export function readOutputFile(taskId, fileName, dir) {
   const full = resolve(dir, 'outputs', taskId, 'files', safe);
   if (!existsSync(full)) return null;
   return readFileSync(full);
+}
+
+/**
+ * The bytes of a file output as a Buffer, in either mode, for the download
+ * route: hosted fetches the committed blob on the session (never prefetched),
+ * local reads from disk. `taskId` and `fileName` are as {@link readOutputFile}
+ * takes them — `fileName` is the on-disk name, `basename(output.file.path)`.
+ * Returns `null` when the file is not there.
+ */
+export async function readOutputFileBytes(taskId, fileName, dir) {
+  sanitizeTaskId(taskId);
+  const safe = String(fileName);
+  if (safe.includes('/') || safe.includes('\\') || safe.includes('..')) {
+    throw new Error(`unsafe output file name: ${fileName}`);
+  }
+  const s = getCurrentSession();
+  if (s) return s.readBytes(ctxPath('outputs', taskId, 'files', safe));
+  return readOutputFile(taskId, fileName, dir);
 }
 
 // ---- Change log ----
