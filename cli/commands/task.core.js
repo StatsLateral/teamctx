@@ -210,7 +210,7 @@ const acceptancesOf = (task, teamctxDir) => Object.values(readApprovals(teamctxD
  * Read off the approvals, not stored on the task, so a task somebody merely
  * marked done by hand is not locked and can still be reopened.
  */
-function assertNotAccepted(task, teamctxDir) {
+export function assertNotAccepted(task, teamctxDir) {
   const accepted = acceptancesOf(task, teamctxDir)[0];
   if (!accepted) return;
   const by = accepted.approvedBy?.name ? ` by ${accepted.approvedBy.name}` : '';
