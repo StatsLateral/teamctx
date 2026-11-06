@@ -117,7 +117,8 @@ export function historyData(h, agents) {
  */
 function workData(outputs) {
   return (Array.isArray(outputs) ? outputs : []).map(o => ({
-    id: o.id, title: o.title || '', body: o.body || '', notes: o.notes || null, prompt: o.prompt || null,
+    id: o.id, title: o.title || '', kind: o.kind || 'text', body: o.body || '',
+    file: o.file || null, link: o.link || null, notes: o.notes || null, prompt: o.prompt || null,
     basedOn: o.basedOn || null, at: o.at || null, state: o.state, author: o.author || 'someone', mine: Boolean(o.mine),
     turnedDown: o.turnedDown ? { reason: o.turnedDown.reason || null, at: o.turnedDown.at || null } : null,
   }));
@@ -178,7 +179,10 @@ function waitingItem({ q, view, origin, marked }) {
   // Accepting work submitted for a task marks the task done and records the
   // acceptance in the context. The work itself is shown beside, in full.
   const outputs = q.forTask && Array.isArray(q.submittedOutputs)
-    ? q.submittedOutputs.map(o => ({ title: o.title || '', body: o.body || '', notes: o.notes || null, prompt: o.prompt || null }))
+    ? q.submittedOutputs.map(o => ({
+      title: o.title || '', kind: o.kind || 'text', body: o.body || '',
+      file: o.file || null, link: o.link || null, notes: o.notes || null, prompt: o.prompt || null,
+    }))
     : [];
   const changes = q.forTask
     ? ['Accepting it marks the task done and closes it, and records the acceptance in the context. Feedback instead leaves the task open.']

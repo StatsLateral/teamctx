@@ -339,6 +339,20 @@ const SCRIPT = `
   // What has been produced on a task: newest first, each one opening to its
   // whole text. Text nodes throughout: these are somebody else's words.
   var STATE_WORDS = { working: 'working', submitted: 'waiting for the manager', accepted: 'accepted' };
+  function fmtBytes(n) { return n >= 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.ceil(n / 1024) + ' KB'; }
+  // A file or link output has no text body; show what it is instead. A download
+  // link for a file comes with the project-page upload work (#247).
+  function outputText(o) {
+    if (o.kind === 'file' && o.file) {
+      return 'File: ' + o.file.name + ' (' + o.file.type + ', ' + fmtBytes(o.file.size) + ')';
+    }
+    if (o.kind === 'link' && o.link) {
+      var where = o.link.url || o.link.title || 'a cloud file';
+      var ver = o.link.version ? ' (version ' + o.link.version + ')' : '';
+      return 'Link: ' + where + ver;
+    }
+    return o.body;
+  }
   function showWork(items) {
     var wrap = document.getElementById('d-work-wrap');
     var box = document.getElementById('d-work');
@@ -358,7 +372,7 @@ const SCRIPT = `
         td.textContent = 'Feedback' + (o.turnedDown.reason ? ': ' + o.turnedDown.reason : '.');
         d.appendChild(td);
       }
-      var body = document.createElement('p'); body.className = 'wbody'; body.textContent = o.body; d.appendChild(body);
+      var body = document.createElement('p'); body.className = 'wbody'; body.textContent = outputText(o); d.appendChild(body);
       if (o.notes) { var n = document.createElement('p'); n.className = 'wnote'; n.textContent = 'Notes: ' + o.notes; d.appendChild(n); }
       if (o.prompt) { var q = document.createElement('p'); q.className = 'wnote'; q.textContent = 'Asked: ' + o.prompt; d.appendChild(q); }
       box.appendChild(d);
@@ -416,7 +430,7 @@ const SCRIPT = `
       outs.forEach(function (o) {
         var card = document.createElement('div'); card.className = 'out';
         var t = document.createElement('p'); t.className = 'otitle'; t.textContent = o.title; card.appendChild(t);
-        var b = document.createElement('p'); b.className = 'obody'; b.textContent = o.body; card.appendChild(b);
+        var b = document.createElement('p'); b.className = 'obody'; b.textContent = outputText(o); card.appendChild(b);
         if (o.notes) { var n = document.createElement('p'); n.className = 'onote'; n.textContent = 'Notes: ' + o.notes; card.appendChild(n); }
         if (o.prompt) { var q = document.createElement('p'); q.className = 'onote'; q.textContent = 'Asked: ' + o.prompt; card.appendChild(q); }
         outBox.appendChild(card);

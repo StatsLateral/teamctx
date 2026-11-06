@@ -158,6 +158,21 @@ describe('the working outputs on a task', () => {
     const html = render(view({ tasks: { open: [task('t1', 'a', 'Draft the post')], done: [] } }), 'a');
     expect(work(html)).toEqual([]);
   });
+
+  it('carries a file or link working output as its kind and metadata, so the drawer shows what it is', () => {
+    // Without kind/file/link on the drawer payload, a file or link output has an
+    // empty body and renders blank on the page (#244, #245).
+    const t = {
+      ...task('t1', 'a', 'Build the deck'),
+      outputs: [
+        { id: 'o1', title: 'banner.png', kind: 'file', body: '', file: { name: 'banner.png', type: 'image/png', size: 69, sha256: 'abc', path: 'outputs/t1/files/o1-banner.png' }, at: '2026-11-01T10:00:00Z', state: 'working', author: 'Priya', mine: true },
+        { id: 'o2', title: 'Pitch deck', kind: 'link', body: '', link: { connector: 'gdrive', title: 'Pitch deck', url: 'https://drive.google.com/file/d/ID/view', version: 'rev-9' }, at: '2026-11-02T10:00:00Z', state: 'working', author: 'Priya', mine: true },
+      ],
+    };
+    const got = work(render(view({ tasks: { open: [t], done: [] } }), 'a'));
+    expect(got[0]).toMatchObject({ id: 'o1', kind: 'file', file: { name: 'banner.png', type: 'image/png', size: 69 }, link: null });
+    expect(got[1]).toMatchObject({ id: 'o2', kind: 'link', link: { connector: 'gdrive', url: 'https://drive.google.com/file/d/ID/view', version: 'rev-9' }, file: null });
+  });
 });
 
 describe('asking an assistant about a task that has working outputs', () => {
@@ -187,6 +202,19 @@ describe('asking an assistant about a task that has working outputs', () => {
 
   it('adds nothing for a task with no outputs', () => {
     expect(extra(render(view({ tasks: { open: [task('t1', 'a', 'Draft the post')], done: [] } }), 'a'))).toBe('');
+  });
+
+  it('describes a file or link output in the paste, since it has no text body (#244, #245)', () => {
+    const t = {
+      ...task('t1', 'a', 'Build the deck'),
+      outputs: [
+        { id: 'o1', title: 'banner.png', kind: 'file', body: '', file: { name: 'banner.png', type: 'image/png', size: 69 }, at: '2026-11-01T10:00:00Z', state: 'working', author: 'Priya' },
+        { id: 'o2', title: 'Pitch deck', kind: 'link', body: '', link: { url: 'https://drive.google.com/file/d/ID/view', version: 'rev-9' }, at: '2026-11-02T10:00:00Z', state: 'working', author: 'Priya' },
+      ],
+    };
+    const text = extra(render(view({ tasks: { open: [t], done: [] } }), 'a'));
+    expect(text).toContain('File: banner.png (image/png, 69 bytes)');
+    expect(text).toContain('Link: https://drive.google.com/file/d/ID/view (version rev-9)');
   });
 
   it('asks a connected assistant to do the task, carry on from the latest saved work and not plan first', () => {
@@ -233,7 +261,14 @@ describe('work submitted for a task', () => {
   it('carries the outputs in full for the drawer, not only a label', () => {
     const html = render(view({ pending: [submitted()] }));
     const attr = html.match(/data-outputs="([^"]*)"/)[1].replace(/&quot;/g, '"').replace(/&amp;/g, '&');
-    expect(JSON.parse(attr)).toEqual([{ title: 'Draft 2', body: 'The whole post.\n\nSecond paragraph.', notes: 'Trim it', prompt: 'Write a short post' }]);
+    expect(JSON.parse(attr)).toEqual([{ title: 'Draft 2', kind: 'text', body: 'The whole post.\n\nSecond paragraph.', file: null, link: null, notes: 'Trim it', prompt: 'Write a short post' }]);
+  });
+
+  it('carries a file output as its kind and metadata, not a body', () => {
+    const file = { id: 'o2', title: 'banner.png', kind: 'file', file: { name: 'banner.png', type: 'image/png', size: 69, sha256: 'abc', path: 'outputs/t-post/files/o2-banner.png' } };
+    const html = render(view({ pending: [waiting({ number: '1.5', summary: 'Submitted: banner.png', operations: [], forTask: 't-post', submittedOutputs: [file] })] }));
+    const attr = html.match(/data-outputs="([^"]*)"/)[1].replace(/&quot;/g, '"').replace(/&amp;/g, '&');
+    expect(JSON.parse(attr)).toEqual([{ title: 'banner.png', kind: 'file', body: '', file: file.file, link: null, notes: null, prompt: null }]);
   });
 
   it('says what approving does, and that it records the acceptance in the context', () => {
