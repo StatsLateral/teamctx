@@ -119,6 +119,54 @@ describe('the whole flow, through the assistant', () => {
     });
   });
 
+  it('attaches a cloud-file link as an output and records it as a connected source on submit (#245, #246)', async () => {
+    await flow(async ({ call, as }) => {
+      const deck = (await call('task_add', { title: 'Build the deck', workstream: 'finance' })).task;
+
+      // The assistant attaches a Drive link the person produced. Nothing is copied.
+      const attached = await as(PRIYA, () => call('task_attach_link', {
+        id: deck.id, connector: 'gdrive',
+        url: 'https://docs.google.com/presentation/d/DECK_abcde/edit?usp=sharing',
+        title: 'Pitch deck', version: 'rev-9',
+      }));
+      expect(attached.output.kind).toBe('link');
+      // The share link is normalised to the one canonical reference, no credential.
+      expect(attached.output.link).toMatchObject({
+        connector: 'gdrive', title: 'Pitch deck',
+        url: 'https://drive.google.com/file/d/DECK_abcde/view', version: 'rev-9',
+      });
+      expect(attached.reportBack).toMatch(/drive\.google\.com/);
+
+      // Saving is not submitting: no source is recorded yet.
+      expect(getCurrentSession().listDir('.teamctx/sources')).toHaveLength(0);
+
+      await as(PRIYA, () => call('task_submit', { id: deck.id }));
+      await pause();
+
+      // Submitting records the linked file as a connected source against the task.
+      const sources = getCurrentSession().listDir('.teamctx/sources');
+      expect(sources).toHaveLength(1);
+      const ref = JSON.parse(getCurrentSession().read(`.teamctx/sources/${sources[0]}`).content);
+      expect(ref).toMatchObject({ connector: 'gdrive', title: 'Pitch deck', link: 'https://drive.google.com/file/d/DECK_abcde/view' });
+      expect(ref.feeds[0]).toMatchObject({ task: deck.id, workstream: 'finance' });
+    });
+  });
+
+  it('attaches a Dropbox sharing link by name only, storing no secret (#245, #246)', async () => {
+    await flow(async ({ call, as }) => {
+      const deck = (await call('task_add', { title: 'Share the report', workstream: 'finance' })).task;
+      const attached = await as(PRIYA, () => call('task_attach_link', {
+        id: deck.id, connector: 'dropbox',
+        url: 'https://www.dropbox.com/scl/fi/xxx/report.pdf?rlkey=SEKRIT&dl=0',
+        title: 'Q3 report',
+      }));
+      // The sharing link is the access itself, so it is not stored — the name is.
+      expect(attached.output.link).toMatchObject({ connector: 'dropbox', title: 'Q3 report', url: null });
+      expect(JSON.stringify(attached.output)).not.toContain('SEKRIT');
+      expect(attached.reportBack).toMatch(/recorded by name only/);
+    });
+  });
+
   it('accepts with no picks when facts is not a list, and quotes what it could not apply', async () => {
     await flow(async ({ call, as }) => {
       const a = (await call('task_add', { title: 'Draft A', workstream: 'finance' })).task;
