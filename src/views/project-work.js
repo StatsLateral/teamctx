@@ -129,6 +129,22 @@ const clip = (node) => {
   return n ? `<span class="clip" title="${n} linked source${n === 1 ? '' : 's'}">📎 ${n}</span>` : '<span class="clip"></span>';
 };
 
+/** The project page's own path, which the attach and download routes hang off. */
+function projectBase(view) {
+  return `/project/${encodeURIComponent(view.owner)}/${encodeURIComponent(view.repo)}`;
+}
+
+/**
+ * The same outputs with a download URL on each file one (#247), so the drawer
+ * can offer a link without building a URL itself. The route checks scope again
+ * on its own; this only points at it.
+ */
+function withDownloads(outputs, base, taskId) {
+  return (Array.isArray(outputs) ? outputs : []).map(o => (o.kind === 'file' && o.file
+    ? { ...o, dl: `${base}/task/${encodeURIComponent(taskId)}/file/${encodeURIComponent(o.id)}` }
+    : o));
+}
+
 function taskRow({ t, view, origin, marked }) {
   const where = workstreamLocation(view.workstreams, t.workstream, view.project);
   const prompt = promptFor({
@@ -140,10 +156,15 @@ function taskRow({ t, view, origin, marked }) {
   const addedBy = (t.history?.events || []).find(e => e.did === 'added' && e.by)?.by;
   const who = whoTouched(t, view.contributions || {});
   if (!who.length && addedBy) who.push(addedBy);
+  // One mapping, used for both the drawer's data and the paste block, with a
+  // download URL on each file output and the task's own attach action.
+  const base = projectBase(view);
+  const work = withDownloads(workData(t.outputs), base, t.id);
+  const attach = `${base}/task/${encodeURIComponent(t.id)}/attach`;
   return `<button type="button" class="item trow${marked ? ' marked' : ''}${t.status === 'done' ? ' done' : ''}" id="t-${esc(t.id)}"
   data-text="${esc(t.title)}" data-kind="${esc(`Task${t.key ? ` ${t.key}` : ''}`)}" data-summary="" data-who="${esc(who.join(', '))}"
-  data-review="" data-ws="${esc(t.workstream || '')}" data-ask="${escAttr(prompt.split('\n\n')[0])}" data-prompt="${escAttr(prompt)}" data-paste-extra="${escAttr(outputsBlock(workData(t.outputs)))}" data-paste-end="${escAttr(taskPasteEnd(Boolean(outputsBlock(workData(t.outputs)))))}"
-  ${t.status === 'done' ? 'data-done="1" ' : ''}data-work="${esc(JSON.stringify(workData(t.outputs)))}" data-changed="${esc(JSON.stringify(t.changedSince || null))}" data-history="${esc(JSON.stringify(historyData(t.history, view.agents)))}">
+  data-review="" data-ws="${esc(t.workstream || '')}" data-ask="${escAttr(prompt.split('\n\n')[0])}" data-prompt="${escAttr(prompt)}" data-paste-extra="${escAttr(outputsBlock(work))}" data-paste-end="${escAttr(taskPasteEnd(Boolean(outputsBlock(work))))}"
+  data-attach="${esc(attach)}" ${t.status === 'done' ? 'data-done="1" ' : ''}data-work="${esc(JSON.stringify(work))}" data-changed="${esc(JSON.stringify(t.changedSince || null))}" data-history="${esc(JSON.stringify(historyData(t.history, view.agents)))}">
   <span class="num">${esc(t.key || '—')}</span><span class="ttl" title="${esc(t.title)}">${esc(t.title)}</span>
   <span class="own">${whoChip(t.owner, view.agents)}</span>${clip(t)}</button>`;
 }
@@ -179,10 +200,10 @@ function waitingItem({ q, view, origin, marked }) {
   // Accepting work submitted for a task marks the task done and records the
   // acceptance in the context. The work itself is shown beside, in full.
   const outputs = q.forTask && Array.isArray(q.submittedOutputs)
-    ? q.submittedOutputs.map(o => ({
-      title: o.title || '', kind: o.kind || 'text', body: o.body || '',
+    ? withDownloads(q.submittedOutputs.map(o => ({
+      id: o.id || null, title: o.title || '', kind: o.kind || 'text', body: o.body || '',
       file: o.file || null, link: o.link || null, notes: o.notes || null, prompt: o.prompt || null,
-    }))
+    })), projectBase(view), q.forTask)
     : [];
   const changes = q.forTask
     ? ['Accepting it marks the task done and closes it, and records the acceptance in the context. Feedback instead leaves the task open.']

@@ -20,6 +20,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   no credential: the link is normalised to one reference and stripped of any
   access token, and a bare “anyone with the link” sharing URL is recorded by
   name only. Submitting the task also records the file as a connected source.
+- **Attach and download files on the project page.** A signed-in member can
+  attach a file to a task from the page (up to 4 MB; the command line still
+  takes 10 MB), and anyone who can see the task can download its files. A file
+  downloads as an attachment with the type teamctx checked, and a file for a
+  task outside your scope is neither shown nor served.
 
 ## [0.5.2] - 2026-11-04
 
