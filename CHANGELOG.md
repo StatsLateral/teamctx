@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Connecting from an assistant no longer ends on "Method Not Allowed".** The approval
+  step answered with a redirect that browsers repeated as a POST at the assistant's
+  callback, which only accepts GET. It now answers 303 (#291).
+
 ## [0.5.2] - 2026-11-04
 
 **Security release.** If you run the hosted server, before you deploy: set

@@ -393,7 +393,9 @@ app.post('/oauth/consent', async (req, res) => {
     const redirectTo = String(req.body?.decision) === 'approve'
       ? await provider.approveConsent(c, readBindCookie(req))
       : await provider.denyConsent(c);
-    return res.redirect(redirectTo);
+    // 303, not Express's default 302: behind Vercel's rewrite layer a 302 reaches
+    // the browser as a 307, which repeats this POST at the client's callback.
+    return res.redirect(303, redirectTo);
   } catch (e) {
     const msg = e instanceof OAuthCallbackError ? e.message : 'Could not complete the approval.';
     return res.status(400).send(errorPage(msg));
