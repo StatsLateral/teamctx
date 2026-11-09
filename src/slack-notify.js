@@ -17,6 +17,7 @@
 import { kvGet, keys } from './oauth/kv.js';
 import { getCurrentSession } from './session-context.js';
 import { buildViewUrl } from './view-url.js';
+import { queueRef } from './review.js';
 import { connectorUrl, originRemote } from '../cli/commands/connect.core.js';
 
 export const SLACK_ENV = 'TEAMCTX_SLACK_WEBHOOK';
@@ -120,7 +121,7 @@ export async function announceQueued(item, {
   try { url = await slackWebhookFor({ env }); } catch { url = null; }
   if (!url) return { sent: false };
   const link = await reviewLink(item.id, { baseUrl, config, projectDir });
-  const posted = await postToSlack(url, slackMessage({ number: item.number, author: item.author, summary: item.summary, link }), { fetchImpl, timeoutMs });
+  const posted = await postToSlack(url, slackMessage({ number: queueRef(item) || item.number, author: item.author, summary: item.summary, link }), { fetchImpl, timeoutMs });
   if (!posted.ok) log(`Slack: the notice for ${item.id} was not sent: ${posted.why}.`);
   return { sent: posted.ok };
 }

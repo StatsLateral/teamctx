@@ -140,11 +140,11 @@ export function outputsBlock(outputs) {
  * because approving is the manager's call and an assistant that approves before
  * it has been answered has taken that call away.
  */
-export function decisionPrompt({ ref, id, title, owner, repo, link, forTask = false }) {
+export function decisionPrompt({ ref, id, title, owner, repo, link, forTask = false, label = null }) {
   const line = (...lines) => lines.filter(Boolean).join('\n');
   if (forTask) {
     return [
-      `Help me review ${ref ? `item ${ref}` : 'an item'}, work submitted for a task in teamctx: ${asQuotedData(title)}.`,
+      `Help me review ${label || (ref ? `item ${ref}` : 'an item')}, work submitted for a task in teamctx: ${asQuotedData(title)}.`,
       line(
         'Instructions for the AI agent:',
         connectCheck(owner, repo, link ? new URL(link).origin : null),
@@ -159,7 +159,7 @@ export function decisionPrompt({ ref, id, title, owner, repo, link, forTask = fa
     ].filter(Boolean).join('\n\n');
   }
   return [
-    `Help me decide ${ref ? `item ${ref}` : 'an item'} that is waiting for my approval in teamctx: ${asQuotedData(title)}.`,
+    `Help me decide ${label || (ref ? `item ${ref}` : 'an item')} that is waiting for my approval in teamctx: ${asQuotedData(title)}.`,
     line(
       'Instructions for the AI agent:',
       connectCheck(owner, repo, link ? new URL(link).origin : null),

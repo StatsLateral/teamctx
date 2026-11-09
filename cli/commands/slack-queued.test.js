@@ -131,7 +131,7 @@ describe('a task\'s submitted work', () => {
     const r = await runWithActor(MEMBER, () => submitTask({ id: task.id, source: 'mcp', teamctxDir: dir }));
     expect(posts()).toHaveLength(1);
     const { text } = JSON.parse(posts()[0][1].body);
-    expect(text).toContain(`*${task.key}* Submitted: First draft`);
+    expect(text).toContain(`*task ${task.key}* Submitted: First draft`);
     expect(text).toContain(`review=${r.id}`);
     expect(text).not.toContain('THE DRAFT ITSELF');
   });

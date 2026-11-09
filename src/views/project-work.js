@@ -5,6 +5,7 @@ import { describeChange } from '../change-labels.js';
 import { promptFor, decisionPrompt, outputsBlock, taskPasteEnd, escAttr, whoTouched } from './prompt-for.js';
 import { workstreamLocation } from './workstream-location.js';
 import { historyStatus, historyLine } from '../task-history.js';
+import { queueRef } from '../review.js';
 
 /**
  * What the project page is about: the work, and what is waiting on the manager.
@@ -189,7 +190,7 @@ function waitingItem({ q, view, origin, marked }) {
   const prompt = decisionPrompt({
     ref, id: q.id, title, owner: view.owner, repo: view.repo,
     link: origin ? `${origin}/project/${view.owner}/${view.repo}?${new URLSearchParams({ ...(q.workstream ? { ws: q.workstream } : {}), item: q.id })}` : null,
-    forTask: Boolean(q.forTask),
+    forTask: Boolean(q.forTask), label: queueRef(q),
   });
   // How to decide it. In the assistant: the drawer's assistant row opens it with
   // the item and the question (#159), so this only says so. On the command
@@ -212,7 +213,7 @@ function waitingItem({ q, view, origin, marked }) {
   ];
   const label = ref || title.slice(0, 40);
   const date = q.createdAt ? String(q.createdAt).slice(5, 10) : '';
-  return `<div class="q${marked ? ' marked' : ''}" id="r-${esc(q.id)}" data-text="${esc(title)}" data-kind="${esc(`Waiting on you${ref ? ` · ${ref}` : ''}`)}"
+  return `<div class="q${marked ? ' marked' : ''}" id="r-${esc(q.id)}" data-text="${esc(title)}" data-kind="${esc(`Waiting on you${ref ? ` · ${queueRef(q) || ref}` : ''}`)}"
   data-summary="${esc(`Proposed by ${q.author || 'someone'}${VIA[q.source] ? ` ${VIA[q.source]}` : ''}${date ? ` on ${date}` : ''}.`)}"
   data-who="${esc(q.author || '')}" data-review="" data-ws="${esc(q.workstream || '')}" data-queue="1"
   data-changes="${esc(JSON.stringify(changes))}" data-outputs="${esc(JSON.stringify(outputs))}" data-reach="${esc(JSON.stringify(Array.isArray(q.reachLines) ? q.reachLines : []))}" data-checks="${esc(JSON.stringify(checks))}" data-decide="${esc(JSON.stringify(decide))}"
