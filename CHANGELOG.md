@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **A stale browser sign-in no longer stops at "Something went wrong".** When GitHub
+  refuses the token a browser session holds, the project page now signs the person in
+  again and returns them to the page they were opening (#293).
 - **Connecting from an assistant no longer ends on "Method Not Allowed".** The approval
   step answered with a redirect that browsers repeated as a POST at the assistant's
   callback, which only accepts GET. It now answers 303 (#291).
