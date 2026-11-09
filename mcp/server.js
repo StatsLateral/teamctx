@@ -48,7 +48,8 @@ import {
 import { listMembers, addMember, removeMember, setMemberWorkstreams, setMemberExternal } from '../cli/commands/member.core.js';
 import { getConfig, setConfig, repairManagerGate, setReviewPolicy } from '../cli/commands/config.core.js';
 import { resolveActor } from '../src/actor.js';
-import { canApprove, managerKeys, queueRef } from '../src/review.js';
+import { canApprove, managerKeys, queueRef, matchesActor } from '../src/review.js';
+import { cleanExternal } from '../src/external-links.js';
 import {
   scopeFor, assertInScope, inScope, visibleWorkstreams, defaultWorkstream,
 } from '../src/member-scope.js';
@@ -735,8 +736,13 @@ function carryOutOf(teamctxDir, flagged, impact) {
     .slice(0, 10)
     .map(t => ({
       task: t.key || t.id, title: t.title, owner: t.owner || null,
-      external: t.external.map(e => ({ system: e.system, host: hostOf(e.url), url: e.url, ...(e.ref ? { ref: e.ref } : {}) })),
-    }));
+      // Cleaned again here, not trusted as stored: the file is editable by
+      // anybody with write access, so a label or an address that would not pass
+      // today is dropped, and the tool is always read off the address.
+      external: t.external.map(e => { try { return cleanExternal({ url: e?.url, ref: e?.ref }); } catch { return null; } })
+        .filter(Boolean).map(e => ({ system: e.system, host: hostOf(e.url), url: e.url, ...(e.ref ? { ref: e.ref } : {}) })),
+    }))
+    .filter(c => c.external.length);
 }
 
 function sayCarryOut(carryOut) {
@@ -1631,7 +1637,11 @@ export function makeHandlers(projectRoot) {
       const config = readConfig(teamctxDir);
       const task = getTask({ id: args.id, teamctxDir });
       const me = await who(teamctxDir, config);
-      const mine = (task.ownerKey && task.ownerKey === me.actor?.key) || (task.owner && task.owner === me.name);
+      // Identity, never a name: a person can choose the name they go by. A task
+      // owned by name alone is matched through the roster entry that bears that
+      // name, by the key behind it.
+      const mine = (task.ownerKey && task.ownerKey === me.actor?.key)
+        || (!!task.owner && (config.members || []).some(m => m.kind !== 'agent' && m.name === task.owner && matchesActor(m.key, me.actor)));
       if (!mine && !(await this.isManagerNow(teamctxDir, config))) {
         throw new Error("Only the task's owner or a manager can link it to a ticket.");
       }

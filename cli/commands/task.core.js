@@ -552,7 +552,11 @@ export async function assignTask({ id, owner, teamctxDir, projectDir } = {}) {
   if (!owner) throw new Error('an owner is required');
   const config = readConfig(teamctxDir);
   const { task } = findTask(id, teamctxDir);
-  const updated = { ...task, owner };
+  // The old owner's key goes with the old owner. A name does not identify a
+  // person, so a task assigned by name carries no key (as one added for someone
+  // else does), rather than keeping the key of whoever had it before.
+  const { ownerKey: _was, ...rest } = task;
+  const updated = { ...rest, owner };
   writeTask(updated, teamctxDir);
   const git = await commitAndPush(config, `task: assign ${task.id} to ${owner}`, projectDir);
   return { task: updated, ...git };

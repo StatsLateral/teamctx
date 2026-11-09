@@ -228,3 +228,83 @@ describe('who may link a task', () => {
     });
   });
 });
+
+describe('ownership is identity, not a name', () => {
+  const RAVI = { key: 'git:ravi@example.com', name: 'Ravi', email: 'ravi@example.com', source: 'github' };
+  const PRIYA = { key: 'git:priya@example.com', name: 'Priya', email: 'priya@example.com', source: 'github' };
+  const member = (a) => ({ key: a.key, name: a.name, email: a.email });
+  const setup = () => {
+    const root = { __backend: 'github', owner: OWNER, repo: REPO, baseUrl: HOST };
+    const s = session(CONFIG({ members: [member(RAVI), member(PRIYA)] }));
+    const handlers = makeHandlers(root);
+    const as = (actor) => (tool, args) => runWithActor(actor, () => callTool(handlers, root, tool, args));
+    return { s, as };
+  };
+
+  it('lets a task owned by name be linked by the roster member of that name, and nobody else but a manager', async () => {
+    const { s, as } = setup();
+    await runWithSession(s, async () => {
+      const maya = as(MAYA); const ravi = as(RAVI); const priya = as(PRIYA);
+      const added = JSON.parse((await maya('task_add', { title: 'A task', workstream: 'finance' })).content[0].text);
+      const id = added.task.id;
+      await maya('task_assign', { id, owner: 'Ravi' });
+
+      expect((await priya('task_link', { id, url: ASANA })).isError).toBe(true);
+      expect((await ravi('task_link', { id, url: ASANA })).isError).toBeFalsy();
+    });
+  });
+
+  it('takes the old owner\'s key off a task when it is reassigned', async () => {
+    const { s, as } = setup();
+    await runWithSession(s, async () => {
+      const ravi = as(RAVI);
+      const added = JSON.parse((await as(MAYA)('task_add', { title: 'Mine', workstream: 'finance', owner: 'Ravi' })).content[0].text);
+      const id = added.task.id;
+      const assigned = JSON.parse((await as(MAYA)('task_assign', { id, owner: 'Priya' })).content[0].text);
+      expect(assigned.task.owner).toBe('Priya');
+      expect(assigned.task.ownerKey).toBeUndefined();
+      // Ravi is no longer the owner, so he can no longer link it.
+      expect((await ravi('task_link', { id, url: ASANA })).isError).toBe(true);
+    });
+  });
+});
+
+describe('a stored link is checked again when it is used', () => {
+  it('reads the tool off the address, so a label edited into the file does not make a link trusted', async () => {
+    await inOneSession(async (call) => {
+      const added = await call('task_add', { title: 'Set up the booking page', workstream: 'finance' });
+      await call('task_link', { id: added.task.id, url: ASANA });
+
+      // Somebody with write access edits the file by hand.
+      const file = '.teamctx/workstreams/finance.json';
+      const doc = JSON.parse(written.get(file).content);
+      doc.tasks[0].external = [{ system: 'asana', url: 'https://evil.example.com/0/1/2' }];
+      written.set(file, { content: JSON.stringify(doc), sha: null });
+
+      plan.ops = [{ type: 'addRecord', record: { type: 'rule', text: 'A rule', detail: 'Detail' } }];
+      const queued = await call('contribute', { text: 'a rule', workstream: 'finance' });
+      const approved = await call('review_approve', { id: queued.id });
+
+      expect(approved.carryOut[0].external[0].system).toBe('other');
+      expect(approved.reportBack).toMatch(/does not recognise/);
+      expect(approved.reportBack).toMatch(/Do not open them or write to them/);
+      expect(approved.reportBack).not.toMatch(/also lives in another tool/);
+    });
+  });
+
+  it('drops an entry that would not be accepted today', async () => {
+    await inOneSession(async (call) => {
+      const added = await call('task_add', { title: 'A task', workstream: 'finance' });
+      await call('task_link', { id: added.task.id, url: ASANA });
+      const file = '.teamctx/workstreams/finance.json';
+      const doc = JSON.parse(written.get(file).content);
+      doc.tasks[0].external = [{ system: 'asana', url: 'http://app.asana.com/0/1/2' }];
+      written.set(file, { content: JSON.stringify(doc), sha: null });
+
+      plan.ops = [{ type: 'addRecord', record: { type: 'rule', text: 'A rule', detail: 'Detail' } }];
+      const queued = await call('contribute', { text: 'a rule', workstream: 'finance' });
+      const approved = await call('review_approve', { id: queued.id });
+      expect(approved.carryOut).toBeUndefined();
+    });
+  });
+});
