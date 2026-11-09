@@ -870,7 +870,7 @@ describe('task tools', () => {
     const { makeHandlers } = await import('./server.js');
     const handlers = makeHandlers(process.cwd());
     const taskTools = TOOLS.filter(x => /task/.test(x.name));
-    expect(taskTools.length).toBe(10);
+    expect(taskTools.length).toBe(11);
     for (const t of taskTools) {
       expect(typeof handlers[t.name], `${t.name} has no handler`).toBe('function');
     }

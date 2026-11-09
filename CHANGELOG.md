@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **A task can say where its ticket lives in another tool.** `task_link` records the link
+  to an Asana or Jira ticket (at most five per task, https only, nothing else stored), and it
+  travels with the task in the brief and the task lists. Asana and Jira are now named when an
+  assistant passes one in as a source.
+- **An approval tells the assistant which flagged tasks have tickets elsewhere.** When
+  `review_approve` flags work that is linked, the result carries `carryOut`, and the assistant
+  is told to offer to add a comment on each ticket, only after the person agrees, and never to
+  change a ticket's status, owner or description. teamctx writes nothing to the other tool (#301).
+
 ## [0.5.3] - 2026-11-09
 
 Fixes found while onboarding the first outside users. If you run the hosted server, it
