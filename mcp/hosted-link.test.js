@@ -214,7 +214,7 @@ describe('the floor under all of it', () => {
     expect(r.viewUrl).toBe(`${HOST}/project/${OWNER}/${REPO}`);
     expect(r.viewUrlError).toBe(null);
     expect(r.tipsUrl).toBe(`${HOST}/tips?project=${encodeURIComponent(`${OWNER}/${REPO}`)}`);
-    expect(r.reportBack).toBe(`Added. You must end your reply with this link, on its own line, as a plain URL: ${r.viewUrl} Then, directly beneath it on its own line, the Tips & Tricks page: ${r.tipsUrl}`);
+    expect(r.reportBack).toBe(`Added. You must end your reply with this link, on its own line, as a markdown link: [Open Project](${r.viewUrl}). If your client cannot show links, give the plain URL ${r.viewUrl} instead. Then, directly beneath it on its own line, the Tips & Tricks page: [Tips & Tricks](${r.tipsUrl})`);
   });
 
   it('uses the ids the handler did name, even without a link', async () => {
@@ -256,21 +256,29 @@ describe('the link beside the JSON, not only inside it', () => {
     // drops a nested field however well it is named. This is the line somebody
     // actually sees whatever the client does with the rest.
     const r = await hosted('task_add', { title: 'Contact the sponsor', workstream: 'finance' });
-    expect(r.__blocks).toEqual([`View it here: ${r.viewUrl}\nTips & Tricks: ${r.tipsUrl}`]);
+    expect(r.__blocks).toEqual([`[${r.viewLabel}](${r.viewUrl})\n[Tips & Tricks](${r.tipsUrl})`]);
+    expect(r.viewLabel).toMatch(/^Open Task \d+\.\d+$/);
   });
 
   it('is there for a contribution too, pointing at what it wrote', async () => {
     const r = await hosted('contribute', { text: 'a sponsor at 25,000', workstream: 'finance', apply: true });
     const added = tree().records.find(w => w.text === 'tiers decided');
-    expect(r.__blocks[0].split('\n')[0]).toBe(`View it here: ${HOST}/project/${OWNER}/${REPO}?ws=finance&item=${added.id}`);
-    expect(r.__blocks[0].split('\n')[1]).toBe(`Tips & Tricks: ${r.tipsUrl}`);
+    expect(r.__blocks[0].split('\n')[0]).toBe(`[Open Workstream 1](${HOST}/project/${OWNER}/${REPO}?ws=finance&item=${added.id})`);
+    expect(r.__blocks[0].split('\n')[1]).toBe(`[Tips & Tricks](${r.tipsUrl})`);
   });
 
   it('is there for the read tools that report where something lives', async () => {
     for (const [tool, args] of [['get_status', {}], ['get_workstream', { id: 'finance' }], ['my_brief', {}]]) {
       const r = await hosted(tool, args);
-      expect(r.__blocks[0], tool).toBe(`View it here: ${r.viewUrl}\nTips & Tricks: ${r.tipsUrl}`);
+      expect(r.__blocks[0], tool).toBe(`[${r.viewLabel}](${r.viewUrl})\n[Tips & Tricks](${r.tipsUrl})`);
     }
+  });
+
+  it('names where it goes: the workstream by number, the project by name', async () => {
+    const ws = await hosted('get_workstream', { id: 'finance' });
+    expect(ws.viewLabel).toBe('Open Workstream 1');
+    const status = await hosted('get_status', {});
+    expect(status.viewLabel).toBe('Open Webhacks');
   });
 
   it('adds no block to a tool that owes nobody a link', async () => {
@@ -282,5 +290,47 @@ describe('the link beside the JSON, not only inside it', () => {
     const r = await hosted('get_status', {}, { baseUrl: null });
     expect(r.viewUrl).toBe(null);
     expect(r.__blocks).toEqual([]);
+  });
+});
+
+describe('the review tools end on the link too', () => {
+  it('gives one to the list of what is waiting, to approving and to rejecting', async () => {
+    await inOneSession(async (call) => {
+      const queued = await call('contribute', { text: 'a sponsor at 25,000', workstream: 'finance' });
+      expect(queued.mode).toBe('queued');
+
+      const listed = await call('list_pending_reviews', {});
+      expect(listed.pending).toHaveLength(1);
+      expect(listed.viewUrl).toBe(`${HOST}/project/${OWNER}/${REPO}`);
+      expect(listed.viewLabel).toBe('Open Webhacks');
+      expect(listed.tipsUrl).toBeTruthy();
+
+      const approved = await call('review_approve', { id: queued.id });
+      expect(approved.viewUrl).toBe(`${HOST}/project/${OWNER}/${REPO}?ws=finance`);
+      expect(approved.reportBack).toContain(`[Open Workstream 1](${approved.viewUrl})`);
+
+      const again = await call('contribute', { text: 'another note', workstream: 'finance' });
+      const rejected = await call('review_reject', { id: again.id, reason: 'not now' });
+      expect(rejected.viewUrl).toBe(`${HOST}/project/${OWNER}/${REPO}?ws=finance`);
+      expect(rejected.reportBack).toContain(`[Open Workstream 1](${rejected.viewUrl})`);
+    });
+  });
+
+  it('describes the link on each of them', async () => {
+    const { TOOLS } = await import('./server.js');
+    for (const name of ['list_pending_reviews', 'review_approve', 'review_reject']) {
+      const d = TOOLS.find(t => t.name === name).description;
+      expect(d, name).toMatch(/always end your reply with it/);
+      expect(d, name).toMatch(/\[Open Workstream 4\]\(viewUrl\)/);
+    }
+  });
+
+  it('leaves no tool that promises a link outside the set that is given one', async () => {
+    // The set is what makes a link a floor and not a hope. A tool whose
+    // description tells the assistant to end on `viewUrl` but is missing from it
+    // is exactly how the review tools shipped without one.
+    const { TOOLS, LINKED_TOOLS } = await import('./server.js');
+    const promised = TOOLS.filter(t => /always end your reply with it/.test(t.description)).map(t => t.name);
+    expect(promised.filter(name => !LINKED_TOOLS.has(name))).toEqual([]);
   });
 });

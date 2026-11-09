@@ -64,6 +64,25 @@ export function buildViewUrl({ base, owner, repo, ws = null, item = null, task =
 }
 
 /**
+ * What a link says it is, so a reply can read "Open Workstream 4" and not a long
+ * address. Built from the ids and numbers the link already carries, never from
+ * free text, so an assistant is handed an accurate label and does not have to
+ * invent one. Anything that could break a markdown link is dropped.
+ */
+export function viewLabel({ ws = null, task = null, review = null, wsNumber = null, ref = null, project = null } = {}) {
+  const clean = (v) => String(v).replace(/[\[\]()<>`\r\n]/g, '').trim();
+  let what;
+  if (task) what = ref ? `Task ${clean(ref)}` : 'Task';
+  else if (review) what = ref ? `Submission ${clean(ref)}` : 'Submission';
+  else if (ws) what = wsNumber ? `Workstream ${clean(wsNumber)}` : 'Workstream';
+  else what = (project && clean(project)) || 'Project';
+  return `Open ${what}`;
+}
+
+/** `[text](url)`. The text is a label from `viewLabel` or a fixed phrase. */
+export const markdownLink = (text, url) => `[${text}](${url})`;
+
+/**
  * The Tips & Tricks page, remembering which project it was linked from.
  *
  * Sits beside the project link in every tool result. Like it, the link carries
