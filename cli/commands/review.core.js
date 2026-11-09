@@ -435,7 +435,7 @@ export async function rejectReview({ id, reason, teamctxDir, projectDir, actor }
   }
 
   return {
-    id: item.id, rejectedBy, reason: reason || null, pushed, pushError,
+    id: item.id, rejectedBy, reason: reason || null, workstream: item.workstream ?? null, pushed, pushError,
     ...(item.forTask ? { forTask: item.forTask, feedback: true } : {}),
   };
 }

@@ -7,7 +7,7 @@
  * decides a redirect.
  */
 import { describe, it, expect } from 'vitest';
-import { buildViewUrl, parseViewParams, isReturnable, isViewId, ViewUrlError } from './view-url.js';
+import { buildViewUrl, parseViewParams, isReturnable, isViewId, ViewUrlError, viewLabel, markdownLink } from './view-url.js';
 
 const BASE = 'https://team.example.app';
 
@@ -118,5 +118,25 @@ describe('what sign-in may send somebody back to', () => {
   it('refuses a page that is not one of ours', () => {
     expect(isReturnable('/api/project/acme/ledger')).toBe(false);
     expect(isReturnable('/project/acme')).toBe(false);
+  });
+});
+
+describe('viewLabel', () => {
+  it('names a workstream by number, a task by its key, a submission by its number', () => {
+    expect(viewLabel({ ws: 'finance', wsNumber: 4 })).toBe('Open Workstream 4');
+    expect(viewLabel({ task: 't-1', ref: '2.2' })).toBe('Open Task 2.2');
+    expect(viewLabel({ review: 'q-1', ref: '2.1' })).toBe('Open Submission 2.1');
+  });
+
+  it('falls back to the plain kind when there is no number, and to the project when nothing is named', () => {
+    expect(viewLabel({ ws: 'finance' })).toBe('Open Workstream');
+    expect(viewLabel({ task: 't-1' })).toBe('Open Task');
+    expect(viewLabel({ project: 'Webhacks' })).toBe('Open Webhacks');
+    expect(viewLabel({})).toBe('Open Project');
+  });
+
+  it('drops anything that could break a markdown link', () => {
+    expect(viewLabel({ project: 'Acme [draft] (v2) `x`' })).toBe('Open Acme draft v2 x');
+    expect(markdownLink(viewLabel({ ws: 'a', wsNumber: '4](http://evil' }), 'https://t.example/p')).toBe('[Open Workstream 4http://evil](https://t.example/p)');
   });
 });

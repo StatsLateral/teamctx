@@ -49,8 +49,8 @@ describe('what a deployment says about itself', () => {
     // cannot say yes about code that is not there.
     const { build } = await status();
     expect(build.features.viewLinks.sort()).toEqual([
-      'contribute', 'get_status', 'get_workstream', 'my_brief',
-      'task_add', 'task_assign', 'task_done',
+      'contribute', 'get_status', 'get_workstream', 'list_pending_reviews', 'my_brief',
+      'review_approve', 'review_reject', 'task_add', 'task_assign', 'task_done',
     ]);
   });
 

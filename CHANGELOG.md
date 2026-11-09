@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **The review tools end on the project link too.** Listing what is waiting, approving and
+  rejecting did not return one, so a reply to "review tasks" had no link (#290).
+
+### Changed
+- **Links in replies read "Open Workstream 4", not a long address.** Each result carries a
+  `viewLabel` and the assistant is told to end on a markdown link with that text, and on
+  `[Tips & Tricks](...)`, falling back to the plain URL if its client cannot show links.
 - **A waiting submission is no longer called a task.** Its number is a reference while it
   waits, so the assistant's reply, the review list, the project page and the Slack notice now
   say "submission 2.1" (or "task 2.2" when the item really is about that task) (#295).
