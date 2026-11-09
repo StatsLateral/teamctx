@@ -19,7 +19,7 @@ import { lendDecision } from '../src/oauth/lend-decision.js';
 import { GithubSession, listUserOrgs, createRepo, slugifyProjectName, suggestAvailableName, listPushableRepos, repoExistence } from '../src/adapters/github.js';
 import { runWithSession } from '../src/session-context.js';
 import { initProject } from '../cli/commands/init.core.js';
-import { readProjectView, readContributionsView, ProjectViewError } from '../src/oauth/project-view.js';
+import { readProjectView, readContributionsView, ProjectViewError, StaleSignInError } from '../src/oauth/project-view.js';
 import { TOOLS, callTool } from '../mcp/server.js';
 import { baseUrlFrom } from '../src/base-url.js';
 import { resolveKey } from '../src/numbering.js';
@@ -1329,6 +1329,31 @@ app.post('/settings/agents/revoke', async (req, res) => {
 const signInFor = (res, path) => res.redirect(303, `/signin?returnTo=${encodeURIComponent(path)}`);
 
 /**
+ * GitHub refused the token this browser's sign-in holds. The person has done
+ * nothing wrong and cannot fix it from an error page they did not expect, so
+ * the session is dropped and they go through sign-in, then come back to the
+ * page they were after. Logged without the token, so a recurrence has a trail.
+ *
+ * Once only: a second refusal inside a minute means a fresh token was refused
+ * too, and sending them round again would loop. That one gets the error page.
+ * Returns true when it redirected.
+ */
+async function recoverStaleSignIn(req, res, e, { owner, repo }) {
+  if (!(e instanceof StaleSignInError)) return false;
+  console.warn(`project: GitHub refused the browser sign-in token for ${owner}/${repo} (401)`);
+  if (/(?:^|;\s*)teamctx_retry=1/.test(req.headers.cookie || '')) return false;
+  const sid = readSessionId(req);
+  if (sid) await kvDelete(keys.session(sid));
+  res.setHeader('Set-Cookie', [
+    'teamctx_sid=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0',
+    'teamctx_retry=1; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=60',
+  ]);
+  const back = isReturnable(req.originalUrl) ? req.originalUrl : `/project/${owner}/${repo}`;
+  signInFor(res, back);
+  return true;
+}
+
+/**
  * Tips & Tricks, for signed-in people. The link in every tool result lands here;
  * a signed-out click goes through sign-in and comes back to the same address.
  */
@@ -1511,6 +1536,7 @@ app.get('/project/:owner/:repo', async (req, res) => {
       note: asked.ws && !known ? 'That part of the work is not here, or not yours to see.' : null,
     }));
   } catch (e) {
+    if (await recoverStaleSignIn(req, res, e, { owner, repo })) return;
     const denied = e instanceof ProjectViewError || e.code === 'MEMBER_ACCESS_DENIED';
     // An old-format project is not a failure of this server: say what to do.
     const status = e.code === 'LEGACY_FORMAT' ? 409 : denied ? 403 : 500;
@@ -1532,6 +1558,7 @@ app.get('/project/:owner/:repo/contributions', async (req, res) => {
   try {
     res.send(contributionsPage({ user, view: await readContributionsView({ owner, repo, user }), by }));
   } catch (e) {
+    if (await recoverStaleSignIn(req, res, e, { owner, repo })) return;
     const denied = e instanceof ProjectViewError || e.code === 'MEMBER_ACCESS_DENIED';
     res.status(e.code === 'LEGACY_FORMAT' ? 409 : denied ? 403 : 500).send(errorPage(e.message, { user }));
   }

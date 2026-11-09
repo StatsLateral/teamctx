@@ -288,10 +288,38 @@ describe('getting there', () => {
       expect(body).not.toMatch(/Bad credentials/);
     });
 
-    it('tells a GitHub sign-in to sign in again', async () => {
+    it('sends a GitHub sign-in through sign-in again and back to the page, rather than stopping at an error', async () => {
       repo.prefetchError = BAD;
-      const { body } = await visit('/project/acme/ledger', MANAGER);
-      expect(body).toMatch(/Sign out and sign in again/);
+      await kvSet(keys.session('s'), MANAGER);
+      const r = await fetch(`${base}/project/acme/ledger?ws=finance&item=rec-1`, {
+        redirect: 'manual', headers: { cookie: 'teamctx_sid=s' },
+      });
+      expect(r.status).toBe(303);
+      expect(decodeURIComponent(r.headers.get('location'))).toBe('/signin?returnTo=/project/acme/ledger?ws=finance&item=rec-1');
+      const cookies = r.headers.getSetCookie().join('\n');
+      expect(cookies).toMatch(/teamctx_sid=; .*Max-Age=0/);
+      expect(cookies).toMatch(/teamctx_retry=1/);
+      expect(await kvGet(keys.session('s'))).toBeNull();
+    });
+
+    it('does not send somebody round twice: a second refusal inside the minute shows the error', async () => {
+      repo.prefetchError = BAD;
+      await kvSet(keys.session('s'), MANAGER);
+      const r = await fetch(`${base}/project/acme/ledger`, {
+        redirect: 'manual', headers: { cookie: 'teamctx_sid=s; teamctx_retry=1' },
+      });
+      expect(r.status).toBe(403);
+      expect(await r.text()).toMatch(/Sign out and sign in again/);
+    });
+
+    it('does the same on the contributions page', async () => {
+      repo.prefetchError = BAD;
+      await kvSet(keys.session('s'), MANAGER);
+      const r = await fetch(`${base}/project/acme/ledger/contributions`, {
+        redirect: 'manual', headers: { cookie: 'teamctx_sid=s' },
+      });
+      expect(r.status).toBe(303);
+      expect(decodeURIComponent(r.headers.get('location'))).toMatch(/^\/signin\?returnTo=\/project\/acme\/ledger\/contributions/);
     });
   });
 

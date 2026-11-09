@@ -39,6 +39,19 @@ export class ProjectViewError extends Error {
 }
 
 /**
+ * GitHub refused the token a browser sign-in is holding. Nothing is wrong with
+ * the project or the person: the way forward is a fresh sign-in, which a page
+ * can start for them rather than ask them to find it. Still a denial for any
+ * caller that does not.
+ */
+export class StaleSignInError extends ProjectViewError {
+  constructor(message) {
+    super(message);
+    this.code = 'SIGN_IN_STALE';
+  }
+}
+
+/**
  * The credential and identity to read a project with.
  *
  * A GitHub sign-in reads with its own token, as everything else on this server
@@ -104,10 +117,10 @@ async function openProject({ owner, repo, user }, body) {
     // it. Raw GitHub JSON told a team member nothing — least of all that the one
     // who can fix it is the manager, not them.
     if (/→ 401\b/.test(e.message)) {
-      throw new ProjectViewError(checkRoster
-        ? `${owner}/${repo} is shared through GitHub access its manager lent, and GitHub no longer accepts it. `
-          + 'Nothing is wrong with your account. Ask the manager to lend the access again from teamctx Settings.'
-        : 'GitHub no longer accepts your sign-in. Sign out and sign in again.');
+      if (!checkRoster) throw new StaleSignInError('GitHub no longer accepts your sign-in. Sign out and sign in again.');
+      throw new ProjectViewError(
+        `${owner}/${repo} is shared through GitHub access its manager lent, and GitHub no longer accepts it. `
+        + 'Nothing is wrong with your account. Ask the manager to lend the access again from teamctx Settings.');
     }
     throw new ProjectViewError(`${owner}/${repo} could not be read: ${e.message}`);
   }
