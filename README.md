@@ -478,11 +478,31 @@ A manager can have a Slack channel told whenever something is waiting for their 
 
 ### Security model
 
-- **Source + data** (`.teamctx/`) live in your private GitHub repo — only visible to you
-- **Role files** are served publicly at `/context/<role>` — share URLs directly with teammates
-- `contributions.jsonl` and `config.json` are never served; they stay on the Vercel filesystem only
-- The `/contribute` form is public (no login required) — manager reviews and approves all submissions via `teamctx pull` before anything is committed
-- The `/ask` form is public too (no login required) — it only reads context to answer questions, it never writes to your repo
+teamctx is pre-1.0 and has not had an independent penetration test. What follows is what the code does today.
+
+**Where your work lives**
+- Your project's content (`.teamctx/`) lives in your own GitHub repository. The hosted server reads and writes it there through GitHub and does not keep its own copy of it.
+- Who may do what comes from the roster in that repository's config, whichever way someone signed in.
+
+**What the hosted server does hold**
+- Sign-in sessions (1 hour), access tokens (1 hour) and refresh tokens (30 days), stored under a hash of the token so a dump of the store does not hand anyone a working one.
+- The GitHub token a sign-in carries, the AI provider keys people add, a Slack webhook if you set one, and any GitHub access a manager lends to a project.
+- Everything secret is encrypted at rest with AES-256-GCM, using a key from the deployment's environment (`TEAMCTX_SECRET_KEYS`, see [hosted setup](docs/mcp-hosted-setup.md)). A persistent deployment without that key refuses to store a secret.
+
+**Signing in**
+- **GitHub** sign-in asks for the `repo`, `read:user` and `user:email` scopes and acts as the person: it can reach what they can already reach on GitHub, and nothing more. GitHub cannot limit `repo` to a single repository, so the token covers every private repository that person can access, not only the project's. Narrower, per-repository access is tracked in #110.
+- **Google** sign-in proves an email address and carries no repository credential. It reads a project through the access a manager has lent, and only after the roster confirms the address.
+- An assistant is asked to connect through a consent page that names it and where it will return you, once per assistant and address. A connection is tied to one project.
+
+**Review**
+- A contribution waits for a manager's approval by default, and only a manager can approve or reject it. Work an agent sends always goes to review.
+
+**Public pages on a single-project deployment**
+- Role files are served at `/context/<role>`: anyone with the URL can read them, so share them like you would a shared document.
+- The `/contribute` form is public (no login required): a manager reviews and approves every submission before anything is committed.
+- The `/ask` form is public too: it only reads context to answer a question and never writes to your repository.
+
+**Reporting a problem:** see [SECURITY.md](SECURITY.md). Published advisories are on the repository's Security tab.
 
 ---
 
