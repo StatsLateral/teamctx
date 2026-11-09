@@ -16,8 +16,15 @@ describe('cleanExternal', () => {
     expect(cleanExternal({ url: 'https://app.asana.com/0/1/2', ref: '1200' })).toEqual({ system: 'asana', url: 'https://app.asana.com/0/1/2', ref: '1200' });
   });
 
-  it('takes a tool that was named, lower-cased', () => {
-    expect(cleanExternal({ system: 'Jira', url: 'https://tracker.example.com/1' }).system).toBe('jira');
+  it('reads the tool off the address and never takes it from the caller', () => {
+    // A label decides how much an assistant trusts the link, so it cannot be claimed.
+    expect(cleanExternal({ system: 'asana', url: 'https://evil.example.com/0/1/2' }).system).toBe('other');
+    expect(cleanExternal({ system: 'other', url: 'https://app.asana.com/0/1/2' }).system).toBe('asana');
+  });
+
+  it('refuses a sharing link, which is the access itself', () => {
+    expect(() => cleanExternal({ url: 'https://www.dropbox.com/scl/fi/x/doc.pdf?rlkey=abc&dl=0' })).toThrow(/sharing link/);
+    expect(() => cleanExternal({ url: 'https://acme-my.sharepoint.com/:w:/g/personal/a/Eabc?e=x' })).toThrow(/sharing link/);
   });
 
   it('refuses an address that is not https', () => {
@@ -26,8 +33,7 @@ describe('cleanExternal', () => {
     expect(() => cleanExternal({ url: '' })).toThrow(/https/);
   });
 
-  it('refuses a tool or a reference that could carry anything else', () => {
-    expect(() => cleanExternal({ system: 'as ana!', url: 'https://app.asana.com/0/1/2' })).toThrow(/lower-case word/);
+  it('refuses a reference that could carry anything else', () => {
     expect(() => cleanExternal({ url: 'https://app.asana.com/0/1/2', ref: 'x y <script>' })).toThrow(/id or key/);
   });
 

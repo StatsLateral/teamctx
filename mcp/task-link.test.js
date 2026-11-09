@@ -153,6 +153,14 @@ describe('a task that also lives in another tool', () => {
     }));
   });
 
+  it('does not let the caller label an address as another tool', async () => {
+    await inOneSession(async (call) => {
+      const added = await call('task_add', { title: 'A task', workstream: 'finance' });
+      const r = await call('task_link', { id: added.task.id, url: 'https://evil.example.com/0/1/2', system: 'asana' });
+      expect(r.task.external[0].system).toBe('other');
+    });
+  });
+
   it('strips a credential out of the address before keeping it', async () => {
     await inOneSession(async (call) => {
       const added = await call('task_add', { title: 'A task', workstream: 'finance' });
@@ -177,9 +185,10 @@ describe('an approval that flags a task with a ticket elsewhere', () => {
       const approved = await call('review_approve', { id: queued.id });
       expect(approved.carryOut).toEqual([{
         task: linkedTask.task.key, title: 'Set up the booking page', owner: expect.any(String),
-        external: [{ system: 'asana', url: ASANA, ref: '3400' }],
+        external: [{ system: 'asana', host: 'app.asana.com', url: ASANA, ref: '3400' }],
       }]);
       expect(approved.reportBack).toMatch(/also lives in another tool/);
+      expect(approved.reportBack).toContain('on app.asana.com');
       expect(approved.reportBack).toMatch(/only after the person says yes/);
       expect(approved.reportBack).toMatch(/do not change a ticket's status, owner or description/);
     });
@@ -193,6 +202,29 @@ describe('an approval that flags a task with a ticket elsewhere', () => {
       const approved = await call('review_approve', { id: queued.id });
       expect(approved.carryOut).toBeUndefined();
       expect(approved.reportBack).not.toMatch(/another tool/);
+    });
+  });
+});
+
+describe('who may link a task', () => {
+  it('lets the owner or a manager, and refuses another member', async () => {
+    const RAVI = { key: 'git:ravi@example.com', name: 'Ravi', email: 'ravi@example.com', source: 'github' };
+    const config = CONFIG({ members: [{ key: 'git:ravi@example.com', name: 'Ravi', email: 'ravi@example.com' }] });
+    const s = session(config);
+    const root = { __backend: 'github', owner: OWNER, repo: REPO, baseUrl: HOST };
+    await runWithSession(s, async () => {
+      const handlers = makeHandlers(root);
+      const asMaya = (tool, args) => runWithActor(MAYA, () => callTool(handlers, root, tool, args));
+      const asRavi = (tool, args) => runWithActor(RAVI, () => callTool(handlers, root, tool, args));
+      const added = JSON.parse((await asMaya('task_add', { title: 'Maya\'s task', workstream: 'finance' })).content[0].text);
+      const id = added.task.id;
+
+      const refused = await asRavi('task_link', { id, url: ASANA });
+      expect(refused.isError).toBe(true);
+      expect(refused.content[0].text).toMatch(/owner or a manager/);
+
+      const ok = await asMaya('task_link', { id, url: ASANA });
+      expect(ok.isError).toBeFalsy();
     });
   });
 });

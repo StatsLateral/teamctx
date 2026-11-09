@@ -565,11 +565,11 @@ export async function assignTask({ id, owner, teamctxDir, projectDir } = {}) {
  * metadata on the task, like its owner. Nothing about the ticket is stored but
  * where it is. See src/external-links.js.
  */
-export async function linkTask({ id, url, system, ref, remove = false, teamctxDir, projectDir } = {}) {
+export async function linkTask({ id, url, ref, remove = false, teamctxDir, projectDir } = {}) {
   const config = readConfig(teamctxDir);
   const { task } = findTask(id, teamctxDir);
   const current = Array.isArray(task.external) ? task.external : [];
-  const external = remove ? removeExternal(current, url) : addExternal(current, cleanExternal({ system, url, ref }));
+  const external = remove ? removeExternal(current, url) : addExternal(current, cleanExternal({ url, ref }));
   const { external: _was, ...rest } = task;
   const updated = external.length ? { ...rest, external } : rest;
   writeTask(updated, teamctxDir);
