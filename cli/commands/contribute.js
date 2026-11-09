@@ -1,4 +1,5 @@
 import { LABELS } from '../../src/model.js';
+import { queueRef } from '../../src/review.js';
 import { ask } from '../prompt.js';
 import { contributeCore } from './contribute.core.js';
 import { isProjectLevel } from '../../src/project-level.js';
@@ -70,7 +71,7 @@ export async function contributeCommand(text, opts = {}) {
 
   const where = isProjectLevel(r.workstream) ? '' : ` [workstream: ${r.workstream}]`;
   if (r.mode === 'queued') {
-    console.log(`\n✓ Submitted for approval (id: ${r.id}${r.number ? `, item ${r.number}` : ''})${where} — committed.${pushNote(r)}`);
+    console.log(`\n✓ Submitted for approval (id: ${r.id}${queueRef(r) ? `, ${queueRef(r)}` : ''})${where} — committed.${pushNote(r)}`);
     console.log(`  A manager approves it: \`teamctx review approve ${r.id}\` or \`teamctx review reject ${r.id}\`.`);
     console.log('  If you are the manager, run that now. Otherwise your manager runs it after `git pull`.');
     return;

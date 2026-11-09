@@ -110,6 +110,17 @@ describe('contradiction reporting and manager replacement', () => {
     expect(writeTree).not.toHaveBeenCalled();
   });
 
+  it('labels a waiting item a submission, so its number is not read as a task', async () => {
+    seed();
+    const note = { type: 'addRecord', record: { type: 'decision', text: 'x' } };
+    const queued = { id: 'q-notes', workstream: null, number: '2.1', author: 'alice', operations: [note, note] };
+    listQueue.mockReturnValue([queued]);
+    const handlers = makeHandlers(ROOT);
+    const listed = JSON.parse((await handlers.list_pending_reviews()).content[0].text);
+    expect(listed.pending[0].label).toBe('submission 2.1');
+    expect(TOOLS.find(t => t.name === 'list_pending_reviews').description).toMatch(/never call a submission a task/);
+  });
+
   it('returns conflict metadata on the review list and forwards the manager replacement selection', async () => {
     seed();
     const queued = { id: 'q-conflict', workstream: null, author: 'alice', operations: ops, contradictions: [conflict] };

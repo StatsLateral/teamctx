@@ -269,7 +269,7 @@ export async function contributeCore({
     );
     // After the commit, so it never announces an item that was not written.
     // Never throws, and a failed post changes nothing about the contribution.
-    if (notify) await announceQueued({ id: contribution.id, number: queuedNumber, author: contribution.author, summary }, { baseUrl, config, projectDir, pushed });
+    if (notify) await announceQueued({ id: contribution.id, number: queuedNumber, operations, author: contribution.author, summary }, { baseUrl, config, projectDir, pushed });
     return {
       id: contribution.id, workstream: targetId, author: actor, source,
       mode: 'queued', summary, operations, pushed, pushError,

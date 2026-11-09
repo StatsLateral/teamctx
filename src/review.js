@@ -51,6 +51,27 @@ export function numberQueueItem({ operations, tree, nextKey, workstream, number 
   return { number: minted.key, nextKey: minted.counters };
 }
 
+/**
+ * What a waiting item's number refers to, in words, so "2.1" is never mistaken
+ * for a task it is not.
+ *
+ * The number is a reference to the submission while it waits. It is the number of
+ * a task only when the item is about one existing task (work submitted for it,
+ * an edit, a removal, or a record against it); any other item took the next
+ * number in the workstream's list and may or may not ever become a task, so it is
+ * called a submission and nothing more. Null when it has no number.
+ */
+export function queueRef(item) {
+  const number = item?.number;
+  if (!number) return null;
+  if (item.forTask) return `task ${number}`;
+  const ops = Array.isArray(item.operations) ? item.operations : [];
+  const aboutTask = (o) => (o?.type === 'editTask' || o?.type === 'removeTask' ? o.id
+    : o?.type === 'addRecord' && o.record?.attachedTo?.kind === 'task' ? o.record.attachedTo.id : null);
+  const ids = new Set(ops.map(aboutTask));
+  return ops.length && ids.size === 1 && !ids.has(null) ? `task ${number}` : `submission ${number}`;
+}
+
 export function buildRejected(item, rejectedBy, reason, rejectedByKey = null) {
   return {
     ...item,

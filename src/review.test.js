@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { applyQueueItem, numberQueueItem, buildRejected, canApprove, matchesActor, isLegacyManagerRef } from './review.js';
+import { applyQueueItem, numberQueueItem, queueRef, buildRejected, canApprove, matchesActor, isLegacyManagerRef } from './review.js';
 
 const emptyWorkstream = () => ({ id: 'sales', name: 'Demo', records: [], tasks: [] });
 
@@ -222,5 +222,28 @@ describe('numberQueueItem', () => {
     expect(number([decisionOn('t-a'), { type: 'addTask', title: 'more' }]).number).toBe('1.11');
     const ws = { type: 'addRecord', record: { type: 'decision', text: 'x', attachedTo: { kind: 'workstream', id: 'ws' } } };
     expect(number([decisionOn('t-a'), ws]).number).toBe('1.11');
+  });
+});
+
+describe('queueRef', () => {
+  const rec = { type: 'addRecord', record: { type: 'decision', text: 'x' } };
+
+  it('calls a bundle of notes a submission, never a task, so 2.1 is not read as one', () => {
+    expect(queueRef({ number: '2.1', operations: [rec, rec] })).toBe('submission 2.1');
+  });
+
+  it('calls work submitted for a task, and a change to one task, that task', () => {
+    expect(queueRef({ number: '2.2', forTask: 't-1', operations: [] })).toBe('task 2.2');
+    expect(queueRef({ number: '2.2', operations: [{ type: 'editTask', id: 't-1' }] })).toBe('task 2.2');
+    expect(queueRef({ number: '2.2', operations: [{ type: 'addRecord', record: { attachedTo: { kind: 'task', id: 't-1' } } }] })).toBe('task 2.2');
+  });
+
+  it('calls a change reaching two tasks a submission', () => {
+    expect(queueRef({ number: '2.3', operations: [{ type: 'editTask', id: 't-1' }, { type: 'editTask', id: 't-2' }] })).toBe('submission 2.3');
+  });
+
+  it('has nothing to say for an item with no number', () => {
+    expect(queueRef({ number: null, operations: [rec] })).toBeNull();
+    expect(queueRef(null)).toBeNull();
   });
 });

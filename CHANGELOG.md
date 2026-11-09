@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **A waiting submission is no longer called a task.** Its number is a reference while it
+  waits, so the assistant's reply, the review list, the project page and the Slack notice now
+  say "submission 2.1" (or "task 2.2" when the item really is about that task) (#295).
 - **A stale browser sign-in no longer stops at "Something went wrong".** When GitHub
   refuses the token a browser session holds, the project page now signs the person in
   again and returns them to the page they were opening (#293).
