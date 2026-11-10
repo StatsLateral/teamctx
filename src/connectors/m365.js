@@ -569,3 +569,22 @@ export async function fetch(a, ref, opts = {}) {
     text: ref.extract === 'docx' ? docxToText(bytes) : bytes.toString('utf8'),
   };
 }
+
+// ---- staleness (#248) --------------------------------------------------
+
+/**
+ * The file's current version marker, for the staleness check (#248).
+ *
+ * `lastModifiedDateTime` is already in the item's `SELECT` set and changes on
+ * every edit, so it is the marker a link output records and what a later check
+ * compares against. (Graph also has a content-only `cTag`, but it is not in the
+ * select and the modified time is enough to answer "did this change".) Returns
+ * null when the reference names a folder or cannot be resolved to one file.
+ */
+export async function currentVersion(a, ref, opts = {}) {
+  let target;
+  try { target = parseSelector(ref?.url); } catch { return null; }
+  const { item } = await resolveRoot(a, target, opts);
+  if (!item || item.folder) return null;
+  return item.lastModifiedDateTime || null;
+}

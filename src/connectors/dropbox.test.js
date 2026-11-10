@@ -753,3 +753,28 @@ describe('links for a connected source', () => {
     ]) expect(dropbox.fileLink(other), other).toBe(other);
   });
 });
+
+describe('currentVersion (#248)', () => {
+  it('returns the file rev for a path', async () => {
+    globalThis.fetch = route([['files/get_metadata', json(file('Spec.md', { rev: '0159abc' }))]]);
+    const v = await dropbox.currentVersion(authed(), { url: '/Specs/Spec.md' });
+    expect(v).toBe('0159abc');
+  });
+
+  it('reads a shared link through its own metadata call', async () => {
+    globalThis.fetch = route([['sharing/get_shared_link_metadata', json(file('Spec.md', { rev: '0160def' }))]]);
+    const v = await dropbox.currentVersion(authed(), { url: 'https://www.dropbox.com/s/abc/Spec.md' });
+    expect(v).toBe('0160def');
+  });
+
+  it('is null for a folder', async () => {
+    globalThis.fetch = route([['files/get_metadata', json(folder('Specs'))]]);
+    const v = await dropbox.currentVersion(authed(), { url: '/Specs' });
+    expect(v).toBeNull();
+  });
+
+  it('is null when the reference is not a Dropbox link or path', async () => {
+    const v = await dropbox.currentVersion(authed(), { title: 'A file by name only' });
+    expect(v).toBeNull();
+  });
+});

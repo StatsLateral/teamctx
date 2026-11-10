@@ -605,3 +605,23 @@ export async function fetch(a, ref, opts = {}) {
     text,
   };
 }
+
+// ---- staleness (#248) --------------------------------------------------
+
+/**
+ * The file's current version marker, for the staleness check (#248).
+ *
+ * Dropbox's `rev` is a content revision that changes on every edit, so it is a
+ * better marker than a modified time, and `files/get_metadata` (or the shared
+ * link's own metadata call) already returns it. Returns null when the reference
+ * names a folder or cannot be read — the caller treats that as "can't tell".
+ */
+export async function currentVersion(a, ref, opts = {}) {
+  let target;
+  try { target = parseSelector(ref?.url || ref?.path); } catch { return null; }
+  const meta = target.link
+    ? await rpc(a, 'sharing/get_shared_link_metadata', { url: target.link }, opts)
+    : await rpc(a, 'files/get_metadata', { path: target.path }, opts);
+  if (meta?.['.tag'] === 'folder') return null;
+  return meta?.rev || null;
+}

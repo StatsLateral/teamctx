@@ -650,3 +650,27 @@ describe('one link per file or folder', () => {
     ]) expect(gdrive.fileLink(other), other).toBe(other);
   });
 });
+
+describe('currentVersion (#248)', () => {
+  it('returns the file modifiedTime for a Drive link', async () => {
+    globalThis.fetch = route([[`files/${DOC}`, json(file(DOC, 'Spec', MIME.doc, { modifiedTime: '2026-09-09T10:00:00.000Z' }))]]);
+    const v = await gdrive.currentVersion(authed(), { url: `https://drive.google.com/file/d/${DOC}/view` }, nowait);
+    expect(v).toBe('2026-09-09T10:00:00.000Z');
+  });
+
+  it('falls back to a stored itemId when there is no usable url', async () => {
+    globalThis.fetch = route([[`files/${DOC}`, json(file(DOC, 'Spec', MIME.doc, { modifiedTime: '2026-09-10T00:00:00.000Z' }))]]);
+    const v = await gdrive.currentVersion(authed(), { itemId: DOC }, nowait);
+    expect(v).toBe('2026-09-10T00:00:00.000Z');
+  });
+
+  it('is null for a folder reference — a folder is not a versioned file', async () => {
+    const v = await gdrive.currentVersion(authed(), { url: `https://drive.google.com/drive/folders/${FOLDER}` }, nowait);
+    expect(v).toBeNull();
+  });
+
+  it('is null when the reference is not a Drive file', async () => {
+    const v = await gdrive.currentVersion(authed(), { url: 'https://example.com/x', title: 'X' }, nowait);
+    expect(v).toBeNull();
+  });
+});
