@@ -11,11 +11,14 @@
  * Dropbox *sharing* link (which is the access itself) is never stored — the
  * reference keeps its name instead.
  *
- * The record keeps `link: { connector, title, url, itemId?, version }`. `url`
- * is null when there was nothing safe to keep; `version` is null when the tool
- * gave no marker, so the record says which it was rather than inventing one.
+ * The record keeps `link: { connector, title, url, itemId?, version, versionKey? }`.
+ * `url` is null when there was nothing safe to keep; `version` is the person's
+ * own marker and null when the tool gave none. `versionKey` is the connector's
+ * own version marker read at attach time (#248) — the machine value a later
+ * staleness check compares against — and is absent when it could not be read.
  */
 import { cleanRef } from './sources.js';
+import { getConnector } from './connectors/index.js';
 
 const VERSION_MAX = 200;
 
@@ -59,4 +62,28 @@ export function validateLinkOutput({ connector, url, title, version } = {}) {
     ...(ref.itemId ? { itemId: ref.itemId } : {}),
     version: v || null,
   };
+}
+
+/**
+ * The connector's own version marker for a reference, read at attach time, so a
+ * later staleness check (#248) has something machine-comparable to compare
+ * against — unlike `version`, which is whatever the person called it.
+ *
+ * Best-effort and silent: a link output is recorded whether or not a marker can
+ * be read. An unknown connector, one with no `currentVersion`, a missing or
+ * rejected credential, a reference that names no single file, or any error —
+ * each yields null, which the record stores as "no machine version", and the
+ * output simply cannot be staleness-checked rather than being checked wrongly.
+ *
+ * `resolve` is injectable only so tests need not stand up a real connector.
+ */
+export async function readVersionKey({ connector, url, itemId, env = process.env, resolve = getConnector } = {}) {
+  let mod;
+  try { mod = resolve(connector); } catch { return null; }
+  if (!mod || typeof mod.currentVersion !== 'function') return null;
+  let creds;
+  try { creds = await mod.auth(env); } catch { return null; }
+  if (!creds?.ok) return null;
+  try { return (await mod.currentVersion(creds, { url, itemId })) || null; }
+  catch { return null; }
 }

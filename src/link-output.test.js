@@ -4,7 +4,7 @@
  * and the version marker is recorded or marked absent.
  */
 import { describe, it, expect } from 'vitest';
-import { validateLinkOutput, LinkOutputError } from './link-output.js';
+import { validateLinkOutput, LinkOutputError, readVersionKey } from './link-output.js';
 
 describe('validateLinkOutput', () => {
   it('normalises every Drive link for one file to the same reference', () => {
@@ -45,5 +45,39 @@ describe('validateLinkOutput', () => {
   it('refuses a link output with neither a link nor a name', () => {
     expect(() => validateLinkOutput({ connector: 'gdrive' })).toThrow(LinkOutputError);
     expect(() => validateLinkOutput({ connector: 'gdrive', url: 'not a url' })).toThrow(LinkOutputError);
+  });
+});
+
+describe('readVersionKey (#248)', () => {
+  const connector = (over = {}) => ({
+    auth: async () => ({ ok: true }),
+    currentVersion: async () => 'REV1',
+    ...over,
+  });
+  const resolveTo = (mod) => () => mod;
+
+  it('returns the connector\'s current version marker', async () => {
+    const v = await readVersionKey({ connector: 'gdrive', url: 'https://drive.google.com/file/d/x/view', resolve: resolveTo(connector()) });
+    expect(v).toBe('REV1');
+  });
+
+  it('is null for a connector that cannot report a version', async () => {
+    const v = await readVersionKey({ connector: 'notion', url: 'https://notion.so/x', resolve: resolveTo({ auth: async () => ({ ok: true }) }) });
+    expect(v).toBeNull();
+  });
+
+  it('is null when the credential is missing or rejected', async () => {
+    const v = await readVersionKey({ connector: 'gdrive', url: 'https://drive.google.com/file/d/x/view', resolve: resolveTo(connector({ auth: async () => ({ ok: false, help: 'set GDRIVE_REFRESH_TOKEN' }) })) });
+    expect(v).toBeNull();
+  });
+
+  it('is null — never throws — when the connector is unknown', async () => {
+    const v = await readVersionKey({ connector: 'nope', url: 'x', resolve: () => { throw new Error('unknown connector'); } });
+    expect(v).toBeNull();
+  });
+
+  it('is null — never throws — when reading the version errors', async () => {
+    const v = await readVersionKey({ connector: 'gdrive', url: 'x', resolve: resolveTo(connector({ currentVersion: async () => { throw new Error('network'); } })) });
+    expect(v).toBeNull();
   });
 });

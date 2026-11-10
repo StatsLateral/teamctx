@@ -22,7 +22,7 @@ import { resolveTarget, isProjectLevel } from '../../src/project-level.js';
 import { announceQueued } from '../../src/slack-notify.js';
 import { TaskWithoutWorkstreamError } from '../../src/numbering.js';
 import { validateFileOutput, MAX_OUTPUT_FILE_BYTES } from '../../src/file-output.js';
-import { validateLinkOutput } from '../../src/link-output.js';
+import { validateLinkOutput, readVersionKey } from '../../src/link-output.js';
 import { recordSources } from '../../src/sources.js';
 
 /**
@@ -512,6 +512,11 @@ export async function saveLinkOutput({
   const { task } = findTask(id, teamctxDir);
   assertNotAccepted(task, teamctxDir);
   const link = validateLinkOutput({ connector, url, title, version });
+  // The connector's own version marker, read now so a later staleness check
+  // (#248) has something machine-comparable. Best-effort: absent if it cannot
+  // be read, and never a reason to fail the attach.
+  const versionKey = await readVersionKey({ connector: link.connector, url: link.url, itemId: link.itemId });
+  if (versionKey) link.versionKey = versionKey;
   const saved = listOutputs(task.id, teamctxDir);
   if (basedOn && !saved.some(o => o.id === basedOn)) {
     throw new Error(`no output "${basedOn}" on task ${task.key || task.id} to build on`);
