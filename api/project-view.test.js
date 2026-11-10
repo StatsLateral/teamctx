@@ -321,6 +321,30 @@ describe('getting there', () => {
       expect(r.status).toBe(303);
       expect(decodeURIComponent(r.headers.get('location'))).toMatch(/^\/signin\?returnTo=\/project\/acme\/ledger\/contributions/);
     });
+
+    it('does the same on a file download, not a 403 dead-end (#247)', async () => {
+      repo.prefetchError = BAD;
+      await kvSet(keys.session('s'), MANAGER);
+      const r = await fetch(`${base}/project/acme/ledger/task/pricing-page/file/o-f`, {
+        redirect: 'manual', headers: { cookie: 'teamctx_sid=s' },
+      });
+      expect(r.status).toBe(303);
+      expect(decodeURIComponent(r.headers.get('location'))).toBe('/signin?returnTo=/project/acme/ledger');
+    });
+
+    it('does the same when a file attach meets a stale token, not a 403 (#247)', async () => {
+      repo.prefetchError = BAD;
+      await kvSet(keys.session('s'), MANAGER);
+      const body = '--X\r\nContent-Disposition: form-data; name="file"; filename="a.txt"\r\n'
+        + 'Content-Type: text/plain\r\n\r\nhello\r\n--X--\r\n';
+      const r = await fetch(`${base}/project/acme/ledger/task/pricing-page/attach`, {
+        method: 'POST', redirect: 'manual',
+        headers: { cookie: 'teamctx_sid=s', 'content-type': 'multipart/form-data; boundary=X' },
+        body,
+      });
+      expect(r.status).toBe(303);
+      expect(decodeURIComponent(r.headers.get('location'))).toBe('/signin?returnTo=/project/acme/ledger');
+    });
   });
 
   describe('a project whose repository was deleted on GitHub', () => {

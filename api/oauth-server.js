@@ -1631,6 +1631,7 @@ app.post('/project/:owner/:repo/task/:taskId/attach', async (req, res) => {
       title: parsed.fields.title, note: parsed.fields.note,
     });
   } catch (e) {
+    if (await recoverStaleSignIn(req, res, e, { owner, repo })) return;
     if (e instanceof FileOutputError) return res.status(400).send(errorPage(e.message, { user }));
     const denied = e instanceof ProjectViewError || e.code === 'MEMBER_ACCESS_DENIED';
     if (!denied) console.warn(`attach: ${owner}/${repo} task ${taskId} failed:`, e);
@@ -1656,6 +1657,7 @@ app.get('/project/:owner/:repo/task/:taskId/file/:outputId', async (req, res) =>
   try {
     file = await readFileOutput({ owner, repo, user, taskId, outputId });
   } catch (e) {
+    if (await recoverStaleSignIn(req, res, e, { owner, repo })) return;
     const denied = e instanceof ProjectViewError || e.code === 'MEMBER_ACCESS_DENIED';
     if (!denied) console.warn(`download: ${owner}/${repo} task ${taskId} failed:`, e);
     return res.status(denied ? 403 : 500).send(errorPage(
