@@ -39,23 +39,45 @@ show **"changed since approved"** on the task and in the review drawer.
 - **File outputs** (uploaded bytes). Those are immutable in the repo; only links can drift.
 - **Diffing the file** or saying *what* changed — only *that* it changed.
 
-## The crux: who holds the credential
+## The crux: who holds the credential, and where can code run
 
-teamctx copies nothing and **holds no credential for a linked file**. The hosted page renders the
-task for a manager who may not even have access to the file. So the check cannot happen on the
-page. Two models were weighed:
+Everything turns on one fact: to know a file's *current* version, something has to call the tool,
+and that call needs a credential and a place to run. So before choosing a design, here is the
+ground truth of what teamctx has today.
 
-| | Page-side live check | Assistant-side check *(chosen)* |
-|---|---|---|
-| Who calls the tool | Hosted server | The assistant, via the member's existing connector OAuth |
-| Credential | None exists; would need a new per-file token store | Already held (#171–#173) |
-| Manager needs file access | Yes (often false) | No — whoever ran the check needed it |
-| Fits teamctx's model | No | Yes — "the assistant is where work is done" |
+**Where connector credentials live.** A member runs `teamctx auth <connector>` once; it writes the
+tool's refresh token to a local env file (mode `0600`) on *their own machine*. The hosted
+deployment's secret store holds AI-provider keys and a lent GitHub credential — and **nothing
+else**: no Google, SharePoint or Dropbox token is ever stored server-side. So the only place a
+connector credential exists is where the member's CLI or assistant runs.
 
-**Decision:** the assistant checks; the page displays. This is the answer to the issue's first
-open question. The assistant reads the current version through the connector it already has,
-compares it to the approved marker, and **writes the result back** as a small status on the
-output. The page then renders a stored fact and needs no credential of its own.
+**Where code can run.** Two surfaces: the hosted page (`api/oauth-server.js`, renders per request,
+no credential for any linked file) and the assistant/MCP (runs on the member's machine, holds the
+connector token). There is **no third surface** — no scheduler, no cron, no background worker
+anywhere in the repo.
+
+### Every option, against that reality
+
+| Option | Who reads the version | Works today? | What building it would take | Verdict |
+|---|---|---|---|---|
+| **A. Assistant checks on demand** | Assistant, via the member's local connector token | **Yes** | A per-connector `currentVersion` helper + an MCP tool that stores the result | **Build this** |
+| **B. Page checks live on render** | Hosted server | No | Store every member's connector refresh token in the hosted KV, add server-side OAuth + refresh per provider, and use the submitter's token for a background read they didn't trigger | Reject — large new credential subsystem + consent/privacy cost, for a low-priority flag; cuts against "copy nothing" |
+| **C. Scheduled re-check** | A cron job | No | Everything in B, **plus** a scheduler teamctx does not have (e.g. Vercel Cron) and job/state management | Reject — biggest build, depends on B |
+| **D. Provider push (webhooks/watch)** | Provider calls us | No | Everything in B, **plus** public subscription endpoints, renewal, and per-file watch management | Reject — real-time but wildly disproportionate |
+| **E. Review-prompt instruction** | Assistant, during review | **Yes** | One extra line in the review-drawer prompt; no code, no storage | Use as the **trigger** for A |
+| **F. Human re-submits** | Nobody; the member notices | Yes | Nothing | Fallback only — detects nothing |
+
+**Decision.** The credential exists only on the assistant surface, and that is also the only surface
+that already works and the one teamctx's model points to ("the assistant is where work is done").
+So: **the assistant checks (A), the review prompt is what triggers it (E), and the result is stored
+so the page can show a badge (G, below).** The page displays a stored fact and needs no credential
+of its own. This is the answer to the issue's first open question.
+
+The page-native options (B/C/D) are not impossible — they are a new hosted connector-token store,
+server-side OAuth per provider, and (for D) subscription infrastructure. That is a large,
+privacy-sensitive subsystem to build for a flag the issue itself files as low-priority, and it
+contradicts teamctx holding no credential for linked files. They are rejected on cost, not
+feasibility.
 
 ## Design
 
@@ -121,9 +143,18 @@ already exists.
 
 No new runtime dependencies. No new credential storage.
 
-## Is it doable?
+## Verdict: build it, on the assistant surface
 
-Yes — scoped. The hard part is not the comparison; it is that the page has no credential, which the
-assistant-side check resolves cleanly and in keeping with how teamctx already works. The honest
-boundary is that it covers link outputs with a resolvable connector reference, checked by someone
-who can read the file, and reports `unknown` everywhere else rather than pretending.
+**Build it.** It is achievable today, with no new dependencies and no new credential storage, by
+having the assistant do the check and the page display the result. The comparison was never the
+hard part; the hard part was *where a credential to read the file exists* — and the options table
+shows that is the assistant surface alone.
+
+**Do not build the page-native version.** Making the page detect this itself (B/C/D) means
+building a hosted connector-token store, server-side OAuth per provider, and possibly subscription
+infrastructure — a large, privacy-sensitive subsystem for a low-priority flag, against teamctx's
+copy-nothing stance. Not worth it.
+
+The honest boundary of the version we would build: it covers link outputs with a resolvable
+connector reference, checked by someone who can read the file, and reports `unknown` everywhere
+else rather than pretending "unchanged".
