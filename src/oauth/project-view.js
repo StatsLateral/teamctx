@@ -1,6 +1,6 @@
 import { GithubSession } from '../adapters/github.js';
 import { runWithSession } from '../session-context.js';
-import { readConfig, readProject, readWorkstream, listTasks, readContributions, readApprovals, listRejected, listQueue, listOutputs, listChanges, prepareChanges, readSourceRefs, readOutputFileBytes } from '../storage.js';
+import { readConfig, readProject, readWorkstream, listTasks, readContributions, readApprovals, listRejected, listQueue, listOutputs, readChecks, listChanges, prepareChanges, readSourceRefs, readOutputFileBytes } from '../storage.js';
 import { saveFileOutput, assertNotAccepted } from '../../cli/commands/task.core.js';
 import { MAX_PAGE_UPLOAD_BYTES } from '../file-output.js';
 import { outputStates, outputsForReader } from '../outputs.js';
@@ -246,6 +246,9 @@ export async function readProjectView({ owner, repo, user }) {
       .filter(t => inScope(allowed, resolveTarget(t.workstream)))
       .map(t => {
         const saved = savedOn(t);
+        // Staleness of any linked cloud files, read only for a task that has
+        // link outputs so the common task costs nothing (#248).
+        const checks = saved.some(o => o.kind === 'link') ? readChecks(t.id) : {};
         return {
           id: t.id,
           // The handle a person has in front of them. The payload is built field by
@@ -259,7 +262,7 @@ export async function readProjectView({ owner, repo, user }) {
           workstream: resolveTarget(t.workstream),
           where: workstreamLocation(workstreams, resolveTarget(t.workstream), config.project),
           history: historyOf(t),
-          outputs: outputsOn(t, saved),
+          outputs: outputsOn(t, saved).map(o => (checks[o.id] ? { ...o, check: checks[o.id] } : o)),
           // Only the project, the ancestors, the own part and changes touching
           // this task: a sibling part's changes are not this reader's to see.
           changedSince: (() => {
@@ -293,6 +296,13 @@ export async function readProjectView({ owner, repo, user }) {
         text: a.text,
         records: restingOn(everything, a.id).records.map(r => ({ id: r.id, type: r.type, text: r.text })),
       }));
+    // A submitted link output carries its last staleness check (#248) so the
+    // review drawer can show it; read only when there is a link to check.
+    const withChecks = (taskId, outs) => {
+      if (!outs.some(o => o?.kind === 'link')) return outs;
+      const c = readChecks(taskId);
+      return outs.map(o => (o?.id && c[o.id] ? { ...o, check: c[o.id] } : o));
+    };
     const pending = isManager
       ? queued.map(q => ({
         id: q.id,
@@ -305,7 +315,7 @@ export async function readProjectView({ owner, repo, user }) {
         operations: q.operations || [],
         // Work submitted for a task: the outputs in full, which the manager is
         // asked about, rather than a line describing them.
-        ...(q.forTask ? { forTask: q.forTask, submittedOutputs: q.submittedOutputs || [] } : {}),
+        ...(q.forTask ? { forTask: q.forTask, submittedOutputs: withChecks(q.forTask, q.submittedOutputs || []) } : {}),
         reachLines: q.reachLines || [],
         contradictions: Array.isArray(q.contradictions) ? q.contradictions : [],
         impact: impactOf(q.operations),
