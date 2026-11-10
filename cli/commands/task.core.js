@@ -7,7 +7,7 @@ import {
   readProject, readConfig, readTree, listTasks, readTask, writeTask, deleteTask,
   readWorkstream, readContributions,
   writeTaskFile, readTaskFile, taskFilePath, taskFileExists,
-  writeOutput, listOutputs, writeOutputFile, listChanges, prepareChanges, writeChange, appendContribution, writeQueueItem, readApprovals, listQueue, listRejected,
+  writeOutput, listOutputs, writeOutputFile, writeCheck, listChanges, prepareChanges, writeChange, appendContribution, writeQueueItem, readApprovals, listQueue, listRejected,
   writeTree, writeTreeMd, deleteTaskFile, withCounters,
 } from '../../src/storage.js';
 import { applyOps } from '../../src/ops.js';
@@ -541,6 +541,59 @@ export async function saveLinkOutput({
   writeOutput(output, teamctxDir);
   const git = await commitAndPush(config, `output: ${me} linked ${output.id} on ${task.id}`, projectDir);
   return { output, task, ...git };
+}
+
+/**
+ * Check whether the files behind a task's link outputs have changed (#248).
+ *
+ * For each link output, read the connector's current version marker and compare
+ * it to the one that was blessed at acceptance (`approvedVersionKey`), or, before
+ * acceptance, to the one recorded when it was attached. The result is written to
+ * the per-output check store, which the page renders as a badge.
+ *
+ * This runs where a connector credential lives — the member's machine — so it is
+ * the member (usually whoever attached the file) who refreshes the status, not
+ * the manager viewing the page. Honest about reach: an output with no recorded
+ * marker, or a file this caller cannot read now, is `unknown` with a reason,
+ * never a guessed `unchanged`.
+ */
+export async function checkLinkOutputs({ id, teamctxDir, projectDir, actor, env, readVersion = readVersionKey } = {}) {
+  const config = readConfig(teamctxDir);
+  const { task } = findTask(id, teamctxDir);
+  const links = listOutputs(task.id, teamctxDir).filter(o => o.kind === 'link');
+  const approval = acceptancesOf(task, teamctxDir)[0];
+  const approvedKeys = approval?.approvedVersionKeys || {};
+  const resolved = actor || await resolveActor({ config, cwd: projectDir });
+  const me = await resolveDisplayName({ actor: resolved, config, teamctxDir });
+  const by = { key: resolved?.key || null, name: me };
+  const checkedAt = new Date().toISOString();
+
+  const checks = [];
+  for (const o of links) {
+    const link = o.link || {};
+    const approvedKey = approvedKeys[o.id] || null;
+    const baseline = approvedKey || link.versionKey || null;
+    const basis = approvedKey ? 'approved' : (link.versionKey ? 'attached' : null);
+    const observed = await readVersion({ connector: link.connector, url: link.url, itemId: link.itemId, env });
+
+    let state; let reason = null;
+    if (!baseline) { state = 'unknown'; reason = 'no version was recorded when this file was attached'; }
+    else if (observed == null) { state = 'unknown'; reason = 'the file could not be read now — it needs a connected account that can open it'; }
+    else state = observed === baseline ? 'unchanged' : 'changed';
+
+    const check = {
+      task: task.id, output: o.id, title: o.title || null, state, basis, baseline,
+      observed: observed ?? null, ...(reason ? { reason } : {}), checkedAt, by,
+    };
+    writeCheck(check, teamctxDir);
+    checks.push(check);
+  }
+
+  let git = { committed: false, pushed: false };
+  if (checks.length) {
+    git = await commitAndPush(config, `checks: ${me} checked ${checks.length} link output(s) on ${task.id}`, projectDir);
+  }
+  return { task, checks, ...git };
 }
 
 /**
