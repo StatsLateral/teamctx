@@ -131,6 +131,25 @@ describe('link-output staleness checks', () => {
     });
   });
 
+  it('reads through the connected account and records which one answered (hosted #248)', async () => {
+    await flow(async ({ call, as }) => {
+      const task = (await call('task_add', { title: 'Design the banner', workstream: 'finance' })).task;
+      await attachWith(call, as, task.id, 'V1');
+      let sawCreds = null;
+      const readVersion = async ({ creds }) => { sawCreds = creds; return 'V1'; };
+      // Stands in for the hosted endpoint's resolver: the primary manager's
+      // connection answered this member's check.
+      const authFor = async ({ connector }) => (connector === 'gdrive'
+        ? { creds: { ok: true, accessToken: 'at' }, via: 'project' }
+        : null);
+      const r = await runWithActor(PRIYA,
+        () => checkLinkOutputs({ id: task.id, teamctxDir: ROOT, readVersion, authFor }));
+      expect(sawCreds).toMatchObject({ accessToken: 'at' });
+      expect(r.checks[0].state).toBe('unchanged');
+      expect(r.checks[0].via).toBe('project');
+    });
+  });
+
   it('records the result where the page can read it, and reports it through the tool', async () => {
     await flow(async ({ call, as }) => {
       const task = (await call('task_add', { title: 'Design the banner', workstream: 'finance' })).task;

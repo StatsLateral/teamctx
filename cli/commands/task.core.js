@@ -506,7 +506,7 @@ export async function saveFileOutput({
  */
 export async function saveLinkOutput({
   id, connector, url, title, version, prompt, notes, basedOn, source,
-  teamctxDir, projectDir, actor,
+  teamctxDir, projectDir, actor, authFor = null,
 } = {}) {
   const config = readConfig(teamctxDir);
   const { task } = findTask(id, teamctxDir);
@@ -514,8 +514,13 @@ export async function saveLinkOutput({
   const link = validateLinkOutput({ connector, url, title, version });
   // The connector's own version marker, read now so a later staleness check
   // (#248) has something machine-comparable. Best-effort: absent if it cannot
-  // be read, and never a reason to fail the attach.
-  const versionKey = await readVersionKey({ connector: link.connector, url: link.url, itemId: link.itemId });
+  // be read, and never a reason to fail the attach. On the hosted server the
+  // credential comes from the attacher's connected account (`authFor`); on the
+  // command line there is none, and readVersionKey falls back to `.env.local`.
+  const picked = authFor ? await authFor({ connector: link.connector }) : null;
+  const versionKey = await readVersionKey({
+    connector: link.connector, url: link.url, itemId: link.itemId, creds: picked?.creds,
+  });
   if (versionKey) link.versionKey = versionKey;
   const saved = listOutputs(task.id, teamctxDir);
   if (basedOn && !saved.some(o => o.id === basedOn)) {
@@ -557,7 +562,7 @@ export async function saveLinkOutput({
  * marker, or a file this caller cannot read now, is `unknown` with a reason,
  * never a guessed `unchanged`.
  */
-export async function checkLinkOutputs({ id, teamctxDir, projectDir, actor, env, readVersion = readVersionKey } = {}) {
+export async function checkLinkOutputs({ id, teamctxDir, projectDir, actor, env, readVersion = readVersionKey, authFor = null } = {}) {
   const config = readConfig(teamctxDir);
   const { task } = findTask(id, teamctxDir);
   const links = listOutputs(task.id, teamctxDir).filter(o => o.kind === 'link');
@@ -574,7 +579,11 @@ export async function checkLinkOutputs({ id, teamctxDir, projectDir, actor, env,
     const approvedKey = approvedKeys[o.id] || null;
     const baseline = approvedKey || link.versionKey || null;
     const basis = approvedKey ? 'approved' : (link.versionKey ? 'attached' : null);
-    const observed = await readVersion({ connector: link.connector, url: link.url, itemId: link.itemId, env });
+    // Which connected account reads the file: on the hosted server the caller's
+    // own, or the primary manager's as a fallback (#248); null on the command
+    // line, where readVersion falls back to a local `.env.local` credential.
+    const picked = authFor ? await authFor({ connector: link.connector }) : null;
+    const observed = await readVersion({ connector: link.connector, url: link.url, itemId: link.itemId, env, creds: picked?.creds });
 
     let state; let reason = null;
     if (!baseline) { state = 'unknown'; reason = 'no version was recorded when this file was attached'; }
@@ -583,7 +592,10 @@ export async function checkLinkOutputs({ id, teamctxDir, projectDir, actor, env,
 
     const check = {
       task: task.id, output: o.id, title: o.title || null, state, basis, baseline,
-      observed: observed ?? null, ...(reason ? { reason } : {}), checkedAt, by,
+      observed: observed ?? null, ...(reason ? { reason } : {}),
+      // Whose connection answered — own or the project's — so a verdict built on
+      // it stays traceable. Null when nothing read it.
+      ...(picked?.via ? { via: picked.via } : {}), checkedAt, by,
     };
     writeCheck(check, teamctxDir);
     checks.push(check);

@@ -889,6 +889,12 @@ export function makeHandlers(projectRoot) {
   // agent token. See src/agents.js.
   const agent = isHosted ? projectRoot.agent || null : null;
 
+  // How a link-output staleness check reads the file server-side (#248): the
+  // caller's connected cloud account, or the primary manager's as a fallback.
+  // Only hosted requests carry one; from the command line it is null and the
+  // check reads through a local `.env.local` credential instead.
+  const authFor = isHosted ? projectRoot.authFor || null : null;
+
   const who = async (teamctxDir, config) => {
     const actor = await resolveActor({ config, cwd: gitCwd });
     const identity = await resolveIdentity({ actor, config, teamctxDir });
@@ -1498,7 +1504,7 @@ export function makeHandlers(projectRoot) {
       const r = await saveLinkOutput({
         id: args.id, connector: args.connector, url: args.url, title: args.title,
         version: args.version, prompt: args.prompt, notes: args.notes,
-        basedOn: args.basedOn, source: 'mcp', teamctxDir, projectDir: gitCwd,
+        basedOn: args.basedOn, source: 'mcp', teamctxDir, projectDir: gitCwd, authFor,
       });
       const link = await this.viewUrl({ task: r.task.id });
       const stored = r.output.link;
@@ -1520,7 +1526,7 @@ export function makeHandlers(projectRoot) {
     async task_check_links(args = {}) {
       const teamctxDir = dir();
       await assertTaskInScope(teamctxDir, args.id);
-      const r = await checkLinkOutputs({ id: args.id, teamctxDir, projectDir: gitCwd });
+      const r = await checkLinkOutputs({ id: args.id, teamctxDir, projectDir: gitCwd, authFor });
       const link = await this.viewUrl({ task: r.task.id });
       const say = (c) => {
         const title = c.title || c.output;
