@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   connectAuthorizeUrl, exchangeConnectCode, refreshAccessToken,
-  ConnectorAuthError, GDRIVE_CONNECT_SCOPES,
+  driveCredsFromConnection, ConnectorAuthError, GDRIVE_CONNECT_SCOPES,
 } from './connector-google.js';
 
 /** A fetch stub that answers the token and userinfo endpoints from a script. */
@@ -77,5 +77,38 @@ describe('refreshAccessToken', () => {
     const fetchImpl = stub({ 'oauth2.googleapis.com/token': () => ({ body: { error: 'invalid_grant' } }) });
     await expect(refreshAccessToken({ refreshToken: 'rt', clientId: 'id', clientSecret: 's', fetchImpl }))
       .rejects.toThrow(ConnectorAuthError);
+  });
+});
+
+describe('driveCredsFromConnection', () => {
+  const ENV = { GOOGLE_OAUTH_CLIENT_ID: 'cid', GOOGLE_OAUTH_CLIENT_SECRET: 'sec' };
+
+  it('shapes a connection into the Drive connector credential, renewing on use', () => {
+    const creds = driveCredsFromConnection(
+      { accessToken: 'at', refreshToken: 'rt', expiresAt: null }, ENV);
+    expect(creds).toMatchObject({ ok: true, accessToken: 'at', refreshToken: 'rt', clientId: 'cid', clientSecret: 'sec' });
+    // A refresh token means the connector should renew before reading, so the
+    // stored access token is treated as already due.
+    expect(creds.expiresAt).toBe(0);
+  });
+
+  it('carries the sign-in client, not the CLI GDRIVE_* client', () => {
+    const creds = driveCredsFromConnection(
+      { accessToken: 'at', refreshToken: 'rt' },
+      { ...ENV, GDRIVE_CLIENT_ID: 'cli-id', GDRIVE_CLIENT_SECRET: 'cli-sec' });
+    expect(creds.clientId).toBe('cid');
+    expect(creds.clientSecret).toBe('sec');
+  });
+
+  it('treats a lone access token with no way to renew as valid until refused', () => {
+    const creds = driveCredsFromConnection({ accessToken: 'at', refreshToken: null }, {});
+    expect(creds).toMatchObject({ ok: true, accessToken: 'at' });
+    expect(creds.expiresAt).toBe(Infinity);
+  });
+
+  it('is not ok when there is nothing to read with', () => {
+    // A refresh token but no client to renew it against is unusable.
+    expect(driveCredsFromConnection({ refreshToken: 'rt' }, {})).toEqual({ ok: false });
+    expect(driveCredsFromConnection(null, ENV)).toEqual({ ok: false });
   });
 });

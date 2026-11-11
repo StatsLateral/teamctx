@@ -75,15 +75,20 @@ export function validateLinkOutput({ connector, url, title, version } = {}) {
  * each yields null, which the record stores as "no machine version", and the
  * output simply cannot be staleness-checked rather than being checked wrongly.
  *
+ * `creds` is the credential to read with, already resolved. On the hosted server
+ * that is the caller's (or the primary manager's) connected account (#248); pass
+ * none and it falls back to `mod.auth(env)`, which reads a local `.env.local` —
+ * the only place a credential lives when teamctx runs from the command line.
+ *
  * `resolve` is injectable only so tests need not stand up a real connector.
  */
-export async function readVersionKey({ connector, url, itemId, env = process.env, resolve = getConnector } = {}) {
+export async function readVersionKey({ connector, url, itemId, env = process.env, resolve = getConnector, creds } = {}) {
   let mod;
   try { mod = resolve(connector); } catch { return null; }
   if (!mod || typeof mod.currentVersion !== 'function') return null;
-  let creds;
-  try { creds = await mod.auth(env); } catch { return null; }
-  if (!creds?.ok) return null;
-  try { return (await mod.currentVersion(creds, { url, itemId })) || null; }
+  let auth = creds;
+  if (!auth) { try { auth = await mod.auth(env); } catch { return null; } }
+  if (!auth?.ok) return null;
+  try { return (await mod.currentVersion(auth, { url, itemId })) || null; }
   catch { return null; }
 }

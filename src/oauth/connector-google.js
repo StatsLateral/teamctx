@@ -82,6 +82,37 @@ export async function exchangeConnectCode({ code, clientId, clientSecret, redire
   };
 }
 
+/**
+ * Shape a stored connection into the credential the Drive connector
+ * (`src/connectors/gdrive.js`) expects, so a server-side staleness check (#248)
+ * can read a linked file's `modifiedTime` with it.
+ *
+ * The refresh token was granted to the hosted sign-in client, so its client id
+ * and secret — not the CLI's `GDRIVE_*` — are what renews the access token.
+ * When there is a refresh token we hand the connector an already-expired access
+ * token, so it renews once up front rather than risk a read on a token that
+ * lapsed in the hour since it was stored. Returns `{ ok: false }` when there is
+ * nothing usable, which the check reads as "could not be read" rather than a
+ * wrong answer.
+ */
+export function driveCredsFromConnection(conn, env = process.env) {
+  const clientId = env.GOOGLE_OAUTH_CLIENT_ID || env.GOOGLE_CLIENT_ID || '';
+  const clientSecret = env.GOOGLE_OAUTH_CLIENT_SECRET || env.GOOGLE_CLIENT_SECRET || '';
+  const accessToken = conn?.accessToken || '';
+  const refreshToken = conn?.refreshToken || '';
+  if (!accessToken && !(clientId && clientSecret && refreshToken)) return { ok: false };
+  return {
+    ok: true,
+    accessToken,
+    clientId,
+    clientSecret,
+    refreshToken,
+    // A refresh token means renew-on-use (0 = already due). A pasted access
+    // token with no way to renew is treated as valid until Google says otherwise.
+    expiresAt: refreshToken ? 0 : (accessToken ? Infinity : 0),
+  };
+}
+
 /** Renew an access token from the stored refresh token. */
 export async function refreshAccessToken({ refreshToken, clientId, clientSecret, fetchImpl = fetch } = {}) {
   if (!refreshToken) throw new ConnectorAuthError('no refresh token to renew access with');

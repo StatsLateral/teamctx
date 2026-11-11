@@ -80,4 +80,22 @@ describe('readVersionKey (#248)', () => {
     const v = await readVersionKey({ connector: 'gdrive', url: 'x', resolve: resolveTo(connector({ currentVersion: async () => { throw new Error('network'); } })) });
     expect(v).toBeNull();
   });
+
+  it('reads with a supplied credential instead of the local one (hosted path #248)', async () => {
+    // On the hosted server the credential comes from a connected account, not
+    // from a local .env.local — so when creds are passed, auth(env) is not called.
+    let authCalled = false;
+    let seen = null;
+    const mod = {
+      auth: async () => { authCalled = true; return { ok: false }; },
+      currentVersion: async (a) => { seen = a; return 'HOSTED-REV'; },
+    };
+    const v = await readVersionKey({
+      connector: 'gdrive', url: 'https://drive.google.com/file/d/x/view',
+      resolve: resolveTo(mod), creds: { ok: true, accessToken: 'at' },
+    });
+    expect(v).toBe('HOSTED-REV');
+    expect(authCalled).toBe(false);
+    expect(seen).toMatchObject({ accessToken: 'at' });
+  });
 });
