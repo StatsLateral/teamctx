@@ -74,6 +74,66 @@ export async function connectionsFor(email) {
   return (await kvGet(keys.connectorIndex(norm(email))))?.providers || [];
 }
 
+// ---- sharing a connection with a project --------------------------------
+
+/**
+ * Share one's connection with a project, so it can serve as the project's
+ * fallback reader. This mirrors "add a key to a project" (ai-keys.js): the
+ * person decides which projects their connection reaches, rather than it
+ * reaching every project they happen to manage. No token moves — only a pointer
+ * is recorded; the credential stays in the owner's own `connectorToken`.
+ *
+ * Idempotent. The caller gates who may share (the settings route does).
+ */
+export async function shareConnection({ owner, repo, email, provider } = {}) {
+  if (!owner || !repo || !email || !provider) throw new Error('owner, repo, email and provider are required to share a connection');
+  const who = norm(email);
+  const record = (await kvGet(keys.projectConnectors(owner, repo))) || { shares: {} };
+  const have = record.shares?.[who] || [];
+  if (!have.includes(provider)) {
+    record.shares = { ...(record.shares || {}), [who]: [...have, provider] };
+    await kvSet(keys.projectConnectors(owner, repo), record);
+  }
+  const slug = `${owner}/${repo}`;
+  const index = (await kvGet(keys.connectorsSharedBy(who)))?.shares || [];
+  if (!index.some(s => s.slug === slug && s.provider === provider)) {
+    await kvSet(keys.connectorsSharedBy(who), { shares: [...index, { slug, provider }] });
+  }
+  return true;
+}
+
+/** Stop sharing one's connection with a project. Returns whether one was there. */
+export async function unshareConnection({ owner, repo, email, provider } = {}) {
+  if (!owner || !repo || !email || !provider) return false;
+  const who = norm(email);
+  const record = (await kvGet(keys.projectConnectors(owner, repo))) || { shares: {} };
+  const have = record.shares?.[who] || [];
+  const had = have.includes(provider);
+  if (had) {
+    const left = have.filter(p => p !== provider);
+    const shares = { ...(record.shares || {}) };
+    if (left.length) shares[who] = left; else delete shares[who];
+    await kvSet(keys.projectConnectors(owner, repo), { ...record, shares });
+  }
+  const slug = `${owner}/${repo}`;
+  const index = (await kvGet(keys.connectorsSharedBy(who)))?.shares || [];
+  await kvSet(keys.connectorsSharedBy(who), { shares: index.filter(s => !(s.slug === slug && s.provider === provider)) });
+  return had;
+}
+
+/** Whether this person has shared this provider's connection with this project. */
+export async function connectionSharedWith({ owner, repo, email, provider } = {}) {
+  if (!owner || !repo || !email || !provider) return false;
+  const record = await kvGet(keys.projectConnectors(owner, repo));
+  return !!record?.shares?.[norm(email)]?.includes(provider);
+}
+
+/** The projects a person has shared a connection with, as `{ slug, provider }[]`. */
+export async function connectorSharesBy(email) {
+  if (!email) return [];
+  return (await kvGet(keys.connectorsSharedBy(norm(email))))?.shares || [];
+}
+
 // ---- which connection a read runs on ------------------------------------
 
 /**
@@ -85,14 +145,18 @@ export async function connectionsFor(email) {
  * gets the answer it produced. `via` says which one answered, so a verdict built
  * on it stays traceable.
  *
- * `primaryEmail` is the project's primary manager's verified email; omit it (or
- * pass the member's own) and only the member's own connection is considered.
+ * The manager's connection serves a project only when the manager has
+ * explicitly shared it there (connectionSharedWith) — the same deliberate
+ * per-project choice "add a key to a project" is, not every project they manage.
+ * So the fallback needs `owner`, `repo` and the primary manager's `primaryEmail`;
+ * with any of them missing, only the person's own connection is considered.
  */
-export async function pickConnection({ email, provider, primaryEmail } = {}) {
+export async function pickConnection({ email, provider, owner, repo, primaryEmail } = {}) {
   const mine = await readConnection({ email, provider });
   if (mine) return { ...mine, via: 'own' };
   const primary = norm(primaryEmail);
-  if (primary && primary !== norm(email)) {
+  if (primary && primary !== norm(email) && owner && repo
+      && await connectionSharedWith({ owner, repo, email: primary, provider })) {
     const managers = await readConnection({ email: primary, provider });
     if (managers) return { ...managers, via: 'project' };
   }

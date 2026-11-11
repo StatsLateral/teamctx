@@ -51,6 +51,9 @@ describe('secrets at rest', () => {
     expect(isSecretKey(keys.pending('s'))).toBe(false);
     // The connector index lists provider names only, no token.
     expect(isSecretKey(keys.connectorIndex('a@b.com'))).toBe(false);
+    // Project connector shares and their index are pointers, not tokens.
+    expect(isSecretKey(keys.projectConnectors('o', 'r'))).toBe(false);
+    expect(isSecretKey(keys.connectorsSharedBy('a@b.com'))).toBe(false);
     // Family, replay and revocation records hold only hashes and ids.
     for (const k of [keys.tokenFamily('f'), keys.familyRevoked('f'), keys.usedRefresh('h')]) {
       expect(isSecretKey(k), k).toBe(false);

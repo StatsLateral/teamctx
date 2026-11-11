@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { __resetMemory, __resetSecrets, __dumpMemory, kvGet, keys } from './kv.js';
 import {
   readConnection, writeConnection, removeConnection, connectionsFor, pickConnection,
+  shareConnection, unshareConnection, connectionSharedWith, connectorSharesBy,
 } from './connectors.js';
 
 beforeEach(() => { __resetMemory(); __resetSecrets(); });
@@ -63,32 +64,80 @@ describe('removing a connection', () => {
   });
 });
 
+describe('sharing a connection with a project', () => {
+  it('records the share and lists it, idempotently', async () => {
+    await shareConnection({ owner: 'o', repo: 'r', email: 'Boss@A.com', provider: 'gdrive' });
+    await shareConnection({ owner: 'o', repo: 'r', email: 'boss@a.com', provider: 'gdrive' }); // again
+    expect(await connectionSharedWith({ owner: 'o', repo: 'r', email: 'boss@a.com', provider: 'gdrive' })).toBe(true);
+    expect(await connectorSharesBy('boss@a.com')).toEqual([{ slug: 'o/r', provider: 'gdrive' }]);
+  });
+
+  it('keeps shares separate per project and per provider', async () => {
+    await shareConnection({ owner: 'o', repo: 'r', email: 'b@a.com', provider: 'gdrive' });
+    await shareConnection({ owner: 'o', repo: 'r', email: 'b@a.com', provider: 'dropbox' });
+    await shareConnection({ owner: 'o', repo: 's', email: 'b@a.com', provider: 'gdrive' });
+    expect(await connectionSharedWith({ owner: 'o', repo: 'r', email: 'b@a.com', provider: 'dropbox' })).toBe(true);
+    expect(await connectionSharedWith({ owner: 'o', repo: 's', email: 'b@a.com', provider: 'dropbox' })).toBe(false);
+    expect((await connectorSharesBy('b@a.com')).length).toBe(3);
+  });
+
+  it('unshares one project+provider without touching the others', async () => {
+    await shareConnection({ owner: 'o', repo: 'r', email: 'b@a.com', provider: 'gdrive' });
+    await shareConnection({ owner: 'o', repo: 'r', email: 'b@a.com', provider: 'dropbox' });
+    expect(await unshareConnection({ owner: 'o', repo: 'r', email: 'b@a.com', provider: 'gdrive' })).toBe(true);
+    expect(await connectionSharedWith({ owner: 'o', repo: 'r', email: 'b@a.com', provider: 'gdrive' })).toBe(false);
+    expect(await connectionSharedWith({ owner: 'o', repo: 'r', email: 'b@a.com', provider: 'dropbox' })).toBe(true);
+    expect(await connectorSharesBy('b@a.com')).toEqual([{ slug: 'o/r', provider: 'dropbox' }]);
+  });
+
+  it('reports false when unsharing something that was not shared', async () => {
+    expect(await unshareConnection({ owner: 'o', repo: 'r', email: 'b@a.com', provider: 'gdrive' })).toBe(false);
+  });
+
+  it('never stores a token in the share pointer', async () => {
+    await writeConnection({ email: 'b@a.com', provider: 'gdrive', accessToken: 'TOKEN-SECRET' });
+    await shareConnection({ owner: 'o', repo: 'r', email: 'b@a.com', provider: 'gdrive' });
+    const rec = await kvGet(keys.projectConnectors('o', 'r'));
+    expect(JSON.stringify(rec)).not.toContain('TOKEN-SECRET');
+  });
+});
+
 describe('which connection a read runs on', () => {
   it('uses the member\'s own connection when they have one', async () => {
     await writeConnection({ email: 'member@a.com', provider: 'gdrive', accessToken: 'mine' });
     await writeConnection({ email: 'boss@a.com', provider: 'gdrive', accessToken: 'boss' });
-    const r = await pickConnection({ email: 'member@a.com', provider: 'gdrive', primaryEmail: 'boss@a.com' });
+    const r = await pickConnection({ email: 'member@a.com', provider: 'gdrive', owner: 'o', repo: 'r', primaryEmail: 'boss@a.com' });
     expect(r).toMatchObject({ accessToken: 'mine', via: 'own' });
   });
 
-  it('falls back to the primary manager\'s connection when the member has none', async () => {
+  it('falls back to the primary manager\'s connection only where they shared it', async () => {
     await writeConnection({ email: 'boss@a.com', provider: 'gdrive', accessToken: 'boss' });
-    const r = await pickConnection({ email: 'member@a.com', provider: 'gdrive', primaryEmail: 'boss@a.com' });
+    await shareConnection({ owner: 'o', repo: 'r', email: 'boss@a.com', provider: 'gdrive' });
+    const r = await pickConnection({ email: 'member@a.com', provider: 'gdrive', owner: 'o', repo: 'r', primaryEmail: 'boss@a.com' });
     expect(r).toMatchObject({ accessToken: 'boss', via: 'project' });
   });
 
-  it('returns null when neither the member nor the manager has connected', async () => {
-    expect(await pickConnection({ email: 'member@a.com', provider: 'gdrive', primaryEmail: 'boss@a.com' })).toBeNull();
+  it('does not use the manager\'s connection on a project they did not share it with', async () => {
+    await writeConnection({ email: 'boss@a.com', provider: 'gdrive', accessToken: 'boss' });
+    // shared with o/r, but the read is for o/other
+    await shareConnection({ owner: 'o', repo: 'r', email: 'boss@a.com', provider: 'gdrive' });
+    expect(await pickConnection({ email: 'member@a.com', provider: 'gdrive', owner: 'o', repo: 'other', primaryEmail: 'boss@a.com' })).toBeNull();
   });
 
-  it('considers only the member when no primary manager is given', async () => {
+  it('returns null when neither the member nor a shared manager connection exists', async () => {
+    await shareConnection({ owner: 'o', repo: 'r', email: 'boss@a.com', provider: 'gdrive' }); // shared but never connected
+    expect(await pickConnection({ email: 'member@a.com', provider: 'gdrive', owner: 'o', repo: 'r', primaryEmail: 'boss@a.com' })).toBeNull();
+  });
+
+  it('considers only the member when no project is given', async () => {
     await writeConnection({ email: 'boss@a.com', provider: 'gdrive', accessToken: 'boss' });
-    expect(await pickConnection({ email: 'member@a.com', provider: 'gdrive' })).toBeNull();
+    await shareConnection({ owner: 'o', repo: 'r', email: 'boss@a.com', provider: 'gdrive' });
+    expect(await pickConnection({ email: 'member@a.com', provider: 'gdrive', primaryEmail: 'boss@a.com' })).toBeNull();
   });
 
   it('does not double-count when the member is the primary manager', async () => {
     await writeConnection({ email: 'boss@a.com', provider: 'gdrive', accessToken: 'boss' });
-    const r = await pickConnection({ email: 'boss@a.com', provider: 'gdrive', primaryEmail: 'boss@a.com' });
+    const r = await pickConnection({ email: 'boss@a.com', provider: 'gdrive', owner: 'o', repo: 'r', primaryEmail: 'boss@a.com' });
     expect(r).toMatchObject({ accessToken: 'boss', via: 'own' });
   });
 });

@@ -66,16 +66,31 @@ written to your repo.</p>
 
 <section class="card">
 <h2>Connected accounts</h2>
-<p class="muted">Connect a cloud drive once and teamctx uses it, across every
-project you are on, only to check whether a file you linked has changed — never
-its contents. If you are a project's primary manager, your connection is also
-the fallback for members who have not connected one of their own.</p>
+<p class="muted">Connect a cloud drive once, then share it with the projects you
+choose. teamctx uses it only to check whether a file you linked has changed —
+never its contents. On a project where you are the primary manager, a connection
+you share is the fallback for members who have not connected one of their own.</p>
 ${connectors.map(c => `
+<div style="margin:.35rem 0 1rem">
 <form method="POST" action="/settings/disconnect" style="margin:.35rem 0">
   <input type="hidden" name="provider" value="${esc(c.provider)}">
   <span>${esc(CONN_LABEL[c.provider] || c.provider)}${c.account ? ` — connected as ${esc(c.account)}` : ' — connected'}</span>
-  <button type="submit">Disconnect</button>
-</form>`).join('')}
+  <button type="submit" class="link">Disconnect</button>
+</form>
+${(c.shares || []).length ? `<p class="muted">Shared with:</p>${c.shares.map(slug => `
+<form method="POST" action="/settings/connect/unshare" style="margin:.35rem 0">
+  <input type="hidden" name="provider" value="${esc(c.provider)}">
+  <input type="hidden" name="project" value="${esc(slug)}">
+  <code>${esc(slug)}</code>
+  <button type="submit" class="link">Stop sharing</button>
+</form>`).join('')}` : ''}
+<form method="POST" action="/settings/connect/share" style="margin:.35rem 0">
+  <input type="hidden" name="provider" value="${esc(c.provider)}">
+  <label for="connShare-${esc(c.provider)}">Share ${esc(CONN_LABEL[c.provider] || c.provider)} with a project</label>
+  ${projectPicker(`connShare-${esc(c.provider)}`, repos)}
+  <button type="submit">Share</button>
+</form>
+</div>`).join('')}
 ${connectors.some(c => c.provider === 'gdrive') ? '' : `
 <form method="GET" action="/settings/connect/gdrive" style="margin:.35rem 0">
   <button type="submit">Connect Google Drive</button>

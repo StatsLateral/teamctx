@@ -7,7 +7,10 @@ import { kvGet, kvSet, kvTake, kvDelete, keys, TTL, isPersistent, secretsConfigu
 import { liveProjects } from '../src/oauth/live-projects.js';
 import { googleAuthorizeUrl, googleUserFromCode } from '../src/oauth/google.js';
 import { connectAuthorizeUrl, exchangeConnectCode } from '../src/oauth/connector-google.js';
-import { writeConnection, removeConnection, connectionsFor, readConnection } from '../src/oauth/connectors.js';
+import {
+  writeConnection, removeConnection, connectionsFor, readConnection,
+  shareConnection, unshareConnection, connectorSharesBy,
+} from '../src/oauth/connectors.js';
 import { projectKeyDecision } from '../src/oauth/project-key-decision.js';
 import { managersOf } from '../src/managers.js';
 import { matchesActor, managerKeys } from '../src/review.js';
@@ -518,10 +521,14 @@ async function renderSettings(req, res, user, { newAgent = null } = {}) {
   const slack = await slackFor(user, repos);
   // A person's connected cloud accounts, with the account each was granted by.
   // Reading the token record to label it is fine — it is the person's own.
+  const sharedConns = user.email ? await connectorSharesBy(user.email) : [];
   const connectors = user.email
     ? await Promise.all((await connectionsFor(user.email)).map(async p => ({
         provider: p,
         account: (await readConnection({ email: user.email, provider: p }))?.account || null,
+        // Which projects this connection is shared with — the person's own
+        // per-project choice, shown so they can take any of them back.
+        shares: sharedConns.filter(s => s.provider === p).map(s => s.slug).sort(),
       })))
     : [];
   if (newAgent) res.setHeader('Cache-Control', 'no-store');
@@ -699,6 +706,38 @@ app.post('/settings/disconnect', async (req, res) => {
   const prov = String(req.body?.provider || '');
   if (user.email && prov) await removeConnection({ email: user.email, provider: prov });
   res.redirect(303, `/settings?disconnected=${encodeURIComponent(prov)}`);
+});
+
+/** Share a connected cloud account with a project, as its fallback file reader. */
+app.post('/settings/connect/share', async (req, res) => {
+  const user = await currentUser(req);
+  if (!user) return res.redirect(303, '/settings');
+  if (!user.email) return backToSettings(res, 'Sharing a connection needs a verified email on your sign-in.');
+  const prov = String(req.body?.provider || '');
+  const ref = parseRepoRef(req.body?.project);
+  if (!prov) return backToSettings(res, 'Pick which connection to share.');
+  if (!ref) return backToSettings(res, 'Pick a project first.');
+  // Must actually hold the connection to share it.
+  if (!(await readConnection({ email: user.email, provider: prov }))) {
+    return backToSettings(res, 'Connect that account before sharing it.');
+  }
+  // The same gate as sharing an AI key with a project: you must be able to add to it.
+  const allowed = await mayAddProjectKey(user, ref);
+  if (!allowed.ok) return backToSettings(res, allowed.why);
+  await shareConnection({ owner: ref.owner, repo: ref.repo, email: user.email, provider: prov });
+  backToSettings(res);
+});
+
+/** Stop sharing a connected cloud account with a project. */
+app.post('/settings/connect/unshare', async (req, res) => {
+  const user = await currentUser(req);
+  if (!user) return res.redirect(303, '/settings');
+  const prov = String(req.body?.provider || '');
+  const ref = parseRepoRef(req.body?.project);
+  if (user.email && prov && ref) {
+    await unshareConnection({ owner: ref.owner, repo: ref.repo, email: user.email, provider: prov });
+  }
+  backToSettings(res);
 });
 
 /** Starts the GitHub login. Only reached by clicking Sign in. */

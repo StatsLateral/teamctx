@@ -515,6 +515,15 @@ export const keys = {
   connectorToken: (email, provider) => `teamctx:connector:token:${String(email).toLowerCase()}:${provider}`,
   /** Which providers one person has connected, for the settings page (not a secret). */
   connectorIndex: email => `teamctx:connector:index:${String(email).toLowerCase()}`,
+  /**
+   * Which people shared which connection with a project: `{ shares: { <email>:
+   * [provider, …] } }`. A pointer, never a token — the credential stays in the
+   * owner's `connectorToken` and is read from there. Only the primary manager's
+   * share is used as a project's fallback reader; see connectors.js. Not a secret.
+   */
+  projectConnectors: (owner, repo) => `teamctx:connector:project-shares:${slug(owner, repo)}`,
+  /** The projects one person shared a connection with, for the settings page (not a secret). */
+  connectorsSharedBy: email => `teamctx:connector:shared-by:${String(email).toLowerCase()}`,
   /** Browser session for the settings page. 1 hour. */
   session: sid => `teamctx:session:${sid}`,
 };

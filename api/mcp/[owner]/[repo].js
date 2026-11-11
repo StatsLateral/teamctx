@@ -306,7 +306,7 @@ export default async function handler(req, res) {
   const authFor = async ({ connector } = {}) => {
     if (connector !== 'gdrive') return null;
     const primary = managersOf(readConfig() || {}).primary || null;
-    const conn = await pickConnection({ email: callerEmail, provider: connector, primaryEmail: primary });
+    const conn = await pickConnection({ email: callerEmail, provider: connector, owner, repo, primaryEmail: primary });
     if (!conn) return null;
     const creds = driveCredsFromConnection(conn);
     return creds?.ok ? { creds, via: conn.via } : null;

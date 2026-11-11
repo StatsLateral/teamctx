@@ -9,7 +9,10 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import http from 'http';
 import { kvGet, kvSet, keys, __resetMemory } from '../src/oauth/kv.js';
-import { readConnection, connectionsFor, writeConnection } from '../src/oauth/connectors.js';
+import {
+  readConnection, connectionsFor, writeConnection,
+  shareConnection, connectionSharedWith, connectorSharesBy,
+} from '../src/oauth/connectors.js';
 
 let server, base;
 
@@ -108,17 +111,75 @@ describe('disconnecting', () => {
 });
 
 describe('the settings page', () => {
-  it('offers Connect when nothing is connected', async () => {
+  it('offers Connect when nothing is connected, and no share control yet', async () => {
     const r = await as(GOOGLE, '/settings');
     expect(r.body).toContain('Connected accounts');
     expect(r.body).toContain('/settings/connect/gdrive');
+    // The share option lives in the same box and only once connected.
+    expect(r.body).not.toContain('/settings/connect/share');
   });
 
-  it('shows the connected account and a Disconnect form once connected', async () => {
+  it('shows the connected account, a Disconnect form, and the share control once connected', async () => {
     await writeConnection({ email: 'priya@acme.com', provider: 'gdrive', accessToken: 'at', account: 'priya@acme.com' });
     const r = await as(GOOGLE, '/settings');
     expect(r.body).toContain('connected as priya@acme.com');
     expect(r.body).toContain('/settings/disconnect');
+    expect(r.body).toContain('/settings/connect/share'); // share lives in the same box
     expect(r.body).not.toContain('/settings/connect/gdrive'); // already connected
+  });
+
+  it('lists the projects a connection is shared with', async () => {
+    await writeConnection({ email: 'priya@acme.com', provider: 'gdrive', accessToken: 'at' });
+    await shareConnection({ owner: 'acme', repo: 'ledger', email: 'priya@acme.com', provider: 'gdrive' });
+    const r = await as(GOOGLE, '/settings');
+    expect(r.body).toContain('acme/ledger');
+    expect(r.body).toContain('/settings/connect/unshare');
+  });
+});
+
+describe('sharing a connection with a project', () => {
+  // A GitHub sign-in with push access to the project, so the add-to-project gate passes.
+  const BOSS = { id: '7', login: 'boss', name: 'Boss', email: 'boss@acme.com', token: 'gh-tok', source: 'github' };
+
+  /** Let the project's push-permission check see a repo the user can push to. */
+  function stubRepoPush() {
+    const real = globalThis.fetch;
+    globalThis.fetch = async (u, o) => {
+      const url = String(u);
+      if (url.includes('api.github.com/repos/')) {
+        return { ok: true, status: 200, json: async () => ({ permissions: { push: true } }) };
+      }
+      if (url.includes('api.github.com')) return { ok: true, status: 200, json: async () => ([]) };
+      return real(u, o);
+    };
+    return () => { globalThis.fetch = real; };
+  }
+
+  it('shares a connected account with a project', async () => {
+    await writeConnection({ email: 'boss@acme.com', provider: 'gdrive', accessToken: 'at' });
+    const restore = stubRepoPush();
+    try {
+      const r = await as(BOSS, '/settings/connect/share', { method: 'POST', form: { provider: 'gdrive', project: 'acme/ledger' } });
+      expect(r.status).toBe(303);
+    } finally { restore(); }
+    expect(await connectionSharedWith({ owner: 'acme', repo: 'ledger', email: 'boss@acme.com', provider: 'gdrive' })).toBe(true);
+    expect(await connectorSharesBy('boss@acme.com')).toEqual([{ slug: 'acme/ledger', provider: 'gdrive' }]);
+  });
+
+  it('refuses to share an account that is not connected', async () => {
+    const restore = stubRepoPush();
+    try {
+      const r = await as(BOSS, '/settings/connect/share', { method: 'POST', form: { provider: 'gdrive', project: 'acme/ledger' } });
+      expect(r.location).toMatch(/error=/);
+    } finally { restore(); }
+    expect(await connectionSharedWith({ owner: 'acme', repo: 'ledger', email: 'boss@acme.com', provider: 'gdrive' })).toBe(false);
+  });
+
+  it('stops sharing', async () => {
+    await writeConnection({ email: 'boss@acme.com', provider: 'gdrive', accessToken: 'at' });
+    await shareConnection({ owner: 'acme', repo: 'ledger', email: 'boss@acme.com', provider: 'gdrive' });
+    const r = await as(BOSS, '/settings/connect/unshare', { method: 'POST', form: { provider: 'gdrive', project: 'acme/ledger' } });
+    expect(r.status).toBe(303);
+    expect(await connectionSharedWith({ owner: 'acme', repo: 'ledger', email: 'boss@acme.com', provider: 'gdrive' })).toBe(false);
   });
 });
