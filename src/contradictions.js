@@ -1,7 +1,8 @@
 import { isActive, LABELS } from './model.js';
-import { readProject, readTree } from './storage.js';
+import { readProject, readTree, readWorkstream } from './storage.js';
 import { chainFor } from './recompile.js';
 import { EDITABLE_RECORD_FIELDS } from './ops.js';
+import { inScope } from './member-scope.js';
 
 /** The inherited comparison set, never another branch of the project. */
 export function comparisonRecords({ config, target, teamctxDir }) {
@@ -10,6 +11,53 @@ export function comparisonRecords({ config, target, teamctxDir }) {
   return trees.flatMap(tree => (tree?.records || [])
     .filter(r => isActive(r) && ['decision', 'rule'].includes(r.type))
     .map(r => ({ id: r.id, type: r.type, text: r.text, workstream: tree.id || null })));
+}
+
+/**
+ * The records in **sibling** workstreams — the ones that share the target's
+ * parent, never the target itself or its ancestors (that is `comparisonRecords`).
+ * A project-level change (`target` null) takes the top-level workstreams as its
+ * siblings, since a project goal reaches them all. Scope-filtered: a sibling the
+ * reviewer cannot see is never read or named (#266).
+ */
+export function siblingRecords({ config, target, teamctxDir, scope = null }) {
+  const list = config.workstreams || [];
+  const parentOf = (w) => (w && w.parent && w.parent !== w.id && list.some(x => x.id === w.parent) ? w.parent : null);
+  const targetParent = target == null ? null : parentOf(list.find(w => w.id === target));
+  return list
+    .filter(w => w.id !== target && parentOf(w) === targetParent)
+    .filter(w => scope == null || inScope(scope, w.id))
+    .flatMap(w => {
+      const tree = readWorkstream(w.id, teamctxDir);
+      return (tree?.records || [])
+        .filter(r => isActive(r) && ['decision', 'rule'].includes(r.type))
+        .map(r => ({ id: r.id, type: r.type, text: r.text, workstream: w.id }));
+    });
+}
+
+/**
+ * Validate the model's possible-impact list against the real sibling set:
+ * identity (record id and workstream) and the operation are ours, only the
+ * reason is the model's. A hit that names something other than a record change,
+ * or a record not in the sibling set, is dropped. Unlike the contradiction
+ * check this never throws — possible impact is advice, so a malformed answer
+ * costs the advice, never the contribution (#266).
+ */
+export function normalizeImpact(raw, operations, siblings) {
+  if (!Array.isArray(raw)) return [];
+  const result = [];
+  for (const hit of raw) {
+    const index = hit?.operationIndex;
+    const op = Number.isInteger(index) && index >= 0 ? operations[index] : null;
+    if (!op || !['addRecord', 'editRecord'].includes(op.type)) continue;
+    const match = siblings.find(r => r.id === hit?.recordId
+      && (hit.workstream === undefined || r.workstream === hit.workstream));
+    if (!match) continue;
+    if (result.some(r => r.operationIndex === index && r.record.id === match.id)) continue;
+    const reason = typeof hit.reason === 'string' ? hit.reason.trim() : '';
+    result.push({ operationIndex: index, record: { ...match }, reason: reason || null });
+  }
+  return result;
 }
 
 export class ContradictionResolutionError extends Error {

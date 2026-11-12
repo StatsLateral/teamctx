@@ -87,7 +87,7 @@ function honestSummary(summary, contribution) {
 /** Dropped only for being sent to the other tree, which a founding contribution routes. */
 const WRONG_TREE = /^(?:the goal belongs to the project|a task belongs to a workstream)/;
 
-export async function updateShared(tree, contribution, config, { intent, avoid, comparisonRecords, operationsToCheck, founding = false } = {}) {
+export async function updateShared(tree, contribution, config, { intent, avoid, comparisonRecords, siblings = [], operationsToCheck, founding = false } = {}) {
   const proposal = await proposeDiff({
     workstream: tree,
     contribution: contribution.text,
@@ -97,9 +97,10 @@ export async function updateShared(tree, contribution, config, { intent, avoid, 
     intent,
     avoid,
     comparisonRecords,
+    siblings,
     operationsToCheck,
   });
-  const { contradictions = [] } = proposal;
+  const { contradictions = [], impact = [] } = proposal;
   const summary = honestSummary(proposal.summary, contribution);
   const operations = stampEvidence(operationsToCheck ?? proposal.operations, contribution, tree);
   const { tree: updated, dropped: refused, nextKey } = applyOps(tree, operations, contribution.id, {
@@ -121,9 +122,13 @@ export async function updateShared(tree, contribution, config, { intent, avoid, 
   // way the tree does — see `mintKey`.
   const conflicts = contradictions.filter(c => keptOps.includes(operations[c.operationIndex]))
     .map(c => ({ ...c, operationIndex: keptOps.indexOf(operations[c.operationIndex]) }));
+  // Possible impact follows its operations to the kept positions the same way,
+  // and a hit whose operation was dropped falls away with it (#266).
+  const impacts = impact.filter(h => keptOps.includes(operations[h.operationIndex]))
+    .map(h => ({ ...h, operationIndex: keptOps.indexOf(operations[h.operationIndex]) }));
   // Tasks the distiller proposed and the wording check left out come first, so
   // the person is told about them too (#175).
-  return { workstream: updated, summary, operations: kept, dropped: [...(proposal.dropped || []), ...dropped], nextKey, contradictions: conflicts };
+  return { workstream: updated, summary, operations: kept, dropped: [...(proposal.dropped || []), ...dropped], nextKey, contradictions: conflicts, impact: impacts };
 }
 
 export async function generateRoleFile(workstream, role, projectName, config, contributions = [], { project = null, chain = null } = {}) {
