@@ -838,6 +838,27 @@ describe('task tools', () => {
     expect(tool('task_output').inputSchema.required).toEqual(['id', 'body']);
   });
 
+  it('offers task_attach_link for cloud files, for links only and never bytes', () => {
+    const t = tool('task_attach_link');
+    expect(t, 'task_attach_link is missing').toBeDefined();
+    const d = t.description;
+    // The two things an assistant must not get wrong: this is for links, and it
+    // never carries file bytes (that is the CLI's or the page's job).
+    expect(d).toMatch(/link/i);
+    expect(d).toMatch(/no MCP tool that takes file bytes/i);
+    expect(d).toMatch(/teamctx task attach/);
+    // And that, like task_output, it only saves.
+    expect(d).toMatch(/nothing is queued/i);
+    expect(t.inputSchema.required).toEqual(['id', 'url']);
+    expect(t.inputSchema.properties).toHaveProperty('version');
+    expect(t.inputSchema.properties).toHaveProperty('connector');
+  });
+
+  it('does not mark task_attach_link as risky', () => {
+    // It is an additive save on a small JSON file, like task_output.
+    expect(tool('task_attach_link').description).not.toMatch(/RISKY/);
+  });
+
   it('lets get_task open an earlier output and says to start from the latest', () => {
     expect(tool('get_task').inputSchema.properties.output).toBeDefined();
     expect(tool('get_task').description).toMatch(/start from the latest output/i);
@@ -870,7 +891,7 @@ describe('task tools', () => {
     const { makeHandlers } = await import('./server.js');
     const handlers = makeHandlers(process.cwd());
     const taskTools = TOOLS.filter(x => /task/.test(x.name));
-    expect(taskTools.length).toBe(10);
+    expect(taskTools.length).toBe(11);
     for (const t of taskTools) {
       expect(typeof handlers[t.name], `${t.name} has no handler`).toBe('function');
     }

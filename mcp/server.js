@@ -43,7 +43,7 @@ import { assertJoinableContext } from '../src/context-gate.js';
 import { contributeCore } from '../cli/commands/contribute.core.js';
 import { buildBrief } from '../cli/commands/brief.core.js';
 import {
-  listTasksFiltered, getTask, prepareTaskChanges, saveOutput, submitTask, addTask, setTaskStatus, assignTask, removeTask, compileTask,
+  listTasksFiltered, getTask, prepareTaskChanges, saveOutput, saveLinkOutput, submitTask, addTask, setTaskStatus, assignTask, removeTask, compileTask,
 } from '../cli/commands/task.core.js';
 import { listMembers, addMember, removeMember, setMemberWorkstreams, setMemberExternal } from '../cli/commands/member.core.js';
 import { getConfig, setConfig, repairManagerGate, setReviewPolicy } from '../cli/commands/config.core.js';
@@ -292,6 +292,25 @@ export const TOOLS = [
         basedOn: { type: 'string', description: 'The id of the output this carries on from' },
       },
       required: ['id', 'body'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'task_attach_link',
+    description: "**Attach a link to a file that lives in a connected cloud tool (Google Drive, SharePoint/OneDrive, Dropbox, Notion, …) as a task output.** Reach for this when the deliverable already lives in the cloud and should stay there — teamctx copies nothing and keeps no credential. Pass the `url` you copied, the file's `title`, and the tool's `version` marker (a revision or date) if it has one. The link is normalised, so every share, edit and address-bar link for one file becomes a single reference, and any credential in it is stripped. A bare \"anyone with the link\" sharing URL is **not stored at all** — only the name is kept — because access belongs to the cloud tool, not the shared repository; share the file with the team there. **There is no MCP tool that takes file bytes**: a file you produced must be saved by the person and attached with `teamctx task attach` or the project page, since a large file as a tool argument is unworkable. Like `task_output`, this only saves — nothing is queued, nobody is asked to approve it, and the task is untouched. When the person later submits the task, the linked file is also recorded as a connected source against it. Returns { output }.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: 'Task number such as 3.2, task id, or a unique prefix of one' },
+        url: { type: 'string', description: 'The link to the file, copied from the cloud tool' },
+        connector: { type: 'string', description: 'The tool the file lives in: gdrive, m365 (SharePoint/OneDrive), dropbox, notion, coda, slack. Anything else is recorded as "other".' },
+        title: { type: 'string', description: 'What the file is called' },
+        version: { type: 'string', description: "The tool's version marker (a revision or date), if it has one" },
+        prompt: { type: 'string', description: 'What the person asked for that produced this' },
+        notes: { type: 'string', description: "The person's own notes on it, kept apart from the link" },
+        basedOn: { type: 'string', description: 'The id of the output this carries on from' },
+      },
+      required: ['id', 'url'],
       additionalProperties: false,
     },
   },
@@ -1458,6 +1477,31 @@ export function makeHandlers(projectRoot) {
         ...r,
         ...link,
         reportBack: withLink(`Saved as a working output on task ${r.task.key || r.task.id}. Nothing was sent for approval.`, link),
+      });
+    },
+
+    async task_attach_link(args = {}) {
+      const teamctxDir = dir();
+      await assertTaskInScope(teamctxDir, args.id);
+      const r = await saveLinkOutput({
+        id: args.id, connector: args.connector, url: args.url, title: args.title,
+        version: args.version, prompt: args.prompt, notes: args.notes,
+        basedOn: args.basedOn, source: 'mcp', teamctxDir, projectDir: gitCwd,
+      });
+      const link = await this.viewUrl({ task: r.task.id });
+      const stored = r.output.link;
+      // Say plainly which it was: a stored link, or a name only because the URL
+      // was a sharing link we do not keep. An assistant that reported "linked"
+      // for a dropped URL would mislead the person about what the manager sees.
+      const where = stored.url
+        ? `pointing at ${stored.url}`
+        : 'recorded by name only (the sharing link was not stored)';
+      return textResult({
+        ...r,
+        ...link,
+        reportBack: withLink(
+          `Attached "${stored.title}" as a link output on task ${r.task.key || r.task.id}, ${where}`
+          + `${stored.version ? ` (version ${stored.version})` : ''}. Nothing was sent for approval.`, link),
       });
     },
 

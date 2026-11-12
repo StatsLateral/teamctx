@@ -340,12 +340,18 @@ const SCRIPT = `
   // whole text. Text nodes throughout: these are somebody else's words.
   var STATE_WORDS = { working: 'working', submitted: 'waiting for the manager', accepted: 'accepted' };
   function fmtBytes(n) { return n >= 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.ceil(n / 1024) + ' KB'; }
-  // A file output has no text body; show what the file is instead. A download
-  // link comes with the project-page upload work (#247).
+  // A file or link output has no text body; show what it is instead. A download
+  // link for a file comes with the project-page upload work (#247).
   function outputText(o) {
-    return (o.kind === 'file' && o.file)
-      ? 'File: ' + o.file.name + ' (' + o.file.type + ', ' + fmtBytes(o.file.size) + ')'
-      : o.body;
+    if (o.kind === 'file' && o.file) {
+      return 'File: ' + o.file.name + ' (' + o.file.type + ', ' + fmtBytes(o.file.size) + ')';
+    }
+    if (o.kind === 'link' && o.link) {
+      var where = o.link.url || o.link.title || 'a cloud file';
+      var ver = o.link.version ? ' (version ' + o.link.version + ')' : '';
+      return 'Link: ' + where + ver;
+    }
+    return o.body;
   }
   function showWork(items) {
     var wrap = document.getElementById('d-work-wrap');

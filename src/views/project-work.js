@@ -118,7 +118,8 @@ export function historyData(h, agents) {
  */
 function workData(outputs) {
   return (Array.isArray(outputs) ? outputs : []).map(o => ({
-    id: o.id, title: o.title || '', body: o.body || '', notes: o.notes || null, prompt: o.prompt || null,
+    id: o.id, title: o.title || '', kind: o.kind || 'text', body: o.body || '',
+    file: o.file || null, link: o.link || null, notes: o.notes || null, prompt: o.prompt || null,
     basedOn: o.basedOn || null, at: o.at || null, state: o.state, author: o.author || 'someone', mine: Boolean(o.mine),
     turnedDown: o.turnedDown ? { reason: o.turnedDown.reason || null, at: o.turnedDown.at || null } : null,
   }));
@@ -181,7 +182,7 @@ function waitingItem({ q, view, origin, marked }) {
   const outputs = q.forTask && Array.isArray(q.submittedOutputs)
     ? q.submittedOutputs.map(o => ({
       title: o.title || '', kind: o.kind || 'text', body: o.body || '',
-      file: o.file || null, notes: o.notes || null, prompt: o.prompt || null,
+      file: o.file || null, link: o.link || null, notes: o.notes || null, prompt: o.prompt || null,
     }))
     : [];
   const changes = q.forTask
