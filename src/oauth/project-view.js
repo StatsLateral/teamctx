@@ -433,10 +433,23 @@ export async function readContributionsView({ owner, repo, user }) {
  * Any member who may see the record may see its trail — scoped like every other
  * read, never manager-gated. Reads ambiently through the session openProject set
  * up, so recordTrailFor takes no directory here.
+ *
+ * Names are gated the same way the rest of the page gates them: a contributor
+ * or approver is named only when they are a manager or on this roster (or vouched
+ * through an approval), and shown as "someone" otherwise — so a scoped reader
+ * never sees a name here that the task history and outputs would hide.
  */
 export async function readRecordTrailView({ owner, repo, user, id }) {
-  return openProject({ owner, repo, user }, async ({ config, allowed }) => {
-    const trail = recordTrailFor({ scope: allowed, id, canSee: () => true });
+  return openProject({ owner, repo, user }, async ({ config, isManager, allowed }) => {
+    const roster = listMembers({});
+    const managerSet = new Set(managerKeys(config));
+    const rosterKeys = new Set(roster.map(m => m.key).filter(Boolean));
+    const visible = new Set(roster.map(m => m.name).filter(Boolean));
+    for (const a of Object.values(readApprovals())) {
+      const { name, key } = a.approvedBy || {};
+      if (name && key && (managerSet.has(key) || rosterKeys.has(key))) visible.add(name);
+    }
+    const trail = recordTrailFor({ scope: allowed, id, canSee: (name) => isManager || visible.has(name) });
     return { project: config.project, owner, repo, trail };
   });
 }

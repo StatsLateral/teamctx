@@ -2362,4 +2362,22 @@ describe("a record's trail (#265)", () => {
     const r = await visit('/project/acme/ledger/record/t1', MEMBER_GOOGLE);
     expect(r.status).toBe(404);
   });
+
+  it("names a contributor not on the roster as 'someone' to a scoped member", async () => {
+    lend();
+    // c-loose's author 'Nobody' is not on the roster, so a non-manager must not
+    // see the real name here any more than in the task history or outputs.
+    repo.files.set('.teamctx/workstreams/product.json', JSON.stringify({
+      id: 'product', name: 'Product',
+      records: [{ id: 'w2', type: 'decision', text: 'ghost-authored', status: 'active', links: {}, createdBy: 'c-loose', createdAt: '2026-01-01' }],
+      tasks: [],
+    }));
+    const member = await visit('/project/acme/ledger/record/w2', MEMBER_GOOGLE);
+    expect(member.status).toBe(200);
+    expect(member.body).not.toContain('Nobody');
+    expect(member.body).toContain('someone');
+    // The manager, by contrast, sees the real name.
+    const manager = await visit('/project/acme/ledger/record/w2', MANAGER);
+    expect(manager.body).toContain('Nobody');
+  });
 });
