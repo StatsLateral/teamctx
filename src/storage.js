@@ -340,6 +340,59 @@ export function listOutputs(taskId, dir) {
     .map(name => parse(readFileSync(join(d, name), 'utf-8'))));
 }
 
+/**
+ * The bytes of a file output, beside its record: `outputs/<task>/files/<name>`
+ * (#244). The name already carries the output id, so it is unique; the file is
+ * written once and never overwritten, matching the append-only output records.
+ *
+ * Binary cannot pass through the hosted session, which keeps file contents as
+ * UTF-8 text, so writing one there is refused until the hosted upload path is
+ * built (#247). Local and clone-backed writes go straight to disk.
+ *
+ * Returns the repository-relative path stored on the record.
+ */
+export function writeOutputFile(taskId, fileName, bytes, dir) {
+  sanitizeTaskId(taskId);
+  const safe = String(fileName);
+  if (safe.includes('/') || safe.includes('\\') || safe.includes('..')) {
+    throw new Error(`unsafe output file name: ${fileName}`);
+  }
+  if (!(bytes instanceof Uint8Array)) throw new Error('output file bytes must be a Uint8Array');
+  if (getCurrentSession()) {
+    throw new Error('attaching a file is not supported in hosted mode yet; use the command line');
+  }
+  const d = resolve(dir, 'outputs', taskId, 'files');
+  mkdirSync(d, { recursive: true });
+  const full = join(d, safe);
+  if (existsSync(full)) throw new Error(`output file already exists: ${safe}`);
+  // 'wx' fails rather than overwrites, so a reused name cannot clobber bytes.
+  const fd = openSync(full, 'wx');
+  try {
+    writeFileSync(fd, bytes);
+  } finally {
+    closeSync(fd);
+  }
+  return ['outputs', taskId, 'files', safe].join('/');
+}
+
+/**
+ * The bytes of a file output previously written by {@link writeOutputFile}.
+ *
+ * `fileName` is the on-disk name, which carries the output-id prefix — i.e.
+ * `basename(output.file.path)`, not `output.file.name` (that is the display
+ * name without the prefix). Read bytes by deriving from the record's `path`.
+ */
+export function readOutputFile(taskId, fileName, dir) {
+  sanitizeTaskId(taskId);
+  const safe = String(fileName);
+  if (safe.includes('/') || safe.includes('\\') || safe.includes('..')) {
+    throw new Error(`unsafe output file name: ${fileName}`);
+  }
+  const full = resolve(dir, 'outputs', taskId, 'files', safe);
+  if (!existsSync(full)) return null;
+  return readFileSync(full);
+}
+
 // ---- Change log ----
 
 /**

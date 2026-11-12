@@ -40,6 +40,7 @@ snapshots.
 | `teamctx task assign <id> --owner <name>` | Reassign. |
 | `teamctx task rm <id>` | Remove the task and its compiled prompt file (if any). |
 | `teamctx task compile <id> [--role <slug>] [--force]` | **AI call.** Generate the prompt file. |
+| `teamctx task attach <id> <path> [--title ...] [--note ...]` | Attach a file (up to 10 MB) as a working output, stored in the repo. Reads from disk — no bytes pass through an assistant. Allowed types: png, jpg, gif, webp, pdf, csv, txt, md, json, docx, xlsx, pptx. |
 
 ## `task compile` in detail
 

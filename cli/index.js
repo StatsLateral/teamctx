@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import dotenv from 'dotenv';
-dotenv.config({ path: '.env.local' });
-dotenv.config();
+dotenv.config({ path: '.env.local', quiet: true });
+dotenv.config({ quiet: true });
 import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
@@ -36,7 +36,7 @@ import { workstreamProposeCommand, workstreamListCommand, workstreamUseCommand, 
 import {
   taskAddCommand, taskListCommand, taskShowCommand,
   taskDoneCommand, taskReopenCommand, taskAssignCommand, taskRmCommand,
-  taskCompileCommand,
+  taskCompileCommand, taskAttachCommand,
 } from './commands/task.js';
 import { getTeamctxDir } from '../src/storage.js';
 import { runWithActor } from '../src/actor.js';
@@ -189,6 +189,10 @@ task.command('compile <id>').description('Generate an AI-ready prompt file for t
   .option('--role <slug>', 'Frame the prompt for a specific role')
   .option('--force', 'Regenerate even if the workstream has not changed since last compile')
   .action(taskCompileCommand);
+task.command('attach <id> <path>').description('Attach a file as a working output on the task (up to 10 MB; stored in the repo)')
+  .option('--title <text>', 'A title for the output (default: the file name)')
+  .option('--note <text>', 'A note for the manager about what the file is')
+  .action(taskAttachCommand);
 
 const config = program.command('config').description('View or change project settings');
 config.command('name [value]').description('Get or set your own display name on contributions (personal; not committed)')

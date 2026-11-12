@@ -16,6 +16,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `review_approve` flags work that is linked, the result carries `carryOut`, and the assistant
   is told to offer to add a comment on each ticket, only after the person agrees, and never to
   change a ticket's status, owner or description. teamctx writes nothing to the other tool (#301).
+- **Attach a file as a task output.** `teamctx task attach <task> <path>` keeps a
+  deliverable — an image, a PDF, a spreadsheet — in the project’s repository as a
+  working output, up to 10 MB, reviewed like any other output. The type is checked
+  from the file’s bytes, not just its name; allowed: png, jpg, gif, webp, pdf, csv,
+  txt, md, json, docx, xlsx, pptx. A file over the limit or of another type is
+  refused, never trimmed.
+
+### Fixed
+- **A failed sign-in no longer shows the internal error.** A hosted deployment
+  with no encryption key configured refused to store the session and rendered
+  the raw error — including the session key — on the page. The person now sees a
+  clean message (and, when a key is missing, a note to configure one); the
+  detail goes to the server log.
 
 ## [0.5.3] - 2026-11-09
 

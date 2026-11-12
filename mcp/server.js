@@ -2325,7 +2325,7 @@ export function buildServer(projectRoot) {
 export async function startMcpServer({ projectDir } = {}) {
   const projectRoot = projectDir ? pathResolve(projectDir) : resolveProjectDir();
   const envLocalPath = join(projectRoot, '.env.local');
-  if (existsSync(envLocalPath)) dotenv.config({ path: envLocalPath });
+  if (existsSync(envLocalPath)) dotenv.config({ path: envLocalPath, quiet: true });
 
   const server = buildServer(projectRoot);
   const transport = new StdioServerTransport();
