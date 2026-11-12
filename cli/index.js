@@ -21,6 +21,7 @@ import { statsCommand } from './commands/stats.js';
 import { DEFAULT_WINDOW_DAYS } from '../src/metrics.js';
 import { configManagerCommand, configModelCommand, configGithubRawBaseCommand, configManagerEmailCommand, configDeployUrlCommand, configProviderCommand, configNameCommand, configReviewPolicyCommand } from './commands/config.js';
 import { reviewListCommand, reviewApproveCommand, reviewRejectCommand } from './commands/review.js';
+import { recordHistoryCommand } from './commands/records.js';
 import {
   managerListCommand, managerAddCommand, managerRemoveCommand, managerTransferCommand,
 } from './commands/manager.js';
@@ -132,6 +133,10 @@ member.command('external <username-or-email>').description('List a member as ext
 member.command('list').description('List project members').action(memberListCommand);
 member.command('rm <username-or-email>').description('Remove someone from the project roster (does not revoke GitHub access)')
   .action(memberRmCommand);
+
+const record = program.command('record').description('Read the governed records — decisions, rules, assumptions');
+record.command('history <id>').description("Show a record's trail: its versions, who changed it, and what it replaced")
+  .action(recordHistoryCommand);
 
 const review = program.command('review').description('Review pending contributions awaiting manager approval');
 review.command('list').description('List all pending contributions').action(reviewListCommand);

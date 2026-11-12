@@ -4,6 +4,7 @@ import { readConfig, readProject, readWorkstream, listTasks, readContributions, 
 import { saveFileOutput, assertNotAccepted } from '../../cli/commands/task.core.js';
 import { MAX_PAGE_UPLOAD_BYTES } from '../file-output.js';
 import { outputStates, outputsForReader } from '../outputs.js';
+import { recordTrailFor } from '../../cli/commands/records.core.js';
 import { visibleSources } from '../sources.js';
 import { taskHistory, touchesTask } from '../task-history.js';
 import { listAllWorkstreams } from '../../cli/commands/workstream.core.js';
@@ -514,6 +515,20 @@ export async function storeTicketedUpload({ record, bytes } = {}) {
       source: 'web', actor: actor || undefined, maxBytes: maxBytes || MAX_PAGE_UPLOAD_BYTES,
     });
     return { output, task: { id: task.id, key: task.key || null, workstream: task.workstream } };
+  });
+}
+
+/**
+ * One record's trail for the page (#265): its versions oldest → newest, who
+ * changed and approved it, and the records it replaced or that replaced it.
+ * Any member who may see the record may see its trail — scoped like every other
+ * read, never manager-gated. Reads ambiently through the session openProject set
+ * up, so recordTrailFor takes no directory here.
+ */
+export async function readRecordTrailView({ owner, repo, user, id }) {
+  return openProject({ owner, repo, user }, async ({ config, allowed }) => {
+    const trail = recordTrailFor({ scope: allowed, id, canSee: () => true });
+    return { project: config.project, owner, repo, trail };
   });
 }
 
