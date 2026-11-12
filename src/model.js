@@ -39,6 +39,25 @@ const recordSchema = {
       },
     },
     sourceContributionIds: IDS,
+    // Set on a replaced record, pointing at the record that replaced it, so the
+    // chain walks both ways (new → old is `links.replaces`). (#265)
+    replacedBy: { type: ['string', 'null'] },
+    // The record's earlier wording, oldest first. An edit of `text` or `detail`
+    // appends the superseded values here instead of discarding them, so a
+    // record's trail can be read without digging through git. `at` is the date
+    // that version carried; `byContribution` is the contribution that changed
+    // it. Absent on records written before this existed — read as no history,
+    // never an error. (#265)
+    history: {
+      type: 'array',
+      items: {
+        type: 'object', required: ['text'],
+        properties: {
+          text: { type: 'string' }, detail: { type: 'string' },
+          at: { type: ['string', 'null'] }, byContribution: { type: ['string', 'null'] },
+        },
+      },
+    },
     // Added only through review, by `addEvidence`. The text is a quote; who,
     // where from and when come from the contribution, never from the model.
     evidence: {

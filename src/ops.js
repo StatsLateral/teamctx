@@ -75,7 +75,11 @@ function addRecord(tree, op, c, refs, dropped, onDay, where) {
   if (op.ref) refs.set(op.ref, record.id);
   let records = [...tree.records, record];
   if (record.links.replaces) {
-    records = records.map(r => r.id === record.links.replaces ? { ...withSource(r, c), status: 'replaced', updatedAt: onDay } : r);
+    // Mark the old record replaced, and point it at its replacement so the
+    // chain walks both ways — new → old is `links.replaces`, old → new is this (#265).
+    records = records.map(r => r.id === record.links.replaces
+      ? { ...withSource(r, c), status: 'replaced', replacedBy: record.id, updatedAt: onDay }
+      : r);
   }
   return { ...tree, records };
 }
@@ -99,6 +103,17 @@ function editRecord(tree, op, c, dropped, onDay, where) {
   if (EDITABLE_RECORD_FIELDS.every(k => JSON.stringify(next[k]) === JSON.stringify(current[k]))) {
     dropped.push({ op, reason: 'the edit changes nothing' });
     return tree;
+  }
+  // Keep the earlier wording when text or detail changes, so a record's trail
+  // is readable without digging through git (#265). Other edits (owner, links,
+  // dates) do not touch the wording, so they add nothing to the history.
+  const reworded = (('text' in changes) && changes.text !== current.text)
+    || (('detail' in changes) && changes.detail !== current.detail);
+  if (reworded) {
+    next.history = [
+      ...(current.history || []),
+      { text: current.text, detail: current.detail, at: current.updatedAt, byContribution: c },
+    ];
   }
   const v = validateRecord(next);
   if (!v.ok) { dropped.push({ op, reason: v.errors.join('; ') }); return tree; }
