@@ -87,7 +87,7 @@ function honestSummary(summary, contribution) {
 /** Dropped only for being sent to the other tree, which a founding contribution routes. */
 const WRONG_TREE = /^(?:the goal belongs to the project|a task belongs to a workstream)/;
 
-export async function updateShared(tree, contribution, config, { intent, avoid, comparisonRecords, siblings = [], operationsToCheck, founding = false } = {}) {
+export async function updateShared(tree, contribution, config, { intent, avoid, comparisonRecords, siblings = [], operationsToCheck, impactToCheck, founding = false } = {}) {
   const proposal = await proposeDiff({
     workstream: tree,
     contribution: contribution.text,
@@ -100,7 +100,14 @@ export async function updateShared(tree, contribution, config, { intent, avoid, 
     siblings,
     operationsToCheck,
   });
-  const { contradictions = [], impact = [] } = proposal;
+  const { contradictions = [], impact: proposedImpact = [] } = proposal;
+  // An operations-only recheck asks the model for contradictions alone, so it
+  // returns no impact. The caller's first-pass impact is re-anchored here —
+  // its operationIndex points into `operationsToCheck`, which is `operations`,
+  // so the same keptOps remap below drops any hit whose operation was dropped
+  // and moves the survivors, instead of leaving stale indices (#266).
+  const impact = operationsToCheck && proposedImpact.length === 0 && Array.isArray(impactToCheck)
+    ? impactToCheck : proposedImpact;
   const summary = honestSummary(proposal.summary, contribution);
   const operations = stampEvidence(operationsToCheck ?? proposal.operations, contribution, tree);
   const { tree: updated, dropped: refused, nextKey } = applyOps(tree, operations, contribution.id, {

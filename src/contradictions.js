@@ -50,8 +50,11 @@ export function normalizeImpact(raw, operations, siblings) {
     const index = hit?.operationIndex;
     const op = Number.isInteger(index) && index >= 0 ? operations[index] : null;
     if (!op || !['addRecord', 'editRecord'].includes(op.type)) continue;
+    // Match on the record id, which is unique across the project; a sibling
+    // always carries a real workstream id, so tolerate a model that omits or
+    // nulls it, while still rejecting one that names a different workstream.
     const match = siblings.find(r => r.id === hit?.recordId
-      && (hit.workstream === undefined || r.workstream === hit.workstream));
+      && (hit.workstream == null || r.workstream === hit.workstream));
     if (!match) continue;
     if (result.some(r => r.operationIndex === index && r.record.id === match.id)) continue;
     const reason = typeof hit.reason === 'string' ? hit.reason.trim() : '';

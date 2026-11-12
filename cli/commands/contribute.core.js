@@ -17,6 +17,7 @@ import { resolveActor } from '../../src/actor.js';
 import { resolveActiveWorkstream, resolveDisplayName } from '../../src/prefs.js';
 import { announceQueued } from '../../src/slack-notify.js';
 import { comparisonRecords, comparisonFingerprint, siblingRecords } from '../../src/contradictions.js';
+import { scopeFor, inScope } from '../../src/member-scope.js';
 
 function newContribution({ text, author, authorKey, tagged, source, workstream }) {
   const idPrefix = source === 'mcp' ? 'mcp' : 'c';
@@ -182,15 +183,23 @@ export async function contributeCore({
   const latestComparisons = comparisonRecords({ config: latestConfig, target: targetId, teamctxDir });
   if (comparisonFingerprint(comparisons) !== comparisonFingerprint(latestComparisons)) {
     comparisons = latestComparisons;
-    const checked = await updateShared(readTree(targetId, teamctxDir), contribution, latestConfig, { intent, avoid, comparisonRecords: comparisons, siblings, operationsToCheck: proposal.operations, founding: founding && mayApply });
-    // The re-check is about contradiction freshness; keep the first pass's
-    // advisory impact rather than losing it to the operations-only recheck.
-    proposal = { ...checked, summary: proposal.summary, impact: proposal.impact || checked.impact, dropped: [...(proposal.dropped || []), ...(checked.dropped || [])] };
+    // The re-check is about contradiction freshness; the first pass's advisory
+    // impact is carried in through `impactToCheck` so it re-anchors to the ops
+    // this recheck keeps, rather than being kept at the first pass's indices.
+    const checked = await updateShared(readTree(targetId, teamctxDir), contribution, latestConfig, { intent, avoid, comparisonRecords: comparisons, siblings, operationsToCheck: proposal.operations, impactToCheck: proposal.impact, founding: founding && mayApply });
+    proposal = { ...checked, summary: proposal.summary, dropped: [...(proposal.dropped || []), ...(checked.dropped || [])] };
     if (comparisonFingerprint(comparisons) !== comparisonFingerprint(comparisonRecords({ config: readConfig(teamctxDir), target: targetId, teamctxDir }))) {
       throw new Error('Context changed again during the contradiction check. The contribution was logged; try it again before applying.');
     }
   }
   const { summary, operations, dropped = [], contradictions = [], impact = [] } = proposal;
+  // Possible impact is gathered unscoped so the queue item carries all of it for
+  // the manager, who filters it by their own scope at review. The contributor's
+  // immediate result, though, must respect the contributor's scope: a member
+  // scoped out of a sibling part must never have its records named back to them
+  // in the tool result (#266). The manager is unscoped, so they still see all.
+  const contributorScope = scopeFor(config, resolved, { isManager: canApprove(config, { actor: resolved, displayName: resolvedName }) });
+  const visibleImpact = impact.filter(h => inScope(contributorScope, h.record?.workstream));
   // What it was drawn from leaves a trace once it actually reaches the project
   // (queued or applied), written just before that commit, so a contribution
   // that is discarded, changes nothing, or fails a check leaves none. A
@@ -280,7 +289,7 @@ export async function contributeCore({
       id: contribution.id, workstream: targetId, author: actor, source,
       mode: 'queued', summary, operations, pushed, pushError,
       ...(queuedNumber ? { number: queuedNumber } : {}),
-      ...(impact.length ? { siblingImpact: impact } : {}),
+      ...(visibleImpact.length ? { siblingImpact: visibleImpact } : {}),
       ...(contradictions.length ? { contradictions, ...(apply ? { applyRefused: true } : {}) } : {}),
       // Asked to apply, and evidence kept it in the queue: said the same way as
       // for a contradiction, so the assistant reports "sent for review".

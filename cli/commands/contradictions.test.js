@@ -373,6 +373,17 @@ describe('normalizeImpact (#266)', () => {
     expect(normalizeImpact([{ operationIndex: 0, recordId: 'nope', workstream: 'other' }], ops, siblings)).toEqual([]);
   });
 
+  it('matches on the record id even when the model omits or nulls the workstream', () => {
+    const byId = normalizeImpact([{ operationIndex: 0, recordId: 'o1', reason: 'r' }], ops, siblings);
+    expect(byId).toEqual([{ operationIndex: 0, record: siblings[0], reason: 'r' }]);
+    const withNull = normalizeImpact([{ operationIndex: 0, recordId: 'o1', workstream: null, reason: 'r' }], ops, siblings);
+    expect(withNull).toEqual([{ operationIndex: 0, record: siblings[0], reason: 'r' }]);
+  });
+
+  it('still rejects a hit that names a different, wrong workstream', () => {
+    expect(normalizeImpact([{ operationIndex: 0, recordId: 'o1', workstream: 'elsewhere' }], ops, siblings)).toEqual([]);
+  });
+
   it('drops everything and never throws on a malformed answer', () => {
     expect(normalizeImpact('not an array', ops, siblings)).toEqual([]);
     expect(normalizeImpact([{ operationIndex: 9, recordId: 'o1' }], ops, siblings)).toEqual([]);
@@ -394,6 +405,27 @@ describe('sibling-workstream impact through the contribute pipeline (#266)', () 
     await run(() => contributeCore({ text: newText, teamctxDir: dir, workstream: 'launch' }));
     const item = listQueue(dir).find(q => (q.operations || []).some(o => o.record?.text === newText));
     // The ghost (not in the sibling set) is dropped; the real one keeps the model reason.
+    expect(item.siblingImpact).toEqual([
+      { operationIndex: 0, record: { id: 'sib', type: 'decision', text: 'Other thing', workstream: 'other' }, reason: 'both set the launch date' },
+    ]);
+  });
+
+  it('keeps full impact on the queue item but filters the contributor result to their scope', async () => {
+    // A member scoped to launch (and its child pricing) contributes to launch;
+    // the model flags a record in the sibling "other", which they cannot see.
+    writeConfig({ ...readConfig(dir), members: [{ key: 'git:member@x', name: 'Member', email: 'member@x', workstreams: ['launch'] }] }, dir);
+    writeWorkstream('other', makeWorkstream('other', { records: [makeRecord({ id: 'sib', type: 'decision', text: 'Other thing' })] }), dir);
+    complete.mockResolvedValue(JSON.stringify({
+      summary: 's', operations: [add(newText)],
+      contradictions: [{ operationIndex: 0, recordId: 'old', workstream: null }],
+      impact: [{ operationIndex: 0, recordId: 'sib', workstream: 'other', reason: 'both set the launch date' }],
+    }));
+    const member = { key: 'git:member@x', name: 'Member', email: 'member@x', source: 'git' };
+    const result = await runWithActor(member, () => contributeCore({ text: newText, teamctxDir: dir, workstream: 'launch' }));
+    // The contributor, scoped out of "other", is told nothing about its records.
+    expect(result.siblingImpact).toBeUndefined();
+    // The manager still sees it at review: the queue item keeps the full list.
+    const item = listQueue(dir).find(q => (q.operations || []).some(o => o.record?.text === newText));
     expect(item.siblingImpact).toEqual([
       { operationIndex: 0, record: { id: 'sib', type: 'decision', text: 'Other thing', workstream: 'other' }, reason: 'both set the launch date' },
     ]);
