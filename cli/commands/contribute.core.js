@@ -263,7 +263,7 @@ export async function contributeCore({
         author: contribution.author, source, workstream: targetId,
         text: contribution.text, tagged: contribution.tagged, summary, operations,
         ...(contradictions.length ? { contradictions } : {}),
-        ...(impact.length ? { impact } : {}),
+        ...(impact.length ? { siblingImpact: impact } : {}),
         ...(droppedReasons.length ? { dropped: droppedReasons } : {}),
       }, teamctxDir);
     });
@@ -280,7 +280,7 @@ export async function contributeCore({
       id: contribution.id, workstream: targetId, author: actor, source,
       mode: 'queued', summary, operations, pushed, pushError,
       ...(queuedNumber ? { number: queuedNumber } : {}),
-      ...(impact.length ? { impact } : {}),
+      ...(impact.length ? { siblingImpact: impact } : {}),
       ...(contradictions.length ? { contradictions, ...(apply ? { applyRefused: true } : {}) } : {}),
       // Asked to apply, and evidence kept it in the queue: said the same way as
       // for a contradiction, so the assistant reports "sent for review".

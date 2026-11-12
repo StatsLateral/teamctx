@@ -378,3 +378,35 @@ describe('normalizeImpact (#266)', () => {
     expect(normalizeImpact([{ operationIndex: 9, recordId: 'o1' }], ops, siblings)).toEqual([]);
   });
 });
+
+describe('sibling-workstream impact through the contribute pipeline (#266)', () => {
+  it('records the model impact on the queued item, validated against the real sibling set', async () => {
+    writeWorkstream('other', makeWorkstream('other', { records: [makeRecord({ id: 'sib', type: 'decision', text: 'Other thing' })] }), dir);
+    complete.mockResolvedValue(JSON.stringify({
+      summary: 'Change the entry offer',
+      operations: [add(newText)],
+      contradictions: [{ operationIndex: 0, recordId: 'old', workstream: null }],
+      impact: [
+        { operationIndex: 0, recordId: 'sib', workstream: 'other', reason: 'both set the launch date' },
+        { operationIndex: 0, recordId: 'ghost', workstream: 'other', reason: 'not a real record' },
+      ],
+    }));
+    await run(() => contributeCore({ text: newText, teamctxDir: dir, workstream: 'launch' }));
+    const item = listQueue(dir).find(q => (q.operations || []).some(o => o.record?.text === newText));
+    // The ghost (not in the sibling set) is dropped; the real one keeps the model reason.
+    expect(item.siblingImpact).toEqual([
+      { operationIndex: 0, record: { id: 'sib', type: 'decision', text: 'Other thing', workstream: 'other' }, reason: 'both set the launch date' },
+    ]);
+  });
+
+  it('records no impact when the model flags none', async () => {
+    writeWorkstream('other', makeWorkstream('other', { records: [makeRecord({ id: 'sib', type: 'decision', text: 'Other thing' })] }), dir);
+    complete.mockResolvedValue(JSON.stringify({
+      summary: 's', operations: [add(newText)],
+      contradictions: [{ operationIndex: 0, recordId: 'old', workstream: null }], impact: [],
+    }));
+    await run(() => contributeCore({ text: newText, teamctxDir: dir, workstream: 'launch' }));
+    const item = listQueue(dir).find(q => (q.operations || []).some(o => o.record?.text === newText));
+    expect(item.siblingImpact).toBeUndefined();
+  });
+});

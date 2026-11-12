@@ -307,6 +307,11 @@ export async function readProjectView({ owner, repo, user }) {
         reachLines: q.reachLines || [],
         contradictions: Array.isArray(q.contradictions) ? q.contradictions : [],
         impact: impactOf(q.operations),
+        // Possible impact on sibling workstreams (#266), gated here to the
+        // reviewer's scope: a sibling they cannot see never appears, however it
+        // was gathered when the contribution was made.
+        siblingImpact: (Array.isArray(q.siblingImpact) ? q.siblingImpact : [])
+          .filter(h => h?.record && inScope(allowed, resolveTarget(h.record.workstream))),
         workstream: resolveTarget(q.workstream),
         where: workstreamLocation(workstreams, resolveTarget(q.workstream), config.project),
         // A change to a task shows that task's whole history, this submission at
