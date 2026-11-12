@@ -1,6 +1,7 @@
-import { readConfig, readProject, readWorkstream } from '../../src/storage.js';
+import { readConfig, readProject, readWorkstream, readContributions, readApprovals } from '../../src/storage.js';
 import { isActive, numberWorkstreams, workstreamTree, today } from '../../src/model.js';
 import { inScope } from '../../src/member-scope.js';
+import { recordTrail } from '../../src/record-history.js';
 
 /**
  * Reading governed records — rules, decisions, assumptions, exceptions, open
@@ -53,4 +54,26 @@ export function getRecord({ teamctxDir, scope = null, id } = {}) {
     if (r) return { ...r, workstream: ws, number: ws ? numberWorkstreams(config).get(ws) || null : null };
   }
   throw new RecordNotFoundError(id);
+}
+
+/**
+ * A record's trail (#265): its versions oldest → newest, who changed and
+ * approved it, and the records it replaced or that replaced it. Reads only the
+ * parts of the work the caller may see, and `canSee` decides whose names it may
+ * show — a name it may not comes back as "someone", never guessed.
+ */
+export function recordTrailFor({ teamctxDir, scope = null, id, canSee = () => true } = {}) {
+  const config = readConfig(teamctxDir);
+  let record = null;
+  const records = [];
+  for (const { tree } of visibleTrees(teamctxDir, config, scope)) {
+    for (const r of (tree.records || [])) {
+      records.push(r);
+      if (r.id === id) record = r;
+    }
+  }
+  if (!record) throw new RecordNotFoundError(id);
+  const contributions = Object.fromEntries(readContributions(teamctxDir).map(c => [c.id, c]));
+  const approvals = readApprovals(teamctxDir);
+  return recordTrail({ record, records, contributions, approvals, canSee });
 }
