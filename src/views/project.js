@@ -153,6 +153,19 @@ h1{font-size:28px;line-height:1.25;margin:0 0 .35rem}
 .out .otitle{font-weight:600;margin:0 0 4px;overflow-wrap:anywhere}
 .out .obody{white-space:pre-wrap;line-height:1.5;margin:0;overflow-wrap:anywhere}
 .out .onote{font-size:12px;color:var(--muted, #666);margin:6px 0 0;white-space:pre-wrap;overflow-wrap:anywhere}
+.out .onote.hash{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px}
+a.dl{display:inline-block;font-size:12px;margin:0 0 8px;padding:0 10px;color:var(--link, #1a56db);text-decoration:none}
+.out a.dl{padding:4px 0 0}
+a.dl:hover{text-decoration:underline}
+/* Attach a file: a small form under the working outputs. */
+.attachform{border:1px dashed var(--line, #ddd);border-radius:6px;padding:10px;margin:0 0 10px}
+.attachform input[type=text]{display:block;width:100%;box-sizing:border-box;margin:6px 0 0;padding:6px 8px;font:inherit;border:1px solid var(--line, #ccc);border-radius:5px;background:var(--bg, #fff);color:inherit}
+.attachform input[type=file]{display:block;margin:4px 0 0;font-size:13px;max-width:100%}
+.attachrow{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:8px}
+.attachbtn{padding:6px 14px;font:inherit;border:1px solid var(--line, #ccc);border-radius:5px;background:var(--ink, #1a1a1a);color:var(--bg, #fff);cursor:pointer}
+.attachbtn:hover{opacity:.9}
+.attachform .hint{font-size:12px;color:var(--muted, #666)}
+.attachform code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px}
 .plain li{margin:0 0 .4rem;line-height:1.45;overflow-wrap:anywhere}
 /* A task's history: the date, who, what happened, one line each. */
 .hstatus{margin:0 0 .4rem;font-size:13px;color:var(--ink);font-weight:600}
@@ -340,12 +353,18 @@ const SCRIPT = `
   // whole text. Text nodes throughout: these are somebody else's words.
   var STATE_WORDS = { working: 'working', submitted: 'waiting for the manager', accepted: 'accepted' };
   function fmtBytes(n) { return n >= 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.ceil(n / 1024) + ' KB'; }
-  // A file output has no text body; show what the file is instead. A download
-  // link comes with the project-page upload work (#247).
+  // A file or link output has no text body; show what it is instead. A download
+  // link for a file comes with the project-page upload work (#247).
   function outputText(o) {
-    return (o.kind === 'file' && o.file)
-      ? 'File: ' + o.file.name + ' (' + o.file.type + ', ' + fmtBytes(o.file.size) + ')'
-      : o.body;
+    if (o.kind === 'file' && o.file) {
+      return 'File: ' + o.file.name + ' (' + o.file.type + ', ' + fmtBytes(o.file.size) + ')';
+    }
+    if (o.kind === 'link' && o.link) {
+      var where = o.link.url || o.link.title || 'a cloud file';
+      var ver = o.link.version ? ' (version ' + o.link.version + ')' : '';
+      return 'Link: ' + where + ver;
+    }
+    return o.body;
   }
   function showWork(items) {
     var wrap = document.getElementById('d-work-wrap');
@@ -367,6 +386,7 @@ const SCRIPT = `
         d.appendChild(td);
       }
       var body = document.createElement('p'); body.className = 'wbody'; body.textContent = outputText(o); d.appendChild(body);
+      if (o.dl) { var dla = document.createElement('a'); dla.className = 'dl'; dla.href = o.dl; dla.setAttribute('download', ''); dla.textContent = 'Download file'; d.appendChild(dla); }
       if (o.notes) { var n = document.createElement('p'); n.className = 'wnote'; n.textContent = 'Notes: ' + o.notes; d.appendChild(n); }
       if (o.prompt) { var q = document.createElement('p'); q.className = 'wnote'; q.textContent = 'Asked: ' + o.prompt; d.appendChild(q); }
       box.appendChild(d);
@@ -425,6 +445,8 @@ const SCRIPT = `
         var card = document.createElement('div'); card.className = 'out';
         var t = document.createElement('p'); t.className = 'otitle'; t.textContent = o.title; card.appendChild(t);
         var b = document.createElement('p'); b.className = 'obody'; b.textContent = outputText(o); card.appendChild(b);
+        if (o.dl) { var odl = document.createElement('a'); odl.className = 'dl'; odl.href = o.dl; odl.setAttribute('download', ''); odl.textContent = 'Download file'; card.appendChild(odl); }
+        if (o.kind === 'file' && o.file && o.file.sha256) { var h = document.createElement('p'); h.className = 'onote hash'; h.textContent = 'SHA-256: ' + o.file.sha256; card.appendChild(h); }
         if (o.notes) { var n = document.createElement('p'); n.className = 'onote'; n.textContent = 'Notes: ' + o.notes; card.appendChild(n); }
         if (o.prompt) { var q = document.createElement('p'); q.className = 'onote'; q.textContent = 'Asked: ' + o.prompt; card.appendChild(q); }
         outBox.appendChild(card);
@@ -462,6 +484,16 @@ const SCRIPT = `
     document.getElementById('d-text').classList.toggle('done', el.dataset.done === '1');
     showHistory(el.dataset.history ? JSON.parse(el.dataset.history) : null);
     showWork(el.dataset.work ? JSON.parse(el.dataset.work) : []);
+    // A task takes a file; a waiting item does not. The route checks scope again,
+    // so this only points the form at the task it is open on.
+    var attach = document.getElementById('d-attach');
+    if (!queued && el.dataset.attach && el.dataset.done !== '1') {
+      attach.action = el.dataset.attach;
+      attach.hidden = false;
+      try { attach.reset(); } catch (e) { /* older browsers */ }
+    } else {
+      attach.hidden = true;
+    }
     // Plain text only: the summary quotes what a contributor wrote.
     var changed = el.dataset.changed ? JSON.parse(el.dataset.changed) : null;
     var changedList = document.getElementById('d-changed');
@@ -728,6 +760,16 @@ ${note ? `<p class="note">${esc(note)}</p>` : ''}
         <div class="section-title">Working outputs</div>
         <div id="d-work"></div>
       </div>
+      <form id="d-attach" class="attachform" method="POST" enctype="multipart/form-data" hidden>
+        <div class="section-title">Attach a file</div>
+        <input type="file" id="d-attach-file" name="file" required>
+        <input type="text" name="title" maxlength="120" placeholder="Title (optional)">
+        <input type="text" name="note" maxlength="500" placeholder="Note (optional)">
+        <div class="attachrow">
+          <button type="submit" class="attachbtn">Attach file</button>
+          <span class="hint">Up to 4&nbsp;MB here. The command line (<code>teamctx task attach</code>) takes up to 10&nbsp;MB.</span>
+        </div>
+      </form>
       <div id="d-history-wrap" hidden>
         <div class="section-title">History</div>
         <p class="hstatus" id="d-history-status"></p>
