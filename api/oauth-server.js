@@ -19,7 +19,7 @@ import { lendDecision } from '../src/oauth/lend-decision.js';
 import { GithubSession, listUserOrgs, createRepo, slugifyProjectName, suggestAvailableName, listPushableRepos, repoExistence } from '../src/adapters/github.js';
 import { runWithSession } from '../src/session-context.js';
 import { initProject } from '../cli/commands/init.core.js';
-import { readProjectView, readContributionsView, ProjectViewError, StaleSignInError } from '../src/oauth/project-view.js';
+import { readProjectView, readContributionsView, readRecordTrailView, ProjectViewError, StaleSignInError } from '../src/oauth/project-view.js';
 import { TOOLS, callTool } from '../mcp/server.js';
 import { baseUrlFrom } from '../src/base-url.js';
 import { resolveKey } from '../src/numbering.js';
@@ -33,6 +33,8 @@ import { projectsPage } from '../src/views/projects.js';
 import { projectPage } from '../src/views/project.js';
 import { tipsPage } from '../src/views/tips.js';
 import { contributionsPage } from '../src/views/contributions.js';
+import { recordHistoryPage } from '../src/views/record-history-page.js';
+import { RecordNotFoundError } from '../cli/commands/records.core.js';
 import { choosePage, signInPage, lendsNothing } from '../src/views/connect.js';
 import { consentPage } from '../src/views/consent.js';
 import { homePage } from '../src/views/home.js';
@@ -1583,6 +1585,24 @@ app.get('/project/:owner/:repo/contributions', async (req, res) => {
     if (await recoverStaleSignIn(req, res, e, { owner, repo })) return;
     const denied = e instanceof ProjectViewError || e.code === 'MEMBER_ACCESS_DENIED';
     res.status(e.code === 'LEGACY_FORMAT' ? 409 : denied ? 403 : 500).send(errorPage(e.message, { user }));
+  }
+});
+
+/** One governed record's trail — its versions, who changed and approved it (#265). */
+app.get('/project/:owner/:repo/record/:id', async (req, res) => {
+  const user = await currentUser(req);
+  const owner = String(req.params.owner || '');
+  const repo = String(req.params.repo || '');
+  const id = String(req.params.id || '');
+  if (!user) return signInFor(res, `/project/${owner}/${repo}/record/${id}`);
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  try {
+    res.send(recordHistoryPage({ user, view: await readRecordTrailView({ owner, repo, user, id }) }));
+  } catch (e) {
+    if (await recoverStaleSignIn(req, res, e, { owner, repo })) return;
+    const notFound = e instanceof RecordNotFoundError;
+    const denied = e instanceof ProjectViewError || e.code === 'MEMBER_ACCESS_DENIED';
+    res.status(notFound ? 404 : e.code === 'LEGACY_FORMAT' ? 409 : denied ? 403 : 500).send(errorPage(e.message, { user }));
   }
 });
 

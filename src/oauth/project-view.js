@@ -2,6 +2,7 @@ import { GithubSession } from '../adapters/github.js';
 import { runWithSession } from '../session-context.js';
 import { readConfig, readProject, readWorkstream, listTasks, readContributions, readApprovals, listRejected, listQueue, listOutputs, listChanges, prepareChanges, readSourceRefs } from '../storage.js';
 import { outputStates, outputsForReader } from '../outputs.js';
+import { recordTrailFor } from '../../cli/commands/records.core.js';
 import { visibleSources } from '../sources.js';
 import { taskHistory, touchesTask } from '../task-history.js';
 import { listAllWorkstreams } from '../../cli/commands/workstream.core.js';
@@ -423,6 +424,20 @@ export async function readContributionsView({ owner, repo, user }) {
       }))
       .sort((a, b) => String(b.at || '').localeCompare(String(a.at || '')));
     return { project: config.project, owner, repo, contributions };
+  });
+}
+
+/**
+ * One record's trail for the page (#265): its versions oldest → newest, who
+ * changed and approved it, and the records it replaced or that replaced it.
+ * Any member who may see the record may see its trail — scoped like every other
+ * read, never manager-gated. Reads ambiently through the session openProject set
+ * up, so recordTrailFor takes no directory here.
+ */
+export async function readRecordTrailView({ owner, repo, user, id }) {
+  return openProject({ owner, repo, user }, async ({ config, allowed }) => {
+    const trail = recordTrailFor({ scope: allowed, id, canSee: () => true });
+    return { project: config.project, owner, repo, trail };
   });
 }
 

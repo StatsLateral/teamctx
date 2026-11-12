@@ -2329,3 +2329,37 @@ describe('what changed since a task was last worked on', () => {
     });
   });
 });
+
+describe("a record's trail (#265)", () => {
+  beforeEach(() => project());
+
+  it('shows a record\'s versions oldest to newest to the manager', async () => {
+    repo.files.set('.teamctx/workstreams/product.json', JSON.stringify({
+      id: 'product', name: 'Product',
+      records: [{
+        id: 'w1', type: 'decision', text: 'price it high', status: 'active', links: {},
+        createdBy: 'c-prod', createdAt: '2026-01-01', updatedAt: '2026-03-01',
+        history: [{ text: 'price it low', detail: '', at: '2026-01-01', byContribution: 'c-tech' }],
+        sourceContributionIds: ['c-prod'],
+      }],
+      tasks: [],
+    }));
+    const r = await visit('/project/acme/ledger/record/w1', MANAGER);
+    expect(r.status).toBe(200);
+    expect(r.body).toContain('price it low');   // the earlier wording, kept
+    expect(r.body).toContain('price it high');  // the current wording
+    expect(r.body).toContain('Version 1');
+  });
+
+  it('404s for a record that does not exist', async () => {
+    const r = await visit('/project/acme/ledger/record/nope', MANAGER);
+    expect(r.status).toBe(404);
+  });
+
+  it("hides a record outside a member's scope", async () => {
+    lend();
+    // t1 lives in Tech; Priya is scoped to Product only, so it is not found.
+    const r = await visit('/project/acme/ledger/record/t1', MEMBER_GOOGLE);
+    expect(r.status).toBe(404);
+  });
+});
