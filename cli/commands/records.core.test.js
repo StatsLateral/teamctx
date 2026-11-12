@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { writeConfig, writeProject, writeWorkstream, readWorkstream } from '../../src/storage.js';
-import { listRecords, getRecord, RecordNotFoundError } from './records.core.js';
+import { listRecords, getRecord, recordTrailFor, RecordNotFoundError } from './records.core.js';
 import { scopeFor } from '../../src/member-scope.js';
 import { makeRecord, makeConfig } from '../../src/test-fixtures/model.js';
 
@@ -32,6 +32,23 @@ beforeEach(() => {
     makeRecord({ id: 'rec-e', type: 'decision', text: 'Expansion secret' }),
     makeRecord({ id: 'rec-x', type: 'exception', text: 'Soon over', expiresAt: '2026-10-10', links: { bends: 'rec-p' } }),
   ], tasks: [] }, dir);
+});
+
+describe('recordTrailFor (#265)', () => {
+  it("returns a record's versions oldest to newest", () => {
+    writeWorkstream('sales', { id: 'sales', name: 'Sales', records: [
+      makeRecord({ id: 'rec-h', type: 'decision', text: 'Final', createdBy: 'c-1', createdAt: '2026-01-01', updatedAt: '2026-03-01',
+        history: [{ text: 'First', detail: '', at: '2026-01-01', byContribution: 'c-2' }] }),
+    ], tasks: [] }, dir);
+    const t = recordTrailFor({ teamctxDir: dir, scope: null, id: 'rec-h' });
+    expect(t.versions.map(v => v.text)).toEqual(['First', 'Final']);
+    expect(t.versions[1].current).toBe(true);
+  });
+
+  it('refuses a record the caller cannot see', () => {
+    // rec-e lives in Expansion, which the sales-scoped member cannot reach.
+    expect(() => recordTrailFor({ teamctxDir: dir, scope: memberScope(), id: 'rec-e' })).toThrow(RecordNotFoundError);
+  });
 });
 
 describe('listRecords', () => {
