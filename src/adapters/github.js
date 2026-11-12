@@ -25,6 +25,14 @@ const API = 'https://api.github.com';
 const CONTEXT_ROOT = '.teamctx';
 const CHANGES_DIR = `${CONTEXT_ROOT}/changes/`;
 /**
+ * The bytes of a file output live at `.teamctx/outputs/<task>/files/<name>`
+ * (#244). They are binary and can be large, so they are never downloaded up
+ * front with the context: decoding one as UTF-8 would corrupt it, and a page
+ * load does not need it. They are listed (so the tree still carries them) and
+ * fetched by their own bytes only when someone downloads them (`readBytes`).
+ */
+const OUTPUT_FILE_BLOB = /^\.teamctx\/outputs\/[^/]+\/files\//;
+/**
  * Change-log files newer than this are downloaded up front; older ones only
  * when a reader asks for them (#206). Every other file is always downloaded.
  */
@@ -287,8 +295,10 @@ export class GithubSession {
     // file name, so this is decided from the listing alone.
     const cutoff = changeStamp(Date.now() - RECENT_CHANGE_DAYS * 24 * 60 * 60 * 1000);
     const old = (e) => e.path.startsWith(CHANGES_DIR) && e.path.slice(CHANGES_DIR.length, CHANGES_DIR.length + cutoff.length) < cutoff;
-    for (const e of entries) if (old(e)) this.unloaded.set(e.path, e.sha);
-    await Promise.all(entries.filter(e => !old(e)).map(e => this.#fetchBlob(e.path, e.sha)));
+    // Output file bytes are binary and fetched on demand, never decoded here.
+    const deferred = (e) => old(e) || OUTPUT_FILE_BLOB.test(e.path);
+    for (const e of entries) if (deferred(e)) this.unloaded.set(e.path, e.sha);
+    await Promise.all(entries.filter(e => !deferred(e)).map(e => this.#fetchBlob(e.path, e.sha)));
 
     this.prefetched = true;
   }
@@ -325,6 +335,37 @@ export class GithubSession {
 
   write(path, content) {
     this.changes.set(path, String(content));
+  }
+
+  /**
+   * Stage raw bytes for a file, kept as a Buffer so `commit` base64-encodes them
+   * as they are, not through UTF-8 (which would corrupt anything non-text).
+   */
+  writeBytes(path, bytes) {
+    if (!(bytes instanceof Uint8Array)) throw new Error('writeBytes requires a Uint8Array');
+    this.changes.set(path, Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes));
+  }
+
+  /**
+   * The raw bytes of a file, as a Buffer, or `null` if it is not there. Reads a
+   * staged write first, then fetches the committed blob by its sha and decodes
+   * the base64 straight to bytes — never the UTF-8 round-trip `read` does. For
+   * the download route, so an output file never has to be prefetched.
+   */
+  async readBytes(path) {
+    if (this.changes.has(path)) {
+      const staged = this.changes.get(path);
+      if (staged === null) return null;
+      return Buffer.isBuffer(staged) ? staged : Buffer.from(String(staged), 'utf8');
+    }
+    const sha = this.unloaded.get(path) ?? this.files.get(path)?.sha;
+    if (!sha) return null;
+    const res = await this.#ghFetch(`${API}/repos/${this.owner}/${this.repo}/git/blobs/${sha}`);
+    if (res.status === 404) return null;
+    const blob = await res.json();
+    return blob.encoding === 'base64'
+      ? Buffer.from(blob.content, 'base64')
+      : Buffer.from(String(blob.content || ''), 'utf8');
   }
 
   del(path) {
@@ -387,13 +428,15 @@ export class GithubSession {
         blobEntries.push({ path, mode: '100644', type: 'blob', sha: null });
         continue;
       }
+      // A Buffer (staged by writeBytes) is encoded as its own bytes; text goes
+      // through UTF-8. Either way the blob is sent base64, as the API wants.
+      const base64 = Buffer.isBuffer(content)
+        ? content.toString('base64')
+        : Buffer.from(content, 'utf8').toString('base64');
       const blobRes = await this.#ghFetch(`${API}/repos/${this.owner}/${this.repo}/git/blobs`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          content: Buffer.from(content, 'utf8').toString('base64'),
-          encoding: 'base64',
-        }),
+        body: JSON.stringify({ content: base64, encoding: 'base64' }),
       });
       const blob = await blobRes.json();
       blobEntries.push({ path, mode: '100644', type: 'blob', sha: blob.sha });
