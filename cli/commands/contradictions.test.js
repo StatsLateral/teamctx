@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runWithActor } from '../../src/actor.js';
-import { writeConfig, readConfig, writeProject, readProject, writeWorkstream, readWorkstream, readQueueItem, listQueue, writeQueueItem } from '../../src/storage.js';
+import { writeConfig, readConfig, writeProject, readProject, writeWorkstream, readWorkstream, readQueueItem, listQueue, writeQueueItem, readApprovals } from '../../src/storage.js';
 import { makeConfig, makeProject, makeRecord, makeWorkstream } from '../../src/test-fixtures/model.js';
 import { contributeCore } from './contribute.core.js';
 import { approveReview, rejectReview } from './review.core.js';
@@ -408,5 +408,33 @@ describe('sibling-workstream impact through the contribute pipeline (#266)', () 
     await run(() => contributeCore({ text: newText, teamctxDir: dir, workstream: 'launch' }));
     const item = listQueue(dir).find(q => (q.operations || []).some(o => o.record?.text === newText));
     expect(item.siblingImpact).toBeUndefined();
+  });
+});
+
+describe('confirming or dismissing sibling impact at approval (#266)', () => {
+  it("records the manager's call on each, and hands back the confirmed ones to open a follow-up", async () => {
+    writeQueueItem({
+      id: 'q-imp', status: 'pending', createdAt: '2026-01-01', author: 'Member', source: 'mcp',
+      workstream: 'launch', text: 'x', summary: 's',
+      operations: [{ type: 'addRecord', record: { type: 'decision', text: 'A launch decision' } }],
+      siblingImpact: [
+        { operationIndex: 0, record: { id: 'sib1', type: 'decision', text: 'Sib one', workstream: 'other' }, reason: 'shares the date' },
+        { operationIndex: 0, record: { id: 'sib2', type: 'decision', text: 'Sib two', workstream: 'other' }, reason: 'shares the budget' },
+      ],
+    }, dir);
+    const r = await run(() => approveReview({
+      id: 'q-imp',
+      impactDecisions: [
+        { recordId: 'sib1', workstream: 'other', action: 'confirm' },
+        { recordId: 'sib2', workstream: 'other', action: 'dismiss' },
+      ],
+      teamctxDir: dir,
+    }));
+    expect(r.confirmedImpact).toEqual([{ recordId: 'sib1', workstream: 'other', reason: 'shares the date', action: 'confirm' }]);
+    const approvals = readApprovals(dir);
+    expect(approvals['q-imp'].siblingImpact).toEqual([
+      { recordId: 'sib1', workstream: 'other', reason: 'shares the date', action: 'confirm' },
+      { recordId: 'sib2', workstream: 'other', reason: 'shares the budget', action: 'dismiss' },
+    ]);
   });
 });

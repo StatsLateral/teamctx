@@ -470,6 +470,7 @@ export const TOOLS = [
         facts: { type: 'array', description: 'Facts from the accepted work that the manager chose to keep, each { type: "decision"|"assumption"|"rule", text, detail?, owner?, reviewBy? }. Pass only what the manager picked; an assumption needs an owner and a review date.', items: { type: 'object' } },
         taskChanges: { type: 'array', description: 'Changes to other tasks that the manager chose, each { type: "editTask"|"addTask"|"removeTask", id?, title? }. Pass only what the manager picked. An addTask pick creates a follow-on task in the same part as the accepted task (title required, owner optional); editTask needs id and title; removeTask needs id. An accepted task cannot be changed.', items: { type: 'object' } },
         tasks: { type: 'string', enum: ['include', 'leave_out'], description: 'Required when the item proposes tasks (list_pending_reviews and the contribute result list them): \'include\' creates them, \'leave_out\' approves everything else and drops them. Ask the user; never choose for them.' },
+        impactDecisions: { type: 'array', description: 'The manager\'s call on each possibly-affected sibling record the item flagged (from its siblingImpact), each { recordId, workstream, action: "confirm"|"dismiss" }. Pass only what the manager decided; this never blocks the approval. A dismissal is recorded; a confirmation is recorded and returned so you then open a follow-up by contributing the reconciliation to that record\'s part of the work.', items: { type: 'object' } },
       },
       required: ['id'], additionalProperties: false,
     },
@@ -1903,9 +1904,9 @@ export function makeHandlers(projectRoot) {
       });
     },
 
-    async review_approve({ id, replaces, tasks, facts, taskChanges }) {
+    async review_approve({ id, replaces, tasks, facts, taskChanges, impactDecisions }) {
       // No caller-supplied identity: the gate reads the authenticated actor.
-      const r = await approveReview({ id, ...(replaces?.length ? { replaces } : {}), tasks, facts, taskChanges, askAboutTasks: true, teamctxDir: dir(), projectDir: gitCwd });
+      const r = await approveReview({ id, ...(replaces?.length ? { replaces } : {}), tasks, facts, taskChanges, impactDecisions, askAboutTasks: true, teamctxDir: dir(), projectDir: gitCwd });
       // Read after the approval, so what it names is what the tree now says.
       const impact = breakingImpact(dir(), r.operations);
       const link = await this.viewUrl({ ws: r.workstream });
@@ -1914,7 +1915,12 @@ export function makeHandlers(projectRoot) {
       }
       const reportBack = `Tell the user: approved contribution ${r.id} by ${r.author} on ${targetLabel(r.workstream, readConfig(dir()).project)} (${r.operations.length} op${r.operations.length === 1 ? '' : 's'}${r.rolesRegenerated.length ? `, regenerated roles: ${r.rolesRegenerated.join(', ')}` : ''}${r.pushed ? ', pushed' : ''}).`;
       const leftOut = r.tasksLeftOut?.length ? ` Left out ${r.tasksLeftOut.length} proposed task${r.tasksLeftOut.length === 1 ? '' : 's'}: ${r.tasksLeftOut.map(t => t.title).join('; ')}.` : '';
-      return textResult({ ...r, ...link, ...(impact ? { impact } : {}), reportBack: withLink(reportBack + leftOut + (r.changeLogWarning ? ` ${r.changeLogWarning}` : '') + sayImpact(impact), link) });
+      // A confirmed sibling impact (#266) is a prompt to open the follow-up:
+      // contribute the reconciliation to that part of the work.
+      const followUp = r.confirmedImpact?.length
+        ? ` The manager confirmed possible impact on ${r.confirmedImpact.length} record${r.confirmedImpact.length === 1 ? '' : 's'} in other parts of the work — open a follow-up by contributing the reconciliation to each: ${r.confirmedImpact.map(d => `${d.workstream}${d.reason ? ` (${d.reason})` : ''}`).join('; ')}.`
+        : '';
+      return textResult({ ...r, ...link, ...(impact ? { impact } : {}), reportBack: withLink(reportBack + leftOut + followUp + (r.changeLogWarning ? ` ${r.changeLogWarning}` : '') + sayImpact(impact), link) });
     },
 
     async review_reject({ id, reason }) {

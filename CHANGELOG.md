@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Flag possible impact on other parts of the work when a record changes.** When
+  a change to a decision or rule is proposed, the same check that looks for
+  contradictions also looks at the records in sibling parts of the work and lists
+  any the change might affect — each with a one-line reason — for the manager to
+  confirm or dismiss at review. It is advice, never a block, and it respects
+  scope: a part of the work the reviewer cannot see never appears. Confirming one
+  is recorded and prompts a follow-up to reconcile that record; dismissing it is
+  recorded too. A one-part project is unaffected.
+
 ### Fixed
 - **A failed sign-in no longer shows the internal error.** A hosted deployment
   with no encryption key configured refused to store the session and rendered
