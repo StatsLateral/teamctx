@@ -36,22 +36,28 @@ export function recordTrail({ record, records = [], contributions = {}, approval
   const whoOf = (cid) => name(contributions[cid]?.author || null);
   const hist = Array.isArray(record.history) ? record.history : [];
 
-  // Each history entry is a past version's values, with the contribution that
-  // superseded it. So a version's own author is whoever's change produced it:
-  // the first by `createdBy`, each later one by the edit before it in the list.
+  // Each history entry is a past version's values plus the transition that
+  // ended it (`at` = when it was superseded, `byContribution` = the edit that
+  // did so). So a version is dated and attributed by the transition INTO it:
+  // the first by the record's own creation, each later one by the entry before
+  // it. Dating from the transition — not the record's `updatedAt` — keeps an
+  // unrelated metadata edit from mis-dating a version.
+  const intoVersion = (k) => (k === 0
+    ? { by: record.createdBy, at: record.createdAt || null }
+    : { by: hist[k - 1].byContribution, at: hist[k - 1].at || null });
   const versions = hist.map((h, k) => ({
     text: h.text ?? '',
     detail: h.detail ?? '',
-    at: h.at || null,
-    by: whoOf(k === 0 ? record.createdBy : hist[k - 1].byContribution),
-    contribution: (k === 0 ? record.createdBy : hist[k - 1].byContribution) || null,
+    at: intoVersion(k).at,
+    by: whoOf(intoVersion(k).by),
+    contribution: intoVersion(k).by || null,
   }));
   versions.push({
     text: record.text ?? '',
     detail: record.detail ?? '',
-    at: record.updatedAt || record.createdAt || null,
-    by: whoOf(hist.length ? hist[hist.length - 1].byContribution : record.createdBy),
-    contribution: (hist.length ? hist[hist.length - 1].byContribution : record.createdBy) || null,
+    at: intoVersion(hist.length).at || record.updatedAt || null,
+    by: whoOf(intoVersion(hist.length).by),
+    contribution: intoVersion(hist.length).by || null,
     current: true,
   });
 
@@ -61,10 +67,11 @@ export function recordTrail({ record, records = [], contributions = {}, approval
     return r ? { id: r.id, text: r.text ?? '', status: r.status } : { id, text: null, status: null };
   };
 
-  const approval = approvals[record.createdBy]
-    || Object.values(approvals).find((a) => a && a.approvedBy && record.approvedBy) || null;
+  // The approver is the one recorded on the record; the date, when there is one,
+  // comes from the approval of the contribution that created it — not an
+  // arbitrary approval elsewhere in the directory. Absent when none is on record.
   const approved = record.approvedBy
-    ? { by: name(record.approvedBy.name || null), at: approval?.approvedAt || null }
+    ? { by: name(record.approvedBy.name || null), at: approvals[record.createdBy]?.approvedAt || null }
     : null;
 
   return {

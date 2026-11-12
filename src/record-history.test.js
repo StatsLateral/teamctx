@@ -33,6 +33,21 @@ describe('recordTrail (#265)', () => {
     expect(t.versions[2].current).toBe(true);
   });
 
+  it('dates each version from the transition into it, not the record updatedAt (#265)', () => {
+    const record = {
+      id: 'r1', type: 'decision', status: 'active', text: 'Third', detail: '', links: {},
+      createdBy: 'c-1', createdAt: '2026-01-01', updatedAt: '2026-09-09', // bumped by an unrelated metadata edit
+      history: [
+        { text: 'First', detail: '', at: '2026-02-02', byContribution: 'c-2' },
+        { text: 'Second', detail: '', at: '2026-03-03', byContribution: 'c-3' },
+      ],
+    };
+    const t = recordTrail({ record, contributions: contribs });
+    // v0 written at creation; each later version at the edit that produced it;
+    // the current one at the last edit — never the unrelated updatedAt bump.
+    expect(t.versions.map(v => v.at)).toEqual(['2026-01-01', '2026-02-02', '2026-03-03']);
+  });
+
   it('names the record it replaced and the one that replaced it', () => {
     const records = [
       { id: 'old', type: 'decision', status: 'replaced', text: 'Old text' },

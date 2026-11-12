@@ -110,9 +110,13 @@ function editRecord(tree, op, c, dropped, onDay, where) {
   const reworded = (('text' in changes) && changes.text !== current.text)
     || (('detail' in changes) && changes.detail !== current.detail);
   if (reworded) {
+    // `at` is when this wording was superseded (this edit's day), and
+    // `byContribution` the edit that superseded it — together one transition.
+    // The reader dates a version from the transition into it, so an unrelated
+    // metadata edit that moved `updatedAt` never mis-dates a version (#265/#266).
     next.history = [
       ...(current.history || []),
-      { text: current.text, detail: current.detail, at: current.updatedAt, byContribution: c },
+      { text: current.text, detail: current.detail, at: onDay, byContribution: c },
     ];
   }
   const v = validateRecord(next);
