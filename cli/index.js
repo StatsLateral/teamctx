@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import dotenv from 'dotenv';
-dotenv.config({ path: '.env.local' });
-dotenv.config();
+dotenv.config({ path: '.env.local', quiet: true });
+dotenv.config({ quiet: true });
 import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
