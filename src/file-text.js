@@ -25,6 +25,17 @@ export const MAX_EXTRACT_CHARS = 20000;
 /** Types we can turn into text, by extension. pptx is deliberately absent. */
 export const EXTRACTABLE_EXTENSIONS = ['txt', 'md', 'csv', 'json', 'docx', 'xlsx', 'pdf'];
 
+/**
+ * Why a type yields no text, in one line — the single source of that wording, so
+ * the caller that skips unextractable types without reading them says the same
+ * thing this does when it meets one (the pptx download hint above all).
+ */
+export function noTextReason(ext) {
+  const e = String(ext || '').toLowerCase();
+  if (e === 'pptx') return 'text extraction from .pptx is not supported yet; download the file to read it';
+  return `no text can be read from a .${e || '?'} file`;
+}
+
 /** Cap `text` to `maxChars`, marking it when it had to be cut. */
 function bound(text, maxChars) {
   const clean = String(text ?? '').replace(/\u0000/g, '').trimEnd();
@@ -41,6 +52,15 @@ async function fromDocx(bytes) {
   return value;
 }
 
+// The displayed text of one cell. `cell.text` is ExcelJS's own formatted
+// rendering, so a date, a rich-text run, a formula's result and a hyperlink all
+// come out as the string a person would see — where reading `cell.value` would
+// hand back a Date or a {richText} object and lose the content.
+function cellText(cell) {
+  const t = cell?.text;
+  return t == null ? '' : String(t).replace(/\s+/g, ' ').trim();
+}
+
 async function fromXlsx(bytes, maxChars) {
   const ExcelJS = (await import('exceljs')).default ?? (await import('exceljs'));
   const wb = new ExcelJS.Workbook();
@@ -50,9 +70,8 @@ async function fromXlsx(bytes, maxChars) {
   for (const ws of wb.worksheets) {
     parts.push(`# ${ws.name}`);
     ws.eachRow({ includeEmpty: false }, (row) => {
-      // row.values is 1-indexed with a leading hole; drop it and flatten cells.
-      const cells = (Array.isArray(row.values) ? row.values.slice(1) : [])
-        .map((c) => (c == null ? '' : typeof c === 'object' ? (c.text ?? c.result ?? c.hyperlink ?? '') : c));
+      const cells = [];
+      row.eachCell({ includeEmpty: true }, (cell) => cells.push(cellText(cell)));
       const line = cells.join(', ');
       parts.push(line);
       total += line.length;
@@ -100,8 +119,8 @@ export async function extractOutputText(bytes, ext, { maxChars = MAX_EXTRACT_CHA
     else if (e === 'docx') raw = await fromDocx(bytes);
     else if (e === 'xlsx') raw = await fromXlsx(bytes, maxChars);
     else if (e === 'pdf') raw = await fromPdf(bytes, maxChars);
-    else if (e === 'pptx') return none('text extraction from .pptx is not supported yet; download the file to read it');
-    else return none(`no text can be read from a .${e || '?'} file`);
+    else if (e === 'pptx') return none(noTextReason('pptx'));
+    else return none(noTextReason(e));
 
     if (!raw || !raw.trim()) return none('no readable text was found in the file');
     const { text, truncated } = bound(raw, maxChars);

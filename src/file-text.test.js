@@ -13,7 +13,9 @@ let xlsx; let docx; let pdf;
 beforeAll(async () => {
   const wb = new ExcelJS.Workbook();
   const ws = wb.addWorksheet('Sheet1');
-  ws.addRow(['Name', 'Score']); ws.addRow(['Ana', 97]); ws.addRow(['Bo', 88]);
+  ws.addRow(['Name', 'Score', 'Deadline']);
+  ws.addRow(['Ana', 97, new Date(Date.UTC(2027, 0, 5))]);
+  ws.addRow(['Bo', 88, new Date(Date.UTC(2027, 5, 30))]);
   xlsx = new Uint8Array(await wb.xlsx.writeBuffer());
 
   const zip = new JSZip();
@@ -68,6 +70,13 @@ describe('extractOutputText', () => {
     expect(r.text).toContain('Sheet1');
     expect(r.text).toContain('Name, Score');
     expect(r.text).toContain('Ana, 97');
+  });
+
+  it('renders date cells as text instead of dropping them', async () => {
+    const r = await extractOutputText(xlsx, 'xlsx');
+    // The Deadline column holds Date values; cell.text formats them, so the
+    // year must survive rather than reading back as an empty cell.
+    expect(r.text).toContain('2027');
   });
 
   it('reads a pdf as text', async () => {
