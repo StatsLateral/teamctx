@@ -26,6 +26,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   downloads as an attachment with the type teamctx checked, and a file for a
   task outside your scope is neither shown nor served.
 
+### Changed
+- **A failed connection from Claude is now diagnosable.** Connecting is the step
+  every new member goes through, and when it failed it left nothing behind to
+  explain it. A failed sign-in or connect now logs one line with the reason code
+  and a short reference id, and the error the client shows carries that same id —
+  so a stuck member can quote it and whoever runs the server can find the one
+  line about their attempt. No token, authorization code, secret or email is
+  logged. The connect docs gain a short recovery section (remove the connector,
+  add it again, and what each error means).
+
 ### Fixed
 - **A failed sign-in no longer shows the internal error.** A hosted deployment
   with no encryption key configured refused to store the session and rendered

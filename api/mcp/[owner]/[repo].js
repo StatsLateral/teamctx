@@ -18,6 +18,7 @@ import {
 } from '../../../src/oauth/agent-tokens.js';
 import { actorFromAgent } from '../../../src/agents.js';
 import { kvGet, kvDelete, keys } from '../../../src/oauth/kv.js';
+import { newRequestId, logConnectFailure } from '../../../src/oauth/connect-log.js';
 
 /**
  * Hosted MCP endpoint.  POST /api/mcp/<owner>/<repo>
@@ -125,11 +126,17 @@ export default async function handler(req, res) {
     return;
   }
 
+  // A short id for this connect attempt (#285). It joins the line a stuck member
+  // can quote to the line in the log, and is tied to nothing personal. Set here,
+  // for the POST path only: the benign GET-405 above is not a failed connect.
+  req.teamctxReqId = newRequestId();
+
   const owner = readParam(req, 'owner');
   const repo = readParam(req, 'repo');
   if (!owner || !repo) {
+    logConnectFailure({ step: 'POST /api/mcp', status: 400, code: 'bad_url', requestId: req.teamctxReqId });
     res.statusCode = 400;
-    res.end(JSON.stringify({ error: 'bad_url', message: 'expected /api/mcp/<owner>/<repo>' }));
+    res.end(JSON.stringify({ error: 'bad_url', message: 'expected /api/mcp/<owner>/<repo>', request_id: req.teamctxReqId }));
     return;
   }
 
@@ -339,6 +346,11 @@ async function githubUserFromToken(ghToken) {
 function unauthorized(req, res, owner, repo, description, { invalidToken = false } = {}) {
   const base = baseUrl(req);
   const prm = `${base}/.well-known/oauth-protected-resource/api/mcp/${owner}/${repo}`;
+  const requestId = req?.teamctxReqId || null;
+  // A 401 here is a failed connect worth a log line (#285): the reason distinguishes
+  // a missing credential from one that was presented and refused (`invalid_token`),
+  // which is exactly what told the stale-token case apart. Never the token itself.
+  logConnectFailure({ step: 'POST /api/mcp', status: 401, code: invalidToken ? 'invalid_token' : 'unauthorized', requestId });
   res.statusCode = 401;
   // `invalid_token` says the credential was presented and refused, as opposed to
   // missing, which is what sends a client to refresh and then to sign in again.
@@ -349,6 +361,7 @@ function unauthorized(req, res, owner, repo, description, { invalidToken = false
     error: 'unauthorized',
     error_description: description,
     resource_metadata: prm,
+    ...(requestId ? { request_id: requestId } : {}),
   }));
 }
 
