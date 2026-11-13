@@ -7,7 +7,7 @@ import {
   readProject, readConfig, readTree, listTasks, readTask, writeTask, deleteTask,
   readWorkstream, readContributions,
   writeTaskFile, readTaskFile, taskFilePath, taskFileExists,
-  writeOutput, listOutputs, writeOutputFile, listChanges, prepareChanges, writeChange, appendContribution, writeQueueItem, readApprovals, listQueue, listRejected,
+  writeOutput, listOutputs, writeOutputFile, readOutputFileBytes, listChanges, prepareChanges, writeChange, appendContribution, writeQueueItem, readApprovals, listQueue, listRejected,
   writeTree, writeTreeMd, deleteTaskFile, withCounters,
 } from '../../src/storage.js';
 import { applyOps } from '../../src/ops.js';
@@ -21,7 +21,8 @@ import { resolveDisplayName, resolveActiveWorkstream } from '../../src/prefs.js'
 import { resolveTarget, isProjectLevel } from '../../src/project-level.js';
 import { announceQueued } from '../../src/slack-notify.js';
 import { TaskWithoutWorkstreamError } from '../../src/numbering.js';
-import { validateFileOutput, MAX_OUTPUT_FILE_BYTES } from '../../src/file-output.js';
+import { validateFileOutput, MAX_OUTPUT_FILE_BYTES, extensionOf } from '../../src/file-output.js';
+import { extractOutputText, EXTRACTABLE_EXTENSIONS, noTextReason } from '../../src/file-text.js';
 import { validateLinkOutput } from '../../src/link-output.js';
 import { recordSources } from '../../src/sources.js';
 
@@ -289,6 +290,52 @@ export function getTask({ id, output, teamctxDir, reader } = {}) {
   }
   return { ...base, outputs: summarise(saved) };
 }
+
+/**
+ * Attach a bounded text excerpt to the file outputs a reader is handed in full
+ * (#250), so an assistant can read a docx, xlsx or pdf instead of only its name.
+ *
+ * Only the outputs that `getTask` returns whole — the one asked for by id and
+ * the latest — are enriched; the earlier list stays a lean set of labels, so a
+ * long history is not re-parsed. Each file output gains `text` (the excerpt, or
+ * null), `textTruncated`, and `textNote` (why there is no text, when there is
+ * none). Reads the bytes on demand through the same path as the download route,
+ * so it works in both the hosted and the command-line backends.
+ */
+export async function withExtractedText(result, teamctxDir) {
+  if (!result) return result;
+  // get_task can hand back the same output as both `output` and `outputs.latest`
+  // (asking for the latest by id), so enrich by id once and reuse — never read
+  // and parse a multi-MB file twice on one read.
+  const done = new Map();
+  const enrich = async (o) => {
+    if (!o || o.kind !== 'file' || !o.file?.path) return o;
+    if (o.id && done.has(o.id)) return done.get(o.id);
+    const ext = extensionOf(o.file.name || o.file.path);
+    let enriched;
+    if (!EXTRACTABLE_EXTENSIONS.includes(ext)) {
+      // Said with noTextReason, so a .pptx keeps its download hint rather than
+      // the generic line — the extractor is never reached on this path.
+      enriched = { ...o, text: null, textTruncated: false, textNote: noTextReason(ext) };
+    } else {
+      // readOutputFileBytes returns a Buffer (a Uint8Array), which the extractor
+      // takes as is — no copy.
+      let bytes = null;
+      try { bytes = await readOutputFileBytes(result.id, String(o.file.path).split('/').pop(), teamctxDir); } catch { bytes = null; }
+      enriched = bytes
+        ? { ...o, ...pickText(await extractOutputText(bytes, ext)) }
+        : { ...o, text: null, textTruncated: false, textNote: 'the file could not be read' };
+    }
+    if (o.id) done.set(o.id, enriched);
+    return enriched;
+  };
+  const out = { ...result };
+  if (out.output) out.output = await enrich(out.output);
+  if (out.outputs?.latest) out.outputs = { ...out.outputs, latest: await enrich(out.outputs.latest) };
+  return out;
+}
+
+const pickText = ({ text, truncated, note }) => ({ text, textTruncated: truncated, textNote: note });
 
 /**
  * Put the manager's feedback on an output that was sent back, for the people it

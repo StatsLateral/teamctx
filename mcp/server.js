@@ -43,7 +43,7 @@ import { assertJoinableContext } from '../src/context-gate.js';
 import { contributeCore } from '../cli/commands/contribute.core.js';
 import { buildBrief } from '../cli/commands/brief.core.js';
 import {
-  listTasksFiltered, getTask, prepareTaskChanges, saveOutput, saveLinkOutput, submitTask, addTask, setTaskStatus, assignTask, removeTask, compileTask,
+  listTasksFiltered, getTask, withExtractedText, prepareTaskChanges, saveOutput, saveLinkOutput, submitTask, addTask, setTaskStatus, assignTask, removeTask, compileTask,
 } from '../cli/commands/task.core.js';
 import { listMembers, addMember, removeMember, setMemberWorkstreams, setMemberExternal } from '../cli/commands/member.core.js';
 import { getConfig, setConfig, repairManagerGate, setReviewPolicy } from '../cli/commands/config.core.js';
@@ -267,7 +267,7 @@ export const TOOLS = [
   },
   {
     name: 'get_task',
-    description: 'Return one task by its number (such as 3.2), its id, or a unique id prefix: title, owner, status, workstream, created/done/compiled timestamps, and the prompt file path if one has been compiled. Also `outputs`: what people have already produced on this task (null if nothing), with the latest in full and the earlier ones as a list. **Start from the latest output when the person carries on with the task**, rather than from the bare title; pass `output` to open an earlier one in full. An output the manager sent back carries `feedback` ({ reason, at }): the reason it was turned down, shown to a manager, whoever wrote it and whoever the task is assigned to. **Say what it asks for and address it before anything else.** `changedSince` lists what changed in the context since the person last worked on this task. If it is present, tell the user what changed before carrying on and check the existing work against it. It lists the changes that matter to this task in full; `others` only counts the other changes above it that need no detail, such as a new decision or a task added or removed: mention the count in one line, no more; with no `changes`, that line is all there is to say. Read-only. Use task_compile to get the prompt text itself.',
+    description: 'Return one task by its number (such as 3.2), its id, or a unique id prefix: title, owner, status, workstream, created/done/compiled timestamps, and the prompt file path if one has been compiled. Also `outputs`: what people have already produced on this task (null if nothing), with the latest in full and the earlier ones as a list. **Start from the latest output when the person carries on with the task**, rather than from the bare title; pass `output` to open an earlier one in full. A file output handed back in full (the latest, or the one named by `output`) carries `text`: a bounded excerpt of its content for a docx, xlsx, pdf or text file, so you can read it rather than only its name — `textTruncated` says when it was cut, and `textNote` says why there is none (a .pptx, or a file that could not be read). Download the file for the whole of it. An output the manager sent back carries `feedback` ({ reason, at }): the reason it was turned down, shown to a manager, whoever wrote it and whoever the task is assigned to. **Say what it asks for and address it before anything else.** `changedSince` lists what changed in the context since the person last worked on this task. If it is present, tell the user what changed before carrying on and check the existing work against it. It lists the changes that matter to this task in full; `others` only counts the other changes above it that need no detail, such as a new decision or a task added or removed: mention the count in one line, no more; with no `changes`, that line is all there is to say. Read-only. Use task_compile to get the prompt text itself.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -1447,7 +1447,12 @@ export function makeHandlers(projectRoot) {
       const teamctxDir = dir();
       await assertTaskInScope(teamctxDir, args.id);
       await prepareTaskChanges({ id: args.id, teamctxDir });
-      return textResult(getTask({ id: args.id, output: args.output, teamctxDir, reader: await reader(teamctxDir) }));
+      // Attach a bounded text excerpt to any docx/xlsx/pdf output handed back in
+      // full, so the assistant can read it rather than only its name (#250).
+      return textResult(await withExtractedText(
+        getTask({ id: args.id, output: args.output, teamctxDir, reader: await reader(teamctxDir) }),
+        teamctxDir,
+      ));
     },
 
     async task_submit(args = {}) {
