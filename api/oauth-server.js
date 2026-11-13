@@ -2,6 +2,7 @@ import express from 'express';
 import rateLimit from 'express-rate-limit';
 import { randomBytes } from 'crypto';
 import { mcpAuthRouter } from '@modelcontextprotocol/sdk/server/auth/router.js';
+import { newRequestId, logConnectFailure, errorCodeOf } from '../src/oauth/connect-log.js';
 import { providerFromEnv, oauthConfigStatus, GITHUB_SCOPES, OAuthCallbackError, setBindCookie, readBindCookie, bindMatches, tokenHash, redirectTarget } from '../src/oauth/provider.js';
 import { kvGet, kvSet, kvTake, kvDelete, keys, TTL, isPersistent, secretsConfigured } from '../src/oauth/kv.js';
 import { liveProjects } from '../src/oauth/live-projects.js';
@@ -1705,6 +1706,27 @@ if (provider) {
   app.use('/.well-known/oauth-authorization-server', (_req, res, next) => {
     const send = res.json.bind(res);
     res.json = (body) => send(typeof body?.issuer === 'string' ? { ...body, issuer: body.issuer.replace(/\/+$/, '') } : body);
+    next();
+  });
+  // The OAuth endpoints below come from the SDK's mcpAuthRouter, which answers a
+  // failed token exchange or registration with a bare 4xx and no server-side
+  // trace. This wraps those JSON responses (#285): a 4xx is logged with its own
+  // error code and a request id, and the same id is handed back in the body so a
+  // member who is stuck can quote it. No token, code or secret is logged — only
+  // the error code the response already carries.
+  app.use(['/token', '/register', '/revoke', '/authorize'], (req, res, next) => {
+    const requestId = newRequestId();
+    req.teamctxReqId = requestId;
+    const sendJson = res.json.bind(res);
+    res.json = (body) => {
+      if (res.statusCode >= 400) {
+        logConnectFailure({ step: req.path, status: res.statusCode, code: errorCodeOf(body), requestId });
+        if (body && typeof body === 'object' && !Array.isArray(body) && body.request_id === undefined) {
+          return sendJson({ ...body, request_id: requestId });
+        }
+      }
+      return sendJson(body);
+    };
     next();
   });
   app.use(mcpAuthRouter({
