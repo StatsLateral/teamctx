@@ -1,6 +1,8 @@
 import { GithubSession } from '../adapters/github.js';
 import { runWithSession } from '../session-context.js';
-import { readConfig, readProject, readWorkstream, listTasks, readContributions, readApprovals, listRejected, listQueue, listOutputs, listChanges, prepareChanges, readSourceRefs } from '../storage.js';
+import { readConfig, readProject, readWorkstream, listTasks, readContributions, readApprovals, listRejected, listQueue, listOutputs, listChanges, prepareChanges, readSourceRefs, readOutputFileBytes } from '../storage.js';
+import { saveFileOutput, assertNotAccepted } from '../../cli/commands/task.core.js';
+import { MAX_PAGE_UPLOAD_BYTES } from '../file-output.js';
 import { outputStates, outputsForReader } from '../outputs.js';
 import { recordTrailFor } from '../../cli/commands/records.core.js';
 import { visibleSources } from '../sources.js';
@@ -451,6 +453,56 @@ export async function readRecordTrailView({ owner, repo, user, id }) {
     }
     const trail = recordTrailFor({ scope: allowed, id, canSee: (name) => isManager || visible.has(name) });
     return { project: config.project, owner, repo, trail };
+  });
+}
+
+/**
+ * Attach a file as a working output on a task, from the project page (#247).
+ *
+ * The same gate as reading: a signed-in member on the roster whose scope covers
+ * the task's part of the work. A file for a task this person cannot see is
+ * refused outright, not quietly dropped — scope that only holds in the markup is
+ * not scope. `saveFileOutput` validates the bytes, writes them and the record,
+ * and commits them together, as every other hosted write does. It throws
+ * `FileOutputError` for an over-limit or wrong-type file, which the route turns
+ * into a clean message.
+ */
+export async function attachFileOutput({ owner, repo, user, taskId, bytes, fileName, title, note }) {
+  return openProject({ owner, repo, user }, async ({ actor, allowed }) => {
+    const task = listTasks({}, undefined).find(t => t.id === taskId);
+    if (!task || !inScope(allowed, resolveTarget(task.workstream))) {
+      throw new ProjectViewError('That task is not here, or not yours to add to.');
+    }
+    // A closed task takes no more work. saveFileOutput would refuse it too, but
+    // with a plain Error the route cannot tell from a real failure — so say it
+    // here, as the clean refusal it is, rather than a 500 with "try again".
+    try { assertNotAccepted(task); } catch (e) { throw new ProjectViewError(e.message); }
+    const { output } = await saveFileOutput({
+      id: task.id, bytes, name: fileName, title, notes: note,
+      source: 'web', actor, maxBytes: MAX_PAGE_UPLOAD_BYTES,
+    });
+    return { output, task: { id: task.id, key: task.key || null, workstream: task.workstream } };
+  });
+}
+
+/**
+ * The bytes of a file output, for the download route (#247), or `null` when
+ * there is nothing this person may have: the same scope gate as the page, so an
+ * out-of-scope task serves nothing rather than a file behind a hidden row. The
+ * on-disk name carries the output-id prefix (`basename(file.path)`), which is
+ * what {@link readOutputFileBytes} reads by.
+ */
+export async function readFileOutput({ owner, repo, user, taskId, outputId }) {
+  return openProject({ owner, repo, user }, async ({ allowed }) => {
+    const task = listTasks({}, undefined).find(t => t.id === taskId);
+    if (!task || !inScope(allowed, resolveTarget(task.workstream))) return null;
+    const output = (listOutputs(task.id) || []).find(o => o.id === outputId && o.kind === 'file' && o.file);
+    if (!output) return null;
+    const onDisk = String(output.file.path || '').split('/').pop();
+    if (!onDisk) return null;
+    const bytes = await readOutputFileBytes(task.id, onDisk, undefined);
+    if (!bytes) return null;
+    return { bytes, type: output.file.type || 'application/octet-stream', name: output.file.name || onDisk };
   });
 }
 
