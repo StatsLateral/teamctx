@@ -22,7 +22,7 @@ import { resolveTarget, isProjectLevel } from '../../src/project-level.js';
 import { announceQueued } from '../../src/slack-notify.js';
 import { TaskWithoutWorkstreamError } from '../../src/numbering.js';
 import { validateFileOutput, MAX_OUTPUT_FILE_BYTES, extensionOf } from '../../src/file-output.js';
-import { extractOutputText, EXTRACTABLE_EXTENSIONS } from '../../src/file-text.js';
+import { extractOutputText, EXTRACTABLE_EXTENSIONS, noTextReason } from '../../src/file-text.js';
 import { validateLinkOutput } from '../../src/link-output.js';
 import { recordSources } from '../../src/sources.js';
 
@@ -304,24 +304,38 @@ export function getTask({ id, output, teamctxDir, reader } = {}) {
  */
 export async function withExtractedText(result, teamctxDir) {
   if (!result) return result;
+  // get_task can hand back the same output as both `output` and `outputs.latest`
+  // (asking for the latest by id), so enrich by id once and reuse — never read
+  // and parse a multi-MB file twice on one read.
+  const done = new Map();
   const enrich = async (o) => {
     if (!o || o.kind !== 'file' || !o.file?.path) return o;
+    if (o.id && done.has(o.id)) return done.get(o.id);
     const ext = extensionOf(o.file.name || o.file.path);
+    let enriched;
     if (!EXTRACTABLE_EXTENSIONS.includes(ext)) {
-      return { ...o, text: null, textTruncated: false, textNote: `no text can be read from a .${ext || '?'} file` };
+      // Said with noTextReason, so a .pptx keeps its download hint rather than
+      // the generic line — the extractor is never reached on this path.
+      enriched = { ...o, text: null, textTruncated: false, textNote: noTextReason(ext) };
+    } else {
+      // readOutputFileBytes returns a Buffer (a Uint8Array), which the extractor
+      // takes as is — no copy.
+      let bytes = null;
+      try { bytes = await readOutputFileBytes(result.id, String(o.file.path).split('/').pop(), teamctxDir); } catch { bytes = null; }
+      enriched = bytes
+        ? { ...o, ...pickText(await extractOutputText(bytes, ext)) }
+        : { ...o, text: null, textTruncated: false, textNote: 'the file could not be read' };
     }
-    const onDisk = String(o.file.path).split('/').pop();
-    let bytes = null;
-    try { bytes = await readOutputFileBytes(result.id, onDisk, teamctxDir); } catch { bytes = null; }
-    if (!bytes) return { ...o, text: null, textTruncated: false, textNote: 'the file could not be read' };
-    const { text, truncated, note } = await extractOutputText(new Uint8Array(bytes), ext);
-    return { ...o, text, textTruncated: truncated, textNote: note };
+    if (o.id) done.set(o.id, enriched);
+    return enriched;
   };
   const out = { ...result };
   if (out.output) out.output = await enrich(out.output);
   if (out.outputs?.latest) out.outputs = { ...out.outputs, latest: await enrich(out.outputs.latest) };
   return out;
 }
+
+const pickText = ({ text, truncated, note }) => ({ text, textTruncated: truncated, textNote: note });
 
 /**
  * Put the manager's feedback on an output that was sent back, for the people it

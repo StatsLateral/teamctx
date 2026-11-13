@@ -47,9 +47,12 @@ unchanged — it still offers download.
    extractor, yields no text and a short reason, never a crashed read. Extraction
    runs on untrusted bytes through maintained libraries only, with no macro or
    script execution and the output bounded.
-5. **Surface:** the output an assistant reads gains a `text` excerpt field for a
-   supported type (alongside the existing `file` metadata). `my_brief`,
-   `get_task` and `task_output` carry it. The page does not.
+5. **Surface:** the output an assistant reads in full through `get_task` gains a
+   `text` excerpt field for a supported type (alongside the existing `file`
+   metadata). That is the only read that returns an output's content —
+   `my_brief` carries just the saved-output counts, and `task_output` saves a
+   text output rather than reading a file — so neither needs it. The page does
+   not change.
 
 ## Alternatives considered
 
