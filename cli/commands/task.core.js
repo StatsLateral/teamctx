@@ -7,7 +7,7 @@ import {
   readProject, readConfig, readTree, listTasks, readTask, writeTask, deleteTask,
   readWorkstream, readContributions,
   writeTaskFile, readTaskFile, taskFilePath, taskFileExists,
-  writeOutput, listOutputs, writeOutputFile, listChanges, prepareChanges, writeChange, appendContribution, writeQueueItem, readApprovals, listQueue, listRejected,
+  writeOutput, listOutputs, writeOutputFile, readOutputFileBytes, listChanges, prepareChanges, writeChange, appendContribution, writeQueueItem, readApprovals, listQueue, listRejected,
   writeTree, writeTreeMd, deleteTaskFile, withCounters,
 } from '../../src/storage.js';
 import { applyOps } from '../../src/ops.js';
@@ -21,7 +21,8 @@ import { resolveDisplayName, resolveActiveWorkstream } from '../../src/prefs.js'
 import { resolveTarget, isProjectLevel } from '../../src/project-level.js';
 import { announceQueued } from '../../src/slack-notify.js';
 import { TaskWithoutWorkstreamError } from '../../src/numbering.js';
-import { validateFileOutput, MAX_OUTPUT_FILE_BYTES } from '../../src/file-output.js';
+import { validateFileOutput, MAX_OUTPUT_FILE_BYTES, extensionOf } from '../../src/file-output.js';
+import { extractOutputText, EXTRACTABLE_EXTENSIONS } from '../../src/file-text.js';
 import { validateLinkOutput } from '../../src/link-output.js';
 import { recordSources } from '../../src/sources.js';
 
@@ -288,6 +289,38 @@ export function getTask({ id, output, teamctxDir, reader } = {}) {
     return { ...base, outputs: summarise(saved), output: found };
   }
   return { ...base, outputs: summarise(saved) };
+}
+
+/**
+ * Attach a bounded text excerpt to the file outputs a reader is handed in full
+ * (#250), so an assistant can read a docx, xlsx or pdf instead of only its name.
+ *
+ * Only the outputs that `getTask` returns whole — the one asked for by id and
+ * the latest — are enriched; the earlier list stays a lean set of labels, so a
+ * long history is not re-parsed. Each file output gains `text` (the excerpt, or
+ * null), `textTruncated`, and `textNote` (why there is no text, when there is
+ * none). Reads the bytes on demand through the same path as the download route,
+ * so it works in both the hosted and the command-line backends.
+ */
+export async function withExtractedText(result, teamctxDir) {
+  if (!result) return result;
+  const enrich = async (o) => {
+    if (!o || o.kind !== 'file' || !o.file?.path) return o;
+    const ext = extensionOf(o.file.name || o.file.path);
+    if (!EXTRACTABLE_EXTENSIONS.includes(ext)) {
+      return { ...o, text: null, textTruncated: false, textNote: `no text can be read from a .${ext || '?'} file` };
+    }
+    const onDisk = String(o.file.path).split('/').pop();
+    let bytes = null;
+    try { bytes = await readOutputFileBytes(result.id, onDisk, teamctxDir); } catch { bytes = null; }
+    if (!bytes) return { ...o, text: null, textTruncated: false, textNote: 'the file could not be read' };
+    const { text, truncated, note } = await extractOutputText(new Uint8Array(bytes), ext);
+    return { ...o, text, textTruncated: truncated, textNote: note };
+  };
+  const out = { ...result };
+  if (out.output) out.output = await enrich(out.output);
+  if (out.outputs?.latest) out.outputs = { ...out.outputs, latest: await enrich(out.outputs.latest) };
+  return out;
 }
 
 /**
