@@ -37,7 +37,8 @@ describe('withExtractedText', () => {
     const out = { id: 'o-2', kind: 'file', title: 'slides.pptx', file: { name: 'slides.pptx', path: 'outputs/task-b/files/o-2-slides.pptx' } };
     const enriched = await withExtractedText({ id: 'task-b', output: out }, dir);
     expect(enriched.output.text).toBeNull();
-    expect(enriched.output.textNote).toMatch(/no text can be read from a .pptx/);
+    // The pptx download hint reaches the assistant, not the generic line.
+    expect(enriched.output.textNote).toMatch(/pptx is not supported yet; download/);
   });
 
   it('leaves a non-file output and the lean earlier list untouched', async () => {
@@ -51,6 +52,14 @@ describe('withExtractedText', () => {
     expect(enriched.output.text).toBeUndefined();   // a text-kind output is not a file; untouched
     expect(enriched.outputs.latest.text).toContain('a,b');
     expect(enriched.outputs.earlier).toEqual([{ id: 'o-old', title: 'older' }]);
+  });
+
+  it('enriches once and reuses when the output asked for is also the latest', async () => {
+    const out = fileOutput('task-e', 'report.txt', 'One read only.', 'txt');
+    const enriched = await withExtractedText({ id: 'task-e', output: out, outputs: { latest: out, earlier: [] } }, dir);
+    // The same id resolves to one enriched object, so the bytes are read once.
+    expect(enriched.output).toBe(enriched.outputs.latest);
+    expect(enriched.output.text).toBe('One read only.');
   });
 
   it('is a no-op when nothing was produced', async () => {
