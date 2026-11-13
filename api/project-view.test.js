@@ -321,6 +321,30 @@ describe('getting there', () => {
       expect(r.status).toBe(303);
       expect(decodeURIComponent(r.headers.get('location'))).toMatch(/^\/signin\?returnTo=\/project\/acme\/ledger\/contributions/);
     });
+
+    it('does the same on a file download, not a 403 dead-end (#247)', async () => {
+      repo.prefetchError = BAD;
+      await kvSet(keys.session('s'), MANAGER);
+      const r = await fetch(`${base}/project/acme/ledger/task/pricing-page/file/o-f`, {
+        redirect: 'manual', headers: { cookie: 'teamctx_sid=s' },
+      });
+      expect(r.status).toBe(303);
+      expect(decodeURIComponent(r.headers.get('location'))).toBe('/signin?returnTo=/project/acme/ledger');
+    });
+
+    it('does the same when a file attach meets a stale token, not a 403 (#247)', async () => {
+      repo.prefetchError = BAD;
+      await kvSet(keys.session('s'), MANAGER);
+      const body = '--X\r\nContent-Disposition: form-data; name="file"; filename="a.txt"\r\n'
+        + 'Content-Type: text/plain\r\n\r\nhello\r\n--X--\r\n';
+      const r = await fetch(`${base}/project/acme/ledger/task/pricing-page/attach`, {
+        method: 'POST', redirect: 'manual',
+        headers: { cookie: 'teamctx_sid=s', 'content-type': 'multipart/form-data; boundary=X' },
+        body,
+      });
+      expect(r.status).toBe(303);
+      expect(decodeURIComponent(r.headers.get('location'))).toBe('/signin?returnTo=/project/acme/ledger');
+    });
   });
 
   describe('a project whose repository was deleted on GitHub', () => {
@@ -1828,6 +1852,28 @@ describe('waiting on you', () => {
       expect(page.open()).toBe(true);
       expect(page.scrolled()).toBe(0);
       expect(page.window.scrolledTo).toEqual([]);
+    });
+
+    it('shows a file output\'s download link and aims the attach form at the task (#247)', async () => {
+      repo.files.set('.teamctx/outputs/pricing-page/o-f.json', JSON.stringify({
+        id: 'o-f', task: 'pricing-page', kind: 'file', title: 'banner.png', state: 'working',
+        author: 'Priya', at: '2026-11-01T10:00:00Z',
+        file: { name: 'banner.png', type: 'image/png', size: 69, sha256: 'abc', path: 'outputs/pricing-page/files/o-f-banner.png' },
+      }));
+      const page = await live();
+      page.$('#t-pricing-page').click();
+      const dl = page.$('#d-work a.dl');
+      expect(dl).toBeTruthy();
+      expect(dl.getAttribute('href')).toBe('/project/acme/ledger/task/pricing-page/file/o-f');
+      const form = page.$('#d-attach');
+      expect(form.hidden).toBe(false);
+      expect(form.getAttribute('action')).toBe('/project/acme/ledger/task/pricing-page/attach');
+    });
+
+    it('does not show the attach form on a waiting item, which takes no file (#247)', async () => {
+      const page = await live();
+      page.review.click();
+      expect(page.$('#d-attach').hidden).toBe(true);
     });
 
     it('opens it at the decision from the Review icon', async () => {
