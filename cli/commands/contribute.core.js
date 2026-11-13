@@ -16,7 +16,8 @@ import { recordSources } from '../../src/sources.js';
 import { resolveActor } from '../../src/actor.js';
 import { resolveActiveWorkstream, resolveDisplayName } from '../../src/prefs.js';
 import { announceQueued } from '../../src/slack-notify.js';
-import { comparisonRecords, comparisonFingerprint } from '../../src/contradictions.js';
+import { comparisonRecords, comparisonFingerprint, siblingRecords } from '../../src/contradictions.js';
+import { scopeFor, inScope } from '../../src/member-scope.js';
 
 function newContribution({ text, author, authorKey, tagged, source, workstream }) {
   const idPrefix = source === 'mcp' ? 'mcp' : 'c';
@@ -172,20 +173,33 @@ export async function contributeCore({
   appendContribution(contribution, teamctxDir);
 
   let comparisons = comparisonRecords({ config, target: targetId, teamctxDir });
-  let proposal = await updateShared(workstream, contribution, config, { intent, avoid, comparisonRecords: comparisons, founding: founding && mayApply });
+  // Records in sibling parts of the work a change here might affect (#266). Read
+  // unscoped here; the reviewer's scope filters what actually shows at review.
+  const siblings = siblingRecords({ config, target: targetId, teamctxDir });
+  let proposal = await updateShared(workstream, contribution, config, { intent, avoid, comparisonRecords: comparisons, siblings, founding: founding && mayApply });
   // An AI call can outlive another contribution. Recheck once against the
   // current comparison set rather than applying a verdict on obsolete context.
   const latestConfig = readConfig(teamctxDir);
   const latestComparisons = comparisonRecords({ config: latestConfig, target: targetId, teamctxDir });
   if (comparisonFingerprint(comparisons) !== comparisonFingerprint(latestComparisons)) {
     comparisons = latestComparisons;
-    const checked = await updateShared(readTree(targetId, teamctxDir), contribution, latestConfig, { intent, avoid, comparisonRecords: comparisons, operationsToCheck: proposal.operations, founding: founding && mayApply });
+    // The re-check is about contradiction freshness; the first pass's advisory
+    // impact is carried in through `impactToCheck` so it re-anchors to the ops
+    // this recheck keeps, rather than being kept at the first pass's indices.
+    const checked = await updateShared(readTree(targetId, teamctxDir), contribution, latestConfig, { intent, avoid, comparisonRecords: comparisons, siblings, operationsToCheck: proposal.operations, impactToCheck: proposal.impact, founding: founding && mayApply });
     proposal = { ...checked, summary: proposal.summary, dropped: [...(proposal.dropped || []), ...(checked.dropped || [])] };
     if (comparisonFingerprint(comparisons) !== comparisonFingerprint(comparisonRecords({ config: readConfig(teamctxDir), target: targetId, teamctxDir }))) {
       throw new Error('Context changed again during the contradiction check. The contribution was logged; try it again before applying.');
     }
   }
-  const { summary, operations, dropped = [], contradictions = [] } = proposal;
+  const { summary, operations, dropped = [], contradictions = [], impact = [] } = proposal;
+  // Possible impact is gathered unscoped so the queue item carries all of it for
+  // the manager, who filters it by their own scope at review. The contributor's
+  // immediate result, though, must respect the contributor's scope: a member
+  // scoped out of a sibling part must never have its records named back to them
+  // in the tool result (#266). The manager is unscoped, so they still see all.
+  const contributorScope = scopeFor(config, resolved, { isManager: canApprove(config, { actor: resolved, displayName: resolvedName }) });
+  const visibleImpact = impact.filter(h => inScope(contributorScope, h.record?.workstream));
   // What it was drawn from leaves a trace once it actually reaches the project
   // (queued or applied), written just before that commit, so a contribution
   // that is discarded, changes nothing, or fails a check leaves none. A
@@ -258,6 +272,7 @@ export async function contributeCore({
         author: contribution.author, source, workstream: targetId,
         text: contribution.text, tagged: contribution.tagged, summary, operations,
         ...(contradictions.length ? { contradictions } : {}),
+        ...(impact.length ? { siblingImpact: impact } : {}),
         ...(droppedReasons.length ? { dropped: droppedReasons } : {}),
       }, teamctxDir);
     });
@@ -274,6 +289,7 @@ export async function contributeCore({
       id: contribution.id, workstream: targetId, author: actor, source,
       mode: 'queued', summary, operations, pushed, pushError,
       ...(queuedNumber ? { number: queuedNumber } : {}),
+      ...(visibleImpact.length ? { siblingImpact: visibleImpact } : {}),
       ...(contradictions.length ? { contradictions, ...(apply ? { applyRefused: true } : {}) } : {}),
       // Asked to apply, and evidence kept it in the queue: said the same way as
       // for a contradiction, so the assistant reports "sent for review".

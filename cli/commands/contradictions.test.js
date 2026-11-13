@@ -3,11 +3,11 @@ import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runWithActor } from '../../src/actor.js';
-import { writeConfig, readConfig, writeProject, readProject, writeWorkstream, readWorkstream, readQueueItem, listQueue, writeQueueItem } from '../../src/storage.js';
+import { writeConfig, readConfig, writeProject, readProject, writeWorkstream, readWorkstream, readQueueItem, listQueue, writeQueueItem, readApprovals } from '../../src/storage.js';
 import { makeConfig, makeProject, makeRecord, makeWorkstream } from '../../src/test-fixtures/model.js';
 import { contributeCore } from './contribute.core.js';
 import { approveReview, rejectReview } from './review.core.js';
-import { comparisonRecords } from '../../src/contradictions.js';
+import { comparisonRecords, siblingRecords, normalizeImpact } from '../../src/contradictions.js';
 
 const { complete } = vi.hoisted(() => ({ complete: vi.fn() }));
 vi.mock('../../src/providers/index.js', () => ({ getProvider: () => ({ complete }), knownProviderIds: () => ['anthropic'] }));
@@ -333,5 +333,140 @@ describe('contradiction review through the real provider and storage paths', () 
     expect(prompt).toContain('explicit allowed exceptions');
     expect(prompt).toContain('Keep the proposed operation so a manager can decide');
     expect(prompt).not.toContain('add a question');
+  });
+});
+
+describe('siblingRecords (#266)', () => {
+  it('returns records in same-parent sibling workstreams, not the target or its descendants', () => {
+    writeWorkstream('other', makeWorkstream('other', { records: [makeRecord({ id: 'o1', type: 'decision', text: 'Other decision' })] }), dir);
+    writeWorkstream('pricing', makeWorkstream('pricing', { records: [makeRecord({ id: 'p1', type: 'decision', text: 'Pricing decision' })] }), dir);
+    const config = readConfig(dir);
+    // target launch (root): sibling is other (root); pricing is launch's child, not a sibling.
+    const sibs = siblingRecords({ config, target: 'launch', teamctxDir: dir });
+    expect(sibs.map(r => r.id)).toEqual(['o1']);
+    expect(sibs[0].workstream).toBe('other');
+  });
+
+  it('never reads or names a sibling outside the reviewer scope', () => {
+    writeWorkstream('other', makeWorkstream('other', { records: [makeRecord({ id: 'o1', type: 'decision', text: 'x' })] }), dir);
+    const config = readConfig(dir);
+    expect(siblingRecords({ config, target: 'launch', teamctxDir: dir, scope: ['launch'] })).toEqual([]);
+  });
+
+  it('is empty for a one-workstream project', () => {
+    writeConfig(makeConfig({ autoPush: false, workstreams: [{ id: 'only', name: 'Only' }] }), dir);
+    writeWorkstream('only', makeWorkstream('only'), dir);
+    expect(siblingRecords({ config: readConfig(dir), target: 'only', teamctxDir: dir })).toEqual([]);
+  });
+});
+
+describe('normalizeImpact (#266)', () => {
+  const siblings = [{ id: 'o1', type: 'decision', text: 'Other decision', workstream: 'other' }];
+  const ops = [{ type: 'editRecord', id: 'l1', changes: { text: 'new' } }];
+
+  it('keeps a valid hit, with the identity from our data and the reason from the model', () => {
+    const out = normalizeImpact([{ operationIndex: 0, recordId: 'o1', workstream: 'other', reason: 'both set the deadline' }], ops, siblings);
+    expect(out).toEqual([{ operationIndex: 0, record: siblings[0], reason: 'both set the deadline' }]);
+  });
+
+  it('drops a hit that names a record not in the sibling set', () => {
+    expect(normalizeImpact([{ operationIndex: 0, recordId: 'nope', workstream: 'other' }], ops, siblings)).toEqual([]);
+  });
+
+  it('matches on the record id even when the model omits or nulls the workstream', () => {
+    const byId = normalizeImpact([{ operationIndex: 0, recordId: 'o1', reason: 'r' }], ops, siblings);
+    expect(byId).toEqual([{ operationIndex: 0, record: siblings[0], reason: 'r' }]);
+    const withNull = normalizeImpact([{ operationIndex: 0, recordId: 'o1', workstream: null, reason: 'r' }], ops, siblings);
+    expect(withNull).toEqual([{ operationIndex: 0, record: siblings[0], reason: 'r' }]);
+  });
+
+  it('still rejects a hit that names a different, wrong workstream', () => {
+    expect(normalizeImpact([{ operationIndex: 0, recordId: 'o1', workstream: 'elsewhere' }], ops, siblings)).toEqual([]);
+  });
+
+  it('drops everything and never throws on a malformed answer', () => {
+    expect(normalizeImpact('not an array', ops, siblings)).toEqual([]);
+    expect(normalizeImpact([{ operationIndex: 9, recordId: 'o1' }], ops, siblings)).toEqual([]);
+  });
+});
+
+describe('sibling-workstream impact through the contribute pipeline (#266)', () => {
+  it('records the model impact on the queued item, validated against the real sibling set', async () => {
+    writeWorkstream('other', makeWorkstream('other', { records: [makeRecord({ id: 'sib', type: 'decision', text: 'Other thing' })] }), dir);
+    complete.mockResolvedValue(JSON.stringify({
+      summary: 'Change the entry offer',
+      operations: [add(newText)],
+      contradictions: [{ operationIndex: 0, recordId: 'old', workstream: null }],
+      impact: [
+        { operationIndex: 0, recordId: 'sib', workstream: 'other', reason: 'both set the launch date' },
+        { operationIndex: 0, recordId: 'ghost', workstream: 'other', reason: 'not a real record' },
+      ],
+    }));
+    await run(() => contributeCore({ text: newText, teamctxDir: dir, workstream: 'launch' }));
+    const item = listQueue(dir).find(q => (q.operations || []).some(o => o.record?.text === newText));
+    // The ghost (not in the sibling set) is dropped; the real one keeps the model reason.
+    expect(item.siblingImpact).toEqual([
+      { operationIndex: 0, record: { id: 'sib', type: 'decision', text: 'Other thing', workstream: 'other' }, reason: 'both set the launch date' },
+    ]);
+  });
+
+  it('keeps full impact on the queue item but filters the contributor result to their scope', async () => {
+    // A member scoped to launch (and its child pricing) contributes to launch;
+    // the model flags a record in the sibling "other", which they cannot see.
+    writeConfig({ ...readConfig(dir), members: [{ key: 'git:member@x', name: 'Member', email: 'member@x', workstreams: ['launch'] }] }, dir);
+    writeWorkstream('other', makeWorkstream('other', { records: [makeRecord({ id: 'sib', type: 'decision', text: 'Other thing' })] }), dir);
+    complete.mockResolvedValue(JSON.stringify({
+      summary: 's', operations: [add(newText)],
+      contradictions: [{ operationIndex: 0, recordId: 'old', workstream: null }],
+      impact: [{ operationIndex: 0, recordId: 'sib', workstream: 'other', reason: 'both set the launch date' }],
+    }));
+    const member = { key: 'git:member@x', name: 'Member', email: 'member@x', source: 'git' };
+    const result = await runWithActor(member, () => contributeCore({ text: newText, teamctxDir: dir, workstream: 'launch' }));
+    // The contributor, scoped out of "other", is told nothing about its records.
+    expect(result.siblingImpact).toBeUndefined();
+    // The manager still sees it at review: the queue item keeps the full list.
+    const item = listQueue(dir).find(q => (q.operations || []).some(o => o.record?.text === newText));
+    expect(item.siblingImpact).toEqual([
+      { operationIndex: 0, record: { id: 'sib', type: 'decision', text: 'Other thing', workstream: 'other' }, reason: 'both set the launch date' },
+    ]);
+  });
+
+  it('records no impact when the model flags none', async () => {
+    writeWorkstream('other', makeWorkstream('other', { records: [makeRecord({ id: 'sib', type: 'decision', text: 'Other thing' })] }), dir);
+    complete.mockResolvedValue(JSON.stringify({
+      summary: 's', operations: [add(newText)],
+      contradictions: [{ operationIndex: 0, recordId: 'old', workstream: null }], impact: [],
+    }));
+    await run(() => contributeCore({ text: newText, teamctxDir: dir, workstream: 'launch' }));
+    const item = listQueue(dir).find(q => (q.operations || []).some(o => o.record?.text === newText));
+    expect(item.siblingImpact).toBeUndefined();
+  });
+});
+
+describe('confirming or dismissing sibling impact at approval (#266)', () => {
+  it("records the manager's call on each, and hands back the confirmed ones to open a follow-up", async () => {
+    writeQueueItem({
+      id: 'q-imp', status: 'pending', createdAt: '2026-01-01', author: 'Member', source: 'mcp',
+      workstream: 'launch', text: 'x', summary: 's',
+      operations: [{ type: 'addRecord', record: { type: 'decision', text: 'A launch decision' } }],
+      siblingImpact: [
+        { operationIndex: 0, record: { id: 'sib1', type: 'decision', text: 'Sib one', workstream: 'other' }, reason: 'shares the date' },
+        { operationIndex: 0, record: { id: 'sib2', type: 'decision', text: 'Sib two', workstream: 'other' }, reason: 'shares the budget' },
+      ],
+    }, dir);
+    const r = await run(() => approveReview({
+      id: 'q-imp',
+      impactDecisions: [
+        { recordId: 'sib1', workstream: 'other', action: 'confirm' },
+        { recordId: 'sib2', workstream: 'other', action: 'dismiss' },
+      ],
+      teamctxDir: dir,
+    }));
+    expect(r.confirmedImpact).toEqual([{ recordId: 'sib1', workstream: 'other', reason: 'shares the date', action: 'confirm' }]);
+    const approvals = readApprovals(dir);
+    expect(approvals['q-imp'].siblingImpact).toEqual([
+      { recordId: 'sib1', workstream: 'other', reason: 'shares the date', action: 'confirm' },
+      { recordId: 'sib2', workstream: 'other', reason: 'shares the budget', action: 'dismiss' },
+    ]);
   });
 });
