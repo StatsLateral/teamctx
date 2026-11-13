@@ -1720,7 +1720,10 @@ if (provider) {
     const sendJson = res.json.bind(res);
     res.json = (body) => {
       if (res.statusCode >= 400) {
-        logConnectFailure({ step: req.path, status: res.statusCode, code: errorCodeOf(body), requestId });
+        // originalUrl, not req.path: a middleware mounted on a path array sees
+        // req.path stripped to "/", so the step would read "/" for every route.
+        const step = String(req.originalUrl || req.url || req.path || '').split('?')[0] || '/';
+        logConnectFailure({ step, status: res.statusCode, code: errorCodeOf(body), requestId });
         if (body && typeof body === 'object' && !Array.isArray(body) && body.request_id === undefined) {
           return sendJson({ ...body, request_id: requestId });
         }

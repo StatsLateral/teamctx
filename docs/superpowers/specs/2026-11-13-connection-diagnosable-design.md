@@ -88,6 +88,27 @@ those responses and the recovery docs.
   the reason and that reference id, so it can actually be diagnosed. No token,
   code, email or secret is ever logged.
 
+## Reproduction finding (issue item 3)
+
+Reproduced the handshake against the server run locally, driving the real routes:
+
+- `POST /token` with a bad grant → `400 invalid_client`; the body carries
+  `request_id`, and one line is logged: `connect: /token failed (400
+  invalid_client) [req_…]`. No code or secret in the log.
+- `GET /api/mcp/<owner>/<repo>` → `405`, and **no** failure line. This 405 is
+  emitted on healthy connections too (the client probes for an SSE stream the
+  server does not offer), so it is benign — it is not the fault, and its
+  behaviour is left unchanged, as the issue instructs.
+- `POST /api/mcp` with no credential → `401`; body carries `request_id`, and
+  `connect: POST /api/mcp failed (401 unauthorized) [req_…]` is logged.
+
+So the original `Method Not Allowed` the member saw lines up with the benign
+GET-405 surfaced during a transient/stale-session state — not a real server
+fault — which is why a clean reconnect fixed it. The value of this change is
+that the *next* such failure leaves the actual failing step and reason in the
+log, tied to an id the member can quote. The GET behaviour is deliberately not
+changed.
+
 ## Acceptance
 
 - A failed `/token` or MCP request leaves a log line naming the step and the
