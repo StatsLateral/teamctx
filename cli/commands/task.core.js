@@ -7,7 +7,7 @@ import {
   readProject, readConfig, readTree, listTasks, readTask, writeTask, deleteTask,
   readWorkstream, readContributions,
   writeTaskFile, readTaskFile, taskFilePath, taskFileExists,
-  writeOutput, listOutputs, writeOutputFile, listChanges, prepareChanges, writeChange, appendContribution, writeQueueItem, readApprovals, listQueue, listRejected,
+  writeOutput, listOutputs, writeOutputFile, writeCheck, listChanges, prepareChanges, writeChange, appendContribution, writeQueueItem, readApprovals, listQueue, listRejected,
   writeTree, writeTreeMd, deleteTaskFile, withCounters,
 } from '../../src/storage.js';
 import { applyOps } from '../../src/ops.js';
@@ -22,7 +22,7 @@ import { resolveTarget, isProjectLevel } from '../../src/project-level.js';
 import { announceQueued } from '../../src/slack-notify.js';
 import { TaskWithoutWorkstreamError } from '../../src/numbering.js';
 import { validateFileOutput, MAX_OUTPUT_FILE_BYTES } from '../../src/file-output.js';
-import { validateLinkOutput } from '../../src/link-output.js';
+import { validateLinkOutput, readVersionKey } from '../../src/link-output.js';
 import { recordSources } from '../../src/sources.js';
 
 /**
@@ -506,12 +506,22 @@ export async function saveFileOutput({
  */
 export async function saveLinkOutput({
   id, connector, url, title, version, prompt, notes, basedOn, source,
-  teamctxDir, projectDir, actor,
+  teamctxDir, projectDir, actor, authFor = null,
 } = {}) {
   const config = readConfig(teamctxDir);
   const { task } = findTask(id, teamctxDir);
   assertNotAccepted(task, teamctxDir);
   const link = validateLinkOutput({ connector, url, title, version });
+  // The connector's own version marker, read now so a later staleness check
+  // (#248) has something machine-comparable. Best-effort: absent if it cannot
+  // be read, and never a reason to fail the attach. On the hosted server the
+  // credential comes from the attacher's connected account (`authFor`); on the
+  // command line there is none, and readVersionKey falls back to `.env.local`.
+  const picked = authFor ? await authFor({ connector: link.connector }) : null;
+  const versionKey = await readVersionKey({
+    connector: link.connector, url: link.url, itemId: link.itemId, creds: picked?.creds,
+  });
+  if (versionKey) link.versionKey = versionKey;
   const saved = listOutputs(task.id, teamctxDir);
   if (basedOn && !saved.some(o => o.id === basedOn)) {
     throw new Error(`no output "${basedOn}" on task ${task.key || task.id} to build on`);
@@ -536,6 +546,66 @@ export async function saveLinkOutput({
   writeOutput(output, teamctxDir);
   const git = await commitAndPush(config, `output: ${me} linked ${output.id} on ${task.id}`, projectDir);
   return { output, task, ...git };
+}
+
+/**
+ * Check whether the files behind a task's link outputs have changed (#248).
+ *
+ * For each link output, read the connector's current version marker and compare
+ * it to the one that was blessed at acceptance (`approvedVersionKey`), or, before
+ * acceptance, to the one recorded when it was attached. The result is written to
+ * the per-output check store, which the page renders as a badge.
+ *
+ * This runs where a connector credential lives — the member's machine — so it is
+ * the member (usually whoever attached the file) who refreshes the status, not
+ * the manager viewing the page. Honest about reach: an output with no recorded
+ * marker, or a file this caller cannot read now, is `unknown` with a reason,
+ * never a guessed `unchanged`.
+ */
+export async function checkLinkOutputs({ id, teamctxDir, projectDir, actor, env, readVersion = readVersionKey, authFor = null } = {}) {
+  const config = readConfig(teamctxDir);
+  const { task } = findTask(id, teamctxDir);
+  const links = listOutputs(task.id, teamctxDir).filter(o => o.kind === 'link');
+  const approval = acceptancesOf(task, teamctxDir)[0];
+  const approvedKeys = approval?.approvedVersionKeys || {};
+  const resolved = actor || await resolveActor({ config, cwd: projectDir });
+  const me = await resolveDisplayName({ actor: resolved, config, teamctxDir });
+  const by = { key: resolved?.key || null, name: me };
+  const checkedAt = new Date().toISOString();
+
+  const checks = [];
+  for (const o of links) {
+    const link = o.link || {};
+    const approvedKey = approvedKeys[o.id] || null;
+    const baseline = approvedKey || link.versionKey || null;
+    const basis = approvedKey ? 'approved' : (link.versionKey ? 'attached' : null);
+    // Which connected account reads the file: on the hosted server the caller's
+    // own, or the primary manager's as a fallback (#248); null on the command
+    // line, where readVersion falls back to a local `.env.local` credential.
+    const picked = authFor ? await authFor({ connector: link.connector }) : null;
+    const observed = await readVersion({ connector: link.connector, url: link.url, itemId: link.itemId, env, creds: picked?.creds });
+
+    let state; let reason = null;
+    if (!baseline) { state = 'unknown'; reason = 'no version was recorded when this file was attached'; }
+    else if (observed == null) { state = 'unknown'; reason = 'the file could not be read now — it needs a connected account that can open it'; }
+    else state = observed === baseline ? 'unchanged' : 'changed';
+
+    const check = {
+      task: task.id, output: o.id, title: o.title || null, state, basis, baseline,
+      observed: observed ?? null, ...(reason ? { reason } : {}),
+      // Whose connection answered — own or the project's — so a verdict built on
+      // it stays traceable. Null when nothing read it.
+      ...(picked?.via ? { via: picked.via } : {}), checkedAt, by,
+    };
+    writeCheck(check, teamctxDir);
+    checks.push(check);
+  }
+
+  let git = { committed: false, pushed: false };
+  if (checks.length) {
+    git = await commitAndPush(config, `checks: ${me} checked ${checks.length} link output(s) on ${task.id}`, projectDir);
+  }
+  return { task, checks, ...git };
 }
 
 /**

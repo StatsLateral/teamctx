@@ -342,11 +342,23 @@ export async function approveReview({ id, replaces, tasks, askAboutTasks = false
     rolesRegenerated.push(role.slug);
   }
 
+  // The version of each accepted link output as it was blessed, so a later
+  // staleness check (#248) compares against what was approved rather than the
+  // latest attach. Only link outputs that recorded a machine marker appear.
+  const acceptedOutputs = item.forTask ? listOutputs(item.forTask, teamctxDir) : [];
+  const chosen = new Set(Array.isArray(item.outputs) ? item.outputs : []);
+  const approvedVersionKeys = Object.fromEntries(
+    acceptedOutputs
+      .filter(o => chosen.has(o.id) && o.kind === 'link' && o.link?.versionKey)
+      .map(o => [o.id, o.link.versionKey]),
+  );
+
   // Who approved it, kept for the task history (#143): approving used to leave
   // nothing behind but the commit message.
   writeApproved({
     id: item.id, author: item.author || null, source: item.source || null, workstream: targetId,
     ...(item.forTask ? { forTask: item.forTask, outputs: Array.isArray(item.outputs) ? item.outputs : [] } : {}),
+    ...(Object.keys(approvedVersionKeys).length ? { approvedVersionKeys } : {}),
     approvedBy: { key: approvedBy.key, name: approvedBy.name }, approvedAt: approvedBy.at,
   }, teamctxDir);
 

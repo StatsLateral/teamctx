@@ -37,6 +37,7 @@ describe('secrets at rest', () => {
       keys.agentAiKey('id'),
       keys.projectGhCred('o', 'r'),
       keys.slackWebhook('o', 'r'),
+      keys.connectorToken('a@b.com', 'gdrive'),
       keys.token('t'),
       keys.refresh('t'),
       keys.tokenV2('h'),
@@ -48,6 +49,11 @@ describe('secrets at rest', () => {
     for (const k of secretKeys) expect(isSecretKey(k), k).toBe(true);
     // The pending record carries no token, so it stays in the clear.
     expect(isSecretKey(keys.pending('s'))).toBe(false);
+    // The connector index lists provider names only, no token.
+    expect(isSecretKey(keys.connectorIndex('a@b.com'))).toBe(false);
+    // Project connector shares and their index are pointers, not tokens.
+    expect(isSecretKey(keys.projectConnectors('o', 'r'))).toBe(false);
+    expect(isSecretKey(keys.connectorsSharedBy('a@b.com'))).toBe(false);
     // Family, replay and revocation records hold only hashes and ids.
     for (const k of [keys.tokenFamily('f'), keys.familyRevoked('f'), keys.usedRefresh('h')]) {
       expect(isSecretKey(k), k).toBe(false);

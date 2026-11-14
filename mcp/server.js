@@ -43,7 +43,7 @@ import { assertJoinableContext } from '../src/context-gate.js';
 import { contributeCore } from '../cli/commands/contribute.core.js';
 import { buildBrief } from '../cli/commands/brief.core.js';
 import {
-  listTasksFiltered, getTask, prepareTaskChanges, saveOutput, saveLinkOutput, submitTask, addTask, setTaskStatus, assignTask, removeTask, compileTask,
+  listTasksFiltered, getTask, prepareTaskChanges, saveOutput, saveLinkOutput, checkLinkOutputs, submitTask, addTask, setTaskStatus, assignTask, removeTask, compileTask,
 } from '../cli/commands/task.core.js';
 import { listMembers, addMember, removeMember, setMemberWorkstreams, setMemberExternal } from '../cli/commands/member.core.js';
 import { getConfig, setConfig, repairManagerGate, setReviewPolicy } from '../cli/commands/config.core.js';
@@ -311,6 +311,18 @@ export const TOOLS = [
         basedOn: { type: 'string', description: 'The id of the output this carries on from' },
       },
       required: ['id', 'url'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'task_check_links',
+    description: "**Check whether the cloud files behind a task's link outputs have changed since they were approved (or attached).** Reach for this when someone asks \"is this still current?\", or as a habit when picking a task back up. For each link output it reads the connector's current version marker and compares it to the one recorded — reporting, per file, `changed`, `unchanged`, or `unknown` with a reason. It needs a connected account that can open the file, so it is run by whoever has that access (usually the person who attached it), not by a manager who only has the link. Honest by design: a file with no recorded version, or one this caller cannot read, is `unknown`, never a guessed `unchanged`. It only records the check result on the page; it changes no task and queues nothing. Returns { task, checks }.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: 'Task number such as 3.2, task id, or a unique prefix of one' },
+      },
+      required: ['id'],
       additionalProperties: false,
     },
   },
@@ -876,6 +888,12 @@ export function makeHandlers(projectRoot) {
   // Set only by the hosted endpoint, and only for a request that brought an
   // agent token. See src/agents.js.
   const agent = isHosted ? projectRoot.agent || null : null;
+
+  // How a link-output staleness check reads the file server-side (#248): the
+  // caller's connected cloud account, or the primary manager's as a fallback.
+  // Only hosted requests carry one; from the command line it is null and the
+  // check reads through a local `.env.local` credential instead.
+  const authFor = isHosted ? projectRoot.authFor || null : null;
 
   const who = async (teamctxDir, config) => {
     const actor = await resolveActor({ config, cwd: gitCwd });
@@ -1486,7 +1504,7 @@ export function makeHandlers(projectRoot) {
       const r = await saveLinkOutput({
         id: args.id, connector: args.connector, url: args.url, title: args.title,
         version: args.version, prompt: args.prompt, notes: args.notes,
-        basedOn: args.basedOn, source: 'mcp', teamctxDir, projectDir: gitCwd,
+        basedOn: args.basedOn, source: 'mcp', teamctxDir, projectDir: gitCwd, authFor,
       });
       const link = await this.viewUrl({ task: r.task.id });
       const stored = r.output.link;
@@ -1502,6 +1520,27 @@ export function makeHandlers(projectRoot) {
         reportBack: withLink(
           `Attached "${stored.title}" as a link output on task ${r.task.key || r.task.id}, ${where}`
           + `${stored.version ? ` (version ${stored.version})` : ''}. Nothing was sent for approval.`, link),
+      });
+    },
+
+    async task_check_links(args = {}) {
+      const teamctxDir = dir();
+      await assertTaskInScope(teamctxDir, args.id);
+      const r = await checkLinkOutputs({ id: args.id, teamctxDir, projectDir: gitCwd, authFor });
+      const link = await this.viewUrl({ task: r.task.id });
+      const say = (c) => {
+        const title = c.title || c.output;
+        if (c.state === 'changed') return `"${title}": changed since it was ${c.basis === 'approved' ? 'approved' : 'attached'}`;
+        if (c.state === 'unchanged') return `"${title}": unchanged`;
+        return `"${title}": can't tell — ${c.reason}`;
+      };
+      const lines = r.checks.length
+        ? r.checks.map(say).join('; ')
+        : 'this task has no link outputs to check';
+      return textResult({
+        ...r,
+        ...link,
+        reportBack: withLink(`Checked link outputs on task ${r.task.key || r.task.id}: ${lines}.`, link),
       });
     },
 

@@ -1,16 +1,21 @@
 import { projectPicker, providerLabel, providerSelect } from './form-bits.js';
 import { esc, navBar, shell } from './theme.js';
 
+/** How a connected cloud account is named to the person. */
+const CONN_LABEL = { gdrive: 'Google Drive', dropbox: 'Dropbox', m365: 'Microsoft SharePoint' };
+
 /**
  * The settings page: keys, the projects they are shared with, lent access and
  * agents. Moved here whole from the routes file — see src/views/theme.js.
  */
 export const settingsPage = ({
-  user, hasKey, saved, error, confirmRemove = null, shared = [], lent = [], repos = [], agents = [], newAgent = null, rotated = [], stillShared = [], slack = [], secretsMissing = false }) => shell('Settings', `
+  user, hasKey, saved, error, confirmRemove = null, shared = [], lent = [], repos = [], agents = [], newAgent = null, rotated = [], stillShared = [], slack = [], secretsMissing = false, connectors = [], connected = null, disconnected = null }) => shell('Settings', `
 ${navBar({ user, current: '/settings' })}
 <h1>Settings</h1>
 ${secretsMissing ? '<div class="bad">An administrator must set <code>TEAMCTX_SECRET_KEYS</code> on this deployment before a key or credential can be saved — until then those writes are refused rather than stored in the clear.</div>' : ''}
 ${saved ? '<div class="ok">Saved.</div>' : ''}
+${connected ? `<div class="ok">${esc(CONN_LABEL[connected] || connected)} is connected.</div>` : ''}
+${disconnected ? `<div class="ok">${esc(CONN_LABEL[disconnected] || disconnected)} is disconnected.</div>` : ''}
 ${rotated.length ? `<div class="ok">The projects you had shared your old key with are now on the new one:
 ${rotated.map(esc).join(', ')}. Nothing else about them changed.</div>` : ''}
 ${stillShared.length ? `<div class="bad">Your key is cleared here, but these projects are still
@@ -57,6 +62,39 @@ written to your repo.</p>
   <button type="submit">Save</button>
 </form>
 
+</section>
+
+<section class="card">
+<h2>Connected accounts</h2>
+<p class="muted">Connect a cloud drive once, then share it with the projects you
+choose. teamctx uses it only to check whether a file you linked has changed —
+never its contents. On a project where you are the primary manager, a connection
+you share is the fallback for members who have not connected one of their own.</p>
+${connectors.map(c => `
+<div style="margin:.35rem 0 1rem">
+<form method="POST" action="/settings/disconnect" style="margin:.35rem 0">
+  <input type="hidden" name="provider" value="${esc(c.provider)}">
+  <span>${esc(CONN_LABEL[c.provider] || c.provider)}${c.account ? ` — connected as ${esc(c.account)}` : ' — connected'}</span>
+  <button type="submit" class="link">Disconnect</button>
+</form>
+${(c.shares || []).length ? `<p class="muted">Shared with:</p>${c.shares.map(slug => `
+<form method="POST" action="/settings/connect/unshare" style="margin:.35rem 0">
+  <input type="hidden" name="provider" value="${esc(c.provider)}">
+  <input type="hidden" name="project" value="${esc(slug)}">
+  <code>${esc(slug)}</code>
+  <button type="submit" class="link">Stop sharing</button>
+</form>`).join('')}` : ''}
+<form method="POST" action="/settings/connect/share" style="margin:.35rem 0">
+  <input type="hidden" name="provider" value="${esc(c.provider)}">
+  <label for="connShare-${esc(c.provider)}">Share ${esc(CONN_LABEL[c.provider] || c.provider)} with a project</label>
+  ${projectPicker(`connShare-${esc(c.provider)}`, repos)}
+  <button type="submit">Share</button>
+</form>
+</div>`).join('')}
+${connectors.some(c => c.provider === 'gdrive') ? '' : `
+<form method="GET" action="/settings/connect/gdrive" style="margin:.35rem 0">
+  <button type="submit">Connect Google Drive</button>
+</form>`}
 </section>
 
 <section class="card">

@@ -275,14 +275,24 @@ describe('work submitted for a task', () => {
   it('carries the outputs in full for the drawer, not only a label', () => {
     const html = render(view({ pending: [submitted()] }));
     const attr = html.match(/data-outputs="([^"]*)"/)[1].replace(/&quot;/g, '"').replace(/&amp;/g, '&');
-    expect(JSON.parse(attr)).toEqual([{ id: 'o1', title: 'Draft 2', kind: 'text', body: 'The whole post.\n\nSecond paragraph.', file: null, link: null, notes: 'Trim it', prompt: 'Write a short post' }]);
+    expect(JSON.parse(attr)).toEqual([{ id: 'o1', title: 'Draft 2', kind: 'text', body: 'The whole post.\n\nSecond paragraph.', file: null, link: null, check: null, notes: 'Trim it', prompt: 'Write a short post' }]);
   });
 
   it('carries a file output as its kind and metadata, not a body, with a download URL', () => {
     const file = { id: 'o2', title: 'banner.png', kind: 'file', file: { name: 'banner.png', type: 'image/png', size: 69, sha256: 'abc', path: 'outputs/t-post/files/o2-banner.png' } };
     const html = render(view({ pending: [waiting({ number: '1.5', summary: 'Submitted: banner.png', operations: [], forTask: 't-post', submittedOutputs: [file] })] }));
     const attr = html.match(/data-outputs="([^"]*)"/)[1].replace(/&quot;/g, '"').replace(/&amp;/g, '&');
-    expect(JSON.parse(attr)).toEqual([{ id: 'o2', title: 'banner.png', kind: 'file', body: '', file: file.file, link: null, notes: null, prompt: null, dl: '/project/acme/ledger/task/t-post/file/o2' }]);
+    expect(JSON.parse(attr)).toEqual([{ id: 'o2', title: 'banner.png', kind: 'file', body: '', file: file.file, link: null, check: null, notes: null, prompt: null, dl: '/project/acme/ledger/task/t-post/file/o2' }]);
+  });
+
+  it('carries a link output\'s staleness check so the drawer can show it (#248)', () => {
+    const link = {
+      id: 'o3', title: 'Banner', kind: 'link', link: { connector: 'gdrive', title: 'Banner', url: 'https://drive.google.com/file/d/A/view' },
+      check: { state: 'changed', basis: 'approved', checkedAt: '2026-11-10T00:00:00.000Z' },
+    };
+    const html = render(view({ pending: [waiting({ number: '1.6', summary: 'Submitted: Banner', operations: [], forTask: 't-post', submittedOutputs: [link] })] }));
+    const attr = html.match(/data-outputs="([^"]*)"/)[1].replace(/&quot;/g, '"').replace(/&amp;/g, '&');
+    expect(JSON.parse(attr)[0].check).toEqual(link.check);
   });
 
   it('says what approving does, and that it records the acceptance in the context', () => {
