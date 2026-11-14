@@ -261,6 +261,19 @@ export async function approveReview({ id, replaces, tasks, askAboutTasks = false
   try { item = readQueueItem(queueId, teamctxDir); }
   catch { throw new QueueItemNotFoundError(id); }
 
+  // Every open task this change reaches, started or not: a ticket for a task
+  // nobody has begun can be as out of date as one for work in progress, so this
+  // is wider than the review list's "work in progress". Read before the change
+  // lands, against the tree as the manager saw it. The approval does not wait on it.
+  let flagged = [];
+  try {
+    const treeId = resolveTarget(item.workstream);
+    flagged = reachOf({
+      operations: item.forTask ? [] : (item.operations || []), treeId, config, tasks: listTasks({}, teamctxDir),
+      hasWork: () => true, exclude: item.forTask || null, records: readTree(treeId, teamctxDir)?.records || [],
+    }).inProgress;
+  } catch { /* nothing to hand back */ }
+
   // Work submitted for a task: accepting it writes to the context. Checked
   // before anything changes, so an item whose task has gone stays waiting.
   let taskForItem = null;
@@ -392,6 +405,7 @@ export async function approveReview({ id, replaces, tasks, askAboutTasks = false
     approvedBy: approvedBy.name,
     operations: item.operations || [],
     ...(tasksLeftOut.length ? { tasksLeftOut } : {}),
+    ...(flagged.length ? { flagged } : {}),
     ...(item.contradictions?.length ? { contradictions: item.contradictions } : {}),
     rolesRegenerated,
     pushed,

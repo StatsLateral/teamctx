@@ -30,6 +30,8 @@ export const CONNECTORS = {
   m365: { name: 'Microsoft SharePoint', mark: 'M' },
   dropbox: { name: 'Dropbox', mark: 'D' },
   coda: { name: 'Coda', mark: 'C' },
+  asana: { name: 'Asana', mark: 'A' },
+  jira: { name: 'Jira', mark: 'J' },
   other: { name: 'Other sources', mark: '·' },
 };
 
@@ -58,6 +60,8 @@ const ALIASES = {
   m365: 'm365', sharepoint: 'm365', onedrive: 'm365', 'microsoft 365': 'm365', 'microsoft sharepoint': 'm365', office365: 'm365',
   dropbox: 'dropbox',
   coda: 'coda',
+  asana: 'asana',
+  jira: 'jira', atlassian: 'jira', 'jira cloud': 'jira',
 };
 
 export const TITLE_MAX = 200;

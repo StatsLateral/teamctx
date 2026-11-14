@@ -50,7 +50,7 @@ describe('what a deployment says about itself', () => {
     const { build } = await status();
     expect(build.features.viewLinks.sort()).toEqual([
       'contribute', 'get_status', 'get_workstream', 'list_pending_reviews', 'my_brief',
-      'review_approve', 'review_reject', 'task_add', 'task_assign', 'task_done',
+      'review_approve', 'review_reject', 'task_add', 'task_assign', 'task_done', 'task_link',
     ]);
   });
 

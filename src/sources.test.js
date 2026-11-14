@@ -40,8 +40,8 @@ describe('a source reference', () => {
   });
 
   it('knows the tools by the names an assistant uses, and puts the rest under other', () => {
-    expect(['Google Drive', 'SharePoint', 'OneDrive', 'Microsoft 365', 'NOTION', 'coda', 'Jira'].map(connectorKey))
-      .toEqual(['gdrive', 'm365', 'm365', 'm365', 'notion', 'coda', 'other']);
+    expect(['Google Drive', 'SharePoint', 'OneDrive', 'Microsoft 365', 'NOTION', 'coda', 'Asana', 'Jira', 'Linear'].map(connectorKey))
+      .toEqual(['gdrive', 'm365', 'm365', 'm365', 'notion', 'coda', 'asana', 'jira', 'other']);
   });
 });
 
