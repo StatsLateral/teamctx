@@ -4,6 +4,7 @@ import { readConfig, readProject, readWorkstream, listTasks, readContributions, 
 import { saveFileOutput, assertNotAccepted } from '../../cli/commands/task.core.js';
 import { MAX_PAGE_UPLOAD_BYTES } from '../file-output.js';
 import { outputStates, outputsForReader } from '../outputs.js';
+import { recordTrailFor } from '../../cli/commands/records.core.js';
 import { visibleSources } from '../sources.js';
 import { taskHistory, touchesTask } from '../task-history.js';
 import { listAllWorkstreams } from '../../cli/commands/workstream.core.js';
@@ -425,6 +426,33 @@ export async function readContributionsView({ owner, repo, user }) {
       }))
       .sort((a, b) => String(b.at || '').localeCompare(String(a.at || '')));
     return { project: config.project, owner, repo, contributions };
+  });
+}
+
+/**
+ * One record's trail for the page (#265): its versions oldest → newest, who
+ * changed and approved it, and the records it replaced or that replaced it.
+ * Any member who may see the record may see its trail — scoped like every other
+ * read, never manager-gated. Reads ambiently through the session openProject set
+ * up, so recordTrailFor takes no directory here.
+ *
+ * Names are gated the same way the rest of the page gates them: a contributor
+ * or approver is named only when they are a manager or on this roster (or vouched
+ * through an approval), and shown as "someone" otherwise — so a scoped reader
+ * never sees a name here that the task history and outputs would hide.
+ */
+export async function readRecordTrailView({ owner, repo, user, id }) {
+  return openProject({ owner, repo, user }, async ({ config, isManager, allowed }) => {
+    const roster = listMembers({});
+    const managerSet = new Set(managerKeys(config));
+    const rosterKeys = new Set(roster.map(m => m.key).filter(Boolean));
+    const visible = new Set(roster.map(m => m.name).filter(Boolean));
+    for (const a of Object.values(readApprovals())) {
+      const { name, key } = a.approvedBy || {};
+      if (name && key && (managerSet.has(key) || rosterKeys.has(key))) visible.add(name);
+    }
+    const trail = recordTrailFor({ scope: allowed, id, canSee: (name) => isManager || visible.has(name) });
+    return { project: config.project, owner, repo, trail };
   });
 }
 

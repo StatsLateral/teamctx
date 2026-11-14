@@ -38,7 +38,7 @@ import {
 import {
   listAllWorkstreams, useWorkstream, proposeStructure, addWorkstream,
 } from '../cli/commands/workstream.core.js';
-import { listRecords, getRecord } from '../cli/commands/records.core.js';
+import { listRecords, getRecord, recordTrailFor } from '../cli/commands/records.core.js';
 import { assertJoinableContext } from '../src/context-gate.js';
 import { contributeCore } from '../cli/commands/contribute.core.js';
 import { buildBrief } from '../cli/commands/brief.core.js';
@@ -144,6 +144,11 @@ export const TOOLS = [
   {
     name: 'get_record',
     description: 'Fetch one governed record by id — its text, owner, dates, what it rests on or bends, and where it sits.',
+    inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'], additionalProperties: false },
+  },
+  {
+    name: 'record_history',
+    description: "A record's trail (#265): every version it has had, oldest to newest, with who changed it and when; who approved it; and the records it replaced or that replaced it. Reach for this when someone asks what a decision or rule said originally, what changed, or who agreed to it. Read-only; a record from before history was kept reads as a single current version.",
     inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'], additionalProperties: false },
   },
   {
@@ -1048,6 +1053,12 @@ export function makeHandlers(projectRoot) {
       // Asking about one record is the most pointed way to ask whether it still
       // stands, so this is the last place the flag should be missing.
       return textResult(markNeedsReview([record], flaggedInProject(teamctxDir))[0]);
+    },
+
+    async record_history({ id } = {}) {
+      const teamctxDir = dir();
+      const allowed = await scope(teamctxDir, readConfig(teamctxDir));
+      return textResult(recordTrailFor({ teamctxDir, scope: allowed, id }));
     },
 
     async get_workstream({ id } = {}) {

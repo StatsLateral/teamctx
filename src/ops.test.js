@@ -177,6 +177,50 @@ describe('edits pass the same checks as additions', () => {
   });
 });
 
+describe('a record keeps its earlier wording (#265)', () => {
+  const dec = () => makeRecord({ id: 'rec-d', type: 'decision', text: 'First', detail: 'one' });
+
+  it('keeps the prior text when text is edited', () => {
+    const { tree } = applyOps(makeProject({ records: [dec()] }), [
+      { type: 'editRecord', id: 'rec-d', changes: { text: 'Second' } },
+    ], 'c-2');
+    const r = tree.records.find(x => x.id === 'rec-d');
+    expect(r.text).toBe('Second');
+    expect(r.history).toHaveLength(1);
+    expect(r.history[0]).toMatchObject({ text: 'First', detail: 'one', byContribution: 'c-2' });
+  });
+
+  it('accumulates versions oldest first across edits', () => {
+    let { tree } = applyOps(makeProject({ records: [dec()] }), [
+      { type: 'editRecord', id: 'rec-d', changes: { text: 'Second' } },
+    ], 'c-2');
+    ({ tree } = applyOps(tree, [{ type: 'editRecord', id: 'rec-d', changes: { text: 'Third' } }], 'c-3'));
+    const r = tree.records.find(x => x.id === 'rec-d');
+    expect(r.text).toBe('Third');
+    expect(r.history.map(h => h.text)).toEqual(['First', 'Second']);
+    expect(r.history.map(h => h.byContribution)).toEqual(['c-2', 'c-3']);
+  });
+
+  it('does not record history for an edit that leaves the wording alone', () => {
+    const { tree } = applyOps(makeProject({ records: [dec()] }), [
+      { type: 'editRecord', id: 'rec-d', changes: { owner: { key: 'k', name: 'Pat' } } },
+    ], 'c-2');
+    const r = tree.records.find(x => x.id === 'rec-d');
+    expect(r.owner).toMatchObject({ name: 'Pat' });
+    expect(r.history).toBeUndefined();
+  });
+
+  it('points a replaced record at its replacement (#265)', () => {
+    const { tree } = applyOps(makeProject({ records: [makeRecord({ id: 'rec-old', type: 'decision', text: 'Old' })] }), [
+      { type: 'addRecord', record: { type: 'decision', text: 'New', links: { replaces: 'rec-old' }, attachedTo: { kind: 'project' } } },
+    ], 'c-2');
+    const oldRec = tree.records.find(r => r.id === 'rec-old');
+    const newRec = tree.records.find(r => r.text === 'New');
+    expect(oldRec).toMatchObject({ status: 'replaced', replacedBy: newRec.id });
+    expect(newRec.links.replaces).toBe('rec-old');
+  });
+});
+
 describe('where a record is written decides where it is attached', () => {
   it('defaults a record in a workstream to that workstream, and refuses a task that is not there', () => {
     const ws = { id: 'food', name: 'Food', records: [], tasks: [] };

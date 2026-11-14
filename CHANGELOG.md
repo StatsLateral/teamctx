@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **See a record's history.** A decision, rule or assumption now keeps its
+  earlier wording when it is edited, instead of overwriting it, and a record
+  that was replaced points at the one that replaced it. One read — `teamctx
+  record history <id>`, the `record_history` assistant tool, or
+  `/project/<owner>/<repo>/record/<id>` on the web — returns the whole trail:
+  every version oldest to newest with who changed it and when, who approved it,
+  and the records it replaced or that replaced it. A record from before this
+  reads as a single current version, never an error.
 - **Attach a file as a task output.** `teamctx task attach <task> <path>` keeps a
   deliverable — an image, a PDF, a spreadsheet — in the project’s repository as a
   working output, up to 10 MB, reviewed like any other output. The type is checked
