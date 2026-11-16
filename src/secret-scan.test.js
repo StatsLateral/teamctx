@@ -25,7 +25,7 @@ describe('scanForSecrets — finds obvious secrets', () => {
       'slack = xoxb-123456789012-abcdefABCDEF',
       'g = AIza' + 'B'.repeat(35),
       'stripe = sk_live_' + 'c'.repeat(24),
-      'openai = sk-' + 'd'.repeat(32),
+      'openai = sk-' + 'd'.repeat(20) + 'T3BlbkFJ' + 'e'.repeat(20),
     ].join('\n')).map(x => x.rule);
     expect(rules).toContain('github-token');
     expect(rules).toContain('slack-token');
@@ -49,6 +49,17 @@ describe('scanForSecrets — does not cry wolf', () => {
   it('holds the generic rule back from a low-entropy placeholder', () => {
     expect(scanForSecrets('password = "changeme_changeme_change"')).toEqual([]);
     expect(scanForSecrets('token = "aaaaaaaaaaaaaaaaaaaaaaaa"')).toEqual([]);
+  });
+
+  it('does not match a keyword buried in a longer word with the value elsewhere', () => {
+    // 'auth' sits inside 'author'/'oauth', but the generic rule anchors on
+    // [:=] right after the keyword, so these ordinary lines are not flagged.
+    expect(scanForSecrets('author = Christopher_Columbus_Expedition_1492_AD')).toEqual([]);
+    expect(scanForSecrets('oauth_redirect_path = /some/long/callback/url/here/x')).toEqual([]);
+  });
+
+  it('does not flag an ordinary sk- identifier without the OpenAI marker', () => {
+    expect(scanForSecrets('ref = sk-item-code-abcdefghijklmnopqrstuvwx')).toEqual([]);
   });
 
   it('reports a repeated key on one line once', () => {

@@ -143,15 +143,19 @@ export function sha256Hex(bytes) {
   return createHash('sha256').update(bytes).digest('hex');
 }
 
-/** Valid UTF-8 with no NUL byte: what a real text file is, and a binary one is not. */
-function isPlainText(bytes) {
-  if (bytes.includes(0)) return false;
+/**
+ * Decode bytes as a real text file — valid UTF-8 with no NUL byte — returning
+ * the string, or null when they are not text (a binary file renamed .txt
+ * fails). Decoding once here lets the secret scan reuse the string instead of
+ * decoding the whole buffer a second time.
+ */
+function decodePlainText(bytes) {
+  if (bytes.includes(0)) return null;
   try {
     // 'fatal' rejects ill-formed UTF-8 instead of inserting replacement chars.
-    new TextDecoder('utf-8', { fatal: true }).decode(bytes);
-    return true;
+    return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -190,8 +194,10 @@ export async function validateFileOutput(bytes, name, { maxBytes = MAX_OUTPUT_FI
     throw new FileOutputError(`a .${ext} file is not an allowed type. Allowed types: ${FILE_OUTPUT_EXTENSIONS.join(', ')}.`);
   }
 
+  let text = null;
   if (ext in TEXT_TYPES) {
-    if (!isPlainText(bytes)) {
+    text = decodePlainText(bytes);
+    if (text === null) {
       throw new FileOutputError(`this does not look like a .${ext} text file (it is not valid UTF-8 text). Attach it under its real type.`);
     }
   } else {
@@ -210,21 +216,26 @@ export async function validateFileOutput(bytes, name, { maxBytes = MAX_OUTPUT_FI
 
   // A committed secret stays in the repository's history, so scan the text
   // before anything is written and refuse — unless the person has said to
-  // attach anyway. v1 scans the text types; the Office/PDF binaries are not
-  // cracked open, and the message is honest that they are not deeply scanned.
-  if (!allowSecrets && ext in TEXT_TYPES) {
-    const findings = scanForSecrets(new TextDecoder('utf-8').decode(bytes));
+  // attach anyway, in which case the override is recorded (see saveFileOutput)
+  // rather than passing silently. v1 scans the text types; the Office/PDF
+  // binaries are not cracked open, and the message says so.
+  let secretsOverridden = false;
+  if (text !== null) {
+    const findings = scanForSecrets(text);
     if (findings.length) {
-      throw new SecretInUploadError(
-        'this file looks like it contains a secret, so it was not attached '
-        + '(a file that is committed stays in the repository\'s history even if the task or output is later removed):\n'
-        + `${describeSecretFindings(findings)}\n`
-        + 'Rotate the credential if it is real — that is the real fix, since anyone who has pulled already has it. '
-        + 'If this is a false positive, attach again with the override '
-        + '(--allow-secrets on the command line, or the second confirm on the page). '
-        + 'To remove a file already committed, see docs/removing-a-mistaken-upload.md.',
-        findings,
-      );
+      if (!allowSecrets) {
+        throw new SecretInUploadError(
+          'this file looks like it contains a secret, so it was not attached '
+          + '(a file that is committed stays in the repository\'s history even if the task or output is later removed):\n'
+          + `${describeSecretFindings(findings)}\n`
+          + 'Rotate the credential if it is real — that is the real fix, since anyone who has pulled already has it. '
+          + 'If this is a false positive, attach again with the override '
+          + '(--allow-secrets on the command line, or the second confirm on the page). '
+          + 'To remove a file already committed, see docs/removing-a-mistaken-upload.md.',
+          findings,
+        );
+      }
+      secretsOverridden = true;
     }
   }
 
@@ -233,6 +244,7 @@ export async function validateFileOutput(bytes, name, { maxBytes = MAX_OUTPUT_FI
     type: FILE_OUTPUT_TYPES[ext],
     size,
     sha256: sha256Hex(bytes),
+    ...(secretsOverridden ? { secretsOverridden: true } : {}),
   };
 }
 

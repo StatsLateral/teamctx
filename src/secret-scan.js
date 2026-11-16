@@ -38,7 +38,11 @@ const RULES = [
   { name: 'slack-webhook', re: /https:\/\/hooks\.slack\.com\/services\/T[0-9A-Z]+\/B[0-9A-Z]+\/[0-9A-Za-z]+/g, group: 0 },
   { name: 'google-api-key', re: /\bAIza[0-9A-Za-z\-_]{35}\b/g, group: 0 },
   { name: 'stripe-key', re: /\b(?:sk|rk)_(?:live|test)_[0-9A-Za-z]{16,}\b/g, group: 0 },
-  { name: 'openai-key', re: /\bsk-(?:proj-)?[0-9A-Za-z_-]{20,}\b/g, group: 0 },
+  // The fixed `T3BlbkFJ` marker is what makes an OpenAI key recognisable; a bare
+  // `sk-<slug>` would flag ordinary `sk-`-prefixed identifiers, so gitleaks keys
+  // on the marker and so do we. A keyed `sk-proj-…=…` is still caught by the
+  // generic rule below.
+  { name: 'openai-key', re: /\bsk-(?:proj-)?[A-Za-z0-9_-]{20,}T3BlbkFJ[A-Za-z0-9_-]{20,}\b/g, group: 0 },
   { name: 'jwt', re: /\beyJ[0-9A-Za-z_-]{10,}\.[0-9A-Za-z_-]{10,}\.[0-9A-Za-z_-]{10,}\b/g, group: 0 },
   {
     // Generic: a credential-ish name assigned a long value. Entropy-gated so a
@@ -83,24 +87,10 @@ export function redactSecret(s) {
  */
 export function scanForSecrets(text) {
   if (typeof text !== 'string' || !text) return [];
-  // Pre-compute where each line starts, to turn a match offset into a line
-  // number without scanning the whole prefix each time.
-  const lineStarts = [0];
-  for (let i = 0; i < text.length; i += 1) {
-    if (text[i] === '\n') lineStarts.push(i + 1);
-  }
-  const lineAt = (offset) => {
-    // Binary search for the last line start at or before the offset.
-    let lo = 0; let hi = lineStarts.length - 1;
-    while (lo < hi) {
-      const mid = (lo + hi + 1) >> 1;
-      if (lineStarts[mid] <= offset) lo = mid; else hi = mid - 1;
-    }
-    return lo + 1;
-  };
 
-  const findings = [];
-  const seen = new Set();
+  // Run the rules first and collect raw hits. A clean file — the common case —
+  // never pays for the line index below.
+  const hits = [];
   for (const rule of RULES) {
     rule.re.lastIndex = 0;
     let m;
@@ -111,13 +101,35 @@ export function scanForSecrets(text) {
       const value = rule.group ? (m[rule.group] || '') : m[0];
       if (rule.entropy && entropyOf(value) < GENERIC_MIN_ENTROPY) continue;
       const offset = rule.group ? m.index + m[0].indexOf(value) : m.index;
-      const line = lineAt(offset);
-      const redacted = redactSecret(value);
-      const key = `${rule.name}:${line}:${redacted}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      findings.push({ rule: rule.name, line, match: redacted });
+      hits.push({ rule: rule.name, offset, value });
     }
+  }
+  if (hits.length === 0) return [];
+
+  // Only now turn offsets into line numbers. One native pass over the newlines
+  // builds the index; a binary search then maps each (few) offset to its line.
+  const lineStarts = [0];
+  const nl = /\n/g;
+  let nm;
+  while ((nm = nl.exec(text)) !== null) lineStarts.push(nm.index + 1);
+  const lineAt = (offset) => {
+    let lo = 0; let hi = lineStarts.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if (lineStarts[mid] <= offset) lo = mid; else hi = mid - 1;
+    }
+    return lo + 1;
+  };
+
+  const findings = [];
+  const seen = new Set();
+  for (const hit of hits) {
+    const line = lineAt(hit.offset);
+    const redacted = redactSecret(hit.value);
+    const key = `${hit.rule}:${line}:${redacted}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    findings.push({ rule: hit.rule, line, match: redacted });
   }
   findings.sort((a, b) => a.line - b.line || a.rule.localeCompare(b.rule));
   return findings;
