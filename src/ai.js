@@ -2,7 +2,7 @@ import { jsonrepair } from 'jsonrepair';
 import { today as todayIso } from './model.js';
 import { getProvider } from './providers/index.js';
 import { getRequestAiProvider, keyWasRejected, fallBackFromOwnKey } from './ai-context.js';
-import { normalizeContradictions } from './contradictions.js';
+import { normalizeContradictions, normalizeImpact } from './contradictions.js';
 import { keepPeoplesTasks, withWhereFrom } from './task-wording.js';
 
 export const MODELS_BY_PROVIDER = {
@@ -119,7 +119,7 @@ function modelForPrompt(tree) {
  * two documents covering the same decision both propose it.
  */
 export async function proposeDiff({
-  workstream, contribution, source, model, config, intent = 'contribution', avoid = [], today: onDay = todayIso(), comparisonRecords, operationsToCheck,
+  workstream, contribution, source, model, config, intent = 'contribution', avoid = [], today: onDay = todayIso(), comparisonRecords, siblings = [], operationsToCheck,
 }) {
   const isDocument = intent === 'document';
 
@@ -143,6 +143,7 @@ export async function proposeDiff({
     '',
     'Active decisions and rules to compare, including inherited context (read-only comparison):',
     JSON.stringify(comparisons, null, 2),
+    ...(siblings.length ? ['', 'Records in SIBLING parts of the work — other branches a change here might affect (read-only; for possible impact only, NEVER for contradictions):', JSON.stringify(siblings, null, 2)] : []),
     ...(operationsToCheck ? ['', 'Previously proposed operations to check (keep these unchanged, including their order):', JSON.stringify(operationsToCheck, null, 2)] : []),
     '',
     ...(avoid.length ? [
@@ -161,6 +162,7 @@ export async function proposeDiff({
     `{
   "summary": "1-2 sentences",
   "contradictions": [],
+  "impact": [],
   "operations": [
     { "type": "setGoal", "text": "one line", "why": "why it matters, one line" },
     { "type": "addRecord", "ref": "optional local name", "record": {
@@ -215,6 +217,9 @@ export async function proposeDiff({
     'For each contradiction return the zero-based operationIndex, exact recordId and workstream from the comparison list. Return contradictions: [] when there are none. Keep the proposed operation so a manager can decide; do not invent a question record, silently suppress a conflict, or decide which statement wins. Flag intentional replacements too: they still need manager review.',
     'Each contradiction has this shape: {"operationIndex": 0, "recordId": "<comparison record id>", "workstream": null}. Use the actual workstream value from that comparison record, which is null only for project context.',
     'Inherited records are comparison only. Do not put an inherited id in links.replaces: replacement belongs in the tree that owns the old record. Never compare against unrelated workstreams.',
+    ...(siblings.length ? [
+      'Separately, for each addRecord or text-changing editRecord, look at the SIBLING records listed above (not the inherited comparison ones): list any this change may AFFECT — not contradict, but make worth re-checking, such as a changed deadline, budget, scope or owner here that a sibling decision quietly depended on. This is possible impact: advice for the manager, never a block. For each, return {"operationIndex": 0, "recordId": "<sibling record id>", "workstream": "<its workstream>", "reason": "one line on why it may be affected"} in "impact". Return impact: [] when none. Never list the record being changed, an inherited comparison record, or a sibling merely on a related topic that is not actually affected.',
+    ] : []),
     ...(isDocument ? [
       '',
       'This is a document, not a deliberate update. Extract only durable team',
@@ -240,15 +245,24 @@ export async function proposeDiff({
   if (fresh && Array.isArray(parsed.contradictions)) {
     parsed.contradictions = parsed.contradictions.map(c => (c && fresh.at.has(c.operationIndex) ? { ...c, operationIndex: fresh.at.get(c.operationIndex) } : c));
   }
+  // Possible-impact hits follow their operations to their new positions too.
+  if (fresh && Array.isArray(parsed.impact)) {
+    parsed.impact = parsed.impact.map(h => (h && fresh.at.has(h.operationIndex) ? { ...h, operationIndex: fresh.at.get(h.operationIndex) } : h));
+  }
   if (comparisons.length && operations.some(op => op?.type === 'addRecord'
     || (op?.type === 'editRecord' && typeof op.changes?.text === 'string')) && !Array.isArray(parsed.contradictions)) {
     throw new Error('The model omitted the contradiction check; no changes applied. Try the contribution again.');
   }
   const contradictions = normalizeContradictions(parsed.contradictions, operations, comparisons, workstream.records || []);
+  // Possible impact on sibling workstreams (#266). Advisory, so a missing or
+  // malformed list costs the advice, never the contribution — normalizeImpact
+  // returns [] rather than throwing.
+  const impact = normalizeImpact(parsed.impact, operations, siblings);
   return {
     summary: String(parsed.summary ?? '(no summary)'),
     operations,
     ...(contradictions.length ? { contradictions } : {}),
+    ...(impact.length ? { impact } : {}),
     ...(fresh?.dropped.length ? { dropped: fresh.dropped } : {}),
   };
 }
