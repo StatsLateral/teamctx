@@ -389,11 +389,18 @@ const SCRIPT = `
       var img = document.createElement('img');
       img.className = 'opreview-img'; img.src = o.dl; img.alt = name;
       img.setAttribute('loading', 'lazy');
+      // A file that will not load leaves no broken-image icon: drop it and the
+      // Download link stands, as the CSV path falls back on a failed fetch.
+      img.onerror = function () { if (img.parentNode) img.parentNode.removeChild(img); };
       container.appendChild(img);
       return;
     }
     var isCsv = type === 'text/csv' || /\\.csv$/i.test(name);
     if (isCsv && (!o.file.size || o.file.size <= CSV_PREVIEW_MAX_BYTES)) {
+      // A placeholder is appended now, so the table lands here (above Download),
+      // not below the later Notes/Asked lines when the fetch resolves.
+      var holder = document.createElement('div'); holder.className = 'opreview-holder';
+      container.appendChild(holder);
       fetch(o.dl, { credentials: 'same-origin' }).then(function (r) {
         return r.ok ? r.text() : Promise.reject(new Error('fetch'));
       }).then(function (text) {
@@ -407,12 +414,14 @@ const SCRIPT = `
           });
           table.appendChild(tr);
         });
-        container.appendChild(table);
+        holder.appendChild(table);
         if (g.rowsTruncated || g.colsTruncated) {
+          var parts = [];
+          if (g.rowsTruncated) parts.push('the first ' + g.rows.length + ' of ' + g.totalRows + ' rows');
+          if (g.colsTruncated) parts.push('the first ' + CSV_PREVIEW_COLS + ' columns');
           var note = document.createElement('p'); note.className = 'wnote opreview-note';
-          note.textContent = 'Showing the first ' + g.rows.length + ' of ' + g.totalRows + ' rows'
-            + (g.colsTruncated ? ' and the first ' + CSV_PREVIEW_COLS + ' columns' : '') + '. Download for the whole file.';
-          container.appendChild(note);
+          note.textContent = 'Showing ' + parts.join(' and ') + '. Download for the whole file.';
+          holder.appendChild(note);
         }
       }).catch(function () { /* preview is best-effort; the Download link stands */ });
     }

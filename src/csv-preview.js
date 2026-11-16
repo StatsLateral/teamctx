@@ -23,6 +23,7 @@ export function parseCsvPreview(text, maxRows, maxCols) {
   var inQuotes = false;
   var started = false; // whether the current row has any content yet
   var s = String(text == null ? '' : text);
+  if (s.charCodeAt(0) === 0xFEFF) s = s.slice(1); // drop a leading UTF-8 BOM (Excel exports one)
   for (var i = 0; i < s.length; i += 1) {
     var c = s[i];
     if (inQuotes) {
@@ -49,12 +50,14 @@ export function parseCsvPreview(text, maxRows, maxCols) {
 
   var totalRows = all.length;
   var rowsTruncated = totalRows > maxRows;
-  var colsTruncated = false;
-  for (var r = 0; r < all.length; r += 1) {
-    if (all[r].length > maxCols) { colsTruncated = true; break; }
-  }
-  var rows = [];
+  // Only the rows actually shown decide whether columns were clipped, so the
+  // note never claims a truncation the reader cannot see.
   var keep = Math.min(all.length, maxRows);
-  for (var k = 0; k < keep; k += 1) rows.push(all[k].slice(0, maxCols));
+  var colsTruncated = false;
+  var rows = [];
+  for (var k = 0; k < keep; k += 1) {
+    if (all[k].length > maxCols) colsTruncated = true;
+    rows.push(all[k].slice(0, maxCols));
+  }
   return { rows: rows, totalRows: totalRows, rowsTruncated: rowsTruncated, colsTruncated: colsTruncated };
 }

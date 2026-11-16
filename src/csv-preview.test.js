@@ -46,6 +46,21 @@ describe('parseCsvPreview', () => {
     expect(g.colsTruncated).toBe(true);
   });
 
+  it('strips a leading UTF-8 BOM so the first header is clean', () => {
+    const g = parseCsvPreview('﻿name,score\nAna,97', 50, 20);
+    expect(g.rows[0]).toEqual(['name', 'score']);
+  });
+
+  it('flags column truncation only from the rows actually shown', () => {
+    // 50 shown rows have 3 cols; a hidden row past the cap is wide. The note
+    // must not claim columns were clipped, since no shown cell was.
+    const shown = Array.from({ length: 50 }, () => 'a,b,c');
+    const hiddenWide = Array.from({ length: 30 }, (_, i) => `c${i}`).join(',');
+    const g = parseCsvPreview([...shown, hiddenWide].join('\n'), 50, 20);
+    expect(g.rowsTruncated).toBe(true);
+    expect(g.colsTruncated).toBe(false);
+  });
+
   it('returns an empty grid for empty text', () => {
     expect(parseCsvPreview('', 50, 20).rows).toEqual([]);
     expect(parseCsvPreview(null, 50, 20).rows).toEqual([]);
