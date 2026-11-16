@@ -292,7 +292,7 @@ export async function setMemberExternal({
 
 export async function addMember({
   ref, name, invite = false, permission = 'push', workstreams, external = false,
-  owner, repo, ghToken, teamctxDir, projectDir, actor,
+  owner, repo, ghToken, teamctxDir, projectDir, actor, onAdded,
 } = {}) {
   const config = readConfig(teamctxDir);
   const resolved = actor || await resolveActor({ config, cwd: projectDir });
@@ -355,6 +355,14 @@ export async function addMember({
 
   writeConfig({ ...config, members: [...members, member] }, teamctxDir);
   const git = await commitAndPush(config, `member: add ${member.name} by ${displayName}`, projectDir, resolved);
+  // Where the person's own list of projects can be told about this one. Only the
+  // hosted server has such a list, so it passes this in; elsewhere it is absent.
+  // After the roster is written and best effort: the person is on the project
+  // either way, and a failure here only means it is missing from their home page
+  // until they connect.
+  if (onAdded && member.email) {
+    try { await onAdded(member); } catch { /* the roster is the record */ }
+  }
   return { member, invite: inviteResult, ...git };
 }
 

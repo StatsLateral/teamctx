@@ -57,6 +57,7 @@ import { resolveActiveWorkstream, resolveIdentity, resolveDisplayName } from '..
 import { isBrokenGate } from '../src/manager-repair.js';
 import { listManagers, addManager, removeManager, transferManager } from '../cli/commands/manager.core.js';
 import { keyCheckFor, lendCheckFor, stepOutCheckFor } from '../src/oauth/manager-checks.js';
+import { recordConnectedProject } from '../src/oauth/ai-keys.js';
 import { INSTRUCTIONS, AGENT_INSTRUCTIONS } from './instructions.js';
 import {
   AGENT_TOOLS, agentOnRoster, agentOwnsTask, AgentRefusedError,
@@ -1354,6 +1355,12 @@ export function makeHandlers(projectRoot) {
         ghToken: projectRoot?.ghToken,
         teamctxDir: dir(),
         projectDir: gitCwd,
+        // The home page lists the projects an address is known to be on, and
+        // being on the roster did not put it there: a person added by email saw
+        // nothing until they connected. Hosted only; a clone has no such list.
+        onAdded: isHosted
+          ? (m) => recordConnectedProject({ email: m.email, owner: projectRoot.owner, repo: projectRoot.repo })
+          : undefined,
       });
 
       const access = r.invite?.invited ? ' and invited to the repository'
