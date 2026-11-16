@@ -253,6 +253,7 @@ async function attachOne(idOrPrefix, path, opts) {
   try {
     result = await saveFileOutput({
       id: idOrPrefix, bytes, name: basename(path), title: opts.title, notes: opts.note, source: 'cli',
+      allowSecrets: !!opts.allowSecrets,
     });
   } catch (err) {
     // A file refused for its size, type or a name mismatch carries its own

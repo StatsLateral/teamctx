@@ -460,7 +460,7 @@ export async function saveOutput({
  */
 export async function saveFileOutput({
   id, bytes, name, title, prompt, notes, basedOn, source,
-  maxBytes = MAX_OUTPUT_FILE_BYTES, teamctxDir, projectDir, actor,
+  maxBytes = MAX_OUTPUT_FILE_BYTES, allowSecrets = false, teamctxDir, projectDir, actor,
 } = {}) {
   const config = readConfig(teamctxDir);
   const { task } = findTask(id, teamctxDir);

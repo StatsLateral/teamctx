@@ -196,6 +196,7 @@ task.command('attach <id> <paths...>').description('Attach a file, folder or glo
   .option('--title <text>', 'A title for the output (one file only; default: the file name)')
   .option('--note <text>', 'A note for the manager about what the file is (one file only)')
   .option('--recursive', 'When a folder is given, descend into sub-folders too')
+  .option('--allow-secrets', 'Attach even if a file looks like it contains a secret (scanned by default)')
   .action(taskAttachCommand);
 
 const config = program.command('config').description('View or change project settings');
