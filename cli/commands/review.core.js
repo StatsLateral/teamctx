@@ -248,7 +248,7 @@ function acceptanceOperations({ item, task, tree, facts, taskChanges, teamctxDir
  * old behaviour, because a person typing `review approve` has the item in front
  * of them.
  */
-export async function approveReview({ id, replaces, tasks, askAboutTasks = false, facts, taskChanges, teamctxDir, projectDir, actor } = {}) {
+export async function approveReview({ id, replaces, tasks, askAboutTasks = false, facts, taskChanges, impactDecisions, teamctxDir, projectDir, actor } = {}) {
   const config = readConfig(teamctxDir);
   // The gate reads the resolved identity, never the caller-supplied `actor`.
   // That argument is attribution only: it is a claim, not a credential.
@@ -353,12 +353,25 @@ export async function approveReview({ id, replaces, tasks, askAboutTasks = false
       .map(o => [o.id, o.link.versionKey]),
   );
 
+  // The manager's call on each possibly-affected sibling record (#266): confirm
+  // or dismiss. Recorded with the approval either way — the dismissal so it is
+  // on record, the confirmation so the assistant can open the follow-up
+  // contribution to reconcile that sibling. Only decisions on records the item
+  // actually flagged are kept; an unflagged or unknown one is ignored.
+  const flaggedImpact = new Map((Array.isArray(item.siblingImpact) ? item.siblingImpact : [])
+    .filter(h => h?.record?.id).map(h => [h.record.id, h]));
+  const siblingImpactDecisions = (Array.isArray(impactDecisions) ? impactDecisions : [])
+    .filter(d => flaggedImpact.has(d?.recordId) && ['confirm', 'dismiss'].includes(d.action))
+    .map(d => ({ recordId: d.recordId, workstream: flaggedImpact.get(d.recordId).record.workstream, reason: flaggedImpact.get(d.recordId).reason || null, action: d.action }));
+  const confirmedImpact = siblingImpactDecisions.filter(d => d.action === 'confirm');
+
   // Who approved it, kept for the task history (#143): approving used to leave
   // nothing behind but the commit message.
   writeApproved({
     id: item.id, author: item.author || null, source: item.source || null, workstream: targetId,
     ...(item.forTask ? { forTask: item.forTask, outputs: Array.isArray(item.outputs) ? item.outputs : [] } : {}),
     ...(Object.keys(approvedVersionKeys).length ? { approvedVersionKeys } : {}),
+    ...(siblingImpactDecisions.length ? { siblingImpact: siblingImpactDecisions } : {}),
     approvedBy: { key: approvedBy.key, name: approvedBy.name }, approvedAt: approvedBy.at,
   }, teamctxDir);
 
@@ -404,6 +417,7 @@ export async function approveReview({ id, replaces, tasks, askAboutTasks = false
     approvedBy: approvedBy.name,
     operations: item.operations || [],
     ...(tasksLeftOut.length ? { tasksLeftOut } : {}),
+    ...(confirmedImpact.length ? { confirmedImpact } : {}),
     ...(item.contradictions?.length ? { contradictions: item.contradictions } : {}),
     rolesRegenerated,
     pushed,
