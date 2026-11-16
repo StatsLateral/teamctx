@@ -18,6 +18,7 @@
  */
 import { createHash } from 'crypto';
 import { fileTypeFromBuffer } from 'file-type';
+import { scanForSecrets, describeSecretFindings } from './secret-scan.js';
 
 // Two routes in, two limits. The CLI writes to the repository itself and allows
 // up to 10 MB. The project page posts through the hosted server on Vercel,
@@ -73,6 +74,20 @@ export class FileOutputError extends Error {
     super(message);
     this.name = 'FileOutputError';
     this.code = 'FILE_OUTPUT_REFUSED';
+  }
+}
+
+/**
+ * The upload looked like it held a secret and was refused. A FileOutputError so
+ * the CLI prints its message as it does any refusal, but carries the findings
+ * so the page can offer an explicit "attach anyway".
+ */
+export class SecretInUploadError extends FileOutputError {
+  constructor(message, findings) {
+    super(message);
+    this.name = 'SecretInUploadError';
+    this.code = 'FILE_OUTPUT_SECRET';
+    this.findings = findings || [];
   }
 }
 
@@ -142,7 +157,7 @@ function isPlainText(bytes) {
  * @param {number} [opts.maxBytes]   the limit for this route (default 10 MB)
  * @returns {Promise<{name, type, size, sha256}>}
  */
-export async function validateFileOutput(bytes, name, { maxBytes = MAX_OUTPUT_FILE_BYTES } = {}) {
+export async function validateFileOutput(bytes, name, { maxBytes = MAX_OUTPUT_FILE_BYTES, allowSecrets = false } = {}) {
   if (!(bytes instanceof Uint8Array)) {
     throw new FileOutputError('the file could not be read as bytes');
   }
@@ -183,6 +198,26 @@ export async function validateFileOutput(bytes, name, { maxBytes = MAX_OUTPUT_FI
     if (!ok) {
       const seen = found ? `looks like a .${found} file` : 'could not be recognised';
       throw new FileOutputError(`the file does not match its .${ext} name (it ${seen}). Attach it under its real type.`);
+    }
+  }
+
+  // A committed secret stays in the repository's history, so scan the text
+  // before anything is written and refuse — unless the person has said to
+  // attach anyway. v1 scans the text types; the Office/PDF binaries are not
+  // cracked open, and the message is honest that they are not deeply scanned.
+  if (!allowSecrets && ext in TEXT_TYPES) {
+    const findings = scanForSecrets(new TextDecoder('utf-8').decode(bytes));
+    if (findings.length) {
+      throw new SecretInUploadError(
+        'this file looks like it contains a secret, so it was not attached '
+        + '(a file that is committed stays in the repository\'s history even if the task or output is later removed):\n'
+        + `${describeSecretFindings(findings)}\n`
+        + 'Rotate the credential if it is real — that is the real fix, since anyone who has pulled already has it. '
+        + 'If this is a false positive, attach again with the override '
+        + '(--allow-secrets on the command line, or the second confirm on the page). '
+        + 'To remove a file already committed, see docs/removing-a-mistaken-upload.md.',
+        findings,
+      );
     }
   }
 
