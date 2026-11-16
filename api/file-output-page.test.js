@@ -166,7 +166,10 @@ describe('attaching a file from the project page', () => {
       allowSecrets: '1', confirmSecret: 'on',
     });
     expect(r.status).toBe(303);
-    expect(savedOutput('prod-task')?.file?.name).toBe('config.txt');
+    const saved = savedOutput('prod-task');
+    expect(saved?.file?.name).toBe('config.txt');
+    expect(saved?.secretOverride).toBe(true);        // the bypass is recorded, not silent
+    expect(saved?.file?.secretsOverridden).toBeUndefined(); // kept off the stored file metadata
   });
 
   it('does not override on the hidden field alone, without the ticked box (#252)', async () => {

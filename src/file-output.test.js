@@ -149,9 +149,15 @@ describe('validateFileOutput — secret scan (#252)', () => {
     expect(err.message).not.toContain('AKIAIOSFODNN7EXAMPLE'); // never the whole secret
   });
 
-  it('attaches the same file when the override is set', async () => {
+  it('attaches the same file when the override is set, and records that it was overridden', async () => {
     const meta = await validateFileOutput(withKey, 'config.txt', { allowSecrets: true });
     expect(meta.type).toBe('text/plain');
+    expect(meta.secretsOverridden).toBe(true);
+  });
+
+  it('does not mark a clean file as overridden, even with the override set', async () => {
+    const meta = await validateFileOutput(Buffer.from('all clear\n', 'utf8'), 'notes.txt', { allowSecrets: true });
+    expect(meta.secretsOverridden).toBeUndefined();
   });
 
   it('does not scan the office/pdf binaries in v1', async () => {
