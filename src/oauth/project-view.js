@@ -444,7 +444,7 @@ export async function readContributionsView({ owner, repo, user }) {
  * `FileOutputError` for an over-limit or wrong-type file, which the route turns
  * into a clean message.
  */
-export async function attachFileOutput({ owner, repo, user, taskId, bytes, fileName, title, note }) {
+export async function attachFileOutput({ owner, repo, user, taskId, bytes, fileName, title, note, allowSecrets }) {
   return openProject({ owner, repo, user }, async ({ actor, allowed }) => {
     const task = listTasks({}, undefined).find(t => t.id === taskId);
     if (!task || !inScope(allowed, resolveTarget(task.workstream))) {
@@ -456,7 +456,7 @@ export async function attachFileOutput({ owner, repo, user, taskId, bytes, fileN
     try { assertNotAccepted(task); } catch (e) { throw new ProjectViewError(e.message); }
     const { output } = await saveFileOutput({
       id: task.id, bytes, name: fileName, title, notes: note,
-      source: 'web', actor, maxBytes: MAX_PAGE_UPLOAD_BYTES,
+      source: 'web', actor, maxBytes: MAX_PAGE_UPLOAD_BYTES, allowSecrets: !!allowSecrets,
     });
     return { output, task: { id: task.id, key: task.key || null, workstream: task.workstream } };
   });
