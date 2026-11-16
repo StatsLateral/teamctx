@@ -48,6 +48,18 @@ trusting.
 
 ## When it does not work
 
+**First, remove the connector and add it again.** Most one-off connect failures
+— a `Method Not Allowed`, a handshake that stops partway, a sign-in that half
+finished — clear on a clean reconnect, because the stale session the client was
+holding is thrown away. Do this before anything else; it is what fixes the
+common case.
+
+If it still fails, the error now carries a short reference like
+`req_1a2b3c4d5e`. Quote that to whoever runs the deployment: it points them
+straight at the one log line for your attempt (which records the reason, never
+your token or sign-in), so they can tell a stale session apart from access that
+was never granted. The cases below are the usual reasons.
+
 **"Authentication required" or the connector will not go green.**
 You have been added to the project, but not given access to the repository it
 lives in — those are two different things, and the second is the one the

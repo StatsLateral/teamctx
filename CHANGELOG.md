@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Flag possible impact on other parts of the work when a record changes.** When
+  a change to a decision or rule is proposed, the same check that looks for
+  contradictions also looks at the records in sibling parts of the work and lists
+  any the change might affect — each with a one-line reason — for the manager to
+  confirm or dismiss at review. It is advice, never a block, and it respects
+  scope: a part of the work the reviewer cannot see never appears. Confirming one
+  is recorded and prompts a follow-up to reconcile that record; dismissing it is
+  recorded too. A one-part project is unaffected.
 - **A task can say where its ticket lives in another tool.** `task_link` records the link
   to an Asana or Jira ticket (at most five per task, https only, nothing else stored), and it
   travels with the task in the brief and the task lists. Asana and Jira are now named when an
@@ -33,6 +41,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   takes 10 MB), and anyone who can see the task can download its files. A file
   downloads as an attachment with the type teamctx checked, and a file for a
   task outside your scope is neither shown nor served.
+
+### Changed
+- **A failed connection from Claude is now diagnosable.** Connecting is the step
+  every new member goes through, and when it failed it left nothing behind to
+  explain it. A failed sign-in or connect now logs one line with the reason code
+  and a short reference id, and the error the client shows carries that same id —
+  so a stuck member can quote it and whoever runs the server can find the one
+  line about their attempt. No token, authorization code, secret or email is
+  logged. The connect docs gain a short recovery section (remove the connector,
+  add it again, and what each error means).
 
 ### Fixed
 - **A failed sign-in no longer shows the internal error.** A hosted deployment
