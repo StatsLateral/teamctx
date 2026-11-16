@@ -157,6 +157,14 @@ describe('the manager looking at a project', () => {
     expect(body).toContain('adds the pricing tiers');
   });
 
+  it('ships the inline output preview wiring to the page (#249)', async () => {
+    const { body } = await visit('/project/acme/ledger?tab=tasks', MANAGER);
+    // The drawer can render an image inline and a CSV as a bounded table.
+    expect(body).toContain('function parseCsvPreview');  // the parser, injected from one source
+    expect(body).toContain('opreview-img');              // image preview element + style
+    expect(body).toContain('opreview-table');            // CSV table element + style
+  });
+
   it('reads the project with their own GitHub token', async () => {
     await visit('/project/acme/ledger', MANAGER);
     expect(repo.usedToken).toBe('gho-maya');
