@@ -130,9 +130,12 @@ button.link{background:none;border:0;padding:0;margin:0;color:var(--faint);
   font-size:.85rem;text-decoration:underline;cursor:pointer}
 .actions{display:flex;align-items:center;gap:.9rem;margin-top:1.6rem;flex-wrap:wrap}
 label{display:block;font-weight:500;margin:1.25rem 0 .35rem;color:var(--ink)}
-input,select,textarea{width:100%;box-sizing:border-box;padding:.55rem .7rem;font-size:1rem;
+input:not([type=checkbox]):not([type=radio]),select,textarea{width:100%;box-sizing:border-box;padding:.55rem .7rem;font-size:1rem;
   font-family:inherit;border:1px solid var(--line);border-radius:var(--radius-sm);
   background:var(--card);color:var(--ink)}
+/* Checkboxes and radios keep their native size and sit inline with their label,
+   rather than being stretched to full width by the rule above (#252). */
+input[type=checkbox],input[type=radio]{margin-right:.5rem;vertical-align:middle}
 /* The popup list is painted by the OS; a select with no colours of its own
    opted out of the scheme and rendered white-on-white. */
 option{background:var(--card);color:var(--ink)}
