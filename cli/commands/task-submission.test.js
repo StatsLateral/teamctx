@@ -235,8 +235,11 @@ describe('approving a task submission', () => {
   it('refuses, leaving the item waiting, when the task has since been removed', async () => {
     await save(member, { body: 'v1' });
     const r = await submit(member);
-    const { removeTask } = await import('./task.core.js');
-    await as(manager, () => removeTask({ id: task.id, teamctxDir: dir }));
+    // The task vanishes by some other hand (a picked-up task can no longer be
+    // deleted through removeTask (#320), so use the storage primitive directly
+    // to reach the "task is gone" guard this test is about).
+    const { deleteTask } = await import('../../src/storage.js');
+    deleteTask(task.id, dir);
     await expect(as(manager, () => approveReview({ id: r.id, teamctxDir: dir }))).rejects.toThrow(/no longer/i);
     expect(listQueue(dir)).toHaveLength(1);
   });
