@@ -136,6 +136,9 @@ h1{font-size:28px;line-height:1.25;margin:0 0 .35rem}
 .trow .clip{color:var(--faint);font-size:12px;white-space:nowrap}
 .trow.done .ttl{text-decoration:line-through}
 .trow.done{opacity:.55}
+/* Archived is dimmed like done but not struck through — it is retired, not finished (#320). */
+.trow.archived{opacity:.55}
+.tarchived{display:inline-block;margin-left:8px;font-family:var(--font-mono);font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--faint);border:1px solid var(--line);border-radius:4px;padding:0 5px;vertical-align:middle}
 .item.marked{background:var(--accent-soft);box-shadow:inset 3px 0 0 var(--accent)}
 .hist{margin:.5rem 0 0;font-size:12.5px}
 .hist a{color:var(--soft);text-decoration:underline}
@@ -548,7 +551,7 @@ const SCRIPT = `
     // A task takes a file; a waiting item does not. The route checks scope again,
     // so this only points the form at the task it is open on.
     var attach = document.getElementById('d-attach');
-    if (!queued && el.dataset.attach && el.dataset.done !== '1') {
+    if (!queued && el.dataset.attach && el.dataset.done !== '1' && el.dataset.archived !== '1') {
       attach.action = el.dataset.attach;
       attach.hidden = false;
       try { attach.reset(); } catch (e) { /* older browsers */ }

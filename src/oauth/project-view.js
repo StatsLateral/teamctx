@@ -256,7 +256,7 @@ export async function readProjectView({ owner, repo, user }) {
           key: t.key || null,
           title: t.title,
           owner: t.owner || null,
-          status: t.status === 'done' ? 'done' : 'open',
+          status: t.status === 'done' ? 'done' : t.status === 'archived' ? 'archived' : 'open',
           sourceContributionIds: t.sourceContributionIds || [],
           workstream: resolveTarget(t.workstream),
           where: workstreamLocation(workstreams, resolveTarget(t.workstream), config.project),
@@ -386,7 +386,10 @@ export async function readProjectView({ owner, repo, user }) {
       })),
       tasks: {
         open: tasks.filter(t => t.status === 'open'),
-        done: tasks.filter(t => t.status === 'done'),
+        // Archived tasks ride in the history bucket with done (#320): shown
+        // under "Show history" and reachable by an old link, marked archived,
+        // but never counted among the open work.
+        done: tasks.filter(t => t.status === 'done' || t.status === 'archived'),
       },
       pending,
       // What the project was drawn from (#168), for the Connected sources

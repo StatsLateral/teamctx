@@ -10,11 +10,13 @@ import { mintTaskKey } from './numbering.js';
  * review takes the numbers that are free when it lands, not the ones that were
  * free when it was written, and one that is rejected takes none at all.
  */
-export function applyQueueItem(tree, item, { nextKey, workstreamNumber = null } = {}) {
+export function applyQueueItem(tree, item, { nextKey, workstreamNumber = null, pickedUp = null } = {}) {
   // The number the item was given when it was submitted is the number its first
-  // task keeps, so "approve 1.6" and "task 1.6" are the same thing.
+  // task keeps, so "approve 1.6" and "task 1.6" are the same thing. `pickedUp`
+  // (the ids of tasks with saved work) is passed on so a removeTask on one is
+  // refused here, where the change is first applied, not on a replay (#320).
   const { tree: next, nextKey: spent, dropped } = applyOps(tree, item.operations || [], item.id, {
-    nextKey, workstreamNumber, reservedKey: item.number || null,
+    nextKey, workstreamNumber, reservedKey: item.number || null, pickedUp,
   });
   return { tree: next, nextKey: spent, dropped };
 }
