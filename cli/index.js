@@ -35,7 +35,7 @@ import { connectCommand } from './commands/connect.js';
 import { workstreamProposeCommand, workstreamListCommand, workstreamUseCommand, workstreamAddCommand } from './commands/workstream.js';
 import {
   taskAddCommand, taskListCommand, taskShowCommand,
-  taskDoneCommand, taskReopenCommand, taskAssignCommand, taskRmCommand,
+  taskDoneCommand, taskReopenCommand, taskAssignCommand, taskRmCommand, taskArchiveCommand,
   taskCompileCommand, taskAttachCommand,
 } from './commands/task.js';
 import { getTeamctxDir } from '../src/storage.js';
@@ -185,6 +185,9 @@ task.command('assign <id>').description('Reassign a task')
 task.command('rm <id>').description('Remove a task (and its compiled prompt file, if any)')
   .option('--reason <text>', 'Why an accepted task is leaving the plan (manager only; required for an accepted task)')
   .action(taskRmCommand);
+task.command('archive <id>').description('Retire a task that has work on it — keeps its number and outputs, leaves it out of the context')
+  .option('--unarchive', 'Bring an archived task back to open instead')
+  .action(taskArchiveCommand);
 task.command('compile <id>').description('Generate an AI-ready prompt file for the task (AI call — writes context/tasks/<id>.md)')
   .option('--role <slug>', 'Frame the prompt for a specific role')
   .option('--force', 'Regenerate even if the workstream has not changed since last compile')

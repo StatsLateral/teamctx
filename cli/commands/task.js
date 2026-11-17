@@ -154,6 +154,22 @@ export async function taskRmCommand(idOrPrefix, opts = {}) {
   }
 }
 
+export async function taskArchiveCommand(idOrPrefix, opts = {}) {
+  const unarchive = !!opts.unarchive;
+  let result;
+  try {
+    result = await setTaskStatus({ id: idOrPrefix, status: unarchive ? 'open' : 'archived' });
+  } catch (err) { reportAndExit(err); }
+  const label = result.task.key || result.task.id;
+  if (result.unchanged) {
+    console.log(`\nTask ${label} is ${unarchive ? 'not archived' : 'already archived'}.\n`);
+    return;
+  }
+  reportGit(result, unarchive
+    ? `✓ Task ${label} un-archived`
+    : `✓ Task ${label} archived — keeps its number and outputs, left out of the context until un-archived`);
+}
+
 export async function taskCompileCommand(idOrPrefix, opts = {}) {
   console.log(`\n→ Compiling prompt for task ${idOrPrefix}${opts.role ? ` (role: ${opts.role})` : ''}...`);
   let result;
