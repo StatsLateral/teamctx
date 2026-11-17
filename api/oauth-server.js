@@ -12,6 +12,7 @@ import { managersOf } from '../src/managers.js';
 import { matchesActor, managerKeys } from '../src/review.js';
 import { readConfigJson } from '../src/oauth/member-access.js';
 import { projectRepoToken, projectLendsAccess } from '../src/oauth/repo-access.js';
+import { githubAppConfigured, githubAppInstallUrl, installationForRepo } from '../src/oauth/github-app.js';
 import {
   readPersonalKey, writePersonalKey, addProjectKey, removeProjectKey, projectsKeyedBy,
   adoptGithubRecords, linkGithubIdentity, projectsKnownFor, recordConnectedProject,
@@ -1130,6 +1131,87 @@ app.post('/settings/unlend', async (req, res) => {
     const byAddress = (await kvGet(keys.lentByAddress(user.email)))?.projects || [];
     await kvSet(keys.lentByAddress(user.email), { projects: byAddress.filter(p => p !== slug) });
   }
+  backToSettings(res);
+});
+
+/**
+ * Start installing the GitHub App on a project's repository (#110): the narrower
+ * alternative to lending an OAuth token. `state` ties GitHub's return to this
+ * click and this browser, and carries which project it was for.
+ */
+app.get('/settings/github-app/install', async (req, res) => {
+  const user = await currentUser(req);
+  if (!user) return res.redirect(303, '/settings');
+  if (!githubAppConfigured()) return backToSettings(res, 'This deployment has no GitHub App configured, so there is nothing to install.');
+  const ref = parseRepoRef(req.query?.project);
+  if (!ref) return backToSettings(res, 'Write the project as owner/repo.');
+  // The install is recorded against whoever did it, by address — the same way a
+  // lender is, so a manager handoff can still reason about who granted access.
+  if (!user.email) return backToSettings(res, 'Installing the GitHub App records who installed it, by address. Sign out and sign in again to grant your email.');
+  const state = randomBytes(18).toString('base64url');
+  const bind = randomBytes(18).toString('base64url');
+  await kvSet(
+    keys.pending(`ghapp:${state}`),
+    { owner: ref.owner, repo: ref.repo, byId: user.id || null, byLogin: user.login || null, byEmail: user.email, bindHash: tokenHash(bind) },
+    { ttlSeconds: TTL.pending },
+  );
+  setBindCookie(res, bind);
+  const url = githubAppInstallUrl(state);
+  if (!url) return backToSettings(res, 'This deployment has no GitHub App configured.');
+  res.redirect(url);
+});
+
+/**
+ * Where GitHub returns after the manager installs the App. The installation id
+ * in the redirect is not trusted on its own: the App is asked which installation
+ * actually covers the repository, and only a confirmed one is recorded — so an
+ * install that landed on a different repository, or was cancelled, records
+ * nothing.
+ */
+app.get('/settings/github-app/callback', async (req, res) => {
+  const state = req.query?.state ? String(req.query.state) : '';
+  if (!state) return backToSettings(res, 'That GitHub App setup link was missing its state.');
+  const pending = await kvTake(keys.pending(`ghapp:${state}`));
+  if (!pending) return backToSettings(res, 'That GitHub App setup link has expired. Start the install again from the settings page.');
+  if (!bindMatches(pending, readBindCookie(req))) {
+    return backToSettings(res, 'This install was started in another browser. Start it again from the settings page.');
+  }
+  const { owner, repo } = pending;
+  let installationId;
+  try {
+    installationId = await installationForRepo(owner, repo);
+  } catch (e) {
+    return backToSettings(res, `Could not confirm the GitHub App install on ${owner}/${repo}: ${e.message}`);
+  }
+  if (!installationId) {
+    return backToSettings(res, `The GitHub App is not installed on ${owner}/${repo}. On GitHub, install it and choose that repository.`);
+  }
+  await kvSet(keys.projectInstallation(owner, repo), {
+    installationId,
+    installedById: pending.byId || null,
+    installedByLogin: pending.byLogin || null,
+    installedByEmail: pending.byEmail || null,
+    installedAt: new Date().toISOString(),
+  });
+  backToSettings(res);
+});
+
+/** Stop using the GitHub App for a project — teamctx drops the stored
+ * installation, so it falls back to a lent token if one exists, or to no access.
+ * The App itself is uninstalled on GitHub; this just stops teamctx reaching for
+ * it. Only the person who recorded the install, by id or address, may clear it. */
+app.post('/settings/github-app/forget', async (req, res) => {
+  const user = await currentUser(req);
+  if (!user) return res.redirect(303, '/settings');
+  const ref = parseRepoRef(req.body?.project);
+  if (!ref) return backToSettings(res, 'Write the project as owner/repo.');
+  const existing = await kvGet(keys.projectInstallation(ref.owner, ref.repo));
+  const mine = existing && (
+    (user.id && String(existing.installedById) === String(user.id))
+    || (user.email && existing.installedByEmail && String(existing.installedByEmail).toLowerCase() === String(user.email).toLowerCase())
+  );
+  if (existing && !mine) return backToSettings(res, 'That GitHub App install was set up by someone else.');
+  await kvSet(keys.projectInstallation(ref.owner, ref.repo), null);
   backToSettings(res);
 });
 
