@@ -17,6 +17,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   under the uploader's name, nothing queued for approval. The URL is good once,
   for ten minutes, and names one project and task. Hosted connector only; on the
   command line, `teamctx task attach` still reads a file from disk (#257).
+- **Delete a task before it is worked, archive it after.** A task nobody has
+  saved work on is deleted as before, and its number is never reused. Once an
+  output has been saved, deleting is refused on every path — the CLI, the
+  `task_rm` tool and an approved contribution — and archive is offered instead.
+  Archiving (`teamctx task archive`, the `task_archive` tool; managers only)
+  keeps the task's number and its outputs, refuses any further output, submit or
+  compile, and takes it out of the approved context, the brief, the default task
+  list and compiled prompts. It stays visible, marked archived, in the page's
+  history view and on an old link, and un-archiving brings it back to open.
 - **Flag possible impact on other parts of the work when a record changes.** When
   a change to a decision or rule is proposed, the same check that looks for
   contradictions also looks at the records in sibling parts of the work and lists
