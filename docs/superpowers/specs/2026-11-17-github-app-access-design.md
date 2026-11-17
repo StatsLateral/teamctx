@@ -116,9 +116,15 @@ still performed the install, which is who the checks name.
    registration steps.
 2. **Install flow on the settings page.** The install link, setup callback, and
    the stored installer identity; manager-checks read the installation record.
-3. **Narrow identity + deprecate the lent token.** Drop `repo` from the sign-in
-   scope, mark lent-token lending legacy with a deprecation note, and document the
-   migration for existing deployments.
+3. **Deprecate the lent token + document.** Frame lending as the broader option
+   with the App as the narrower one on the settings page, report the App in
+   `/oauth/status`, and document the App setup in `docs/mcp-hosted-setup.md`.
+   **Deferred:** dropping `repo` from the sign-in scope. A person signing in with
+   GitHub still reads and writes their *own* repository through their token, and
+   creating a repository needs `repo` too, so narrowing the sign-in scope means
+   first moving those onto the App — a larger change than this one, which only
+   narrows the **lent** credential. Left as a follow-up so nothing a GitHub
+   sign-in does today breaks.
 
 ## Sub-questions, answered
 
