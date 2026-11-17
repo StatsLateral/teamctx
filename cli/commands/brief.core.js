@@ -112,7 +112,8 @@ export async function buildBrief({
   // to carry on knows there is earlier work to start from (read it with get_task).
   const savedCount = (t) => { try { return listOutputs(t.id, teamctxDir).length; } catch { return 0; } };
   const open = mine.filter(t => t.status === 'open').sort(byAge).map(t => ({ ...t, savedOutputs: savedCount(t) }));
-  const done = mine.filter(t => t.status !== 'open').sort(byAge);
+  // Archived tasks are retired, so the brief leaves them out of both lists (#320).
+  const done = mine.filter(t => t.status === 'done').sort(byAge);
 
   // The context for each place they stand, the project and every part above it
   // included, so this is the merged view rather than halves to staple together.
