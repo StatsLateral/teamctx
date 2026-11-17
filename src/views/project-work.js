@@ -162,11 +162,16 @@ function taskRow({ t, view, origin, marked }) {
   const base = projectBase(view);
   const work = withDownloads(workData(t.outputs), base, t.id);
   const attach = `${base}/task/${encodeURIComponent(t.id)}/attach`;
-  return `<button type="button" class="item trow${marked ? ' marked' : ''}${t.status === 'done' ? ' done' : ''}" id="t-${esc(t.id)}"
+  // Archived reads like done here — dimmed and out of the way — but it is its
+  // own state, labelled, and it blocks attaching a file (#320).
+  const stateClass = t.status === 'done' ? ' done' : t.status === 'archived' ? ' archived' : '';
+  const stateData = t.status === 'done' ? 'data-done="1" ' : t.status === 'archived' ? 'data-archived="1" ' : '';
+  const archivedTag = t.status === 'archived' ? '<span class="tarchived">archived</span>' : '';
+  return `<button type="button" class="item trow${marked ? ' marked' : ''}${stateClass}" id="t-${esc(t.id)}"
   data-text="${esc(t.title)}" data-kind="${esc(`Task${t.key ? ` ${t.key}` : ''}`)}" data-summary="" data-who="${esc(who.join(', '))}"
   data-review="" data-ws="${esc(t.workstream || '')}" data-ask="${escAttr(prompt.split('\n\n')[0])}" data-prompt="${escAttr(prompt)}" data-paste-extra="${escAttr(outputsBlock(work))}" data-paste-end="${escAttr(taskPasteEnd(Boolean(outputsBlock(work))))}"
-  data-attach="${esc(attach)}" ${t.status === 'done' ? 'data-done="1" ' : ''}data-work="${esc(JSON.stringify(work))}" data-changed="${esc(JSON.stringify(t.changedSince || null))}" data-history="${esc(JSON.stringify(historyData(t.history, view.agents)))}">
-  <span class="num">${esc(t.key || '—')}</span><span class="ttl" title="${esc(t.title)}">${esc(t.title)}</span>
+  data-attach="${esc(attach)}" ${stateData}data-work="${esc(JSON.stringify(work))}" data-changed="${esc(JSON.stringify(t.changedSince || null))}" data-history="${esc(JSON.stringify(historyData(t.history, view.agents)))}">
+  <span class="num">${esc(t.key || '—')}</span><span class="ttl" title="${esc(t.title)}">${esc(t.title)}${archivedTag}</span>
   <span class="own">${whoChip(t.owner, view.agents)}</span>${clip(t)}</button>`;
 }
 
@@ -302,7 +307,15 @@ export function workHtml({ view, selected, item, history, origin, base }) {
     const query = new URLSearchParams({ ...(selected ? { ws: selected } : {}), ...(on ? { history: '1' } : {}) }).toString();
     return query ? `${base}?${query}` : base;
   };
-  const historyLink = done.length || history
-    ? `<p class="hist"><a href="${esc(linkTo(!history))}">${history ? 'Hide history' : `Show history (${done.length} done)`}</a></p>` : '';
+  // Archived tasks live in the history view too (#320). They are counted apart
+  // so the label still reads "N done" when there are none, which is the common
+  // case, and gains ", M archived" only when some are.
+  const archived = allTasks.filter(t => t.status === 'archived' && ids.includes(t.workstream));
+  const retiredCount = done.length + archived.length;
+  const historyLabel = archived.length
+    ? `Show history (${done.length} done, ${archived.length} archived)`
+    : `Show history (${done.length} done)`;
+  const historyLink = retiredCount || history
+    ? `<p class="hist"><a href="${esc(linkTo(!history))}">${history ? 'Hide history' : historyLabel}</a></p>` : '';
   return { main: `${inbox}${sections}${empty}${historyLink}`, selected };
 }

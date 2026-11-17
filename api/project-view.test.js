@@ -1594,6 +1594,37 @@ describe('the project page is one page', () => {
     });
   });
 
+  describe('an archived task (#320)', () => {
+    beforeEach(() => {
+      repo.files.set('.teamctx/workstreams/tech.json', JSON.stringify({
+        id: 'tech', name: 'Tech', records: [],
+        tasks: [
+          { id: 'migrate-db', key: '2.1', title: 'Migrate', owner: 'Dev', status: 'open' },
+          { id: 'retired', key: '2.2', title: 'Retired work', owner: 'Dev', status: 'archived', archivedAt: '2026-11-17' },
+        ],
+      }));
+    });
+
+    it('is out of the open list, offered under history and counted as archived', async () => {
+      const { body } = await visit('/project/acme/ledger?ws=tech', MANAGER);
+      expect(onPage(body)).not.toContain('Retired work');
+      expect(body).toContain('Show history (0 done, 1 archived)');
+    });
+
+    it('shows in the history view, marked archived', async () => {
+      const { body } = await visit('/project/acme/ledger?ws=tech&history=1', MANAGER);
+      expect(body).toMatch(/class="item trow archived" id="t-retired"/);
+      expect(body).toContain('class="tarchived">archived<');
+      expect(body).toContain('data-archived="1"');
+    });
+
+    it('still opens from an old link without the history view', async () => {
+      const { body } = await visit('/project/acme/ledger?ws=tech&item=retired', MANAGER);
+      expect(body).toMatch(/id="t-retired"/);
+      expect(body).toContain('Retired work');
+    });
+  });
+
   describe('when there is nothing to show', () => {
     it('says so plainly when there is no work yet', async () => {
       repo.files.set('.teamctx/config.json', JSON.stringify({ ...CONFIG, workstreams: [], members: [] }));
