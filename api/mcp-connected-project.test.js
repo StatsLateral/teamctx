@@ -11,6 +11,7 @@ vi.mock('../mcp/http.js', () => ({
   handleMcpHttp: vi.fn(async (req, res) => { res.statusCode = 200; res.end('{}'); }),
 }));
 
+const { handleMcpHttp } = await import('../mcp/http.js');
 const { default: handler } = await import('./mcp/[owner]/[repo].js');
 const { __resetMemory, kvGet, kvSet, keys } = await import('../src/oauth/kv.js');
 const { tokenHash } = await import('../src/oauth/provider.js');
@@ -53,6 +54,21 @@ describe('a Google sign-in reaching a project', () => {
   it('is not remembered for somebody the roster does not name', async () => {
     expect(await connectAs('stranger@example.com')).toBe(401);
     expect(await kvGet(keys.connectedProjects('stranger@example.com'))).toBe(null);
+  });
+});
+
+describe('a branch named in the request', () => {
+  async function visit(email, query = {}) {
+    await kvSet(keys.tokenV2(tokenHash('tok')), { clientId: 'c', googleUser: { email, name: 'Someone' } });
+    const req = { method: 'POST', query: { owner: 'acme', repo: 'ledger', ...query }, headers: { host: 'x.test', authorization: 'Bearer tok' } };
+    handleMcpHttp.mockClear();
+    await handler(req, { statusCode: 0, setHeader() {}, end() {} });
+    return handleMcpHttp.mock.calls[0]?.[2];
+  }
+
+  it('is ignored for a Google sign-in, which works on the default branch only', async () => {
+    const ctx = await visit('priya@example.com', { ref: 'old-branch' });
+    expect(ctx.ref).toBe(null);
   });
 });
 
