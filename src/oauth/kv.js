@@ -454,6 +454,12 @@ export const keys = {
    */
   repoState: (viewer, owner, repo) => `teamctx:repo-state:${String(viewer).toLowerCase()}:${slug(owner, repo)}`,
   projectGhCred: (owner, repo) => `teamctx:ghcred:project:${slug(owner, repo)}`,
+  /**
+   * A project reached through a GitHub App installation (#110) instead of a lent
+   * OAuth token: the installation id and who installed it, never a token — tokens
+   * are minted on demand and expire in an hour. Preferred over `projectGhCred`.
+   */
+  projectInstallation: (owner, repo) => `teamctx:ghapp:project:${slug(owner, repo)}`,
   /** Which projects one user lends GitHub access to, for the settings page. */
   lentProjects: githubUserId => `teamctx:ghcred:lent-by:${githubUserId}`,
   /**
