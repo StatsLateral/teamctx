@@ -21,6 +21,7 @@ import { resolveDisplayName, resolveActiveWorkstream } from '../../src/prefs.js'
 import { resolveTarget, isProjectLevel } from '../../src/project-level.js';
 import { announceQueued } from '../../src/slack-notify.js';
 import { TaskWithoutWorkstreamError } from '../../src/numbering.js';
+import { cleanExternal, addExternal, removeExternal } from '../../src/external-links.js';
 import { validateFileOutput, MAX_OUTPUT_FILE_BYTES } from '../../src/file-output.js';
 import { validateLinkOutput } from '../../src/link-output.js';
 import { recordSources } from '../../src/sources.js';
@@ -660,9 +661,32 @@ export async function assignTask({ id, owner, teamctxDir, projectDir } = {}) {
   if (!owner) throw new Error('an owner is required');
   const config = readConfig(teamctxDir);
   const { task } = findTask(id, teamctxDir);
-  const updated = { ...task, owner };
+  // The old owner's key goes with the old owner. A name does not identify a
+  // person, so a task assigned by name carries no key (as one added for someone
+  // else does), rather than keeping the key of whoever had it before.
+  const { ownerKey: _was, ...rest } = task;
+  const updated = { ...rest, owner };
   writeTask(updated, teamctxDir);
   const git = await commitAndPush(config, `task: assign ${task.id} to ${owner}`, projectDir);
+  return { task: updated, ...git };
+}
+
+/**
+ * Point a task at its ticket in another tool, or take the pointer away.
+ *
+ * Not a change to what the team treats as true, so it is not queued: it is
+ * metadata on the task, like its owner. Nothing about the ticket is stored but
+ * where it is. See src/external-links.js.
+ */
+export async function linkTask({ id, url, ref, remove = false, teamctxDir, projectDir } = {}) {
+  const config = readConfig(teamctxDir);
+  const { task } = findTask(id, teamctxDir);
+  const current = Array.isArray(task.external) ? task.external : [];
+  const external = remove ? removeExternal(current, url) : addExternal(current, cleanExternal({ url, ref }));
+  const { external: _was, ...rest } = task;
+  const updated = external.length ? { ...rest, external } : rest;
+  writeTask(updated, teamctxDir);
+  const git = await commitAndPush(config, `task: ${remove ? 'unlink' : 'link'} ${task.id}`, projectDir);
   return { task: updated, ...git };
 }
 
