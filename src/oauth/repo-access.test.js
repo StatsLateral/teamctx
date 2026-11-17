@@ -40,10 +40,17 @@ describe('projectRepoCredential', () => {
     expect(installationTokenFor).not.toHaveBeenCalled();
   });
 
-  it('does not fall back to the broader legacy token when the install mint fails', async () => {
+  it('does not fall back to the broader legacy token when the install mint returns nothing', async () => {
     kvStore.set('install:acme/ledger', { installationId: 'bad' });
     kvStore.set('cred:acme/ledger', { token: 'legacy' });
     // A removed install must read as no access, not silently widen to the lent token.
+    expect(await projectRepoCredential('acme', 'ledger')).toBeNull();
+  });
+
+  it('fails closed when minting throws — an uninstalled app cuts access', async () => {
+    installationTokenFor.mockRejectedValueOnce(Object.assign(new Error('Not Found'), { status: 404 }));
+    kvStore.set('install:acme/ledger', { installationId: 55 });
+    kvStore.set('cred:acme/ledger', { token: 'legacy' });
     expect(await projectRepoCredential('acme', 'ledger')).toBeNull();
   });
 
