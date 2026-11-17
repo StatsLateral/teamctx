@@ -1,4 +1,4 @@
-import { readProject, readConfig, writeConfig, withCounters, readTree, writeTree, writeTreeMd, appendContribution, writeRoleFile, writeQueueItem, writeApproved, writeChange, readContributions, listWorkstreamIds } from '../../src/storage.js';
+import { readProject, readConfig, writeConfig, withCounters, readTree, writeTree, writeTreeMd, appendContribution, writeRoleFile, writeQueueItem, writeApproved, writeChange, readContributions, listWorkstreamIds, listOutputs } from '../../src/storage.js';
 import { changeEntry } from '../../src/changes.js';
 import { resolveTarget, isProjectLevel } from '../../src/project-level.js';
 import { digestProject } from '../../src/tree-digest.js';
@@ -310,6 +310,13 @@ export async function contributeCore({
   // Positions, kept for the change entry: what the apply dropped did not happen.
   const notApplied = new Set();
   let elsewhereTree = null;
+  // A removeTask that a manager applies directly must honour the same guard as
+  // one approved through the queue (#320): a task with saved work is not deleted
+  // here either, it is archived. Only the ids a removeTask would take are read.
+  const pickedUp = new Set(operations
+    .filter(o => o?.type === 'removeTask')
+    .map(o => o.id)
+    .filter(id => { try { return listOutputs(id, teamctxDir).length > 0; } catch { return false; } }));
   const updated = withCounters(teamctxDir, current => {
     if (comparisonFingerprint(comparisons) !== comparisonFingerprint(comparisonRecords({ config: current, target: targetId, teamctxDir }))) {
       throw new Error('Context changed after the contradiction check. The contribution was logged; try it again before applying.');
@@ -317,7 +324,7 @@ export async function contributeCore({
     let nextKey = current.nextKey;
     if (elsewhere) {
       const moved = applyOps(readTree(elsewhere.id, teamctxDir), elsewhere.ops, contribution.id, {
-        nextKey, workstreamNumber: workstreamNumber(current, elsewhere.id),
+        nextKey, workstreamNumber: workstreamNumber(current, elsewhere.id), pickedUp,
       });
       droppedReasons.push(...moved.dropped.map(d => ({ reason: d.reason })));
       for (const d of moved.dropped) notApplied.add(operations.indexOf(elsewhere.ops[d.index]));
@@ -326,7 +333,7 @@ export async function contributeCore({
       elsewhereTree = moved.tree;
     }
     const applied = applyOps(readTree(targetId, teamctxDir), here, contribution.id, {
-      nextKey, workstreamNumber: workstreamNumber(current, targetId),
+      nextKey, workstreamNumber: workstreamNumber(current, targetId), pickedUp,
     });
     droppedReasons.push(...applied.dropped.map(d => ({ reason: tasksReason(d.reason, config) })));
     for (const d of applied.dropped) notApplied.add(operations.indexOf(here[d.index]));

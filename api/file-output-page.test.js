@@ -154,6 +154,17 @@ describe('attaching a file from the project page', () => {
     expect(r.body).toMatch(/accepted|closed/i);
     expect(savedOutput('prod-task')).toBeNull();
   });
+
+  it('refuses an archived task cleanly, not as a 500 (#320)', async () => {
+    repo.files.set('.teamctx/workstreams/product.json', JSON.stringify({
+      id: 'product', name: 'Product', records: [],
+      tasks: [{ id: 'prod-task', key: '1.1', title: 'Draft the deck', owner: 'Priya', workstream: 'product', status: 'archived' }],
+    }));
+    const r = await attach('prod-task');
+    expect(r.status).toBe(403);
+    expect(r.body).toMatch(/archived/i);
+    expect(savedOutput('prod-task')).toBeNull();
+  });
 });
 
 describe('downloading a file output', () => {

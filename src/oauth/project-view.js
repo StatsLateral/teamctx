@@ -1,7 +1,7 @@
 import { GithubSession } from '../adapters/github.js';
 import { runWithSession } from '../session-context.js';
 import { readConfig, readProject, readWorkstream, listTasks, readContributions, readApprovals, listRejected, listQueue, listOutputs, listChanges, prepareChanges, readSourceRefs, readOutputFileBytes } from '../storage.js';
-import { saveFileOutput, assertNotAccepted } from '../../cli/commands/task.core.js';
+import { saveFileOutput, assertNotAccepted, assertNotArchived } from '../../cli/commands/task.core.js';
 import { MAX_PAGE_UPLOAD_BYTES } from '../file-output.js';
 import { outputStates, outputsForReader } from '../outputs.js';
 import { visibleSources } from '../sources.js';
@@ -456,7 +456,9 @@ export async function attachFileOutput({ owner, repo, user, taskId, bytes, fileN
     // A closed task takes no more work. saveFileOutput would refuse it too, but
     // with a plain Error the route cannot tell from a real failure — so say it
     // here, as the clean refusal it is, rather than a 500 with "try again".
-    try { assertNotAccepted(task); } catch (e) { throw new ProjectViewError(e.message); }
+    // An archived task (#320) takes no more work either; say so cleanly rather
+    // than letting saveFileOutput's plain error fall through as a 500.
+    try { assertNotAccepted(task); assertNotArchived(task); } catch (e) { throw new ProjectViewError(e.message); }
     const { output } = await saveFileOutput({
       id: task.id, bytes, name: fileName, title, notes: note,
       source: 'web', actor, maxBytes: MAX_PAGE_UPLOAD_BYTES,

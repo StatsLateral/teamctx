@@ -126,6 +126,17 @@ describe('archiving a task that has been worked', () => {
     const md = serializeToMd(readTree('sales', dir), 'Project');
     expect(md).toContain('Draft the post');
   });
+
+  it('is never both done and archived — each state clears the other stamp', async () => {
+    // Already archived (beforeEach). Marking it done clears the archived stamp.
+    const { task: nowDone } = await as(manager, () => setTaskStatus({ id: task.id, status: 'done', teamctxDir: dir }));
+    expect(nowDone.status).toBe('done');
+    expect(nowDone.archivedAt).toBeNull();
+    // Archiving a done task clears the done stamp.
+    const { task: reArchived } = await archive(task.id);
+    expect(reArchived.status).toBe('archived');
+    expect(reArchived.doneAt).toBeNull();
+  });
 });
 
 function archiveBackToOpen(id) {
