@@ -32,6 +32,12 @@ describe('signing in with Google', () => {
     await expect(googleUserFromCode(CREDS)).rejects.toThrow(/has not verified/);
   });
 
+  it('refuses a profile that does not say whether the address is verified', async () => {
+    // Only an explicit `true` counts. A missing field is not Google vouching.
+    mockGoogle({ email: 'mia@example.com', name: 'Mia' });
+    await expect(googleUserFromCode(CREDS)).rejects.toThrow(/has not verified/);
+  });
+
   it('refuses an account with no address at all', async () => {
     mockGoogle({ email_verified: true, name: 'Nobody' });
     await expect(googleUserFromCode(CREDS)).rejects.toThrow(GoogleAuthError);

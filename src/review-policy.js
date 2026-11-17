@@ -52,14 +52,21 @@ function opIsAdditive(op) {
 
 /**
  * Operations that change what the team must follow: settling or retiring a
- * decision, rule or exception, or changing any record's status. These need the
- * manager under every policy — `none` waives review of everything else.
+ * decision, rule or exception, changing any record's status, rewording a record
+ * and changing the goal. These need the manager under every policy — `none` waives review of everything else.
  */
 function governs(op) {
   if (op?.type === 'addRecord') return NEVER_ADDITIVE_RECORDS.has(op.record?.type) || !!op.record?.links?.replaces;
   // Evidence is "added only through review" (#122), so it needs the manager
   // under `none` too — it argues that something the team relies on is wrong.
-  return op?.type === 'setRecordStatus' || op?.type === 'addEvidence';
+  //
+  // Rewording a record, or the goal, changes what the team relies on just as
+  // surely as adding or retiring one. An edit names its target by id only, so
+  // whether that target is a decision, rule or exception is not known here;
+  // every edit waits rather than guess, and `none` still waives review of
+  // tasks and the low-stakes additions around them.
+  return op?.type === 'setRecordStatus' || op?.type === 'addEvidence'
+    || op?.type === 'editRecord' || op?.type === 'setGoal';
 }
 
 export class InvalidReviewPolicyError extends Error {
