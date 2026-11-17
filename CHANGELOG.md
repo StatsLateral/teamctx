@@ -43,6 +43,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   task outside your scope is neither shown nor served.
 
 ### Changed
+- **Node 22 or newer is required.** Node 20 reached end of life in April 2026, and
+  several dependencies (the test runner, `jsdom`, the Gemini client) now need 22.
+  `engines` is now `>=22`, CI tests Node 22 and 24, and `teamctx doctor` names the
+  new floor. On Node 20, upgrade Node before updating teamctx.
 - **A failed connection from Claude is now diagnosable.** Connecting is the step
   every new member goes through, and when it failed it left nothing behind to
   explain it. A failed sign-in or connect now logs one line with the reason code
