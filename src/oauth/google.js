@@ -63,7 +63,8 @@ async function exchangeCode({ code, clientId, clientSecret, redirectUri }) {
  * An unverified address is refused rather than returned. A Google account can
  * be created against an address the holder does not control, so treating
  * `email_verified: false` as good enough would let anyone claim someone else's
- * invite — which is the one thing this whole flow exists to prevent.
+ * invite — which is the one thing this whole flow exists to prevent. A profile
+ * that does not say either way is refused too: only an explicit `true` counts.
  */
 export async function googleUserFromCode({ code, clientId, clientSecret, redirectUri }) {
   const accessToken = await exchangeCode({ code, clientId, clientSecret, redirectUri });
@@ -72,7 +73,7 @@ export async function googleUserFromCode({ code, clientId, clientSecret, redirec
   const profile = await res.json();
 
   if (!profile.email) throw new GoogleAuthError('That Google account has no email address.');
-  if (profile.email_verified === false) {
+  if (profile.email_verified !== true) {
     throw new GoogleAuthError(
       `Google has not verified ${profile.email}. Confirm the address with Google, then sign in again.`);
   }

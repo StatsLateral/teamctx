@@ -53,6 +53,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   add it again, and what each error means).
 
 ### Fixed
+- **A person added to a project now sees it on their home page.** Adding someone by
+  email put them on the roster but not on the list of projects the hosted server shows them,
+  so they saw nothing until they connected. Someone already added needs to connect once, or
+  paste the project link into the box on the Projects page.
 - **A failed sign-in no longer shows the internal error.** A hosted deployment
   with no encryption key configured refused to store the session and rendered
   the raw error — including the session key — on the page. The person now sees a
