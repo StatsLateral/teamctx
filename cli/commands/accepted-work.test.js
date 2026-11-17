@@ -12,7 +12,7 @@ import {
   writeConfig, writeProject, writeWorkstream, listQueue, readApprovals,
   readTree, writeTree, readTask, listChanges, readConfig, readTreeMd,
 } from '../../src/storage.js';
-import { addTask, saveOutput, submitTask, removeTask } from './task.core.js';
+import { addTask, saveOutput, submitTask } from './task.core.js';
 import { approveReview } from './review.core.js';
 import { listPendingReviews } from './review.core.js';
 import { callClaude } from '../../src/ai.js';
@@ -169,7 +169,11 @@ describe('accepting a task submission', () => {
   it('refuses, leaving the item waiting, when the task has gone', async () => {
     await save(member, { body: 'v1' });
     const r = await submit(member);
-    await as(manager, () => removeTask({ id: task.id, teamctxDir: dir }));
+    // A picked-up task can no longer be deleted via removeTask (#320); the task
+    // vanishing by some other hand is simulated with the storage primitive, to
+    // reach the "task is gone" guard this test is about.
+    const { deleteTask } = await import('../../src/storage.js');
+    deleteTask(task.id, dir);
     await expect(as(manager, () => approveReview({ id: r.id, teamctxDir: dir }))).rejects.toThrow(/no longer/i);
     expect(listQueue(dir)).toHaveLength(1);
   });
