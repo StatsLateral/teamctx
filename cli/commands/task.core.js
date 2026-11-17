@@ -716,9 +716,11 @@ export function withStatus(task, status, by, at = new Date().toISOString()) {
     : status === 'archived' ? 'archived'
       : task.status === 'archived' ? 'unarchived' : 'reopened';
   const statusLog = [...(Array.isArray(task.statusLog) ? task.statusLog : []), { did, by, at }];
-  if (status === 'done') return { ...task, status: 'done', doneAt: todayIso(), doneBy: by, statusLog };
+  // Clear any archived stamp too, so a task is never both done and archived.
+  if (status === 'done') return { ...task, status: 'done', doneAt: todayIso(), doneBy: by, archivedAt: null, archivedBy: null, statusLog };
   // Archived keeps its number and outputs; only the state and its stamp change.
-  if (status === 'archived') return { ...task, status: 'archived', archivedAt: todayIso(), archivedBy: by, statusLog };
+  // Clear any done stamp too, so a task is never both done and archived.
+  if (status === 'archived') return { ...task, status: 'archived', archivedAt: todayIso(), archivedBy: by, doneAt: null, doneBy: null, statusLog };
   // Open again — clear both the done and the archived stamps so neither lingers.
   return { ...task, status: 'open', doneAt: null, doneBy: null, archivedAt: null, archivedBy: null, statusLog };
 }

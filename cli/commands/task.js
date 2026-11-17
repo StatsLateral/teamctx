@@ -159,6 +159,15 @@ export async function taskRmCommand(idOrPrefix, opts = {}) {
 
 export async function taskArchiveCommand(idOrPrefix, opts = {}) {
   const unarchive = !!opts.unarchive;
+  // Un-archive only moves an archived task; refuse to quietly reopen a done one.
+  if (unarchive) {
+    let current;
+    try { current = getTask({ id: idOrPrefix }); } catch (err) { reportAndExit(err); }
+    if (current.status !== 'archived') {
+      console.log(`\nTask ${current.key || current.id} is not archived, so there is nothing to un-archive.\n`);
+      return;
+    }
+  }
   let result;
   try {
     result = await setTaskStatus({ id: idOrPrefix, status: unarchive ? 'open' : 'archived' });

@@ -63,6 +63,14 @@ describe('task_archive', () => {
       .rejects.toThrow(/[Oo]nly a manager/);
     expect(getTask({ id: task.id, teamctxDir: dir }).status).toBe('open');
   });
+
+  it('does not reopen a task that was never archived when asked to un-archive', async () => {
+    // The task is open (not archived); unarchive must be a no-op, not a reopen.
+    const r = parse(await call(manager, () => makeHandlers(root).task_archive({ id: task.id, unarchive: true })));
+    expect(r.unchanged).toBe(true);
+    expect(r.reportBack).toMatch(/not archived/i);
+    expect(getTask({ id: task.id, teamctxDir: dir }).status).toBe('open');
+  });
 });
 
 describe('task_rm on a picked-up task', () => {

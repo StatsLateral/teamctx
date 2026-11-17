@@ -1848,6 +1848,14 @@ export function makeHandlers(projectRoot) {
         throw new Error('Only a manager can archive or un-archive a task.');
       }
       const unarchive = !!args.unarchive;
+      // Un-archive only moves an archived task; it must not quietly reopen a done
+      // one that was never archived.
+      if (unarchive) {
+        const current = getTask({ id: args.id, teamctxDir });
+        if (current.status !== 'archived') {
+          return textResult({ task: current, unchanged: true, reportBack: `Task ${current.key || current.id} is not archived, so there is nothing to un-archive.` });
+        }
+      }
       const r = await setTaskStatus({
         id: args.id, status: unarchive ? 'open' : 'archived', teamctxDir, projectDir: gitCwd,
       });
