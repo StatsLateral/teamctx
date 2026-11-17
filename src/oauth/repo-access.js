@@ -30,9 +30,12 @@ export async function projectRepoCredential(owner, repo, env = process.env) {
   const installation = await kvGet(keys.projectInstallation(owner, repo));
   if (installation?.installationId) {
     // Once a project is on an installation, that is the only credential — a
-    // failed mint (the install was removed, the key is wrong) reads as no
-    // access, never a silent widening back to the broader legacy token.
-    const token = await installationTokenFor(installation.installationId, env);
+    // failed mint reads as no access, never a silent widening back to the
+    // broader legacy token. Minting throws when the install was uninstalled
+    // (GitHub 404s it), which is how uninstalling cuts access on the next
+    // request; any failure here fails closed.
+    let token = null;
+    try { token = await installationTokenFor(installation.installationId, env); } catch { token = null; }
     return token ? { token, via: 'installation', installation } : null;
   }
   const lent = await kvGet(keys.projectGhCred(owner, repo));
