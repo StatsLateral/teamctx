@@ -6,7 +6,7 @@ import { esc, navBar, shell } from './theme.js';
  * agents. Moved here whole from the routes file — see src/views/theme.js.
  */
 export const settingsPage = ({
-  user, hasKey, saved, error, confirmRemove = null, shared = [], lent = [], repos = [], agents = [], newAgent = null, rotated = [], stillShared = [], slack = [], secretsMissing = false }) => shell('Settings', `
+  user, hasKey, saved, error, confirmRemove = null, shared = [], lent = [], repos = [], agents = [], newAgent = null, rotated = [], stillShared = [], slack = [], secretsMissing = false, appConfigured = false, installed = [] }) => shell('Settings', `
 ${navBar({ user, current: '/settings' })}
 <h1>Settings</h1>
 ${secretsMissing ? '<div class="bad">An administrator must set <code>TEAMCTX_SECRET_KEYS</code> on this deployment before a key or credential can be saved — until then those writes are refused rather than stored in the clear.</div>' : ''}
@@ -115,6 +115,24 @@ ${user.id ? `<form method="POST" action="/settings/lend">
   <button type="submit">Lend GitHub access</button>
 </form>` : `<p class="muted">Lending GitHub access needs a GitHub sign-in: it hands the
 project a GitHub credential, which a Google sign-in does not have.</p>`}
+${appConfigured ? `
+<h3>Narrower: install the GitHub App</h3>
+<p class="muted">Instead of lending a token that can reach every repository you own,
+install the teamctx GitHub App on just this project's repository. teamctx then reaches
+it through a short-lived token scoped to that one repository, and loses access the moment
+you uninstall the App on GitHub. Preferred over a lent token when a project has both.</p>
+${installed.length ? `<p class="muted">Using the App on:</p>${installed.map(slug => `
+<form method="POST" action="/settings/github-app/forget" style="margin:.35rem 0">
+  <input type="hidden" name="project" value="${esc(slug)}">
+  <code>${esc(slug)}</code>
+  <button type="submit" class="link">Stop using the App</button>
+  <span class="muted">— then uninstall it on GitHub to cut access</span>
+</form>`).join('')}` : ''}
+<form method="GET" action="/settings/github-app/install" style="margin-top:.4rem">
+  <label for="appProject">Project</label>
+  ${projectPicker('appProject', repos)}
+  <button type="submit">Install the GitHub App</button>
+</form>` : ''}
 </section>
 
 <section class="card">
