@@ -18,6 +18,7 @@ import { managerKeys, matchesActor } from '../review.js';
 import { flaggedInProject, projectRecords } from '../project-records.js';
 import { markNeedsReview, restingOn } from '../impact.js';
 import { kvGet, keys } from './kv.js';
+import { projectRepoToken } from './repo-access.js';
 import { githubIdsFor } from './ai-keys.js';
 
 /**
@@ -75,8 +76,8 @@ async function accessFor({ owner, repo, user }) {
     };
   }
   if (!user.email) throw new ProjectViewError('Your sign-in did not come with a verified email address.');
-  const lent = await kvGet(keys.projectGhCred(owner, repo));
-  if (!lent?.token) {
+  const lentToken = await projectRepoToken(owner, repo);
+  if (!lentToken) {
     throw new ProjectViewError(
       `${owner}/${repo} has not lent GitHub access, so it cannot be read on behalf of a Google sign-in. `
       + 'Its manager can turn that on from the settings page.');
@@ -84,7 +85,7 @@ async function accessFor({ owner, repo, user }) {
   // The roster check happens once the project is open, against the config this
   // page reads anyway — the connector's own check, without a second fetch.
   return {
-    ghToken: lent.token,
+    ghToken: lentToken,
     actor: {
       key: `git:${String(user.email).toLowerCase()}`,
       name: user.name,
