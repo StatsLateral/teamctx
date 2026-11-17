@@ -19,7 +19,7 @@ const repo = ({ remote = 'origin\n', upstream = true } = {}) => vi.fn(async (arg
 const notRepo = vi.fn(async () => { throw new Error('fatal: not a git repository'); });
 const accepted = vi.fn(async () => ({ ok: true, status: 200 }));
 const KEY = { ANTHROPIC_API_KEY: 'sk-ant-test' };
-const doctor = (over = {}) => runDoctor({ cwd: root, env: KEY, git: repo(), fetchImpl: accepted, nodeVersion: 'v20.11.0', ...over });
+const doctor = (over = {}) => runDoctor({ cwd: root, env: KEY, git: repo(), fetchImpl: accepted, nodeVersion: 'v22.12.0', ...over });
 const line = (checks, name) => checks.find(c => c.name === name);
 
 beforeEach(() => { root = mkdtempSync(join(tmpdir(), 'teamctx-doctor-')); accepted.mockClear(); });
@@ -52,7 +52,7 @@ describe('each check, failing, says how to fix it', () => {
   it('on a Node older than package.json allows, and does not blame the network too', async () => {
     project();
     const checks = await doctor({ nodeVersion: 'v16.20.0' });
-    expect(line(checks, 'Node version')).toMatchObject({ status: 'fail', fix: expect.stringMatching(/Install Node 20 or later/) });
+    expect(line(checks, 'Node version')).toMatchObject({ status: 'fail', fix: expect.stringMatching(/Install Node 22 or later/) });
     expect(line(checks, 'AI key accepted')).toMatchObject({ status: 'skip', fix: 'needs a supported Node' });
     expect(accepted).not.toHaveBeenCalled();
   });
@@ -123,7 +123,7 @@ describe('the Node range', () => {
   });
 
   it('names the lowest version allowed in the fix', () => {
-    expect(minimumNode('>=20')).toBe('20');
+    expect(minimumNode('>=22')).toBe('22');
     expect(minimumNode('>=18.10')).toBe('18.10');
   });
 });
