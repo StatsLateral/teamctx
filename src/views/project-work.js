@@ -171,7 +171,7 @@ function taskRow({ t, view, origin, marked }) {
   data-text="${esc(t.title)}" data-kind="${esc(`Task${t.key ? ` ${t.key}` : ''}`)}" data-summary="" data-who="${esc(who.join(', '))}"
   data-review="" data-ws="${esc(t.workstream || '')}" data-ask="${escAttr(prompt.split('\n\n')[0])}" data-prompt="${escAttr(prompt)}" data-paste-extra="${escAttr(outputsBlock(work))}" data-paste-end="${escAttr(taskPasteEnd(Boolean(outputsBlock(work))))}"
   data-attach="${esc(attach)}" ${stateData}data-work="${esc(JSON.stringify(work))}" data-changed="${esc(JSON.stringify(t.changedSince || null))}" data-history="${esc(JSON.stringify(historyData(t.history, view.agents)))}">
-  <span class="num">${esc(t.key || '—')}</span><span class="ttl" title="${esc(t.title)}">${esc(t.title)}${archivedTag}</span>
+  <span class="num">${esc(t.key || '—')}</span><span class="ttl" title="${esc(t.title)}">${archivedTag}${esc(t.title)}</span>
   <span class="own">${whoChip(t.owner, view.agents)}</span>${clip(t)}</button>`;
 }
 
