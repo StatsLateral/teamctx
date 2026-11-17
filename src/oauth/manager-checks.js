@@ -52,6 +52,21 @@ export function keyCheckFor({ owner, repo }, fetchImpl) {
 export function lendCheckFor({ owner, repo }) {
   const slug = `${owner}/${repo}`;
   return async ({ email }) => {
+    // A GitHub App installation is what the project actually reaches through when
+    // it has one (#110), so the primary must be whoever installed it.
+    const install = await kvGet(keys.projectInstallation(owner, repo));
+    if (install?.installationId) {
+      const incoming = String(email || '').toLowerCase();
+      if (incoming && String(install.installedByEmail || '').toLowerCase() === incoming) {
+        return { ok: true, note: 'GitHub App installed by them' };
+      }
+      const appSteps = `${email} installs the GitHub App on ${slug} themselves: if they are not a manager yet, add them as a co-manager; then they sign in to the teamctx settings page as ${email} and use Let members join without GitHub → Install the GitHub App. Then transfer again.`;
+      return {
+        ok: false,
+        why: `${slug} runs on a GitHub App installation, and members who signed in with Google reach the project through it. `
+          + `The primary manager has to be the one who installed it, so ${appSteps}`,
+      };
+    }
     const lent = await kvGet(keys.projectGhCred(owner, repo));
     if (!lent?.token) return { ok: true, note: 'no GitHub access lent' };
     const incoming = String(email || '').toLowerCase();
@@ -96,6 +111,31 @@ export function lendCheckFor({ owner, repo }) {
 export function stepOutCheckFor({ owner, repo }) {
   const slug = `${owner}/${repo}`;
   return async ({ email, key }) => {
+    // When the project runs on a GitHub App installation (#110), stepping out is
+    // the installer's dependency, the way lending is a lender's.
+    const install = await kvGet(keys.projectInstallation(owner, repo));
+    if (install?.installationId) {
+      const leaving = String(email || '').toLowerCase();
+      const who = leaving || key || 'this manager';
+      const id = /^github:(\d+)$/.exec(String(key || ''))?.[1];
+      const theirs = (leaving && String(install.installedByEmail || '').toLowerCase() === leaving)
+        || (id && String(install.installedById) === id);
+      if (theirs) {
+        return {
+          ok: false,
+          why: `${slug} runs on a GitHub App ${who} installed, and members who signed in with Google reach it through that install. `
+            + 'Have somebody who is staying install the App from the settings page first, then step out.',
+        };
+      }
+      if (!install.installedByEmail && leaving) {
+        return {
+          ok: false,
+          why: `${slug} runs on a GitHub App installed before teamctx recorded who by, so there is no way to tell whether it is `
+            + `${leaving}'s. Whoever installed it can re-record it from the settings page, or somebody staying can install it in their place.`,
+        };
+      }
+      return { ok: true };
+    }
     const lent = await kvGet(keys.projectGhCred(owner, repo));
     if (!lent?.token) return { ok: true };
     const leaving = String(email || '').toLowerCase();
