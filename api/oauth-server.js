@@ -172,6 +172,9 @@ app.get('/oauth/status', async (req, res) => {
     googleSignIn: cfg.googleClientId && cfg.googleClientSecret
       ? 'enabled'
       : 'not configured — sign-in goes straight to GitHub',
+    // Optional (#110): when set, managers can install the App for repo-scoped
+    // access instead of lending a broad OAuth token.
+    githubApp: githubAppConfigured() ? 'enabled' : 'not configured — lending uses an OAuth token',
     missing: Object.entries({ ...cfg, kv: isPersistent(), secretKeys: !isPersistent() || secretsConfigured() })
       .filter(([name, present]) => !present && !name.startsWith('google'))
       .map(([name]) => name),
