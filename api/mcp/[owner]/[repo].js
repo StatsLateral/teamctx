@@ -231,9 +231,7 @@ export default async function handler(req, res) {
     // the verified address belongs to a member of *this* project.
     if (!ghToken && googleUser) {
       try {
-        const access = await resolveGoogleMember({
-          googleUser, owner, repo, ref: readParam(req, 'ref') || null,
-        });
+        const access = await resolveGoogleMember({ googleUser, owner, repo });
         ghToken = access.ghToken;
         actor = access.actor;
         // Remembered against the address so the settings page can offer this

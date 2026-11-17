@@ -149,6 +149,16 @@ describe('retiring or settling something is never a quiet addition', () => {
     }
     expect(needsReview({ reviewPolicy: 'none' }, [{ type: 'addTask', title: 't' }])).toBe(false);
   });
+  it('rewording a record or changing the goal needs the manager even under "none"', () => {
+    // Otherwise a member's contribution could quietly reword an approved
+    // decision, which the README says is always the manager's.
+    expect(needsReview({ reviewPolicy: 'none' }, [edit()])).toBe(true);
+    expect(needsReview({ reviewPolicy: 'none' }, [{ type: 'setGoal', goal: { text: 'x' } }])).toBe(true);
+    expect(needsReview({ reviewPolicy: 'none' }, [add(), edit()])).toBe(true);
+  });
+  it('an edit of a task does not need the manager under "none"', () => {
+    expect(needsReview({ reviewPolicy: 'none' }, [{ type: 'editTask', id: 't', title: 'y' }])).toBe(false);
+  });
   it('a status change needs the manager even under "none"', () => {
     expect(needsReview({ reviewPolicy: 'none' }, [{ type: 'setRecordStatus', id: 'r', status: 'replaced' }])).toBe(true);
   });
