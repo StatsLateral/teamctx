@@ -5,13 +5,19 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const authFn = vi.fn(async ({ installationId }) => ({ token: `ghs_token_${installationId}`, expiresAt: '2026-01-01T00:00:00Z' }));
+const authFn = vi.fn(async ({ type, installationId }) => (
+  type === 'app' ? { token: 'jwt_for_app' } : { token: `ghs_token_${installationId}`, expiresAt: '2026-01-01T00:00:00Z' }
+));
 const createAppAuth = vi.fn(() => authFn);
 vi.mock('@octokit/auth-app', () => ({ createAppAuth }));
 
-const { githubAppFromEnv, githubAppConfigured, installationTokenFor, _resetAppAuthCache } = await import('./github-app.js');
+const {
+  githubAppFromEnv, githubAppConfigured, githubAppInstallUrl,
+  installationTokenFor, appJwt, installationForRepo, _resetAppAuthCache,
+} = await import('./github-app.js');
 
 const ENV = { GITHUB_APP_ID: '12345', GITHUB_APP_PRIVATE_KEY: '-----BEGIN KEY-----\nabc\n-----END KEY-----' };
+const ENV_SLUG = { ...ENV, GITHUB_APP_SLUG: 'teamctx-access' };
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -58,5 +64,49 @@ describe('installationTokenFor', () => {
     await installationTokenFor(2, ENV);
     expect(createAppAuth).toHaveBeenCalledTimes(1);
     expect(authFn).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('githubAppInstallUrl', () => {
+  it('is null without a slug, and carries state through when there is one', () => {
+    expect(githubAppInstallUrl('s', ENV)).toBeNull();
+    const url = githubAppInstallUrl('nonce-acme-ledger', ENV_SLUG);
+    expect(url).toBe('https://github.com/apps/teamctx-access/installations/new?state=nonce-acme-ledger');
+  });
+});
+
+describe('appJwt', () => {
+  it('returns a JWT authenticated as the App, or null when unconfigured', async () => {
+    expect(await appJwt({})).toBeNull();
+    expect(await appJwt(ENV)).toBe('jwt_for_app');
+    expect(authFn).toHaveBeenCalledWith({ type: 'app' });
+  });
+});
+
+describe('installationForRepo', () => {
+  it('returns the installation id GitHub reports for the repo', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ id: 808 }) })));
+    expect(await installationForRepo('acme', 'ledger', ENV)).toBe(808);
+    vi.unstubAllGlobals();
+  });
+
+  it('is null when the App is not installed on the repo (404)', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 404 })));
+    expect(await installationForRepo('acme', 'ledger', ENV)).toBeNull();
+    vi.unstubAllGlobals();
+  });
+
+  it('throws on an unexpected GitHub error', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 500 })));
+    await expect(installationForRepo('acme', 'ledger', ENV)).rejects.toThrow(/500/);
+    vi.unstubAllGlobals();
+  });
+
+  it('is null when the App is not configured, making no request', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    expect(await installationForRepo('acme', 'ledger', {})).toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
   });
 });
