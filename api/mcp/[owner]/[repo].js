@@ -153,6 +153,8 @@ export default async function handler(req, res) {
   // connector connection (#248). Null for an agent, which has none of its own
   // and reads through the primary manager's connection like it does the key.
   let callerEmail = null;
+  // True once the project's own lent credential is what will read and write.
+  let onLentCredential = false;
 
   const bearer = readBearer(req);
 
@@ -169,6 +171,7 @@ export default async function handler(req, res) {
         + 'A manager can lend it again on the settings page.');
     }
     ghToken = lent.token;
+    onLentCredential = true;
     actor = actorFromAgent(record);
     agent = { id: record.id, name: record.name, dailyLimit: record.dailyLimit };
     try { await touchAgent(record.id); } catch { /* when it was last used is a courtesy */ }
@@ -238,10 +241,9 @@ export default async function handler(req, res) {
     // the verified address belongs to a member of *this* project.
     if (!ghToken && googleUser) {
       try {
-        const access = await resolveGoogleMember({
-          googleUser, owner, repo, ref: readParam(req, 'ref') || null,
-        });
+        const access = await resolveGoogleMember({ googleUser, owner, repo });
         ghToken = access.ghToken;
+        onLentCredential = true;
         actor = access.actor;
         if (googleUser?.email) callerEmail = String(googleUser.email).toLowerCase();
         // Remembered against the address so the settings page can offer this
@@ -302,7 +304,11 @@ export default async function handler(req, res) {
     return unauthorized(req, res, owner, repo, 'Authentication required');
   }
 
-  const ref = readParam(req, 'ref') || null;
+  // The lent credential is let through on the roster and manager gate read from
+  // the default branch, so it works on the default branch and nowhere else: a
+  // branch the caller names could carry a different roster, manager or review
+  // policy than the one that let them in.
+  const ref = onLentCredential ? null : (readParam(req, 'ref') || null);
 
   // How a server-side staleness check (#248) gets a credential for a linked
   // cloud file: the caller's own connection, or — as with the AI key — the

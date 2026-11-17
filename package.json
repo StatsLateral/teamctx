@@ -34,7 +34,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.52.0",
+    "@anthropic-ai/sdk": "^1.8.0",
     "@google/genai": "^2.11.0",
     "@modelcontextprotocol/sdk": "^1.32.2",
     "ajv": "^8.20.0",
@@ -53,7 +53,7 @@
     "vitest": "^3.2.7"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "overrides": {
     "@hono/node-server": "^2.1.3"

@@ -16,6 +16,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scope: a part of the work the reviewer cannot see never appears. Confirming one
   is recorded and prompts a follow-up to reconcile that record; dismissing it is
   recorded too. A one-part project is unaffected.
+- **A task can say where its ticket lives in another tool.** `task_link` records the link
+  to an Asana or Jira ticket (at most five per task, https only, nothing else stored), and it
+  travels with the task in the brief and the task lists. Asana and Jira are now named when an
+  assistant passes one in as a source.
+- **An approval tells the assistant which flagged tasks have tickets elsewhere.** When
+  `review_approve` flags work that is linked, the result carries `carryOut`, and the assistant
+  is told to offer to add a comment on each ticket, only after the person agrees, and never to
+  change a ticket's status, owner or description. teamctx writes nothing to the other tool (#301).
 - **See when a linked cloud file changed after it was approved.** A link output now records the tool’s own version marker when it is attached; the new `task_check_links` later compares it with the file’s current version, and the project page shows “changed since approved”, “unchanged” or “can’t tell” on the task and in the review drawer. The check runs through the connector of whoever has access, so teamctx stores no new credential; a file with no recorded version, or one that cannot be read, is reported honestly, never guessed as unchanged.
 - **Attach a file as a task output.** `teamctx task attach <task> <path>` keeps a
   deliverable — an image, a PDF, a spreadsheet — in the project’s repository as a
@@ -36,6 +44,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   task outside your scope is neither shown nor served.
 
 ### Changed
+- **Node 22 or newer is required.** Node 20 reached end of life in April 2026, and
+  several dependencies (the test runner, `jsdom`, the Gemini client) now need 22.
+  `engines` is now `>=22`, CI tests Node 22 and 24, and `teamctx doctor` names the
+  new floor. On Node 20, upgrade Node before updating teamctx.
 - **A failed connection from Claude is now diagnosable.** Connecting is the step
   every new member goes through, and when it failed it left nothing behind to
   explain it. A failed sign-in or connect now logs one line with the reason code
@@ -46,6 +58,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   add it again, and what each error means).
 
 ### Fixed
+- **A person added to a project now sees it on their home page.** Adding someone by
+  email put them on the roster but not on the list of projects the hosted server shows them,
+  so they saw nothing until they connected. Someone already added needs to connect once, or
+  paste the project link into the box on the Projects page.
 - **A failed sign-in no longer shows the internal error.** A hosted deployment
   with no encryption key configured refused to store the session and rendered
   the raw error — including the session key — on the page. The person now sees a

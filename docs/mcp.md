@@ -63,6 +63,7 @@ either manager-gated or explicitly flagged as structural.
 | `task_add({title, owner?, workstream?, compile?, role?})` | Create a task and commit. `compile: true` also compiles its prompt in the same call — **that spends an AI call**. |
 | `task_done({id})` / `task_reopen({id})` | Toggle status and commit. Returns `unchanged: true` without committing if already in that state. |
 | `task_assign({id, owner})` | Reassign and commit. |
+| `task_link({id, url, ref?, remove?})` | Record where the task's ticket lives in another tool (Asana, Jira and the like), or remove the link. Only where it is is stored, at most five per task, https only, never a sharing link. The tool is read off the address, and only the task's owner or a manager can set it. When `review_approve` flags a task that has links, its result carries `carryOut` so the assistant can offer to comment on those tickets. |
 
 ### Tier 2 — structural / gated (⚠ RISKY)
 

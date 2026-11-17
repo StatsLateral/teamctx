@@ -105,6 +105,27 @@ describe('the manager gate', () => {
 });
 
 describe('adding', () => {
+  it('tells the hosted server who was added, by email, once the roster is written', async () => {
+    // Being on the roster did not put the project on that person's home page; the
+    // hosted server keeps its own per-address list and needs telling.
+    const onAdded = vi.fn();
+    await addMember({ ref: 'p@example.com', actor: MANAGER, onAdded });
+    expect(onAdded).toHaveBeenCalledTimes(1);
+    expect(onAdded.mock.calls[0][0]).toMatchObject({ email: 'p@example.com' });
+    expect(writeConfig.mock.invocationCallOrder[0]).toBeLessThan(onAdded.mock.invocationCallOrder[0]);
+  });
+
+  it('does not call it for someone added by GitHub login alone, who has no address', async () => {
+    const onAdded = vi.fn();
+    await addMember({ ref: 'priyar', actor: MANAGER, onAdded });
+    expect(onAdded).not.toHaveBeenCalled();
+  });
+
+  it('still adds the person when the hosted list cannot be written', async () => {
+    const r = await addMember({ ref: 'p@example.com', actor: MANAGER, onAdded: async () => { throw new Error('kv down'); } });
+    expect(r.member.email).toBe('p@example.com');
+  });
+
   it('records who added them and when', async () => {
     const r = await addMember({ ref: 'priyar', actor: MANAGER });
     expect(r.member.addedBy).toBe('github:44');
