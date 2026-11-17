@@ -517,9 +517,19 @@ async function renderSettings(req, res, user, { newAgent = null } = {}) {
   ])].sort();
   const agents = await agentsFor(user);
   const slack = await slackFor(user, repos);
+  // Which of the projects this person can see are on the GitHub App (#110), for
+  // the settings UI. Only when the deployment has an App at all.
+  const appConfigured = githubAppConfigured();
+  const knownSlugs = [...new Set([...lent, ...repos.map(r => r.fullName)])];
+  const installed = appConfigured
+    ? (await Promise.all(knownSlugs.map(async (slug) => {
+      const [o, r] = slug.split('/');
+      return (await kvGet(keys.projectInstallation(o, r)))?.installationId ? slug : null;
+    }))).filter(Boolean).sort()
+    : [];
   if (newAgent) res.setHeader('Cache-Control', 'no-store');
   res.send(settingsPage({
-    user, hasKey: !!existing, shared, lent, repos, agents, newAgent, slack,
+    user, hasKey: !!existing, shared, lent, repos, agents, newAgent, slack, appConfigured, installed,
     secretsMissing: isPersistent() && !secretsConfigured(),
     saved: req.query.saved === '1',
     rotated: req.query.rotated ? String(req.query.rotated).split(',').filter(Boolean) : [],

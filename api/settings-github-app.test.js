@@ -129,3 +129,23 @@ describe('forgetting the install', () => {
     expect(await kvGet(keys.projectInstallation('acme', 'ledger'))).toMatchObject({ installationId: 5 });
   });
 });
+
+describe('the settings page', () => {
+  const stubRepos = (u) => (u.includes('api.github.com') ? { ok: true, status: 200, json: async () => ([]) } : undefined);
+
+  it('offers the GitHub App install when the deployment has an App', async () => {
+    await signIn();
+    const r = await withGithub(() => req('/settings', { cookies: { teamctx_sid: 's' } }), stubRepos);
+    expect(r.body).toContain('Install the GitHub App');
+    expect(r.body).toContain('/settings/github-app/install');
+  });
+
+  it('lists a project already on the App', async () => {
+    await signIn();
+    await kvSet(keys.lentProjects('7'), { projects: ['acme/ledger'] });
+    await kvSet(keys.projectInstallation('acme', 'ledger'), { installationId: 1 });
+    const r = await withGithub(() => req('/settings', { cookies: { teamctx_sid: 's' } }), stubRepos);
+    expect(r.body).toContain('Using the App on');
+    expect(r.body).toContain('acme/ledger');
+  });
+});
