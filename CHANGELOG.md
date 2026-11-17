@@ -8,6 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Reach a project's repository through a GitHub App, not a broad lent token.**
+  A manager can install the teamctx GitHub App on just a project's repository
+  from the settings page, instead of lending an OAuth token that can read and
+  write every repository they own. The deployment then reaches that repository
+  through short-lived tokens scoped to it alone, so a leak of its store no longer
+  exposes the lender's other repositories, and uninstalling the App on GitHub
+  cuts the project's Google-signed-in members and agents off on the next request.
+  The App is preferred over a lent token when a project has both; the lent-token
+  path keeps working, so existing deployments are untouched until a manager moves
+  across. Needs a GitHub App registered on the deployment — see
+  `docs/mcp-hosted-setup.md`.
 - **Flag possible impact on other parts of the work when a record changes.** When
   a change to a decision or rule is proposed, the same check that looks for
   contradictions also looks at the records in sibling parts of the work and lists
