@@ -48,7 +48,7 @@ export async function readConfigJson({ owner, repo, token, ref }) {
   }
 }
 
-export async function resolveGoogleMember({ googleUser, owner, repo, ref }) {
+export async function resolveGoogleMember({ googleUser, owner, repo }) {
   const cred = await kvGet(keys.projectGhCred(owner, repo));
   if (!cred?.token) {
     throw new MemberAccessError(
@@ -56,7 +56,9 @@ export async function resolveGoogleMember({ googleUser, owner, repo, ref }) {
       + 'The manager can turn this on from the teamctx settings page.');
   }
 
-  const config = await readConfigJson({ owner, repo, token: cred.token, ref });
+  // Always the default branch, never a ref the caller names. A removed member
+  // could otherwise point at an old branch where they are still listed.
+  const config = await readConfigJson({ owner, repo, token: cred.token });
 
   // An email address is the one identity every surface can agree on: a clone
   // reads it from `git config`, and Google hands it over verified. So a Google
