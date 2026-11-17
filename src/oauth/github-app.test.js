@@ -34,7 +34,13 @@ describe('githubAppFromEnv', () => {
   it('reads the id and key, and restores a key whose newlines were escaped', () => {
     const app = githubAppFromEnv({ GITHUB_APP_ID: 7, GITHUB_APP_PRIVATE_KEY: 'line1\\nline2' });
     expect(app).toEqual({ appId: '7', privateKey: 'line1\nline2' });
-    expect(githubAppConfigured(ENV)).toBe(true);
+  });
+
+  it('is only "configured" for the UI when the slug is set too', () => {
+    // Without the slug the install URL cannot be built, so the App must not be
+    // advertised as installable.
+    expect(githubAppConfigured(ENV)).toBe(false);
+    expect(githubAppConfigured(ENV_SLUG)).toBe(true);
   });
 
   it('leaves a key that already has real newlines alone', () => {

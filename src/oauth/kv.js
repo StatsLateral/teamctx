@@ -460,6 +460,12 @@ export const keys = {
    * are minted on demand and expire in an hour. Preferred over `projectGhCred`.
    */
   projectInstallation: (owner, repo) => `teamctx:ghapp:project:${slug(owner, repo)}`,
+  /**
+   * The projects one person installed the GitHub App for, by address, so the
+   * settings page can show them the "stop using the App" control even for a
+   * repository that is not in their GitHub listing (#110).
+   */
+  appInstalledByAddress: email => `teamctx:ghapp:installed-by:${String(email).toLowerCase()}`,
   /** Which projects one user lends GitHub access to, for the settings page. */
   lentProjects: githubUserId => `teamctx:ghcred:lent-by:${githubUserId}`,
   /**

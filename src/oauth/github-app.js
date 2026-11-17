@@ -34,9 +34,13 @@ export function githubAppFromEnv(env = process.env) {
   return { appId: String(appId), privateKey };
 }
 
-/** Whether this deployment has a GitHub App configured. For the status page. */
+/**
+ * Whether this deployment can offer the GitHub App install. The slug is part of
+ * it: without it the install URL cannot be built, so advertising the App without
+ * one would dead-end. For the status page and the settings UI.
+ */
 export function githubAppConfigured(env = process.env) {
-  return !!githubAppFromEnv(env);
+  return !!githubAppFromEnv(env) && !!env.GITHUB_APP_SLUG;
 }
 
 /**
