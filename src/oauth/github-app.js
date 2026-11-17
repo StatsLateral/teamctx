@@ -39,6 +39,20 @@ export function githubAppConfigured(env = process.env) {
   return !!githubAppFromEnv(env);
 }
 
+/**
+ * The URL that walks a manager through installing the App on a repository, or
+ * `null` when the deployment has not named its App (`GITHUB_APP_SLUG`). `state`
+ * rides through GitHub's install flow and comes back to the setup callback, so
+ * the callback knows which project the install was for and that it began here.
+ */
+export function githubAppInstallUrl(state, env = process.env) {
+  const slug = env.GITHUB_APP_SLUG;
+  if (!slug) return null;
+  const url = new URL(`https://github.com/apps/${encodeURIComponent(slug)}/installations/new`);
+  if (state) url.searchParams.set('state', state);
+  return url.toString();
+}
+
 // One auth instance per private key, reused so `@octokit/auth-app`'s own cache
 // of installation tokens survives between calls on a warm instance. A cold
 // serverless start simply mints a fresh token, which is one API call.
@@ -70,6 +84,40 @@ export async function installationTokenFor(installationId, env = process.env) {
   if (!auth) return null;
   const { token } = await auth({ type: 'installation', installationId: Number(installationId) });
   return token;
+}
+
+/**
+ * A JWT that authenticates as the App itself (not an installation), for the few
+ * calls that are about the App rather than a repository — looking up which
+ * installation covers a repo. `null` when the App is not configured.
+ */
+export async function appJwt(env = process.env) {
+  const auth = appAuth(env);
+  if (!auth) return null;
+  const { token } = await auth({ type: 'app' });
+  return token;
+}
+
+/**
+ * The id of the App's installation on one repository, or `null` when the App is
+ * not installed there (GitHub answers 404). Used by the setup callback to
+ * confirm an install landed on the repository it was meant for before recording
+ * it — never trusting the `installation_id` in the redirect on its own.
+ */
+export async function installationForRepo(owner, repo, env = process.env) {
+  const jwt = await appJwt(env);
+  if (!jwt) return null;
+  const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/installation`, {
+    headers: {
+      Authorization: `Bearer ${jwt}`,
+      Accept: 'application/vnd.github+json',
+      'X-GitHub-Api-Version': '2022-11-28',
+    },
+  });
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`GitHub said ${res.status} looking up the App installation for ${owner}/${repo}.`);
+  const body = await res.json().catch(() => ({}));
+  return body?.id ?? null;
 }
 
 // Testing seam: let a test reset the memoised auth instance between cases.
