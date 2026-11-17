@@ -213,4 +213,11 @@ describe('the checks when a project is on a GitHub App installation (#110)', () 
     await kvSet(keys.projectGhCred('acme', 'ledger'), { token: 't', lentByEmail: 'someone@else.com' });
     expect((await lendCheckFor({ owner: 'acme', repo: 'ledger' })({ email: 'maya@example.com' })).ok).toBe(true);
   });
+
+  it('refuses with recover-it guidance, not a dead end, when no installer was recorded', async () => {
+    await install({}); // installationId but no installedByEmail
+    const r = await lendCheckFor({ owner: 'acme', repo: 'ledger' })({ email: 'maya@example.com' });
+    expect(r.ok).toBe(false);
+    expect(r.why).toMatch(/installed before teamctx recorded who by/);
+  });
 });

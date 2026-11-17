@@ -61,6 +61,13 @@ export function lendCheckFor({ owner, repo }) {
         return { ok: true, note: 'GitHub App installed by them' };
       }
       const appSteps = `${email} installs the GitHub App on ${slug} themselves: if they are not a manager yet, add them as a co-manager; then they sign in to the teamctx settings page as ${email} and use Let members join without GitHub → Install the GitHub App. Then transfer again.`;
+      if (!install.installedByEmail) {
+        return {
+          ok: false,
+          why: `${slug} runs on a GitHub App installed before teamctx recorded who by. The primary manager has to be the `
+            + `one who installed it, so ${appSteps}`,
+        };
+      }
       return {
         ok: false,
         why: `${slug} runs on a GitHub App installation, and members who signed in with Google reach the project through it. `

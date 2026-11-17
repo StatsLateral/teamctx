@@ -522,7 +522,10 @@ async function renderSettings(req, res, user, { newAgent = null } = {}) {
   // Which of the projects this person can see are on the GitHub App (#110), for
   // the settings UI. Only when the deployment has an App at all.
   const appConfigured = githubAppConfigured();
-  const knownSlugs = [...new Set([...lent, ...repos.map(r => r.fullName)])];
+  // Projects this person installed the App for are included even when the repo
+  // is not in their GitHub listing, so the installer can always clear it (#110).
+  const installedByThem = user.email ? (await kvGet(keys.appInstalledByAddress(user.email)))?.projects || [] : [];
+  const knownSlugs = [...new Set([...lent, ...repos.map(r => r.fullName), ...installedByThem])];
   const installed = appConfigured
     ? (await Promise.all(knownSlugs.map(async (slug) => {
       const [o, r] = slug.split('/');
@@ -1157,9 +1160,19 @@ app.get('/settings/github-app/install', async (req, res) => {
   if (!githubAppConfigured()) return backToSettings(res, 'This deployment has no GitHub App configured, so there is nothing to install.');
   const ref = parseRepoRef(req.query?.project);
   if (!ref) return backToSettings(res, 'Write the project as owner/repo.');
+  // Who may record an install is gated exactly as lending is: a manager of the
+  // project, or an admin of the repository. Without this, anyone signed in could
+  // forge the round-trip and claim to have installed the App on a repository the
+  // App already covers — recording themselves as its installer, which the
+  // manager handoff then trusts. GitHub enforces admin to actually install; this
+  // enforces it to be *recorded* as the installer.
+  if (!user.id) return backToSettings(res, 'Installing the GitHub App needs a GitHub sign-in with admin access to the repository.');
+  if (!user.token) return backToSettings(res, 'Your sign-in predates this feature. Sign out and sign in again, then retry.');
   // The install is recorded against whoever did it, by address — the same way a
   // lender is, so a manager handoff can still reason about who granted access.
   if (!user.email) return backToSettings(res, 'Installing the GitHub App records who installed it, by address. Sign out and sign in again to grant your email.');
+  const allowed = await mayLend(user, ref);
+  if (!allowed.ok) return backToSettings(res, allowed.why);
   const state = randomBytes(18).toString('base64url');
   const bind = randomBytes(18).toString('base64url');
   await kvSet(
@@ -1205,6 +1218,13 @@ app.get('/settings/github-app/callback', async (req, res) => {
     installedByEmail: pending.byEmail || null,
     installedAt: new Date().toISOString(),
   });
+  // Index it under the installer's address so the settings page can show them
+  // the control to clear it, even for a repository not in their GitHub listing.
+  if (pending.byEmail) {
+    const slug = `${owner}/${repo}`;
+    const list = (await kvGet(keys.appInstalledByAddress(pending.byEmail)))?.projects || [];
+    if (!list.includes(slug)) await kvSet(keys.appInstalledByAddress(pending.byEmail), { projects: [...list, slug] });
+  }
   backToSettings(res);
 });
 
@@ -1224,6 +1244,12 @@ app.post('/settings/github-app/forget', async (req, res) => {
   );
   if (existing && !mine) return backToSettings(res, 'That GitHub App install was set up by someone else.');
   await kvSet(keys.projectInstallation(ref.owner, ref.repo), null);
+  const slug = `${ref.owner}/${ref.repo}`;
+  const installer = existing?.installedByEmail || user.email;
+  if (installer) {
+    const list = (await kvGet(keys.appInstalledByAddress(installer)))?.projects || [];
+    await kvSet(keys.appInstalledByAddress(installer), { projects: list.filter(p => p !== slug) });
+  }
   backToSettings(res);
 });
 

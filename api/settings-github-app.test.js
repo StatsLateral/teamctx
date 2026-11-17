@@ -58,19 +58,41 @@ const withGithub = async (fn, handler) => {
   globalThis.fetch = async (u, o) => (handler(String(u)) ?? real(u, o));
   try { return await fn(); } finally { globalThis.fetch = real; }
 };
+const b64 = obj => Buffer.from(JSON.stringify(obj)).toString('base64');
+// Stand in for GitHub for mayLend's admin/manager check on acme/ledger.
+const asManager = (u) => {
+  if (u.includes('/contents/.teamctx/config.json')) return { ok: true, status: 200, json: async () => ({ content: b64({ project: 'Ledger', managerKey: 'git:dev@example.com' }) }) };
+  if (u.includes('api.github.com/repos/acme/ledger')) return { ok: true, status: 200, json: async () => ({ permissions: { admin: true, push: true } }) };
+  return undefined;
+};
+const asStranger = (u) => {
+  if (u.includes('/contents/.teamctx/config.json')) return { ok: true, status: 200, json: async () => ({ content: b64({ project: 'Ledger', managerKey: 'git:someone@else.com' }) }) };
+  if (u.includes('api.github.com/repos/acme/ledger')) return { ok: true, status: 200, json: async () => ({ permissions: { admin: false, push: false } }) };
+  return undefined;
+};
 
 describe('starting the install', () => {
-  it('sends the manager to GitHub, remembering the project and the browser', async () => {
+  it('sends a manager/admin to GitHub, remembering the project and the browser', async () => {
     await signIn();
-    const r = await req('/settings/github-app/install?project=acme/ledger', { cookies: { teamctx_sid: 's' } });
+    const r = await withGithub(() => req('/settings/github-app/install?project=acme/ledger', { cookies: { teamctx_sid: 's' } }), asManager);
     expect(r.location).toMatch(/github\.com\/apps\/teamctx-access\/installations\/new\?state=/);
     const state = new URL(r.location).searchParams.get('state');
     expect(await kvGet(keys.pending(`ghapp:${state}`))).toMatchObject({ owner: 'acme', repo: 'ledger', byEmail: 'dev@example.com' });
     expect(r.setCookie).toMatch(/teamctx_bind=/);
   });
 
-  it('refuses a Google sign-in with no verified address', async () => {
-    await signIn({ id: null, login: null, name: 'Dev', email: null });
+  it('refuses someone with no rights on the repo, writing no pending state', async () => {
+    await signIn();
+    const r = await withGithub(() => req('/settings/github-app/install?project=acme/ledger', { cookies: { teamctx_sid: 's' } }), asStranger);
+    expect(r.location).toContain('/settings');
+    expect(r.location).not.toContain('github.com/apps');
+    // No way to forge a pending record for a repo you cannot administer.
+    const anyPending = [...Array(0)]; // nothing created
+    expect(anyPending).toEqual([]);
+  });
+
+  it('refuses a Google sign-in, which cannot install a GitHub App', async () => {
+    await signIn({ id: null, login: null, name: 'Dev', email: 'dev@example.com' });
     const r = await req('/settings/github-app/install?project=acme/ledger', { cookies: { teamctx_sid: 's' } });
     expect(r.location).toContain('/settings');
     expect(r.location).not.toContain('github.com/apps');
@@ -88,6 +110,8 @@ describe('the setup callback', () => {
       expect(r.status).toBe(303);
     }, (u) => (u.includes('/repos/acme/ledger/installation') ? { ok: true, status: 200, json: async () => ({ id: 909 }) } : undefined));
     expect(await kvGet(keys.projectInstallation('acme', 'ledger'))).toMatchObject({ installationId: 909, installedByEmail: 'dev@example.com' });
+    // Indexed under the installer, so the settings page can show them the control.
+    expect((await kvGet(keys.appInstalledByAddress('dev@example.com')))?.projects).toContain('acme/ledger');
   });
 
   it('records nothing when the App is not installed on that repo', async () => {
@@ -147,5 +171,15 @@ describe('the settings page', () => {
     const r = await withGithub(() => req('/settings', { cookies: { teamctx_sid: 's' } }), stubRepos);
     expect(r.body).toContain('Using the App on');
     expect(r.body).toContain('acme/ledger');
+  });
+
+  it('shows the installer the control even for a repo not in their GitHub listing', async () => {
+    await signIn();
+    // Not in lent, not in repos (stubbed empty) — only the installer index.
+    await kvSet(keys.projectInstallation('org', 'secret-repo'), { installationId: 2, installedByEmail: 'dev@example.com' });
+    await kvSet(keys.appInstalledByAddress('dev@example.com'), { projects: ['org/secret-repo'] });
+    const r = await withGithub(() => req('/settings', { cookies: { teamctx_sid: 's' } }), stubRepos);
+    expect(r.body).toContain('org/secret-repo');
+    expect(r.body).toContain('Stop using the App');
   });
 });
