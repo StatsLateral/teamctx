@@ -12,6 +12,7 @@ import { mcpUrl } from '../../../src/views/mcp-url.js';
 import { readConfig } from '../../../src/storage.js';
 import { managersOf } from '../../../src/managers.js';
 import { resolveGoogleMember } from '../../../src/oauth/member-access.js';
+import { projectRepoToken } from '../../../src/oauth/repo-access.js';
 import { primaryEmail } from '../../../src/oauth/github-identity.js';
 import {
   isAgentToken, verifyAgentToken, touchAgent, readAgentKey, markAgentKeyFailed,
@@ -158,13 +159,13 @@ export default async function handler(req, res) {
     if (!record) {
       return unauthorized(req, res, owner, repo, 'The agent token is not valid for this project, or has been revoked');
     }
-    const lent = await kvGet(keys.projectGhCred(owner, repo));
-    if (!lent?.token) {
+    const lentToken = await projectRepoToken(owner, repo);
+    if (!lentToken) {
       return unauthorized(req, res, owner, repo,
         `${owner}/${repo} no longer lends GitHub access, which an agent reads the project through. `
         + 'A manager can lend it again on the settings page.');
     }
-    ghToken = lent.token;
+    ghToken = lentToken;
     onLentCredential = true;
     actor = actorFromAgent(record);
     agent = { id: record.id, name: record.name, dailyLimit: record.dailyLimit };

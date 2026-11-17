@@ -11,6 +11,7 @@ import { projectKeyDecision } from '../src/oauth/project-key-decision.js';
 import { managersOf } from '../src/managers.js';
 import { matchesActor, managerKeys } from '../src/review.js';
 import { readConfigJson } from '../src/oauth/member-access.js';
+import { projectRepoToken, projectLendsAccess } from '../src/oauth/repo-access.js';
 import {
   readPersonalKey, writePersonalKey, addProjectKey, removeProjectKey, projectsKeyedBy,
   adoptGithubRecords, linkGithubIdentity, projectsKnownFor, recordConnectedProject,
@@ -243,7 +244,7 @@ app.get('/oauth/choose', async (req, res) => {
   const pending = await kvGet(keys.pending(state));
   const project = /\/mcp\/([^/]+)\/([^/?#]+)/.exec(String(pending?.resource || ''));
   const lends = project
-    ? !!(await kvGet(keys.projectGhCred(project[1], project[2])))?.token
+    ? await projectLendsAccess(project[1], project[2])
     : true;   // Nothing to go on: offer both rather than hide a way in.
   res.send(choosePage({
     state,
@@ -606,7 +607,7 @@ async function waysInFor(returnTo) {
   // which is the connector's rule — applied here too, rather than sending
   // somebody through a sign-in that ends in a refusal.
   const project = /^\/project\/([^/]+)\/([^/]+)$/.exec(path);
-  if (project && !(await kvGet(keys.projectGhCred(project[1], project[2])))?.token) {
+  if (project && !(await projectLendsAccess(project[1], project[2]))) {
     return { google: false, why: lendsNothing(`${project[1]}/${project[2]}`) };
   }
   return { google: true, why: null };
@@ -850,7 +851,7 @@ app.post('/settings', async (req, res) => {
  * the way of removing a key, and a key is the person's own to remove.
  */
 async function isPrimaryManager(user, ref) {
-  const token = user.token || (await kvGet(keys.projectGhCred(ref.owner, ref.repo)))?.token;
+  const token = user.token || (await projectRepoToken(ref.owner, ref.repo));
   if (!token) return false;
   let config;
   try { config = await readConfigJson({ owner: ref.owner, repo: ref.repo, token }); } catch { return false; }
@@ -891,15 +892,15 @@ async function mayAddProjectKey(user, ref) {
     const body = await res.json().catch(() => ({}));
     hasPush = !!body?.permissions?.push;
   } else {
-    const cred = await kvGet(keys.projectGhCred(ref.owner, ref.repo));
-    if (!cred?.token) {
+    const lentToken = await projectRepoToken(ref.owner, ref.repo);
+    if (!lentToken) {
       return {
         ok: false,
         why: `${slug} has not lent GitHub access, so it cannot confirm people who signed in with Google. `
           + 'Ask its manager to lend access, or sign in with GitHub.',
       };
     }
-    token = cred.token;
+    token = lentToken;
   }
 
   let config = null;
@@ -1168,12 +1169,12 @@ async function agentManagerAccess(user, ref) {
   if (!user.email) {
     return { ok: false, why: 'Your sign-in did not come with a verified email address, so an agent could not be recorded against you. Sign out and sign in again.' };
   }
-  const lent = await kvGet(keys.projectGhCred(ref.owner, ref.repo));
-  if (!lent?.token) {
+  const lentToken = await projectRepoToken(ref.owner, ref.repo);
+  if (!lentToken) {
     return { ok: false, why: `${slug} does not lend GitHub access, and an agent reads the project through it. Lend it first, below.` };
   }
   let config;
-  try { config = await readConfigJson({ owner: ref.owner, repo: ref.repo, token: lent.token }); } catch (e) {
+  try { config = await readConfigJson({ owner: ref.owner, repo: ref.repo, token: lentToken }); } catch (e) {
     return { ok: false, why: e.message };
   }
   if (!managerKeys(config).length) return { ok: false, why: `${slug} has no manager on record, so nobody can issue agents for it.` };
@@ -1181,7 +1182,7 @@ async function agentManagerAccess(user, ref) {
   if (!matched) {
     return { ok: false, why: `Only a manager of ${slug} can issue or revoke its agents.` };
   }
-  return { ok: true, actor: matched, token: lent.token };
+  return { ok: true, actor: matched, token: lentToken };
 }
 
 /**
@@ -1192,7 +1193,7 @@ async function slackManagerAccess(user, ref) {
   const slug = `${ref.owner}/${ref.repo}`;
   // Their own sign-in first, then the access the project lends: a GitHub
   // account an organisation keeps out of the repository can still be a manager.
-  const tokens = [user.token, (await kvGet(keys.projectGhCred(ref.owner, ref.repo)))?.token].filter(Boolean);
+  const tokens = [user.token, await projectRepoToken(ref.owner, ref.repo)].filter(Boolean);
   if (!tokens.length) {
     return { ok: false, why: `${slug} cannot be read without GitHub access. Sign in with GitHub, or ask its manager to lend access below.` };
   }
@@ -1413,7 +1414,7 @@ async function renderProjects(req, res, user, { typed = '', error = null, search
     ? await liveProjects(await projectsKnownFor(user.email), {
       viewer: user.email,
       userToken: user.token,
-      lentToken: async (owner, repo) => (await kvGet(keys.projectGhCred(owner, repo)))?.token || null,
+      lentToken: async (owner, repo) => projectRepoToken(owner, repo),
       check: repoExistence,
     })
     : [];
