@@ -100,12 +100,10 @@ ${hasKey ? `
 
 <section class="card">
 <h2>Let members join without GitHub</h2>
-<p class="muted">Lets people on the roster sign in with Google instead of GitHub,
-using the email you invited. Their work is committed under their own name and
-still comes to you for review. Roster only, this repository only.</p>
-${appConfigured ? `<p class="muted"><strong>Legacy.</strong> Lending hands the deployment a
-token to every repository you can reach. Prefer the GitHub App below — it limits access to
-this one repository.</p>` : ''}
+<p class="muted">Roster members sign in with Google instead of GitHub; their work
+still comes to you for review. This repository only.</p>
+${appConfigured ? `<p class="muted"><strong>Legacy.</strong> Lends a token to every repository
+you can reach. Prefer the GitHub App below — scoped to this one repository.</p>` : ''}
 ${lent.length ? `<p class="muted">Lending access to:</p>${lent.map(slug => `
 <form method="POST" action="/settings/unlend" style="margin:.35rem 0">
   <input type="hidden" name="project" value="${esc(slug)}">
@@ -116,14 +114,12 @@ ${user.id ? `<form method="POST" action="/settings/lend">
   <label for="lendProject">Project</label>
   ${projectPicker('lendProject', repos)}
   <button type="submit">Lend GitHub access</button>
-</form>` : `<p class="muted">Lending GitHub access needs a GitHub sign-in: it hands the
-project a GitHub credential, which a Google sign-in does not have.</p>`}
+</form>` : `<p class="muted">Lending needs a GitHub sign-in; a Google sign-in has no
+GitHub credential to lend.</p>`}
 ${appConfigured ? `
 <h3>Narrower: install the GitHub App</h3>
-<p class="muted">Instead of lending a token that can reach every repository you own,
-install the teamctx GitHub App on just this project's repository. teamctx then reaches
-it through a short-lived token scoped to that one repository, and loses access the moment
-you uninstall the App on GitHub. Preferred over a lent token when a project has both.</p>
+<p class="muted">Installs on just this repository. teamctx reaches it with a short-lived,
+repo-scoped token and loses access the moment you uninstall. Preferred over lending.</p>
 ${installed.length ? `<p class="muted">Using the App on:</p>${installed.map(slug => `
 <form method="POST" action="/settings/github-app/forget" style="margin:.35rem 0">
   <input type="hidden" name="project" value="${esc(slug)}">

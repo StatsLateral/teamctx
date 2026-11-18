@@ -113,7 +113,7 @@ describe('the page a Google sign-in sees', () => {
   it('does not offer to lend GitHub access, and says why', async () => {
     const { body } = await as(GOOGLE, '/settings');
     expect(body).not.toContain('action="/settings/lend"');
-    expect(body).toContain('Lending GitHub access needs a GitHub sign-in');
+    expect(body).toContain('Lending needs a GitHub sign-in');
   });
 
   it('does not offer to create a project, which creates a GitHub repository', async () => {
