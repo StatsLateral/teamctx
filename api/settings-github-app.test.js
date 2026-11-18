@@ -168,6 +168,13 @@ describe('the settings page', () => {
     expect(r.body).toContain('/settings/github-app/install');
   });
 
+  it('marks lending as legacy once an App is available, steering to the App', async () => {
+    await signIn();
+    const r = await withGithub(() => req('/settings', { cookies: { teamctx_sid: 's' } }), stubRepos);
+    expect(r.body).toContain('Legacy.');
+    expect(r.body).toContain('Prefer the GitHub App below');
+  });
+
   it('lists a project already on the App', async () => {
     await signIn();
     await kvSet(keys.lentProjects('7'), { projects: ['acme/ledger'] });

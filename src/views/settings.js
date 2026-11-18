@@ -103,6 +103,9 @@ ${hasKey ? `
 <p class="muted">Lets people on the roster sign in with Google instead of GitHub,
 using the email you invited. Their work is committed under their own name and
 still comes to you for review. Roster only, this repository only.</p>
+${appConfigured ? `<p class="muted"><strong>Legacy.</strong> Lending hands the deployment a
+token to every repository you can reach. Prefer the GitHub App below — it limits access to
+this one repository.</p>` : ''}
 ${lent.length ? `<p class="muted">Lending access to:</p>${lent.map(slug => `
 <form method="POST" action="/settings/unlend" style="margin:.35rem 0">
   <input type="hidden" name="project" value="${esc(slug)}">
