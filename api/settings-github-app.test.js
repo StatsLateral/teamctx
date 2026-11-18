@@ -79,6 +79,10 @@ describe('starting the install', () => {
     const state = new URL(r.location).searchParams.get('state');
     expect(await kvGet(keys.pending(`ghapp:${state}`))).toMatchObject({ owner: 'acme', repo: 'ledger', byEmail: 'dev@example.com' });
     expect(r.setCookie).toMatch(/teamctx_bind=/);
+    // The bind cookie must reach the callback under /settings/github-app — a
+    // cookie scoped to /oauth never would, failing every install as "started in
+    // another browser". Path must cover the callback, i.e. be the root.
+    expect(r.setCookie).toMatch(/teamctx_bind=[^;]+;[^]*Path=\/(?:;|\s|$)/);
   });
 
   it('refuses someone with no rights on the repo, writing no pending state', async () => {
