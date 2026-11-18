@@ -71,6 +71,15 @@ describe('installationTokenFor', () => {
     expect(createAppAuth).toHaveBeenCalledTimes(1);
     expect(authFn).toHaveBeenCalledTimes(2);
   });
+
+  it('rebuilds auth when the private key is rotated under the same App id', async () => {
+    await installationTokenFor(1, ENV);
+    // Same GITHUB_APP_ID, new key: a stale cached instance would keep signing
+    // with the old key and get 401s, so it must be rebuilt.
+    await installationTokenFor(1, { ...ENV, GITHUB_APP_PRIVATE_KEY: '-----BEGIN KEY-----\nxyz\n-----END KEY-----' });
+    expect(createAppAuth).toHaveBeenCalledTimes(2);
+    expect(createAppAuth).toHaveBeenLastCalledWith({ appId: '12345', privateKey: '-----BEGIN KEY-----\nxyz\n-----END KEY-----' });
+  });
 });
 
 describe('githubAppInstallUrl', () => {

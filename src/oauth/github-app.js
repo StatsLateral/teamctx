@@ -66,9 +66,13 @@ let cachedFor = null;
 function appAuth(env) {
   const app = githubAppFromEnv(env);
   if (!app) return null;
-  if (!cachedAuth || cachedFor !== app.appId) {
+  // Key the cache on the private key too, not the App id alone: a deployment can
+  // rotate GITHUB_APP_PRIVATE_KEY under the same id, and a warm instance that
+  // kept signing with the old key would get 401s from GitHub until a cold start.
+  const id = `${app.appId}\n${app.privateKey}`;
+  if (!cachedAuth || cachedFor !== id) {
     cachedAuth = createAppAuth({ appId: app.appId, privateKey: app.privateKey });
-    cachedFor = app.appId;
+    cachedFor = id;
   }
   return cachedAuth;
 }
