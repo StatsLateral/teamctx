@@ -112,10 +112,22 @@ describe('the setup callback', () => {
     await withGithub(async () => {
       const r = await req('/settings/github-app/callback?state=st&installation_id=909&setup_action=install', { cookies: { teamctx_sid: 's', teamctx_bind: 'bind' } });
       expect(r.status).toBe(303);
-    }, (u) => (u.includes('/repos/acme/ledger/installation') ? { ok: true, status: 200, json: async () => ({ id: 909 }) } : undefined));
+    }, (u) => (u.includes('/repos/acme/ledger/installation') ? { ok: true, status: 200, json: async () => ({ id: 909, repository_selection: 'selected' }) } : undefined));
     expect(await kvGet(keys.projectInstallation('acme', 'ledger'))).toMatchObject({ installationId: 909, installedByEmail: 'dev@example.com' });
     // Indexed under the installer, so the settings page can show them the control.
     expect((await kvGet(keys.appInstalledByAddress('dev@example.com')))?.projects).toContain('acme/ledger');
+  });
+
+  it('refuses an install that covers all the manager\'s repositories', async () => {
+    await signIn();
+    await pend('sall');
+    await withGithub(async () => {
+      const r = await req('/settings/github-app/callback?state=sall&installation_id=910&setup_action=install', { cookies: { teamctx_sid: 's', teamctx_bind: 'bind' } });
+      expect(r.location).toContain('/settings?error=');
+      expect(decodeURIComponent(r.location)).toContain('all your repositories');
+    }, (u) => (u.includes('/repos/acme/ledger/installation') ? { ok: true, status: 200, json: async () => ({ id: 910, repository_selection: 'all' }) } : undefined));
+    // Nothing recorded — an all-repos grant is wider than the project needs.
+    expect(await kvGet(keys.projectInstallation('acme', 'ledger'))).toBeNull();
   });
 
   it('records nothing when the App is not installed on that repo', async () => {

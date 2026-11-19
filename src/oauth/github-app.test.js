@@ -65,6 +65,11 @@ describe('installationTokenFor', () => {
     expect(authFn).toHaveBeenCalledWith({ type: 'installation', installationId: 99 });
   });
 
+  it('scopes the token to the given repositories when asked', async () => {
+    await installationTokenFor('99', ENV, ['ledger']);
+    expect(authFn).toHaveBeenCalledWith({ type: 'installation', installationId: 99, repositoryNames: ['ledger'] });
+  });
+
   it('reuses one auth instance across calls, so the library can cache', async () => {
     await installationTokenFor(1, ENV);
     await installationTokenFor(2, ENV);
@@ -99,9 +104,9 @@ describe('appJwt', () => {
 });
 
 describe('installationForRepo', () => {
-  it('returns the installation id GitHub reports for the repo', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ id: 808 }) })));
-    expect(await installationForRepo('acme', 'ledger', ENV)).toBe(808);
+  it('returns the installation id and repository selection GitHub reports', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ id: 808, repository_selection: 'selected' }) })));
+    expect(await installationForRepo('acme', 'ledger', ENV)).toEqual({ id: 808, repositorySelection: 'selected' });
     vi.unstubAllGlobals();
   });
 

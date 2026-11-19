@@ -35,7 +35,16 @@ export async function projectRepoCredential(owner, repo, env = process.env) {
     // (GitHub 404s it), which is how uninstalling cuts access on the next
     // request; any failure here fails closed.
     let token = null;
-    try { token = await installationTokenFor(installation.installationId, env); } catch { token = null; }
+    try {
+      // Scope the token to this repo even if the App was installed on all of
+      // them, so a project never holds a token broader than its own repository.
+      token = await installationTokenFor(installation.installationId, env, [repo]);
+    } catch (e) {
+      // Fail closed, but say why: a bad key or a removed install must not read
+      // back as "access no longer lent". The error class only — never the key.
+      console.error(`projectRepoCredential: minting an installation token for ${owner}/${repo} failed (${e?.name || 'Error'}); treating as no access.`);
+      token = null;
+    }
     return token ? { token, via: 'installation', installation } : null;
   }
   const lent = await kvGet(keys.projectGhCred(owner, repo));

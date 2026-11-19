@@ -30,7 +30,9 @@ describe('projectRepoCredential', () => {
     kvStore.set('cred:acme/ledger', { token: 'legacy' }); // present, but not used
     const cred = await projectRepoCredential('acme', 'ledger');
     expect(cred).toMatchObject({ token: 'ghs_77', via: 'installation' });
-    expect(installationTokenFor).toHaveBeenCalledWith(77, expect.anything());
+    // Scoped to this repo, so an "all repositories" install still mints a token
+    // that reaches only this one.
+    expect(installationTokenFor).toHaveBeenCalledWith(77, expect.anything(), ['ledger']);
   });
 
   it('falls back to the legacy lent token when there is no installation', async () => {

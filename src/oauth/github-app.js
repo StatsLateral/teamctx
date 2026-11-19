@@ -82,15 +82,23 @@ function appAuth(env) {
  * is not configured. Throws if GitHub refuses (e.g. the installation was
  * removed), so a caller can tell "no App here" from "the install is gone".
  *
+ * `repositoryNames` scopes the token to just those repositories within the
+ * installation. Always pass the project's repo: even if the manager installed
+ * the App on "all repositories", the minted token then reaches only this one —
+ * which is the whole-account exposure #110 exists to remove.
+ *
  * @param {string|number} installationId
  * @param {Record<string,string>} [env]
+ * @param {string[]|null} [repositoryNames]
  * @returns {Promise<string|null>}
  */
-export async function installationTokenFor(installationId, env = process.env) {
+export async function installationTokenFor(installationId, env = process.env, repositoryNames = null) {
   if (!installationId) return null;
   const auth = appAuth(env);
   if (!auth) return null;
-  const { token } = await auth({ type: 'installation', installationId: Number(installationId) });
+  const request = { type: 'installation', installationId: Number(installationId) };
+  if (repositoryNames && repositoryNames.length) request.repositoryNames = repositoryNames;
+  const { token } = await auth(request);
   return token;
 }
 
@@ -107,10 +115,12 @@ export async function appJwt(env = process.env) {
 }
 
 /**
- * The id of the App's installation on one repository, or `null` when the App is
- * not installed there (GitHub answers 404). Used by the setup callback to
- * confirm an install landed on the repository it was meant for before recording
- * it — never trusting the `installation_id` in the redirect on its own.
+ * The App's installation on one repository as `{ id, repositorySelection }`, or
+ * `null` when the App is not installed there (GitHub answers 404). Used by the
+ * setup callback to confirm an install landed on the repository it was meant for
+ * before recording it — never trusting the `installation_id` in the redirect on
+ * its own. `repositorySelection` is `'all'` or `'selected'`, so the callback can
+ * refuse an "all repositories" install that would reach more than this repo.
  */
 export async function installationForRepo(owner, repo, env = process.env) {
   const jwt = await appJwt(env);
@@ -125,7 +135,8 @@ export async function installationForRepo(owner, repo, env = process.env) {
   if (res.status === 404) return null;
   if (!res.ok) throw new Error(`GitHub said ${res.status} looking up the App installation for ${owner}/${repo}.`);
   const body = await res.json().catch(() => ({}));
-  return body?.id ?? null;
+  if (!body?.id) return null;
+  return { id: body.id, repositorySelection: body.repository_selection ?? null };
 }
 
 // Testing seam: let a test reset the memoised auth instance between cases.

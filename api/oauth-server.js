@@ -1203,17 +1203,25 @@ app.get('/settings/github-app/callback', async (req, res) => {
     return backToSettings(res, 'This install was started in another browser. Start it again from the settings page.');
   }
   const { owner, repo } = pending;
-  let installationId;
+  let installation;
   try {
-    installationId = await installationForRepo(owner, repo);
+    installation = await installationForRepo(owner, repo);
   } catch (e) {
     return backToSettings(res, `Could not confirm the GitHub App install on ${owner}/${repo}: ${e.message}`);
   }
-  if (!installationId) {
+  if (!installation) {
     return backToSettings(res, `The GitHub App is not installed on ${owner}/${repo}. On GitHub, install it and choose that repository.`);
   }
+  // Refuse an "all repositories" install: teamctx scopes the minted token to this
+  // one repo, but an all-repos install still means a wider grant than the project
+  // needs, so steer the manager to reinstall on only this repository (#110).
+  if (installation.repositorySelection === 'all') {
+    return backToSettings(res, `The GitHub App is installed on all your repositories. On GitHub, reinstall it on only ${owner}/${repo} so its access is limited to this repository.`);
+  }
+  const installationId = installation.id;
   await kvSet(keys.projectInstallation(owner, repo), {
     installationId,
+    repositorySelection: installation.repositorySelection || null,
     installedById: pending.byId || null,
     installedByLogin: pending.byLogin || null,
     installedByEmail: pending.byEmail || null,
