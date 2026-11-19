@@ -13,7 +13,6 @@ import { importCommand } from './commands/import.js';
 import { authCommand } from './commands/auth.js';
 import { askCommand } from './commands/ask.js';
 import { briefCommand } from './commands/brief.js';
-import { pullCommand } from './commands/pull.js';
 import { contextCommand } from './commands/context.js';
 import { statusCommand } from './commands/status.js';
 import { doctorCommand } from './commands/doctor.js';
@@ -74,7 +73,6 @@ program.command('ask <question>').description("Ask a question, answered from you
   .option('--audit', 'Append a per-contribution source list to the answer')
   .action(askCommand);
 
-program.command('pull').description('Fetch and process pending web contributions').action(pullCommand);
 program.command('import [selector...]').description('Import documents as contributions for manager review')
   .option('--from <connector>', 'Where to import from (default: folder — local .md/.txt paths)')
   .option('--workstream <id>', 'Target workstream (default: active)')
