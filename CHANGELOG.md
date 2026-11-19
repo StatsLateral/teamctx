@@ -56,6 +56,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   logged. The connect docs gain a short recovery section (remove the connector,
   add it again, and what each error means).
 
+### Removed
+- **The `/ask` and `/contribute` web forms, and `teamctx pull`.** These HTML
+  forms predate the hosted connector, which replaced them with the connector,
+  Settings and the review queue. Both were served with no check on the caller,
+  so a deployment that set their env vars exposed an unauthenticated endpoint
+  that spent the server's AI key (`/ask`) or wrote to the repository
+  (`/contribute`). They are gone, along with `teamctx pull`, whose only job was
+  to process what `/contribute` wrote. The command-line `teamctx ask` and
+  `teamctx contribute` are unaffected.
+
 ### Fixed
 - **A person added to a project now sees it on their home page.** Adding someone by
   email put them on the roster but not on the list of projects the hosted server shows them,
