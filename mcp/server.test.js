@@ -189,6 +189,7 @@ describe('TOOLS list', () => {
                      'workstream_add', 'workstream_use',
                      'review_approve', 'review_reject',
                      'snapshot_create', 'snapshot_approve', 'snapshot_reject',
+                     'request_upload',
                      'config_set']) {
       expect(names).toContain(n);
     }
@@ -843,9 +844,11 @@ describe('task tools', () => {
     expect(t, 'task_attach_link is missing').toBeDefined();
     const d = t.description;
     // The two things an assistant must not get wrong: this is for links, and it
-    // never carries file bytes (that is the CLI's or the page's job).
+    // never carries file bytes — a generated file goes through request_upload
+    // (or the CLI/page), not this tool.
     expect(d).toMatch(/link/i);
-    expect(d).toMatch(/no MCP tool that takes file bytes/i);
+    expect(d).toMatch(/does not carry file bytes/i);
+    expect(d).toMatch(/request_upload/);
     expect(d).toMatch(/teamctx task attach/);
     // And that, like task_output, it only saves.
     expect(d).toMatch(/nothing is queued/i);

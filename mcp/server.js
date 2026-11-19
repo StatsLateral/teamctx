@@ -43,7 +43,7 @@ import { assertJoinableContext } from '../src/context-gate.js';
 import { contributeCore } from '../cli/commands/contribute.core.js';
 import { buildBrief } from '../cli/commands/brief.core.js';
 import {
-  listTasksFiltered, getTask, prepareTaskChanges, saveOutput, saveLinkOutput, submitTask, addTask, setTaskStatus, assignTask, linkTask, removeTask, compileTask,
+  listTasksFiltered, getTask, prepareTaskChanges, saveOutput, saveLinkOutput, submitTask, addTask, setTaskStatus, assignTask, linkTask, removeTask, compileTask, assertNotAccepted,
 } from '../cli/commands/task.core.js';
 import { listMembers, addMember, removeMember, setMemberWorkstreams, setMemberExternal } from '../cli/commands/member.core.js';
 import { getConfig, setConfig, repairManagerGate, setReviewPolicy } from '../cli/commands/config.core.js';
@@ -64,6 +64,8 @@ import {
   AGENT_TOOLS, agentOnRoster, agentOwnsTask, AgentRefusedError,
 } from '../src/agents.js';
 import { takeDailyContribution } from '../src/oauth/agent-tokens.js';
+import { createUploadTicket } from '../src/oauth/upload-tickets.js';
+import { FILE_OUTPUT_EXTENSIONS, FILE_OUTPUT_TYPES, extensionOf, humanBytes, MAX_PAGE_UPLOAD_BYTES } from '../src/file-output.js';
 import { contextFreshness, freshnessLine, withFreshness } from '../src/freshness.js';
 
 export function resolveProjectDir(argv = process.argv.slice(2), env = process.env, cwd = process.cwd()) {
@@ -299,7 +301,7 @@ export const TOOLS = [
   },
   {
     name: 'task_attach_link',
-    description: "**Attach a link to a file that lives in a connected cloud tool (Google Drive, SharePoint/OneDrive, Dropbox, Notion, …) as a task output.** Reach for this when the deliverable already lives in the cloud and should stay there — teamctx copies nothing and keeps no credential. Pass the `url` you copied, the file's `title`, and the tool's `version` marker (a revision or date) if it has one. The link is normalised, so every share, edit and address-bar link for one file becomes a single reference, and any credential in it is stripped. A bare \"anyone with the link\" sharing URL is **not stored at all** — only the name is kept — because access belongs to the cloud tool, not the shared repository; share the file with the team there. **There is no MCP tool that takes file bytes**: a file you produced must be saved by the person and attached with `teamctx task attach` or the project page, since a large file as a tool argument is unworkable. Like `task_output`, this only saves — nothing is queued, nobody is asked to approve it, and the task is untouched. When the person later submits the task, the linked file is also recorded as a connected source against it. Returns { output }.",
+    description: "**Attach a link to a file that lives in a connected cloud tool (Google Drive, SharePoint/OneDrive, Dropbox, Notion, …) as a task output.** Reach for this when the deliverable already lives in the cloud and should stay there — teamctx copies nothing and keeps no credential. Pass the `url` you copied, the file's `title`, and the tool's `version` marker (a revision or date) if it has one. The link is normalised, so every share, edit and address-bar link for one file becomes a single reference, and any credential in it is stripped. A bare \"anyone with the link\" sharing URL is **not stored at all** — only the name is kept — because access belongs to the cloud tool, not the shared repository; share the file with the team there. This does not carry file bytes: to upload a file you generated, use `request_upload` to get a short-lived URL and send the bytes there (the bytes never pass through you), or have the person attach it with `teamctx task attach` or the project page. Reach for `task_attach_link` only when the deliverable already lives in a cloud tool and should stay there. Like `task_output`, this only saves — nothing is queued, nobody is asked to approve it, and the task is untouched. When the person later submits the task, the linked file is also recorded as a connected source against it. Returns { output }.",
     inputSchema: {
       type: 'object',
       properties: {
@@ -313,6 +315,22 @@ export const TOOLS = [
         basedOn: { type: 'string', description: 'The id of the output this carries on from' },
       },
       required: ['id', 'url'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'request_upload',
+    description: "**Upload a file you generated as a task output, without spending tokens on its bytes.** When you have made a file (an image, a spreadsheet, a PDF, a document) and it should become an output on a task, call this to get a short-lived, single-use URL; then, from your code sandbox, send the raw bytes to that URL with an HTTP PUT (for example `curl --upload-file chart.png \"<uploadUrl>\"`). The bytes go straight to teamctx and never pass through you, so a file of any size costs the same handful of tokens. The file is size- and type-checked and stored on the task exactly as an upload through the project page is, recorded as a working output under your name — nothing is queued and nobody is asked to approve it, as with `task_output`. The URL is good once and for ten minutes; if it lapses, call this again. Allowed types: " + FILE_OUTPUT_EXTENSIONS.join(', ') + ". The most one upload takes is " + humanBytes(MAX_PAGE_UPLOAD_BYTES) + "; a larger file should be kept in a cloud tool and attached with `task_attach_link`. One file per call. Only on the hosted connector — on the command line, use `teamctx task attach`. Returns { uploadUrl, method: \"PUT\", expiresAt, maxBytes, reportBack }.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: 'Task number such as 3.2, task id, or a unique prefix of one' },
+        name: { type: 'string', description: 'What the file is called, with its extension (for example chart.png). The stored output keeps this name.' },
+        title: { type: 'string', description: 'A title for the output; defaults to the file name' },
+        notes: { type: 'string', description: "The person's own notes on it" },
+        size: { type: 'number', description: 'The file size in bytes, if you know it. Used only to refuse an over-limit file before you send it; the real check is on the bytes.' },
+      },
+      required: ['id', 'name'],
       additionalProperties: false,
     },
   },
@@ -1581,6 +1599,62 @@ export function makeHandlers(projectRoot) {
         reportBack: withLink(
           `Attached "${stored.title}" as a link output on task ${r.task.key || r.task.id}, ${where}`
           + `${stored.version ? ` (version ${stored.version})` : ''}. Nothing was sent for approval.`, link),
+      });
+    },
+
+    async request_upload(args = {}) {
+      // The ticket, the URL it goes in and the store that writes the file all
+      // belong to the hosted server; a clone has none of them. There it is the
+      // command line's job, so say so rather than hand back a URL to nowhere.
+      if (!isHosted) {
+        throw new Error('request_upload is only available on the hosted connector. '
+          + 'On the command line, attach a file with `teamctx task attach <task> <file>`.');
+      }
+      const teamctxDir = dir();
+      const config = readConfig(teamctxDir);
+      await assertTaskInScope(teamctxDir, args.id);
+      // Resolve to the canonical task so the URL and the ticket name the id the
+      // store will look up, not a number or a prefix.
+      let task;
+      try { task = getTask({ id: args.id, teamctxDir }); }
+      catch { throw new Error(`No task matches "${args.id}".`); }
+      assertNotAccepted(task, teamctxDir);
+
+      // Refuse an impossible upload before minting, so a doomed PUT never
+      // happens. The bytes are still the authority — a renamed or oversize file
+      // is caught when they arrive — but a wrong extension or a declared size
+      // over the cap is free to catch here.
+      const name = String(args.name || '').trim();
+      if (!name) throw new Error('A file needs a name with an extension, for example chart.png.');
+      const ext = extensionOf(name);
+      if (!ext || !(ext in FILE_OUTPUT_TYPES)) {
+        throw new Error(`A .${ext || '?'} file is not an allowed output type. Allowed: ${FILE_OUTPUT_EXTENSIONS.join(', ')}.`);
+      }
+      if (Number(args.size) > MAX_PAGE_UPLOAD_BYTES) {
+        throw new Error(`That file is ${humanBytes(Number(args.size))}, over the ${humanBytes(MAX_PAGE_UPLOAD_BYTES)} an upload allows. `
+          + 'Keep it in a cloud tool and attach it with task_attach_link.');
+      }
+
+      const { actor } = await who(teamctxDir, config);
+      const { token, expiresAt } = await createUploadTicket({
+        owner: projectRoot.owner, repo: projectRoot.repo, taskId: task.id,
+        actor, name, title: args.title, notes: args.notes,
+        ghToken: projectRoot.ghToken, maxBytes: MAX_PAGE_UPLOAD_BYTES,
+      });
+      const base = String(projectRoot.baseUrl || '').replace(/\/$/, '');
+      const uploadUrl = `${base}/project/${encodeURIComponent(projectRoot.owner)}`
+        + `/${encodeURIComponent(projectRoot.repo)}/task/${encodeURIComponent(task.id)}/upload/${token}`;
+      return textResult({
+        uploadUrl,
+        method: 'PUT',
+        expiresAt,
+        maxBytes: MAX_PAGE_UPLOAD_BYTES,
+        name,
+        task: task.key || task.id,
+        reportBack: `Send the file's bytes to the upload URL with an HTTP PUT from your sandbox `
+          + `(for example: curl --upload-file "${name}" "${uploadUrl}"). It is good once, until ${expiresAt}. `
+          + `The bytes go straight to teamctx — do not read them into this conversation. `
+          + `Once it returns ok, "${name}" is a working output on task ${task.key || task.id}; nothing was sent for approval.`,
       });
     },
 
