@@ -69,6 +69,11 @@ describe('request_upload', () => {
     // The canonical id, not the number the caller passed.
     expect(r.uploadUrl).toMatch(new RegExp(`^${BASE}/project/acme/ledger/task/t-1/upload/[A-Za-z0-9_-]+$`));
     expect(r.reportBack).toMatch(/curl --upload-file/);
+    // The host to allow is derived from this deployment's address, not hard-coded,
+    // and named in the guidance so a blocked sandbox knows exactly what to allow.
+    expect(r.uploadHost).toBe('team.example.app');
+    expect(r.reportBack).toContain('team.example.app');
+    expect(r.reportBack).toMatch(/allowed websites/i);
 
     // The ticket behind the URL holds what the endpoint needs.
     const token = r.uploadUrl.split('/').pop();

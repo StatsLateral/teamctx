@@ -320,7 +320,7 @@ export const TOOLS = [
   },
   {
     name: 'request_upload',
-    description: "**Upload a file you generated as a task output, without spending tokens on its bytes.** When you have made a file (an image, a spreadsheet, a PDF, a document) and it should become an output on a task, call this to get a short-lived, single-use URL; then, from your code sandbox, send the raw bytes to that URL with an HTTP PUT (for example `curl --upload-file chart.png \"<uploadUrl>\"`). The bytes go straight to teamctx and never pass through you, so a file of any size costs the same handful of tokens. The file is size- and type-checked and stored on the task exactly as an upload through the project page is, recorded as a working output under your name — nothing is queued and nobody is asked to approve it, as with `task_output`. The URL is good once and for ten minutes; if it lapses, call this again. Allowed types: " + FILE_OUTPUT_EXTENSIONS.join(', ') + ". The most one upload takes is " + humanBytes(MAX_PAGE_UPLOAD_BYTES) + "; a larger file should be kept in a cloud tool and attached with `task_attach_link`. One file per call. Only on the hosted connector — on the command line, use `teamctx task attach`. Returns { uploadUrl, method: \"PUT\", expiresAt, maxBytes, reportBack }.",
+    description: "**Upload a file you generated as a task output, without spending tokens on its bytes.** When you have made a file (an image, a spreadsheet, a PDF, a document) and it should become an output on a task, call this to get a short-lived, single-use URL; then, from your code sandbox, send the raw bytes to that URL with an HTTP PUT (for example `curl --upload-file chart.png \"<uploadUrl>\"`). The bytes go straight to teamctx and never pass through you, so a file of any size costs the same handful of tokens. The file is size- and type-checked and stored on the task exactly as an upload through the project page is, recorded as a working output under your name — nothing is queued and nobody is asked to approve it, as with `task_output`. The URL is good once and for ten minutes; if it lapses, call this again. Allowed types: " + FILE_OUTPUT_EXTENSIONS.join(', ') + ". The most one upload takes is " + humanBytes(MAX_PAGE_UPLOAD_BYTES) + "; a larger file should be kept in a cloud tool and attached with `task_attach_link`. One file per call. The bytes go from your sandbox straight to the upload host, so your sandbox must be allowed to reach it; if the PUT is refused by your own network, `reportBack` says which host to allow. Only on the hosted connector — on the command line, use `teamctx task attach`. Returns { uploadUrl, method: \"PUT\", uploadHost, expiresAt, maxBytes, reportBack }.",
     inputSchema: {
       type: 'object',
       properties: {
@@ -1644,9 +1644,15 @@ export function makeHandlers(projectRoot) {
       const base = String(projectRoot.baseUrl || '').replace(/\/$/, '');
       const uploadUrl = `${base}/project/${encodeURIComponent(projectRoot.owner)}`
         + `/${encodeURIComponent(projectRoot.repo)}/task/${encodeURIComponent(task.id)}/upload/${token}`;
+      // The host the sandbox must reach, read off this deployment's own address
+      // rather than hard-coded, so the guidance names the right domain wherever
+      // teamctx is served.
+      let uploadHost = null;
+      try { uploadHost = new URL(uploadUrl).host; } catch { /* no base URL recorded */ }
       return textResult({
         uploadUrl,
         method: 'PUT',
+        uploadHost,
         expiresAt,
         maxBytes: MAX_PAGE_UPLOAD_BYTES,
         name,
@@ -1654,6 +1660,10 @@ export function makeHandlers(projectRoot) {
         reportBack: `Send the file's bytes to the upload URL with an HTTP PUT from your sandbox `
           + `(for example: curl --upload-file "${name}" "${uploadUrl}"). It is good once, until ${expiresAt}. `
           + `The bytes go straight to teamctx — do not read them into this conversation. `
+          + (uploadHost
+            ? `If the PUT is refused by your sandbox's network (for example curl exit 56, or "403 CONNECT tunnel failed"), `
+              + `your client is not allowed to reach ${uploadHost} — add that domain to your client's allowed websites and retry; it is not a teamctx error. `
+            : '')
           + `Once it returns ok, "${name}" is a working output on task ${task.key || task.id}; nothing was sent for approval.`,
       });
     },
