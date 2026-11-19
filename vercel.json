@@ -3,8 +3,6 @@
     { "source": "/", "destination": "/api/oauth-server" },
 
     { "source": "/context/:role", "destination": "/api/context/[role]" },
-    { "source": "/contribute", "destination": "/api/contribute" },
-    { "source": "/ask", "destination": "/api/ask" },
 
     { "source": "/.well-known/oauth-authorization-server", "destination": "/api/oauth-server" },
     { "source": "/.well-known/oauth-authorization-server/:path*", "destination": "/api/oauth-server" },
