@@ -48,7 +48,7 @@
     "openai": "^6.46.0"
   },
   "devDependencies": {
-    "jsdom": "^25.0.1",
+    "jsdom": "^31.0.1",
     "vite": "^8.3.6",
     "vitest": "^3.2.7"
   },
