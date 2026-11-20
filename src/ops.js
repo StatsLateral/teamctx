@@ -192,6 +192,7 @@ function setStatus(tree, op, c, dropped, onDay, at) {
 
 export function applyOps(tree, ops, contributionId, {
   onDay = today(), at = new Date().toISOString(), target, nextKey, workstreamNumber = null, reservedKey = null,
+  pickedUp = null,
 } = {}) {
   const dropped = [];
   // Carried in a box so the branches below can spend from it in order, and
@@ -309,6 +310,14 @@ export function applyOps(tree, ops, contributionId, {
   each(of('setRecordStatus'), (t, o) => setStatus(t, o, contributionId, dropped, onDay, at));
   each(of('removeTask'), (t, o) => {
     if (!t.tasks.some(x => x.id === o.id)) { dropped.push({ op: o, reason: `no task "${o.id}"` }); return t; }
+    // A task that has work saved on it is not deleted — that would take its
+    // outputs and history with it (#320). The caller passes `pickedUp` only when
+    // it is applying a fresh change (an approval), never on a replay of history,
+    // so reproducing the past is unaffected. Archive is the way to retire it.
+    if (pickedUp && pickedUp.has(o.id)) {
+      dropped.push({ op: o, reason: `task "${o.id}" has work saved on it and cannot be removed — archive it instead to retire it while keeping its number and outputs` });
+      return t;
+    }
     return { ...t, tasks: t.tasks.filter(x => x.id !== o.id) };
   });
   // Stamped once at the end rather than at each `dropped.push`, because those

@@ -71,7 +71,9 @@ export function renderBrief({
     out.push(`## ${ws.number ? `${ws.number} ` : ''}${ws.name || ws.id}${inherited ? ' *(inherited — read-only here)*' : ''}`, '');
     const lines = section((ws.records || []).filter(r => !onTask(r)), onDay, tag, flag);
     if (lines.length) out.push(...lines, '');
-    for (const t of ws.tasks || []) {
+    // Archived tasks are retired and left out of the approved context (#320);
+    // they stay visible on the page and old links, not here.
+    for (const t of (ws.tasks || []).filter(t => t.status !== 'archived')) {
       out.push(`- ${t.key} ${t.title}${t.owner ? ` — ${t.owner}` : ''}${t.status === 'done' ? ' (done)' : ''}${tag(t)}`);
       for (const r of section((ws.records || []).filter(x => onTask(x) && x.attachedTo.id === t.id), onDay, tag, flag)) out.push(`  ${r}`);
     }
