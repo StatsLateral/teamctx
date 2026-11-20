@@ -182,8 +182,6 @@ Some CLI commands remain terminal-only:
 - `teamctx setup` — creates a GitHub repo via the `gh` CLI. Requires external
   auth and interactive prompts. Use `init` from MCP instead once the repo
   exists.
-- `teamctx pull` — processes pending web contributions interactively. Not
-  meaningful as a single MCP call.
 - `teamctx import <paths…>` — takes local filesystem paths, which a hosted
   caller cannot supply meaningfully. Importing from a remote source belongs in
   a connector tool, not this one.
