@@ -1,13 +1,16 @@
 # Files larger than the current caps (#251)
 
-Status: proposal, awaiting review.
+Status: decided — building A + B + C. Built on `feat/request-upload-url`
+(#257, PR #328), whose ticket and save paths C reuses, so this lands stacked on
+that branch and rebases onto main once it merges.
 Issue: #251 (enhancement, Post-MVP). Builds on the file-outputs MVP
 (`docs/superpowers/specs/2026-11-02-task-file-outputs-design.md`, #244–#247) and
 relates to the upload-by-URL work (#257, PR #328).
 
 #251 is deliberately a *decision* issue — "decide whether anything better is
-needed" — so this proposal is options-first, with a recommendation, not a single
-design to build.
+needed". The decision taken: lift the ceiling properly rather than only
+document it. The options below are kept as the rationale; the **Decision**
+section records what is being built and how.
 
 ## The caps today, and why they are where they are
 
@@ -98,7 +101,45 @@ storage/quota (billed on GitHub), changes how clones behave, and still needs one
 of A–C to get the bytes in. Heaviest option; recommend only if a concrete need
 for very large files appears.
 
-## Recommendation
+## Decision — what is being built
+
+A **+ B + C**. The web-agent large-file case (an 8 MB file generated in a
+sandbox, no local disk to fall back to) is the product's own target, so the
+hosted ceiling is lifted, not just explained.
+
+- **A — sharpened messages.** The CLI, page and `request_upload` refusals name
+  the alternatives (a cloud link via `task_attach_link`, the command line) and
+  state the size over.
+- **B — CLI cap 10 MB → 50 MB**, GitHub-aligned (it warns at 50 MB and refuses a
+  single file over 100 MB on push), with a caution past 25 MB that the file sits
+  in history for good. `MAX_OUTPUT_FILE_BYTES`.
+- **C — transit blob for hosted uploads.** `request_upload` for a file over the
+  4 MB direct cap (up to `hostedUploadMaxBytes`, default 25 MB) mints a
+  short-lived Vercel Blob *client token* bound to one unguessable path, and
+  returns the Blob ingest URL + headers for the sandbox to PUT to, plus a
+  finalize URL. The sandbox PUTs the bytes straight to Blob (around the 4.5 MB
+  function body), then POSTs finalize; the server fetches the bytes back,
+  validates and commits them on the same `saveFileOutput` path, and deletes the
+  blob (one-day TTL backstops an abandoned upload). `src/oauth/blob-transit.js`;
+  the finalize route in `api/oauth-server.js`; the `blob` transport on upload
+  tickets.
+
+**Transport choice.** Vercel Blob was chosen over an S3/R2 presigned URL because
+the deployment already runs on Vercel — a blob store is one provisioning step,
+no new account. The cost is that the sandbox PUT uses Blob's internal upload
+headers (`x-api-version: 13`, store id, request id), which teamctx emits in the
+`reportBack` curl; these are pinned and verified against the installed
+`@vercel/blob`, and are the one thing to re-check on a major `@vercel/blob`
+bump. A single PUT is assumed to carry 25 MB; if the ingest rejects it,
+multipart (parts ≥ 5 MB) is the fallback and the live E2E will catch it.
+
+**Deployment prerequisites** (maintainer/account actions, not code): a Vercel
+Blob store on the project with `BLOB_READ_WRITE_TOKEN` set; and the web agent's
+allowed-websites list must include both the teamctx host and `vercel.com` (the
+Blob ingest). Without the token, `request_upload` degrades cleanly — large files
+are refused with a pointer to a cloud link or the CLI.
+
+## Recommendation (original, superseded by the Decision above)
 
 Scope #251 to **A + B**, and write C up as a deliberate *decision for a
 maintainer*, not a default build:
