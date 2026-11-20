@@ -44,6 +44,7 @@ describe('secrets at rest', () => {
       keys.code('c'),
       keys.consentPending('c'),
       keys.session('s'),
+      keys.uploadTicket('h'),
     ];
     for (const k of secretKeys) expect(isSecretKey(k), k).toBe(true);
     // The pending record carries no token, so it stays in the clear.

@@ -29,6 +29,7 @@ export const SECRET_PREFIXES = [
   'teamctx:agent:aikey:',    // an agent's AI key
   'teamctx:ghcred:project:', // a GitHub credential a project lends
   'teamctx:slack:project:',  // a Slack incoming-webhook URL
+  'teamctx:upload:',         // one-shot file-upload tickets (carry a GitHub token)
   'oauth:token:',            // access-token payloads (carry the GitHub token)
   'oauth:refresh:',          // refresh-token payloads
   'oauth:code:',             // authorization-code records (the GitHub branch carries the token)
@@ -506,6 +507,12 @@ export const keys = {
   slackSetBy: email => `teamctx:slack:set-by:${String(email).toLowerCase()}`,
   /** Browser session for the settings page. 1 hour. */
   session: sid => `teamctx:session:${sid}`,
+  /**
+   * A one-shot ticket for uploading a file output by URL (#257), keyed by the
+   * sha-256 of the token in the URL. The record carries the credential to write
+   * with, so it is a secret; short TTL and spent once. See upload-tickets.js.
+   */
+  uploadTicket: hash => `teamctx:upload:${hash}`,
 };
 
 export const TTL = {
