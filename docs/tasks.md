@@ -40,7 +40,7 @@ snapshots.
 | `teamctx task assign <id> --owner <name>` | Reassign. |
 | `teamctx task rm <id>` | Remove the task and its compiled prompt file (if any). |
 | `teamctx task compile <id> [--role <slug>] [--force]` | **AI call.** Generate the prompt file. |
-| `teamctx task attach <id> <path> [--title ...] [--note ...]` | Attach a file (up to 10 MB) as a working output, stored in the repo. Reads from disk — no bytes pass through an assistant. Allowed types: png, jpg, gif, webp, pdf, csv, txt, md, json, docx, xlsx, pptx. |
+| `teamctx task attach <id> <paths...> [--title ...] [--note ...] [--recursive]` | Attach a file as a working output, stored in the repo — or a **folder or glob** to attach many at once (one output per file, one commit), with a summary of what was skipped. A folder takes its top-level files unless `--recursive`. A run is refused whole if it exceeds 50 files or 100 MB total; each file is up to 10 MB. Reads from disk — no bytes pass through an assistant. Allowed types: png, jpg, gif, webp, pdf, csv, txt, md, json, docx, xlsx, pptx. |
 
 ## `task compile` in detail
 

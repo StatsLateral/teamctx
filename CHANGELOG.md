@@ -17,6 +17,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   under the uploader's name, nothing queued for approval. The URL is good once,
   for ten minutes, and names one project and task. Hosted connector only; on the
   command line, `teamctx task attach` still reads a file from disk (#257).
+- **Attach many files at once from the command line.** `teamctx task attach` now
+  takes a folder or a glob as well as a single file, and stores one output per
+  file in a single commit — the quickest way to get a batch of generated files
+  (a folder of images, a set of exports) onto a task. A folder takes the files
+  directly inside it (`--recursive` descends into sub-folders); files of a
+  non-attachable type are ignored and a file that fails a check is skipped with a
+  reason, never stopping the rest. A run is refused whole, before anything is
+  written, if it exceeds 50 files or 100 MB in total, with a nudge to keep a
+  large folder in a cloud tool and link it instead (#256).
 - **Flag possible impact on other parts of the work when a record changes.** When
   a change to a decision or rule is proposed, the same check that looks for
   contradictions also looks at the records in sibling parts of the work and lists
