@@ -34,12 +34,14 @@ const sameText = (a, b) => String(a || '').toLowerCase() === String(b || '').toL
  * the file will be called, the size cap, and the credential to write with.
  */
 export async function createUploadTicket({
-  owner, repo, taskId, actor, name, title, notes, ghToken, maxBytes, now = new Date(),
+  owner, repo, taskId, actor, name, title, notes, ghToken, maxBytes,
+  transport = 'direct', blobPathname = null, now = new Date(),
 } = {}) {
   if (!owner || !repo) throw new Error('an upload ticket needs a project');
   if (!taskId) throw new Error('an upload ticket needs a task');
   if (!name) throw new Error('an upload ticket needs a file name');
   if (!ghToken) throw new Error('an upload ticket needs a credential to write with');
+  if (transport === 'blob' && !blobPathname) throw new Error('a transit upload ticket needs a blob pathname');
 
   const token = randomBytes(32).toString('base64url');
   const record = {
@@ -52,6 +54,11 @@ export async function createUploadTicket({
     notes: notes || null,
     ghToken,
     maxBytes: Number(maxBytes) || null,
+    // 'direct' = the bytes arrive on the PUT itself (#257); 'blob' = they went
+    // around the function to a transit blob and this ticket is spent finalising
+    // it (#251).
+    transport: transport === 'blob' ? 'blob' : 'direct',
+    blobPathname: transport === 'blob' ? String(blobPathname) : null,
     createdAt: now.toISOString(),
   };
   await kvSet(keys.uploadTicket(hashTicket(token)), record, { ttlSeconds: UPLOAD_TICKET_TTL_SECONDS });
