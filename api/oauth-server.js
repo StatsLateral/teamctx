@@ -22,7 +22,8 @@ import { runWithSession } from '../src/session-context.js';
 import { initProject } from '../cli/commands/init.core.js';
 import { readProjectView, readContributionsView, attachFileOutput, storeTicketedUpload, readFileOutput, ProjectViewError, StaleSignInError } from '../src/oauth/project-view.js';
 import { consumeUploadTicket } from '../src/oauth/upload-tickets.js';
-import { FileOutputError, MAX_PAGE_UPLOAD_BYTES, MAX_OUTPUT_FILE_BYTES, humanBytes } from '../src/file-output.js';
+import { FileOutputError, SecretInUploadError, MAX_PAGE_UPLOAD_BYTES, MAX_OUTPUT_FILE_BYTES, humanBytes } from '../src/file-output.js';
+import { attachConfirmPage } from '../src/views/attach-confirm.js';
 import Busboy from 'busboy';
 import { TOOLS, callTool } from '../mcp/server.js';
 import { baseUrlFrom } from '../src/base-url.js';
@@ -1591,7 +1592,9 @@ function readUpload(req) {
       stream.on('limit', () => { truncated = true; });
       stream.on('close', () => { file = { bytes: Buffer.concat(chunks), name: info?.filename || 'file' }; });
     });
-    bb.on('field', (name, val) => { if (name === 'title' || name === 'note') fields[name] = val; });
+    bb.on('field', (name, val) => {
+      if (name === 'title' || name === 'note' || name === 'allow_secrets' || name === 'confirm_secret') fields[name] = val;
+    });
     bb.on('error', reject);
     bb.on('close', () => resolve({ file, fields, truncated }));
     req.pipe(bb);
@@ -1626,14 +1629,24 @@ app.post('/project/:owner/:repo/task/:taskId/attach', async (req, res) => {
   if (!parsed.file || !parsed.file.bytes.length) {
     return res.status(400).send(errorPage('No file was chosen.', { user }));
   }
+  // The override takes both the hidden field and the ticked box, so only a
+  // deliberate "attach anyway" gets past the scan — never a stray re-post.
+  const allowSecrets = parsed.fields.allow_secrets === '1' && !!parsed.fields.confirm_secret;
   try {
     await attachFileOutput({
       owner, repo, user, taskId,
       bytes: parsed.file.bytes, fileName: parsed.file.name,
       title: parsed.fields.title, note: parsed.fields.note,
+      allowSecrets,
     });
   } catch (e) {
     if (await recoverStaleSignIn(req, res, e, { owner, repo })) return;
+    if (e instanceof SecretInUploadError) {
+      return res.status(400).send(attachConfirmPage({
+        owner, repo, taskId, findings: e.findings,
+        title: parsed.fields.title || '', note: parsed.fields.note || '', user,
+      }));
+    }
     if (e instanceof FileOutputError) return res.status(400).send(errorPage(e.message, { user }));
     const denied = e instanceof ProjectViewError || e.code === 'MEMBER_ACCESS_DENIED';
     if (!denied) console.warn(`attach: ${owner}/${repo} task ${taskId} failed:`, e);

@@ -190,6 +190,7 @@ task.command('compile <id>').description('Generate an AI-ready prompt file for t
 task.command('attach <id> <path>').description('Attach a file as a working output on the task (up to 10 MB; stored in the repo)')
   .option('--title <text>', 'A title for the output (default: the file name)')
   .option('--note <text>', 'A note for the manager about what the file is')
+  .option('--allow-secrets', 'Attach even if the file looks like it contains a secret (scanned by default)')
   .action(taskAttachCommand);
 
 const config = program.command('config').description('View or change project settings');

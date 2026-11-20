@@ -460,12 +460,16 @@ export async function saveOutput({
  */
 export async function saveFileOutput({
   id, bytes, name, title, prompt, notes, basedOn, source,
-  maxBytes = MAX_OUTPUT_FILE_BYTES, teamctxDir, projectDir, actor,
+  maxBytes = MAX_OUTPUT_FILE_BYTES, allowSecrets = false, teamctxDir, projectDir, actor,
 } = {}) {
   const config = readConfig(teamctxDir);
   const { task } = findTask(id, teamctxDir);
   assertNotAccepted(task, teamctxDir);
-  const file = await validateFileOutput(bytes, name, { maxBytes });
+  // `secretsOverridden` is true only when the scan found something and the
+  // person chose to attach anyway; it is kept off the stored file metadata and
+  // recorded on the output and in the commit message instead, so the bypass is
+  // visible to a manager or auditor rather than silent.
+  const { secretsOverridden, ...file } = await validateFileOutput(bytes, name, { maxBytes, allowSecrets });
   const saved = listOutputs(task.id, teamctxDir);
   if (basedOn && !saved.some(o => o.id === basedOn)) {
     throw new Error(`no output "${basedOn}" on task ${task.key || task.id} to build on`);
@@ -488,10 +492,12 @@ export async function saveFileOutput({
     prompt: typeof prompt === 'string' && prompt.trim() ? prompt : null,
     notes: typeof notes === 'string' && notes.trim() ? notes : null,
     basedOn: basedOn || null,
+    ...(secretsOverridden ? { secretOverride: true } : {}),
     state: 'working',
   };
   writeOutput(output, teamctxDir);
-  const git = await commitAndPush(config, `output: ${me} attached ${output.id} (${file.name}) on ${task.id}`, projectDir);
+  const note = secretsOverridden ? `${file.name}, secret-scan override` : file.name;
+  const git = await commitAndPush(config, `output: ${me} attached ${output.id} (${note}) on ${task.id}`, projectDir);
   return { output, task, ...git };
 }
 

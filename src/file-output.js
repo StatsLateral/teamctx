@@ -18,6 +18,7 @@
  */
 import { createHash } from 'crypto';
 import { fileTypeFromBuffer } from 'file-type';
+import { scanForSecrets, describeSecretFindings } from './secret-scan.js';
 
 // Two routes in, two limits. The CLI writes to the repository itself and allows
 // up to 10 MB. The project page posts through the hosted server on Vercel,
@@ -76,6 +77,20 @@ export class FileOutputError extends Error {
   }
 }
 
+/**
+ * The upload looked like it held a secret and was refused. A FileOutputError so
+ * the CLI prints its message as it does any refusal, but carries the findings
+ * so the page can offer an explicit "attach anyway".
+ */
+export class SecretInUploadError extends FileOutputError {
+  constructor(message, findings) {
+    super(message);
+    this.name = 'SecretInUploadError';
+    this.code = 'FILE_OUTPUT_SECRET';
+    this.findings = findings || [];
+  }
+}
+
 /** Human-readable size, for messages and the CLI line: 4 MB, 1.5 MB, 900 KB. */
 export function humanBytes(n) {
   if (n >= 1024 * 1024) {
@@ -121,15 +136,19 @@ export function sha256Hex(bytes) {
   return createHash('sha256').update(bytes).digest('hex');
 }
 
-/** Valid UTF-8 with no NUL byte: what a real text file is, and a binary one is not. */
-function isPlainText(bytes) {
-  if (bytes.includes(0)) return false;
+/**
+ * Decode bytes as a real text file — valid UTF-8 with no NUL byte — returning
+ * the string, or null when they are not text (a binary file renamed .txt
+ * fails). Decoding once here lets the secret scan reuse the string instead of
+ * decoding the whole buffer a second time.
+ */
+function decodePlainText(bytes) {
+  if (bytes.includes(0)) return null;
   try {
     // 'fatal' rejects ill-formed UTF-8 instead of inserting replacement chars.
-    new TextDecoder('utf-8', { fatal: true }).decode(bytes);
-    return true;
+    return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -142,7 +161,7 @@ function isPlainText(bytes) {
  * @param {number} [opts.maxBytes]   the limit for this route (default 10 MB)
  * @returns {Promise<{name, type, size, sha256}>}
  */
-export async function validateFileOutput(bytes, name, { maxBytes = MAX_OUTPUT_FILE_BYTES } = {}) {
+export async function validateFileOutput(bytes, name, { maxBytes = MAX_OUTPUT_FILE_BYTES, allowSecrets = false } = {}) {
   if (!(bytes instanceof Uint8Array)) {
     throw new FileOutputError('the file could not be read as bytes');
   }
@@ -168,8 +187,10 @@ export async function validateFileOutput(bytes, name, { maxBytes = MAX_OUTPUT_FI
     throw new FileOutputError(`a .${ext} file is not an allowed type. Allowed types: ${FILE_OUTPUT_EXTENSIONS.join(', ')}.`);
   }
 
+  let text = null;
   if (ext in TEXT_TYPES) {
-    if (!isPlainText(bytes)) {
+    text = decodePlainText(bytes);
+    if (text === null) {
       throw new FileOutputError(`this does not look like a .${ext} text file (it is not valid UTF-8 text). Attach it under its real type.`);
     }
   } else {
@@ -186,11 +207,37 @@ export async function validateFileOutput(bytes, name, { maxBytes = MAX_OUTPUT_FI
     }
   }
 
+  // A committed secret stays in the repository's history, so scan the text
+  // before anything is written and refuse — unless the person has said to
+  // attach anyway, in which case the override is recorded (see saveFileOutput)
+  // rather than passing silently. v1 scans the text types; the Office/PDF
+  // binaries are not cracked open, and the message says so.
+  let secretsOverridden = false;
+  if (text !== null) {
+    const findings = scanForSecrets(text);
+    if (findings.length) {
+      if (!allowSecrets) {
+        throw new SecretInUploadError(
+          'this file looks like it contains a secret, so it was not attached '
+          + '(a file that is committed stays in the repository\'s history even if the task or output is later removed):\n'
+          + `${describeSecretFindings(findings)}\n`
+          + 'Rotate the credential if it is real — that is the real fix, since anyone who has pulled already has it. '
+          + 'If this is a false positive, attach again with the override '
+          + '(--allow-secrets on the command line, or the second confirm on the page). '
+          + 'To remove a file already committed, see docs/removing-a-mistaken-upload.md.',
+          findings,
+        );
+      }
+      secretsOverridden = true;
+    }
+  }
+
   return {
     name: safeFileName(name),
     type: FILE_OUTPUT_TYPES[ext],
     size,
     sha256: sha256Hex(bytes),
+    ...(secretsOverridden ? { secretsOverridden: true } : {}),
   };
 }
 
