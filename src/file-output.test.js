@@ -8,6 +8,7 @@ import { createHash } from 'crypto';
 import {
   validateFileOutput, safeFileName, extensionOf, sha256Hex,
   FileOutputError, MAX_OUTPUT_FILE_BYTES, MAX_PAGE_UPLOAD_BYTES,
+  LARGE_OUTPUT_WARN_BYTES, hostedUploadMaxBytes,
   FILE_OUTPUT_EXTENSIONS,
 } from './file-output.js';
 import { buildZip, buildDocx, wordDocument, para, run } from './formats/zip-fixture.js';
@@ -136,9 +137,20 @@ describe('validateFileOutput — refuses', () => {
 });
 
 describe('limits and allow-list are as the spec says', () => {
-  it('10 MB from the CLI, 4 MB from the page', () => {
-    expect(MAX_OUTPUT_FILE_BYTES).toBe(10 * 1024 * 1024);
+  it('50 MB from the CLI, 4 MB from the page', () => {
+    expect(MAX_OUTPUT_FILE_BYTES).toBe(50 * 1024 * 1024);
     expect(MAX_PAGE_UPLOAD_BYTES).toBe(4 * 1024 * 1024);
+  });
+  it('warns on a CLI file past 25 MB', () => {
+    expect(LARGE_OUTPUT_WARN_BYTES).toBe(25 * 1024 * 1024);
+    expect(LARGE_OUTPUT_WARN_BYTES).toBeLessThan(MAX_OUTPUT_FILE_BYTES);
+  });
+  it('lifts the hosted ceiling by env, clamped between the 4 MB path and GitHub\'s 100 MB wall', () => {
+    expect(hostedUploadMaxBytes({})).toBe(25 * 1024 * 1024);                                   // default
+    expect(hostedUploadMaxBytes({ TEAMCTX_MAX_HOSTED_UPLOAD_BYTES: String(40 * 1024 * 1024) })).toBe(40 * 1024 * 1024);
+    expect(hostedUploadMaxBytes({ TEAMCTX_MAX_HOSTED_UPLOAD_BYTES: '1000' })).toBe(MAX_PAGE_UPLOAD_BYTES); // never below the plain path
+    expect(hostedUploadMaxBytes({ TEAMCTX_MAX_HOSTED_UPLOAD_BYTES: String(500 * 1024 * 1024) })).toBe(100 * 1024 * 1024); // never above GitHub's wall
+    expect(hostedUploadMaxBytes({ TEAMCTX_MAX_HOSTED_UPLOAD_BYTES: 'nonsense' })).toBe(25 * 1024 * 1024); // falls back
   });
   it('allows exactly the listed types, and no svg/html/scripts', () => {
     expect(new Set(FILE_OUTPUT_EXTENSIONS)).toEqual(new Set(

@@ -1621,7 +1621,8 @@ app.post('/project/:owner/:repo/task/:taskId/attach', async (req, res) => {
   if (parsed.truncated) {
     return res.status(413).send(errorPage(
       `That file is larger than the ${humanBytes(MAX_PAGE_UPLOAD_BYTES)} the page takes. `
-      + `The command line takes up to ${humanBytes(MAX_OUTPUT_FILE_BYTES)}: teamctx task attach.`, { user }));
+      + `Keep it in a cloud tool and attach it as a link, or use the command line, which takes up to `
+      + `${humanBytes(MAX_OUTPUT_FILE_BYTES)}: teamctx task attach.`, { user }));
   }
   if (!parsed.file || !parsed.file.bytes.length) {
     return res.status(400).send(errorPage('No file was chosen.', { user }));

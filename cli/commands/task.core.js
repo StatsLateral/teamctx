@@ -456,7 +456,7 @@ export async function saveOutput({
  * name) and stored in the repository beside the record; the record keeps only
  * the file's name, type, size and hash, never its bytes, so an assistant never
  * carries them. `maxBytes` is the limit for the route the file came in by
- * (10 MB from the command line, less from the hosted page).
+ * (50 MB from the command line, less from the hosted page).
  */
 export async function saveFileOutput({
   id, bytes, name, title, prompt, notes, basedOn, source,
