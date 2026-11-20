@@ -50,6 +50,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   takes 10 MB), and anyone who can see the task can download its files. A file
   downloads as an attachment with the type teamctx checked, and a file for a
   task outside your scope is neither shown nor served.
+- **See a record's history.** A decision, rule or assumption now keeps its
+  earlier wording when it is edited, instead of overwriting it, and a record
+  that was replaced points at the one that replaced it. One read — `teamctx
+  record history <id>`, the `record_history` assistant tool, or
+  `/project/<owner>/<repo>/record/<id>` on the web — returns the whole trail:
+  every version oldest to newest with who changed it and when, who approved it,
+  and the records it replaced or that replaced it. A record from before this
+  reads as a single current version, never an error.
 
 ### Changed
 - **Node 22 or newer is required.** Node 20 reached end of life in April 2026, and
