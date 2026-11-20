@@ -64,7 +64,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   that spent the server's AI key (`/ask`) or wrote to the repository
   (`/contribute`). They are gone, along with `teamctx pull`, whose only job was
   to process what `/contribute` wrote. The command-line `teamctx ask` and
-  `teamctx contribute` are unaffected.
+  `teamctx contribute` are unaffected. If you ran the web forms, process or
+  delete anything left in `.teamctx/pending/` first: nothing reads it now. A
+  deployment that set `GITHUB_REPO`, `GITHUB_RAW_BASE` or `GITHUB_TOKEN` for
+  them can remove those variables, and revoke the token if it is not used
+  elsewhere. `teamctx setup` no longer asks for a GitHub token or sets
+  variables on Vercel; it detects the repository and runs `init`.
 
 ### Fixed
 - **A person added to a project now sees it on their home page.** Adding someone by
