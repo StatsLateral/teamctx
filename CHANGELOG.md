@@ -33,6 +33,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `review_approve` flags work that is linked, the result carries `carryOut`, and the assistant
   is told to offer to add a comment on each ticket, only after the person agrees, and never to
   change a ticket's status, owner or description. teamctx writes nothing to the other tool (#301).
+- **An assistant can read the text of a docx, xlsx or pdf output.** Reading a
+  task now hands the assistant a bounded text excerpt of a Word document,
+  spreadsheet or PDF output — not only its name — so it can work from the
+  content without a person opening the file and pasting it back. The excerpt is
+  capped (and marked when it was cut); a `.pptx` or a file that cannot be read is
+  reported honestly as having no text. The original file is unchanged, and the
+  project page still offers download.
 - **Attach a file as a task output.** `teamctx task attach <task> <path>` keeps a
   deliverable — an image, a PDF, a spreadsheet — in the project’s repository as a
   working output, up to 10 MB, reviewed like any other output. The type is checked
