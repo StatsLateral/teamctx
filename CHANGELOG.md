@@ -17,7 +17,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   straight to a short-lived transit store and then makes a small finalize call,
   and teamctx fetches the bytes back, checks and commits them, and deletes the
   transit copy. It is pure transit — no second home for the file — and needs a
-  blob store configured on the deployment; where there is none, or for a file
+  blob store configured on the deployment (`BLOB_READ_WRITE_TOKEN`); the store's
+  access mode is read from `BLOB_ACCESS`, defaulting to `private` to match
+  Vercel's own default for new stores. Where there is no store, or for a file
   over the ceiling, the tool points at a cloud link or the command line (#251).
 - **Upload a generated file as a task output without spending tokens on its bytes.**
   The new `request_upload` MCP tool returns a short-lived, single-use URL; the

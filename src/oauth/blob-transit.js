@@ -1,6 +1,6 @@
 import { randomBytes } from 'crypto';
 import { generateClientTokenFromReadWriteToken } from '@vercel/blob/client';
-import { list, del } from '@vercel/blob';
+import { list, del, get } from '@vercel/blob';
 
 /**
  * A transit blob for file outputs too big for the function body (#251).
@@ -18,9 +18,16 @@ import { list, del } from '@vercel/blob';
  *
  * The client token is bound to a single, unguessable pathname with 256 bits of
  * randomness (the same strength as an upload ticket), a size cap and a ten
- * minute expiry, so even a public transit blob is safe for the seconds it
- * exists. Nothing here is a second home for a file: the only durable store is
- * the project's own git repository, as everywhere else.
+ * minute expiry, so the transit blob is safe for the seconds it exists — on a
+ * private store it is unreadable without the store token even then. Nothing
+ * here is a second home for a file: the only durable store is the project's own
+ * git repository, as everywhere else.
+ *
+ * A Blob store is created with a fixed access mode — Vercel now defaults new
+ * stores to `private`, and the mode cannot be changed later. The upload PUT and
+ * the server-side read back must both name the store's mode, so it is read from
+ * `BLOB_ACCESS` (default `private`); set it to `public` only for a store that
+ * was created public.
  */
 
 /** Where the sandbox PUTs the bytes — Vercel Blob's ingest API, not teamctx. */
@@ -31,6 +38,15 @@ const BLOB_API_VERSION = '13';
 /** Whether this deployment has a Blob store to transit through. */
 export function blobConfigured(env = process.env) {
   return Boolean(env && env.BLOB_READ_WRITE_TOKEN);
+}
+
+/**
+ * The access mode of the configured Blob store, which the upload and the read
+ * back must match. Defaults to `private` (Vercel's own default for new stores);
+ * `BLOB_ACCESS=public` overrides it for a store created with public access.
+ */
+export function blobAccess(env = process.env) {
+  return env && env.BLOB_ACCESS === 'public' ? 'public' : 'private';
 }
 
 function readWriteToken(env = process.env) {
@@ -85,7 +101,7 @@ export async function mintBlobUpload({
     authorization: `Bearer ${clientToken}`,
     'x-api-version': BLOB_API_VERSION,
     'x-vercel-blob-store-id': storeId,
-    'x-vercel-blob-access': 'public',
+    'x-vercel-blob-access': blobAccess(env),
     'x-api-blob-request-id': requestId,
     'x-api-blob-request-attempt': '0',
     ...(contentType ? { 'x-content-type': contentType } : {}),
@@ -102,17 +118,17 @@ export async function mintBlobUpload({
 
 /**
  * Read the bytes back out of the transit blob for committing, or null when the
- * blob is not there (the sandbox never sent it). Located by its exact pathname
- * rather than a reconstructed URL, so no address format is assumed.
+ * blob is not there (the sandbox never sent it). Located by its exact pathname,
+ * so no address format is assumed; read with the store token and the store's
+ * access mode, which on a private store signs the request the ingest API needs
+ * (a bare fetch of the URL would be refused). `useCache: false` reads the
+ * freshly-uploaded bytes from origin rather than a stale CDN edge.
  */
 export async function fetchTransitBytes({ pathname, env = process.env }) {
   const token = readWriteToken(env);
-  const { blobs } = await list({ prefix: pathname, limit: 1, token });
-  const blob = blobs && blobs[0];
-  if (!blob || blob.pathname !== pathname) return null;
-  const res = await fetch(blob.downloadUrl || blob.url);
-  if (!res || !res.ok) throw new Error(`the uploaded file could not be read back (${res ? res.status : 'no response'}).`);
-  const bytes = Buffer.from(await res.arrayBuffer());
+  const result = await get(pathname, { access: blobAccess(env), token, useCache: false });
+  if (!result || !result.stream) return null;
+  const bytes = Buffer.from(await new Response(result.stream).arrayBuffer());
   return { bytes };
 }
 

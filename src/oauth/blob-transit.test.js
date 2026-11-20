@@ -5,11 +5,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const generateClientTokenFromReadWriteToken = vi.fn();
 const list = vi.fn();
 const del = vi.fn();
+const get = vi.fn();
 vi.mock('@vercel/blob/client', () => ({ generateClientTokenFromReadWriteToken: (...a) => generateClientTokenFromReadWriteToken(...a) }));
-vi.mock('@vercel/blob', () => ({ list: (...a) => list(...a), del: (...a) => del(...a) }));
+vi.mock('@vercel/blob', () => ({ list: (...a) => list(...a), del: (...a) => del(...a), get: (...a) => get(...a) }));
 
 const {
-  blobConfigured, storeIdFromToken, transitPathname,
+  blobConfigured, blobAccess, storeIdFromToken, transitPathname,
   mintBlobUpload, fetchTransitBytes, deleteTransitBlob, BLOB_UPLOAD_API,
 } = await import('./blob-transit.js');
 
@@ -19,6 +20,7 @@ beforeEach(() => {
   generateClientTokenFromReadWriteToken.mockReset().mockResolvedValue('vercel_blob_client_Store123_TOKEN');
   list.mockReset();
   del.mockReset();
+  get.mockReset();
 });
 
 describe('blob transit', () => {
@@ -26,6 +28,14 @@ describe('blob transit', () => {
     expect(blobConfigured(env)).toBe(true);
     expect(blobConfigured({})).toBe(false);
     expect(blobConfigured(undefined)).toBe(false);
+  });
+
+  it('defaults the store access to private, honouring BLOB_ACCESS=public', () => {
+    expect(blobAccess(env)).toBe('private');
+    expect(blobAccess({})).toBe('private');
+    expect(blobAccess(undefined)).toBe('private');
+    expect(blobAccess({ BLOB_ACCESS: 'public' })).toBe('public');
+    expect(blobAccess({ BLOB_ACCESS: 'PUBLIC' })).toBe('private'); // only exact 'public'
   });
 
   it('reads the store id from the fourth field of the token', () => {
@@ -56,7 +66,7 @@ describe('blob transit', () => {
     expect(out.headers.authorization).toBe('Bearer vercel_blob_client_Store123_TOKEN');
     expect(out.headers['x-api-version']).toBe('13');
     expect(out.headers['x-vercel-blob-store-id']).toBe('Store123');
-    expect(out.headers['x-vercel-blob-access']).toBe('public');
+    expect(out.headers['x-vercel-blob-access']).toBe('private');
     expect(out.headers['x-content-type']).toBe('image/png');
 
     // The token is bound to that one path, size and a ten-minute window.
@@ -70,28 +80,42 @@ describe('blob transit', () => {
     expect(out.expiresAt).toBe(new Date(1_000_000 + 600 * 1000).toISOString());
   });
 
+  it('names the public access mode on the PUT when the store is public', async () => {
+    const out = await mintBlobUpload({
+      taskId: 't-1', name: 'big.png', maxBytes: 1024, now: 1_000_000,
+      env: { ...env, BLOB_ACCESS: 'public' },
+    });
+    expect(out.headers['x-vercel-blob-access']).toBe('public');
+  });
+
   it('refuses to mint without a configured store', async () => {
     await expect(mintBlobUpload({ taskId: 't-1', name: 'big.png', env: {} }))
       .rejects.toThrow(/not configured/);
   });
 
-  it('fetches the bytes back by exact pathname', async () => {
-    list.mockResolvedValue({ blobs: [{ pathname: 'p/x', url: 'https://blob/x', downloadUrl: 'https://blob/x?download=1' }] });
-    global.fetch = vi.fn().mockResolvedValue({ ok: true, arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer });
+  it('reads the bytes back with the store token and access mode', async () => {
+    get.mockResolvedValue({ statusCode: 200, stream: new Response(new Uint8Array([1, 2, 3])).body });
 
     const got = await fetchTransitBytes({ pathname: 'p/x', env });
     expect(Buffer.from(got.bytes)).toEqual(Buffer.from([1, 2, 3]));
-    expect(list).toHaveBeenCalledWith(expect.objectContaining({ prefix: 'p/x', token: env.BLOB_READ_WRITE_TOKEN }));
-    expect(global.fetch).toHaveBeenCalledWith('https://blob/x?download=1');
+    expect(get).toHaveBeenCalledWith('p/x', expect.objectContaining({
+      access: 'private', token: env.BLOB_READ_WRITE_TOKEN, useCache: false,
+    }));
+  });
+
+  it('reads a public store back with public access', async () => {
+    get.mockResolvedValue({ statusCode: 200, stream: new Response(new Uint8Array([9])).body });
+    await fetchTransitBytes({ pathname: 'p/x', env: { ...env, BLOB_ACCESS: 'public' } });
+    expect(get).toHaveBeenCalledWith('p/x', expect.objectContaining({ access: 'public' }));
   });
 
   it('returns null when the sandbox never sent the blob', async () => {
-    list.mockResolvedValue({ blobs: [] });
+    get.mockResolvedValue(null);
     expect(await fetchTransitBytes({ pathname: 'p/x', env })).toBeNull();
   });
 
-  it('ignores a near-match that is not the exact path', async () => {
-    list.mockResolvedValue({ blobs: [{ pathname: 'p/x-evil', url: 'https://blob/evil' }] });
+  it('returns null when there is no readable stream', async () => {
+    get.mockResolvedValue({ statusCode: 304, stream: null });
     expect(await fetchTransitBytes({ pathname: 'p/x', env })).toBeNull();
   });
 
