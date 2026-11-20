@@ -484,6 +484,40 @@ export async function readFileOutput({ owner, repo, user, taskId, outputId }) {
 }
 
 /**
+ * Store a file uploaded against a one-shot ticket (#257), with no sign-in.
+ *
+ * The upload endpoint has no session — the ticket is the authority — so this is
+ * the ticketed twin of {@link attachFileOutput}: it opens the project with the
+ * credential the ticket carries (the one the member's session would have written
+ * with) and records the output as that member. The task is re-checked for having
+ * been accepted since the ticket was minted; everything else (size, type, name)
+ * is the same `saveFileOutput` path the page uses.
+ */
+export async function storeTicketedUpload({ record, bytes } = {}) {
+  const { owner, repo, taskId, actor, name, title, notes, ghToken, maxBytes } = record || {};
+  if (!ghToken) throw new ProjectViewError('This upload link has no credential to write with.');
+  const session = new GithubSession({ owner, repo, ghToken });
+  try {
+    await session.prefetch();
+  } catch (e) {
+    throw new ProjectViewError(`${owner}/${repo} could not be reached to store the file: ${e.message}`);
+  }
+  return runWithSession(session, async () => {
+    const task = listTasks({}, undefined).find(t => t.id === taskId);
+    if (!task) throw new ProjectViewError('That task is no longer here.');
+    // The ticket proves the member could add to this task when it was minted; a
+    // task accepted in the minutes since takes no more work, and saveFileOutput
+    // would throw a plain Error the route reads as a 500 rather than a refusal.
+    try { assertNotAccepted(task); } catch (e) { throw new ProjectViewError(e.message); }
+    const { output } = await saveFileOutput({
+      id: task.id, bytes, name, title, notes,
+      source: 'web', actor: actor || undefined, maxBytes: maxBytes || MAX_PAGE_UPLOAD_BYTES,
+    });
+    return { output, task: { id: task.id, key: task.key || null, workstream: task.workstream } };
+  });
+}
+
+/**
  * The contributions the given trees point at.
  *
  * Every statement carries the ids of the contributions that touched it, and the

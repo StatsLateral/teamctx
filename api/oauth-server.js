@@ -20,7 +20,8 @@ import { lendDecision } from '../src/oauth/lend-decision.js';
 import { GithubSession, listUserOrgs, createRepo, slugifyProjectName, suggestAvailableName, listPushableRepos, repoExistence } from '../src/adapters/github.js';
 import { runWithSession } from '../src/session-context.js';
 import { initProject } from '../cli/commands/init.core.js';
-import { readProjectView, readContributionsView, attachFileOutput, readFileOutput, ProjectViewError, StaleSignInError } from '../src/oauth/project-view.js';
+import { readProjectView, readContributionsView, attachFileOutput, storeTicketedUpload, readFileOutput, ProjectViewError, StaleSignInError } from '../src/oauth/project-view.js';
+import { consumeUploadTicket } from '../src/oauth/upload-tickets.js';
 import { FileOutputError, MAX_PAGE_UPLOAD_BYTES, MAX_OUTPUT_FILE_BYTES, humanBytes } from '../src/file-output.js';
 import Busboy from 'busboy';
 import { TOOLS, callTool } from '../mcp/server.js';
@@ -1640,6 +1641,81 @@ app.post('/project/:owner/:repo/task/:taskId/attach', async (req, res) => {
       denied ? e.message : 'The file could not be saved. Try again.', { user }));
   }
   res.redirect(303, back);
+});
+
+/**
+ * Read a raw request body into memory under a hard byte cap. Once the cap is
+ * passed the rest of the stream is drained but not kept, so a client that
+ * ignores the limit cannot make the function buffer an unbounded body; the
+ * caller sees `truncated` and refuses it, exactly as the page upload does.
+ */
+function readRawBody(req, maxBytes) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let size = 0;
+    let truncated = false;
+    req.on('data', (c) => {
+      size += c.length;
+      if (size > maxBytes) { truncated = true; return; }
+      chunks.push(c);
+    });
+    req.on('end', () => resolve({ bytes: Buffer.concat(chunks), truncated }));
+    req.on('error', reject);
+  });
+}
+
+/**
+ * Upload a file output against a one-shot ticket (#257). No sign-in: the ticket
+ * in the URL is the authority, so it is spent on the first request and must
+ * name the same project and task as the path. The bytes are size- and
+ * type-checked and stored exactly as a page upload is. A chatbot's sandbox
+ * sends the file here directly, so the bytes never pass through the model.
+ */
+app.put('/project/:owner/:repo/task/:taskId/upload/:ticket', async (req, res) => {
+  const owner = String(req.params.owner || '');
+  const repo = String(req.params.repo || '');
+  const taskId = String(req.params.taskId || '');
+  const ticket = String(req.params.ticket || '');
+
+  const record = await consumeUploadTicket(ticket, { owner, repo, taskId });
+  if (!record) {
+    return res.status(404).json({
+      ok: false,
+      error: 'This upload link is not valid, has expired, or has already been used. '
+        + 'Ask for a fresh one with request_upload.',
+    });
+  }
+
+  const cap = record.maxBytes || MAX_PAGE_UPLOAD_BYTES;
+  let body;
+  try {
+    body = await readRawBody(req, cap);
+  } catch {
+    return res.status(400).json({ ok: false, error: 'That upload could not be read.' });
+  }
+  if (body.truncated) {
+    return res.status(413).json({
+      ok: false,
+      error: `That file is larger than the ${humanBytes(cap)} this upload allows. `
+        + `The command line takes up to ${humanBytes(MAX_OUTPUT_FILE_BYTES)}: teamctx task attach.`,
+    });
+  }
+  if (!body.bytes.length) {
+    return res.status(400).json({ ok: false, error: 'The upload was empty: there was nothing to store.' });
+  }
+
+  try {
+    const { output } = await storeTicketedUpload({ record, bytes: body.bytes });
+    return res.status(201).json({ ok: true, outputId: output.id, name: output.file?.name || null });
+  } catch (e) {
+    if (e instanceof FileOutputError) return res.status(400).json({ ok: false, error: e.message });
+    const denied = e instanceof ProjectViewError || e.code === 'MEMBER_ACCESS_DENIED';
+    if (!denied) console.warn(`ticketed upload: ${owner}/${repo} task ${taskId} failed:`, e);
+    return res.status(denied ? 403 : 500).json({
+      ok: false,
+      error: denied ? e.message : 'The file could not be saved. Try again.',
+    });
+  }
 });
 
 /**

@@ -3,6 +3,7 @@ import { today } from '../model.js';
 import { workHtml, treeHtml, ctxButton } from './project-work.js';
 import { mcpUrl, shortMcpUrl } from './mcp-url.js';
 import { assistantPlan } from './assistant-actions.js';
+import { parseCsvPreview } from '../csv-preview.js';
 import { panelsHtml, assistantBlockHtml } from './drawers.js';
 import { drawerPrompts } from '../prompts.js';
 
@@ -157,6 +158,11 @@ h1{font-size:28px;line-height:1.25;margin:0 0 .35rem}
 a.dl{display:inline-block;font-size:12px;margin:0 0 8px;padding:0 10px;color:var(--link, #1a56db);text-decoration:none}
 .out a.dl{padding:4px 0 0}
 a.dl:hover{text-decoration:underline}
+/* Inline previews of a file output (#249): bounded so a big image or wide table never runs away. */
+.wout .opreview-img{display:block;max-width:100%;max-height:320px;margin:0 10px 8px;border:1px solid var(--line, #ddd);border-radius:4px;object-fit:contain}
+.wout .opreview-table{display:block;overflow:auto;max-height:320px;margin:0 10px 8px;border-collapse:collapse;font-size:12px}
+.wout .opreview-table td{border:1px solid var(--line, #ddd);padding:2px 6px;white-space:nowrap;max-width:220px;overflow:hidden;text-overflow:ellipsis}
+.wout .opreview-note{padding-top:0}
 /* Attach a file: a small form under the working outputs. */
 .attachform{border:1px dashed var(--line, #ddd);border-radius:6px;padding:10px;margin:0 0 10px}
 .attachform input[type=text]{display:block;width:100%;box-sizing:border-box;margin:6px 0 0;padding:6px 8px;font:inherit;border:1px solid var(--line, #ccc);border-radius:5px;background:var(--bg, #fff);color:inherit}
@@ -283,6 +289,7 @@ const SCRIPT = `
   var backdrop = document.getElementById('backdrop');
   var prompts = JSON.parse(document.getElementById('prompts').textContent);
   var assistantPlan = ${assistantPlan.toString()};
+  var parseCsvPreview = ${parseCsvPreview.toString()};
   var current = { short: '', full: '' };
   var opener = null;
   var taskView = document.getElementById('d-task');
@@ -366,6 +373,59 @@ const SCRIPT = `
     }
     return o.body;
   }
+  // A safe inline preview of a file output (#249): an image shown with <img>,
+  // a small CSV as a bounded table. Everything else, and anything that fails or
+  // is too big, keeps just the Download link. Nothing from a file is ever
+  // inserted as markup — the image is a sniffed raster type (svg/html are
+  // refused at upload) and every CSV cell is a text node.
+  var CSV_PREVIEW_MAX_BYTES = 2 * 1024 * 1024; // beyond this, download only
+  var CSV_PREVIEW_ROWS = 50;
+  var CSV_PREVIEW_COLS = 20;
+  function addPreview(container, o) {
+    if (!o || o.kind !== 'file' || !o.file || !o.dl) return;
+    var type = o.file.type || '';
+    var name = o.file.name || '';
+    if (type.indexOf('image/') === 0) {
+      var img = document.createElement('img');
+      img.className = 'opreview-img'; img.src = o.dl; img.alt = name;
+      img.setAttribute('loading', 'lazy');
+      // A file that will not load leaves no broken-image icon: drop it and the
+      // Download link stands, as the CSV path falls back on a failed fetch.
+      img.onerror = function () { if (img.parentNode) img.parentNode.removeChild(img); };
+      container.appendChild(img);
+      return;
+    }
+    var isCsv = type === 'text/csv' || /\\.csv$/i.test(name);
+    if (isCsv && (!o.file.size || o.file.size <= CSV_PREVIEW_MAX_BYTES)) {
+      // A placeholder is appended now, so the table lands here (above Download),
+      // not below the later Notes/Asked lines when the fetch resolves.
+      var holder = document.createElement('div'); holder.className = 'opreview-holder';
+      container.appendChild(holder);
+      fetch(o.dl, { credentials: 'same-origin' }).then(function (r) {
+        return r.ok ? r.text() : Promise.reject(new Error('fetch'));
+      }).then(function (text) {
+        var g = parseCsvPreview(text, CSV_PREVIEW_ROWS, CSV_PREVIEW_COLS);
+        if (!g.rows.length) return;
+        var table = document.createElement('table'); table.className = 'opreview-table';
+        g.rows.forEach(function (cells) {
+          var tr = document.createElement('tr');
+          cells.forEach(function (cell) {
+            var el = document.createElement('td'); el.textContent = cell; tr.appendChild(el);
+          });
+          table.appendChild(tr);
+        });
+        holder.appendChild(table);
+        if (g.rowsTruncated || g.colsTruncated) {
+          var parts = [];
+          if (g.rowsTruncated) parts.push('the first ' + g.rows.length + ' of ' + g.totalRows + ' rows');
+          if (g.colsTruncated) parts.push('the first ' + CSV_PREVIEW_COLS + ' columns');
+          var note = document.createElement('p'); note.className = 'wnote opreview-note';
+          note.textContent = 'Showing ' + parts.join(' and ') + '. Download for the whole file.';
+          holder.appendChild(note);
+        }
+      }).catch(function () { /* preview is best-effort; the Download link stands */ });
+    }
+  }
   function showWork(items) {
     var wrap = document.getElementById('d-work-wrap');
     var box = document.getElementById('d-work');
@@ -386,6 +446,7 @@ const SCRIPT = `
         d.appendChild(td);
       }
       var body = document.createElement('p'); body.className = 'wbody'; body.textContent = outputText(o); d.appendChild(body);
+      addPreview(d, o);
       if (o.dl) { var dla = document.createElement('a'); dla.className = 'dl'; dla.href = o.dl; dla.setAttribute('download', ''); dla.textContent = 'Download file'; d.appendChild(dla); }
       if (o.notes) { var n = document.createElement('p'); n.className = 'wnote'; n.textContent = 'Notes: ' + o.notes; d.appendChild(n); }
       if (o.prompt) { var q = document.createElement('p'); q.className = 'wnote'; q.textContent = 'Asked: ' + o.prompt; d.appendChild(q); }

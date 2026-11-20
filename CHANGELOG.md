@@ -8,6 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Upload a generated file as a task output without spending tokens on its bytes.**
+  The new `request_upload` MCP tool returns a short-lived, single-use URL; the
+  chatbot's own sandbox sends the file's bytes straight to it with an HTTP `PUT`
+  (for example `curl --upload-file`), so the bytes never pass through the model
+  and a file of any size costs the same few tokens. The upload is size- and
+  type-checked and stored on the task exactly as a page upload is — up to 4 MB,
+  under the uploader's name, nothing queued for approval. The URL is good once,
+  for ten minutes, and names one project and task. Hosted connector only; on the
+  command line, `teamctx task attach` still reads a file from disk (#257).
 - **Flag possible impact on other parts of the work when a record changes.** When
   a change to a decision or rule is proposed, the same check that looks for
   contradictions also looks at the records in sibling parts of the work and lists
