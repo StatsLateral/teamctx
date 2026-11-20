@@ -1,4 +1,25 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+
+// The transit blob talks to Vercel's network; stub it so these tests check what
+// request_upload asks of it, and toggle whether a store is configured.
+const blobState = vi.hoisted(() => ({ configured: true }));
+vi.mock('../src/oauth/blob-transit.js', () => ({
+  blobConfigured: () => blobState.configured,
+  mintBlobUpload: vi.fn(async ({ taskId, name, contentType, maxBytes }) => ({
+    uploadUrl: `https://vercel.com/api/blob/?pathname=teamctx-transit%2F${taskId}%2Fabc%2F${name}`,
+    method: 'PUT',
+    headers: {
+      authorization: 'Bearer vercel_blob_client_Store_TOKEN',
+      'x-api-version': '13', 'x-vercel-blob-store-id': 'Store',
+      'x-vercel-blob-access': 'public', 'x-content-type': contentType,
+    },
+    uploadHost: 'vercel.com',
+    pathname: `teamctx-transit/${taskId}/abc/${name}`,
+    expiresAt: new Date(Date.now() + 600 * 1000).toISOString(),
+    __maxBytes: maxBytes,
+  })),
+}));
+
 import { makeHandlers } from './server.js';
 import { runWithSession } from '../src/session-context.js';
 import { runWithActor } from '../src/actor.js';
@@ -56,7 +77,7 @@ const hostedRoot = () => ({ __backend: 'github', owner: OWNER, repo: REPO, ghTok
 const asUser = (session, actor, fn) => runWithSession(session, () => runWithActor(actor, () => fn(makeHandlers(hostedRoot()))));
 const json = async (promise) => JSON.parse((await promise).content[0].text);
 
-beforeEach(() => __resetMemory());
+beforeEach(() => { __resetMemory(); blobState.configured = true; });
 
 describe('request_upload', () => {
   it('returns a PUT URL for the canonical task, and a ticket carrying the credential and caller', async () => {
@@ -97,10 +118,44 @@ describe('request_upload', () => {
       .rejects.toThrow(/not an allowed output type/);
   });
 
-  it('refuses a declared size over the cap', async () => {
+  it('refuses a declared size over the hosted ceiling, pointing at a cloud link', async () => {
     const session = fakeSession();
-    await expect(asUser(session, ALICE, h => h.request_upload({ id: '1.1', name: 'big.png', size: 5 * 1024 * 1024 })))
-      .rejects.toThrow(/over the/);
+    await expect(asUser(session, ALICE, h => h.request_upload({ id: '1.1', name: 'big.png', size: 30 * 1024 * 1024 })))
+      .rejects.toThrow(/hosted upload allows.*task_attach_link/s);
+  });
+
+  it('sends a file over the direct cap through the two-step transit path', async () => {
+    const session = fakeSession();
+    const r = await asUser(session, ALICE, h => json(h.request_upload({ id: '1.1', name: 'big.png', size: 8 * 1024 * 1024, title: 'Big' })));
+
+    // The PUT goes to the Blob ingest, not teamctx, and carries the mint's headers.
+    expect(r.uploadUrl).toContain('vercel.com/api/blob');
+    expect(r.uploadHost).toBe('vercel.com');
+    expect(r.headers.authorization).toMatch(/^Bearer /);
+    expect(r.maxBytes).toBe(25 * 1024 * 1024);
+    // A separate finalize call on this deployment, named so a blocked sandbox can allow it.
+    expect(r.finalizeUrl).toMatch(new RegExp(`^${BASE}/project/acme/ledger/task/t-1/finalize/[A-Za-z0-9_-]+$`));
+    expect(r.finalizeHost).toBe('team.example.app');
+    expect(r.reportBack).toMatch(/curl -X PUT/);
+    expect(r.reportBack).toMatch(/curl -X POST/);
+    expect(r.reportBack).toContain('vercel.com');
+    expect(r.reportBack).toContain('team.example.app');
+    expect(r.reportBack).toMatch(/BOTH/);
+
+    // The ticket behind finalize is a transit ticket bound to the blob path.
+    const token = r.finalizeUrl.split('/').pop();
+    const ticket = await consumeUploadTicket(token, { owner: OWNER, repo: REPO, taskId: 't-1' });
+    expect(ticket).toMatchObject({
+      transport: 'blob', name: 'big.png', title: 'Big', ghToken: 'gh-write-token',
+      blobPathname: 'teamctx-transit/t-1/abc/big.png',
+    });
+  });
+
+  it('refuses a large file when no transit store is configured', async () => {
+    blobState.configured = false;
+    const session = fakeSession();
+    await expect(asUser(session, ALICE, h => h.request_upload({ id: '1.1', name: 'big.png', size: 8 * 1024 * 1024 })))
+      .rejects.toThrow(/not configured.*task_attach_link/s);
   });
 
   it('refuses an unknown task', async () => {
