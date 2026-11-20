@@ -95,6 +95,10 @@ describe('request_upload', () => {
     expect(r.uploadHost).toBe('team.example.app');
     expect(r.reportBack).toContain('team.example.app');
     expect(r.reportBack).toMatch(/allowed websites/i);
+    // The task's page is handed back so the assistant can close on it once the
+    // upload lands, not leave the person with a bare "done".
+    expect(r.viewUrl).toMatch(new RegExp(`^${BASE}/project/acme/ledger`));
+    expect(r.reportBack).toMatch(/end your reply with this link/i);
 
     // The ticket behind the URL holds what the endpoint needs.
     const token = r.uploadUrl.split('/').pop();
@@ -141,6 +145,9 @@ describe('request_upload', () => {
     expect(r.reportBack).toContain('vercel.com');
     expect(r.reportBack).toContain('team.example.app');
     expect(r.reportBack).toMatch(/BOTH/);
+    // The large path also hands back the task's page to close on.
+    expect(r.viewUrl).toMatch(new RegExp(`^${BASE}/project/acme/ledger`));
+    expect(r.reportBack).toMatch(/end your reply with this link/i);
 
     // The ticket behind finalize is a transit ticket bound to the blob path.
     const token = r.finalizeUrl.split('/').pop();
