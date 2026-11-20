@@ -34,8 +34,8 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.52.0",
-    "@google/genai": "^2.11.0",
+    "@anthropic-ai/sdk": "^1.8.0",
+    "@google/genai": "^3.3.0",
     "@modelcontextprotocol/sdk": "^1.32.2",
     "ajv": "^8.20.0",
     "busboy": "^1.6.0",
@@ -48,12 +48,12 @@
     "openai": "^6.46.0"
   },
   "devDependencies": {
-    "jsdom": "^25.0.1",
+    "jsdom": "^31.0.1",
     "vite": "^8.3.6",
-    "vitest": "^3.2.7"
+    "vitest": "^5.1.0"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "overrides": {
     "@hono/node-server": "^2.1.3"

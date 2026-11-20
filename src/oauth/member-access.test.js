@@ -52,6 +52,16 @@ describe('a member who signed in with Google', () => {
     expect(r.member.name).toBe('Mia');
   });
 
+  it('reads the roster from the default branch, whatever ref the caller names', async () => {
+    // A removed member must not be able to name an old branch where they are
+    // still listed.
+    await lend();
+    const fetchMock = mockConfigFetch();
+    await resolveGoogleMember({ googleUser: google('mia@example.com'), owner: OWNER, repo: REPO, ref: 'old-branch' });
+    const asked = new URL(String(fetchMock.mock.calls[0][0]));
+    expect(asked.searchParams.has('ref')).toBe(false);
+  });
+
   it('is refused when the address is not on the roster', async () => {
     // Without this, any Google account anywhere is a member of every project
     // that lends a credential.

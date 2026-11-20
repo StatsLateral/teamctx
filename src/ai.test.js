@@ -2,13 +2,16 @@ import { describe, expect, it, vi } from 'vitest';
 import { callClaude, extractJson } from './ai.js';
 
 vi.mock('@anthropic-ai/sdk', () => ({
-  default: vi.fn().mockImplementation(() => ({
-    messages: {
-      create: vi.fn().mockResolvedValue({
-        content: [{ type: 'text', text: '{"result":"ok"}' }],
-      }),
-    },
-  })),
+  // A plain function so `new Anthropic(...)` works under vitest 4+.
+  default: vi.fn().mockImplementation(function () {
+    return {
+      messages: {
+        create: vi.fn().mockResolvedValue({
+          content: [{ type: 'text', text: '{"result":"ok"}' }],
+        }),
+      },
+    };
+  }),
 }));
 
 describe('extractJson', () => {
