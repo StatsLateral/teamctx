@@ -166,6 +166,10 @@ a.dl:hover{text-decoration:underline}
 .attachbtn:hover{opacity:.9}
 .attachform .hint{font-size:12px;color:var(--muted, #666)}
 .attachform code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px}
+.stale{font-weight:600}
+.stale.changed{color:var(--amber)}
+.stale.unchanged{color:var(--green, #2a7)}
+.stale.unknown{color:var(--muted, #666);font-weight:500}
 .plain li{margin:0 0 .4rem;line-height:1.45;overflow-wrap:anywhere}
 /* A task's history: the date, who, what happened, one line each. */
 .hstatus{margin:0 0 .4rem;font-size:13px;color:var(--ink);font-weight:600}
@@ -366,6 +370,20 @@ const SCRIPT = `
     }
     return o.body;
   }
+  // A linked file's last staleness check (#248), as a short badge. A text node:
+  // the reason is written by the system, but the file name may not be.
+  function checkText(c) {
+    var when = c.checkedAt ? ' \\u00b7 checked ' + c.checkedAt.slice(0, 10) : '';
+    if (c.state === 'changed') return 'Changed since ' + (c.basis === 'approved' ? 'approved' : 'attached') + when;
+    if (c.state === 'unchanged') return 'Unchanged' + when;
+    return 'Not checked: ' + (c.reason || 'cannot tell') + when;
+  }
+  function appendCheck(parent, o, cls) {
+    if (o.kind !== 'link' || !o.check) return;
+    var p = document.createElement('p'); p.className = cls + ' stale ' + o.check.state;
+    p.textContent = checkText(o.check);
+    parent.appendChild(p);
+  }
   function showWork(items) {
     var wrap = document.getElementById('d-work-wrap');
     var box = document.getElementById('d-work');
@@ -387,6 +405,7 @@ const SCRIPT = `
       }
       var body = document.createElement('p'); body.className = 'wbody'; body.textContent = outputText(o); d.appendChild(body);
       if (o.dl) { var dla = document.createElement('a'); dla.className = 'dl'; dla.href = o.dl; dla.setAttribute('download', ''); dla.textContent = 'Download file'; d.appendChild(dla); }
+      appendCheck(d, o, 'wnote');
       if (o.notes) { var n = document.createElement('p'); n.className = 'wnote'; n.textContent = 'Notes: ' + o.notes; d.appendChild(n); }
       if (o.prompt) { var q = document.createElement('p'); q.className = 'wnote'; q.textContent = 'Asked: ' + o.prompt; d.appendChild(q); }
       box.appendChild(d);
@@ -447,6 +466,7 @@ const SCRIPT = `
         var b = document.createElement('p'); b.className = 'obody'; b.textContent = outputText(o); card.appendChild(b);
         if (o.dl) { var odl = document.createElement('a'); odl.className = 'dl'; odl.href = o.dl; odl.setAttribute('download', ''); odl.textContent = 'Download file'; card.appendChild(odl); }
         if (o.kind === 'file' && o.file && o.file.sha256) { var h = document.createElement('p'); h.className = 'onote hash'; h.textContent = 'SHA-256: ' + o.file.sha256; card.appendChild(h); }
+        appendCheck(card, o, 'onote');
         if (o.notes) { var n = document.createElement('p'); n.className = 'onote'; n.textContent = 'Notes: ' + o.notes; card.appendChild(n); }
         if (o.prompt) { var q = document.createElement('p'); q.className = 'onote'; q.textContent = 'Asked: ' + o.prompt; card.appendChild(q); }
         outBox.appendChild(card);

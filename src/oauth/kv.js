@@ -29,6 +29,7 @@ export const SECRET_PREFIXES = [
   'teamctx:agent:aikey:',    // an agent's AI key
   'teamctx:ghcred:project:', // a GitHub credential a project lends
   'teamctx:slack:project:',  // a Slack incoming-webhook URL
+  'teamctx:connector:token:',// a per-user cloud-connector OAuth token
   'oauth:token:',            // access-token payloads (carry the GitHub token)
   'oauth:refresh:',          // refresh-token payloads
   'oauth:code:',             // authorization-code records (the GitHub branch carries the token)
@@ -504,6 +505,25 @@ export const keys = {
   slackWebhook: (owner, repo) => `teamctx:slack:project:${slug(owner, repo)}`,
   /** Projects this address has set a Slack webhook on, so the page can list them. */
   slackSetBy: email => `teamctx:slack:set-by:${String(email).toLowerCase()}`,
+  /**
+   * A person's cloud-connector OAuth token (Google Drive, Dropbox, M365), by
+   * verified email and provider: `{ provider, accessToken, refreshToken,
+   * expiresAt, account, connectedAt }`. A credential, so it is encrypted at rest
+   * and lives here — never in the repository or `.env.local`. The primary
+   * manager's is a project's fallback reader; see connectors.js. Long-lived.
+   */
+  connectorToken: (email, provider) => `teamctx:connector:token:${String(email).toLowerCase()}:${provider}`,
+  /** Which providers one person has connected, for the settings page (not a secret). */
+  connectorIndex: email => `teamctx:connector:index:${String(email).toLowerCase()}`,
+  /**
+   * Which people shared which connection with a project: `{ shares: { <email>:
+   * [provider, …] } }`. A pointer, never a token — the credential stays in the
+   * owner's `connectorToken` and is read from there. Only the primary manager's
+   * share is used as a project's fallback reader; see connectors.js. Not a secret.
+   */
+  projectConnectors: (owner, repo) => `teamctx:connector:project-shares:${slug(owner, repo)}`,
+  /** The projects one person shared a connection with, for the settings page (not a secret). */
+  connectorsSharedBy: email => `teamctx:connector:shared-by:${String(email).toLowerCase()}`,
   /** Browser session for the settings page. 1 hour. */
   session: sid => `teamctx:session:${sid}`,
 };

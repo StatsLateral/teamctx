@@ -7,6 +7,11 @@ import { providerFromEnv, oauthConfigStatus, GITHUB_SCOPES, OAuthCallbackError, 
 import { kvGet, kvSet, kvTake, kvDelete, keys, TTL, isPersistent, secretsConfigured } from '../src/oauth/kv.js';
 import { liveProjects } from '../src/oauth/live-projects.js';
 import { googleAuthorizeUrl, googleUserFromCode } from '../src/oauth/google.js';
+import { connectAuthorizeUrl, exchangeConnectCode } from '../src/oauth/connector-google.js';
+import {
+  writeConnection, removeConnection, connectionsFor, readConnection,
+  shareConnection, unshareConnection, connectorSharesBy,
+} from '../src/oauth/connectors.js';
 import { projectKeyDecision } from '../src/oauth/project-key-decision.js';
 import { managersOf } from '../src/managers.js';
 import { matchesActor, managerKeys } from '../src/review.js';
@@ -303,6 +308,29 @@ app.get('/oauth/google/callback', async (req, res) => {
   // Settings-page sign-in carries its own pending record, the same way the
   // GitHub callback tells the two flows apart. Same redirect URI as the connector
   // flow, so no second Google client has to be registered.
+  // Connecting a cloud account (e.g. Google Drive) reuses this same callback,
+  // told apart by its own pending record. Unlike sign-in, it keeps the token —
+  // encrypted, against the person's email — so a hosted file read can use it.
+  const connectPending = await kvTake(keys.pending(`connect-google:${state}`));
+  if (connectPending) {
+    if (error) return res.redirect(303, `/settings?error=${encodeURIComponent(`Google returned: ${error}`)}`);
+    if (!bindMatches(connectPending, readBindCookie(req))) {
+      return res.status(400).send(errorPage('This connection was started in another browser. Start it again from the settings page.'));
+    }
+    try {
+      const tokens = await exchangeConnectCode({
+        code: code ? String(code) : null,
+        clientId: provider.googleClientId,
+        clientSecret: provider.googleClientSecret,
+        redirectUri: provider.googleCallbackUrl,
+      });
+      await writeConnection({ email: connectPending.email, provider: connectPending.provider || 'gdrive', ...tokens });
+      return res.redirect(303, `/settings?connected=${encodeURIComponent(connectPending.provider || 'gdrive')}`);
+    } catch (e) {
+      return res.redirect(303, `/settings?error=${encodeURIComponent(e.message)}`);
+    }
+  }
+
   const settingsPending = await kvTake(keys.pending(`settings-google:${state}`));
   if (settingsPending) {
     if (error) return res.status(400).send(errorPage(`Google returned: ${error}`));
@@ -514,9 +542,23 @@ async function renderSettings(req, res, user, { newAgent = null } = {}) {
   ])].sort();
   const agents = await agentsFor(user);
   const slack = await slackFor(user, repos);
+  // A person's connected cloud accounts, with the account each was granted by.
+  // Reading the token record to label it is fine — it is the person's own.
+  const sharedConns = user.email ? await connectorSharesBy(user.email) : [];
+  const connectors = user.email
+    ? await Promise.all((await connectionsFor(user.email)).map(async p => ({
+        provider: p,
+        account: (await readConnection({ email: user.email, provider: p }))?.account || null,
+        // Which projects this connection is shared with — the person's own
+        // per-project choice, shown so they can take any of them back.
+        shares: sharedConns.filter(s => s.provider === p).map(s => s.slug).sort(),
+      })))
+    : [];
   if (newAgent) res.setHeader('Cache-Control', 'no-store');
   res.send(settingsPage({
-    user, hasKey: !!existing, shared, lent, repos, agents, newAgent, slack,
+    user, hasKey: !!existing, shared, lent, repos, agents, newAgent, slack, connectors,
+    connected: req.query.connected ? String(req.query.connected) : null,
+    disconnected: req.query.disconnected ? String(req.query.disconnected) : null,
     secretsMissing: isPersistent() && !secretsConfigured(),
     saved: req.query.saved === '1',
     rotated: req.query.rotated ? String(req.query.rotated).split(',').filter(Boolean) : [],
@@ -649,6 +691,76 @@ app.get('/settings/signin/google', async (req, res) => {
     redirectUri: provider.googleCallbackUrl,
     state,
   }));
+});
+
+/**
+ * Start connecting a cloud account (Google Drive) from the settings page. The
+ * grant is per person, global, and used across every project they are on; the
+ * callback is the shared Google one, so no second redirect URI is registered.
+ */
+app.get('/settings/connect/gdrive', async (req, res) => {
+  const user = await currentUser(req);
+  if (!user) return signInFor(res, '/settings');
+  if (!user.email) {
+    return res.redirect(303, `/settings?error=${encodeURIComponent('Connecting an account needs a verified email on your sign-in.')}`);
+  }
+  if (!provider?.googleClientId) {
+    return res.status(503).send(errorPage('Google is not configured on this deployment.'));
+  }
+  const state = randomBytes(18).toString('base64url');
+  const bind = randomBytes(18).toString('base64url');
+  await kvSet(
+    keys.pending(`connect-google:${state}`),
+    { kind: 'connect', provider: 'gdrive', email: user.email, bindHash: tokenHash(bind) },
+    { ttlSeconds: TTL.pending },
+  );
+  setBindCookie(res, bind);
+  res.redirect(connectAuthorizeUrl({
+    clientId: provider.googleClientId,
+    redirectUri: provider.googleCallbackUrl,
+    state,
+  }));
+});
+
+/** Disconnect a cloud account. Clears the stored token for this person. */
+app.post('/settings/disconnect', async (req, res) => {
+  const user = await currentUser(req);
+  if (!user) return signInFor(res, '/settings');
+  const prov = String(req.body?.provider || '');
+  if (user.email && prov) await removeConnection({ email: user.email, provider: prov });
+  res.redirect(303, `/settings?disconnected=${encodeURIComponent(prov)}`);
+});
+
+/** Share a connected cloud account with a project, as its fallback file reader. */
+app.post('/settings/connect/share', async (req, res) => {
+  const user = await currentUser(req);
+  if (!user) return res.redirect(303, '/settings');
+  if (!user.email) return backToSettings(res, 'Sharing a connection needs a verified email on your sign-in.');
+  const prov = String(req.body?.provider || '');
+  const ref = parseRepoRef(req.body?.project);
+  if (!prov) return backToSettings(res, 'Pick which connection to share.');
+  if (!ref) return backToSettings(res, 'Pick a project first.');
+  // Must actually hold the connection to share it.
+  if (!(await readConnection({ email: user.email, provider: prov }))) {
+    return backToSettings(res, 'Connect that account before sharing it.');
+  }
+  // The same gate as sharing an AI key with a project: you must be able to add to it.
+  const allowed = await mayAddProjectKey(user, ref);
+  if (!allowed.ok) return backToSettings(res, allowed.why);
+  await shareConnection({ owner: ref.owner, repo: ref.repo, email: user.email, provider: prov });
+  backToSettings(res);
+});
+
+/** Stop sharing a connected cloud account with a project. */
+app.post('/settings/connect/unshare', async (req, res) => {
+  const user = await currentUser(req);
+  if (!user) return res.redirect(303, '/settings');
+  const prov = String(req.body?.provider || '');
+  const ref = parseRepoRef(req.body?.project);
+  if (user.email && prov && ref) {
+    await unshareConnection({ owner: ref.owner, repo: ref.repo, email: user.email, provider: prov });
+  }
+  backToSettings(res);
 });
 
 /** Starts the GitHub login. Only reached by clicking Sign in. */
