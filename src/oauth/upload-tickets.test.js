@@ -79,4 +79,20 @@ describe('upload tickets', () => {
     expect(await consumeUploadTicket('')).toBeNull();
     expect(await consumeUploadTicket('nope')).toBeNull();
   });
+
+  it('defaults to a direct ticket; a blob ticket records its transit pathname', async () => {
+    const direct = await createUploadTicket(base);
+    expect(direct.record.transport).toBe('direct');
+    expect(direct.record.blobPathname).toBeNull();
+
+    const blob = await createUploadTicket({ ...base, transport: 'blob', blobPathname: 'teamctx-transit/t-1/abc/chart.png' });
+    expect(blob.record.transport).toBe('blob');
+    expect(blob.record.blobPathname).toBe('teamctx-transit/t-1/abc/chart.png');
+    const got = await consumeUploadTicket(blob.token, { owner: 'Acme', repo: 'Ledger', taskId: 't-1' });
+    expect(got).toMatchObject({ transport: 'blob', blobPathname: 'teamctx-transit/t-1/abc/chart.png' });
+  });
+
+  it('refuses a blob ticket with no transit pathname', async () => {
+    await expect(createUploadTicket({ ...base, transport: 'blob' })).rejects.toThrow(/blob pathname/);
+  });
 });
