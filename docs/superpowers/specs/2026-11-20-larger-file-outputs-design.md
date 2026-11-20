@@ -127,17 +127,28 @@ hosted ceiling is lifted, not just explained.
 **Transport choice.** Vercel Blob was chosen over an S3/R2 presigned URL because
 the deployment already runs on Vercel — a blob store is one provisioning step,
 no new account. The cost is that the sandbox PUT uses Blob's internal upload
-headers (`x-api-version: 13`, store id, request id), which teamctx emits in the
-`reportBack` curl; these are pinned and verified against the installed
-`@vercel/blob`, and are the one thing to re-check on a major `@vercel/blob`
-bump. A single PUT is assumed to carry 25 MB; if the ingest rejects it,
-multipart (parts ≥ 5 MB) is the fallback and the live E2E will catch it.
+headers (`x-api-version: 13`, store id, request id, access mode), which teamctx
+emits in the `reportBack` curl; these are pinned and verified against the
+installed `@vercel/blob`, and are the one thing to re-check on a major
+`@vercel/blob` bump. A single PUT is assumed to carry 25 MB; if the ingest
+rejects it, multipart (parts ≥ 5 MB) is the fallback and the live E2E will catch
+it.
+
+A Blob store is created with a fixed access mode, and Vercel now defaults new
+stores to `private` (the mode cannot be changed afterwards). Both the upload PUT
+and the server-side read back must name that mode: the upload sets the
+`x-vercel-blob-access` header and the read back uses `get(pathname, { access })`
+(which signs the request a private store needs — a bare fetch of the blob URL is
+refused on a private store). The mode is read from `BLOB_ACCESS`, defaulting to
+`private` so the common new store needs no configuration; a store created public
+sets `BLOB_ACCESS=public`.
 
 **Deployment prerequisites** (maintainer/account actions, not code): a Vercel
-Blob store on the project with `BLOB_READ_WRITE_TOKEN` set; and the web agent's
-allowed-websites list must include both the teamctx host and `vercel.com` (the
-Blob ingest). Without the token, `request_upload` degrades cleanly — large files
-are refused with a pointer to a cloud link or the CLI.
+Blob store on the project with `BLOB_READ_WRITE_TOKEN` set (and `BLOB_ACCESS`
+only if the store is public); and the web agent's allowed-websites list must
+include both the teamctx host and `vercel.com` (the Blob ingest). Without the
+token, `request_upload` degrades cleanly — large files are refused with a
+pointer to a cloud link or the CLI.
 
 ## Recommendation (original, superseded by the Decision above)
 

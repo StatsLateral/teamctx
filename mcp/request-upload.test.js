@@ -11,7 +11,7 @@ vi.mock('../src/oauth/blob-transit.js', () => ({
     headers: {
       authorization: 'Bearer vercel_blob_client_Store_TOKEN',
       'x-api-version': '13', 'x-vercel-blob-store-id': 'Store',
-      'x-vercel-blob-access': 'public', 'x-content-type': contentType,
+      'x-vercel-blob-access': 'private', 'x-content-type': contentType,
     },
     uploadHost: 'vercel.com',
     pathname: `teamctx-transit/${taskId}/abc/${name}`,
