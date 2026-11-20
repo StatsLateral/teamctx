@@ -22,7 +22,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Vercel's own default for new stores. Where there is no store, or for a file
   over the ceiling, the tool points at a cloud link or the command line.
   `request_upload` now also hands back the task's page link for the assistant to
-  close on once the file lands (#251).
+  close on once the file lands, and a transit finalize that arrives before its
+  bytes no longer burns the ticket — it stays usable so the finalize can retry
+  once the PUT completes (#251).
 - **Upload a generated file as a task output without spending tokens on its bytes.**
   The new `request_upload` MCP tool returns a short-lived, single-use URL; the
   chatbot's own sandbox sends the file's bytes straight to it with an HTTP `PUT`

@@ -23,7 +23,7 @@ import { GithubSession, listUserOrgs, createRepo, slugifyProjectName, suggestAva
 import { runWithSession } from '../src/session-context.js';
 import { initProject } from '../cli/commands/init.core.js';
 import { readProjectView, readContributionsView, attachFileOutput, storeTicketedUpload, readFileOutput, readRecordTrailView, ProjectViewError, StaleSignInError } from '../src/oauth/project-view.js';
-import { consumeUploadTicket } from '../src/oauth/upload-tickets.js';
+import { consumeUploadTicket, readUploadTicket } from '../src/oauth/upload-tickets.js';
 import { fetchTransitBytes, deleteTransitBlob } from '../src/oauth/blob-transit.js';
 import { FileOutputError, MAX_PAGE_UPLOAD_BYTES, MAX_OUTPUT_FILE_BYTES, humanBytes } from '../src/file-output.js';
 import Busboy from 'busboy';
@@ -1861,11 +1861,18 @@ app.put('/project/:owner/:repo/task/:taskId/upload/:ticket', async (req, res) =>
 /**
  * Finalise a transit upload against a one-shot ticket (#251). A file too big
  * for the function body (see the PUT route above) was sent straight to a
- * transit blob instead; this spends the ticket, fetches those bytes back,
- * validates and commits them exactly as a page upload is, and deletes the blob
- * whatever the outcome. No sign-in: the ticket is the authority, so it is burned
- * on the first request, and the bytes are only ever read from the path the
+ * transit blob instead; this fetches those bytes back, validates and commits
+ * them exactly as a page upload is, then deletes the blob. No sign-in: the
+ * ticket is the authority, and the bytes are only ever read from the path the
  * ticket names.
+ *
+ * The ticket is peeked, not spent, until the bytes are actually in the transit
+ * store. A finalise can legitimately arrive before its bytes — the PUT and this
+ * call are independent, and a sandbox may race or retry them — and burning the
+ * ticket on that fruitless first attempt would make the real retry impossible.
+ * So a "no bytes yet" finalise leaves the ticket and the (absent) blob untouched
+ * for another go; the ticket is consumed, atomically and once, only when there
+ * are bytes to commit.
  */
 app.post('/project/:owner/:repo/task/:taskId/finalize/:ticket', async (req, res) => {
   const owner = String(req.params.owner || '');
@@ -1873,29 +1880,48 @@ app.post('/project/:owner/:repo/task/:taskId/finalize/:ticket', async (req, res)
   const taskId = String(req.params.taskId || '');
   const ticket = String(req.params.ticket || '');
 
-  const record = await consumeUploadTicket(ticket, { owner, repo, taskId });
-  if (!record) {
+  const peek = await readUploadTicket(ticket, { owner, repo, taskId });
+  if (!peek) {
     return res.status(404).json({
       ok: false,
       error: 'This upload link is not valid, has expired, or has already been used. '
         + 'Ask for a fresh one with request_upload.',
     });
   }
-  if (record.transport !== 'blob' || !record.blobPathname) {
+  if (peek.transport !== 'blob' || !peek.blobPathname) {
     return res.status(400).json({
       ok: false,
       error: 'This upload is not a transit upload: send its bytes to the upload URL with a PUT instead.',
     });
   }
 
+  // Look for the bytes before spending anything. If they are not there yet, the
+  // ticket and the blob are left alone so the caller can PUT and finalise again.
+  let fetched;
   try {
-    const fetched = await fetchTransitBytes({ pathname: record.blobPathname });
-    if (!fetched) {
-      return res.status(404).json({
-        ok: false,
-        error: 'No uploaded file was found to finalise. PUT the bytes to the upload URL first, then finalise.',
-      });
-    }
+    fetched = await fetchTransitBytes({ pathname: peek.blobPathname });
+  } catch (e) {
+    console.warn(`transit finalize: ${owner}/${repo} task ${taskId} read-back failed:`, e);
+    return res.status(502).json({ ok: false, error: 'The uploaded file could not be read back. Finalise again in a moment.' });
+  }
+  if (!fetched) {
+    return res.status(404).json({
+      ok: false,
+      error: 'No uploaded file was found to finalise. PUT the bytes to the upload URL first, then finalise.',
+    });
+  }
+
+  // The bytes are here: now spend the ticket, once. A second finalise that lost
+  // the race finds it already gone and is told the upload is done, not broken.
+  const record = await consumeUploadTicket(ticket, { owner, repo, taskId });
+  if (!record) {
+    return res.status(409).json({
+      ok: false,
+      error: 'This upload was already finalised. Ask for a fresh link with request_upload if you need to upload again.',
+    });
+  }
+
+  try {
     const { output } = await storeTicketedUpload({ record, bytes: fetched.bytes });
     return res.status(201).json({ ok: true, outputId: output.id, name: output.file?.name || null });
   } catch (e) {
@@ -1907,8 +1933,9 @@ app.post('/project/:owner/:repo/task/:taskId/finalize/:ticket', async (req, res)
       error: denied ? e.message : 'The file could not be saved. Try again.',
     });
   } finally {
-    // The blob is pure transit: gone as soon as we are done, pass or fail.
-    await deleteTransitBlob({ pathname: record.blobPathname });
+    // The ticket is spent and the bytes are read: the transit blob is pure
+    // courier, so it goes now whether the commit passed or failed.
+    await deleteTransitBlob({ pathname: peek.blobPathname });
   }
 });
 
