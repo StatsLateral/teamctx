@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from 'crypto';
-import { kvSet, kvTake, keys } from './kv.js';
+import { kvSet, kvGet, kvTake, keys } from './kv.js';
 
 /**
  * One-shot tickets for uploading a file output by URL (#257).
@@ -67,6 +67,26 @@ export async function createUploadTicket({
     expiresAt: new Date(now.getTime() + UPLOAD_TICKET_TTL_SECONDS * 1000).toISOString(),
     record,
   };
+}
+
+/**
+ * Read a ticket without spending it, for a step that must be able to run again.
+ *
+ * A transit finalise may arrive before its bytes have landed (the two calls are
+ * independent, and a sandbox can race them). Burning the ticket on that first,
+ * fruitless attempt would make the legitimate retry — once the bytes are there —
+ * impossible, so finalise peeks with this first and only `consumeUploadTicket`s
+ * once it has the bytes in hand. Same ownership checks as consuming: a URL for
+ * one task cannot be pointed at another.
+ */
+export async function readUploadTicket(token, { owner, repo, taskId } = {}) {
+  if (!token) return null;
+  const record = await kvGet(keys.uploadTicket(hashTicket(token)));
+  if (!record) return null;
+  if (owner && !sameText(record.owner, owner)) return null;
+  if (repo && !sameText(record.repo, repo)) return null;
+  if (taskId && String(record.taskId) !== String(taskId)) return null;
+  return record;
 }
 
 /**

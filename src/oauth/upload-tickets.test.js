@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { __resetMemory, __resetSecrets, __dumpMemory, keys } from './kv.js';
 import {
-  createUploadTicket, consumeUploadTicket, UPLOAD_TICKET_TTL_SECONDS,
+  createUploadTicket, consumeUploadTicket, readUploadTicket, UPLOAD_TICKET_TTL_SECONDS,
 } from './upload-tickets.js';
 
 beforeEach(() => { __resetMemory(); __resetSecrets(); });
@@ -24,6 +24,26 @@ describe('upload tickets', () => {
 
     // Spent: a second attempt finds nothing.
     expect(await consumeUploadTicket(token, { owner: 'Acme', repo: 'Ledger', taskId: 't-1' })).toBeNull();
+  });
+
+  it('peeks a ticket without spending it, so it can still be consumed after', async () => {
+    const { token } = await createUploadTicket(base);
+    // Peek twice: both see it, and it is still there to consume.
+    expect(await readUploadTicket(token, { owner: 'Acme', repo: 'Ledger', taskId: 't-1' }))
+      .toMatchObject({ taskId: 't-1', name: 'chart.png' });
+    expect(await readUploadTicket(token, { owner: 'Acme', repo: 'Ledger', taskId: 't-1' })).not.toBeNull();
+    expect(await consumeUploadTicket(token, { owner: 'Acme', repo: 'Ledger', taskId: 't-1' })).not.toBeNull();
+    // Consumed now: a later peek finds nothing.
+    expect(await readUploadTicket(token, { owner: 'Acme', repo: 'Ledger', taskId: 't-1' })).toBeNull();
+  });
+
+  it('peek honours the project and task, and an empty token', async () => {
+    const { token } = await createUploadTicket(base);
+    expect(await readUploadTicket(token, { owner: 'Acme', repo: 'Ledger', taskId: 't-OTHER' })).toBeNull();
+    expect(await readUploadTicket(token, { owner: 'other', repo: 'Ledger', taskId: 't-1' })).toBeNull();
+    expect(await readUploadTicket('')).toBeNull();
+    // Peeking the wrong task does not burn it — it is still consumable.
+    expect(await consumeUploadTicket(token, { owner: 'Acme', repo: 'Ledger', taskId: 't-1' })).not.toBeNull();
   });
 
   it('matches the project case-insensitively, as GitHub does', async () => {

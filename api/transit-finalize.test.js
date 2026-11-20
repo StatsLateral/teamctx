@@ -5,9 +5,10 @@
  * sandbox then POSTs the finalize URL, and the server fetches those bytes back,
  * stores them exactly as a page upload does, and deletes the blob. These drive
  * that endpoint for real over HTTP, with the blob store stubbed: a transit
- * ticket stores the file byte-for-byte and deletes the blob; a missing blob, a
- * wrong-type file, a direct ticket, and an already-used ticket are each refused
- * — and the blob is deleted whatever the outcome.
+ * ticket stores the file byte-for-byte and deletes the blob; a wrong-type file,
+ * a direct ticket, and an already-used ticket are each refused. A finalize that
+ * arrives before the bytes keeps the ticket alive so it can retry once the PUT
+ * lands; once there are bytes to commit, the ticket is spent and the blob gone.
  */
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 import http from 'http';
@@ -123,13 +124,22 @@ describe('finalising a transit upload', () => {
     expect((await finalize('prod-task', token)).status).toBe(404);
   });
 
-  it('404s when the sandbox never sent the blob — and still deletes', async () => {
-    blob.bytes = null;
+  it('leaves the ticket and blob alone when the bytes are not there yet, so finalize can retry', async () => {
+    blob.bytes = null; // the PUT has not landed yet
     const token = await transitTicket();
-    const res = await finalize('prod-task', token);
-    expect(res.status).toBe(404);
-    expect((await res.json()).error).toMatch(/no uploaded file/i);
+    const first = await finalize('prod-task', token);
+    expect(first.status).toBe(404);
+    expect((await first.json()).error).toMatch(/no uploaded file/i);
     expect(savedOutput('prod-task')).toBeNull();
+    // Nothing spent: the ticket survives and the (absent) blob is not deleted.
+    expect(blob.deleted).not.toContain(PATHNAME);
+
+    // The PUT lands; the same ticket now finalizes cleanly.
+    blob.bytes = PNG;
+    const second = await finalize('prod-task', token);
+    expect(second.status).toBe(201);
+    expect(await second.json()).toMatchObject({ ok: true, name: 'banner.png' });
+    expect(savedOutput('prod-task')).toMatchObject({ kind: 'file', title: 'Banner' });
     expect(blob.deleted).toContain(PATHNAME);
   });
 
