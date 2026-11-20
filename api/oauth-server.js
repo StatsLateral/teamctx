@@ -11,6 +11,8 @@ import { projectKeyDecision } from '../src/oauth/project-key-decision.js';
 import { managersOf } from '../src/managers.js';
 import { matchesActor, managerKeys } from '../src/review.js';
 import { readConfigJson } from '../src/oauth/member-access.js';
+import { projectRepoToken, projectLendsAccess } from '../src/oauth/repo-access.js';
+import { githubAppConfigured, githubAppInstallUrl, installationForRepo } from '../src/oauth/github-app.js';
 import {
   readPersonalKey, writePersonalKey, addProjectKey, removeProjectKey, projectsKeyedBy,
   adoptGithubRecords, linkGithubIdentity, projectsKnownFor, recordConnectedProject,
@@ -171,6 +173,9 @@ app.get('/oauth/status', async (req, res) => {
     googleSignIn: cfg.googleClientId && cfg.googleClientSecret
       ? 'enabled'
       : 'not configured — sign-in goes straight to GitHub',
+    // Optional (#110): when set, managers can install the App for repo-scoped
+    // access instead of lending a broad OAuth token.
+    githubApp: githubAppConfigured() ? 'enabled' : 'not configured — lending uses an OAuth token',
     missing: Object.entries({ ...cfg, kv: isPersistent(), secretKeys: !isPersistent() || secretsConfigured() })
       .filter(([name, present]) => !present && !name.startsWith('google'))
       .map(([name]) => name),
@@ -243,7 +248,7 @@ app.get('/oauth/choose', async (req, res) => {
   const pending = await kvGet(keys.pending(state));
   const project = /\/mcp\/([^/]+)\/([^/?#]+)/.exec(String(pending?.resource || ''));
   const lends = project
-    ? !!(await kvGet(keys.projectGhCred(project[1], project[2])))?.token
+    ? await projectLendsAccess(project[1], project[2])
     : true;   // Nothing to go on: offer both rather than hide a way in.
   res.send(choosePage({
     state,
@@ -515,9 +520,22 @@ async function renderSettings(req, res, user, { newAgent = null } = {}) {
   ])].sort();
   const agents = await agentsFor(user);
   const slack = await slackFor(user, repos);
+  // Which of the projects this person can see are on the GitHub App (#110), for
+  // the settings UI. Only when the deployment has an App at all.
+  const appConfigured = githubAppConfigured();
+  // Projects this person installed the App for are included even when the repo
+  // is not in their GitHub listing, so the installer can always clear it (#110).
+  const installedByThem = user.email ? (await kvGet(keys.appInstalledByAddress(user.email)))?.projects || [] : [];
+  const knownSlugs = [...new Set([...lent, ...repos.map(r => r.fullName), ...installedByThem])];
+  const installed = appConfigured
+    ? (await Promise.all(knownSlugs.map(async (slug) => {
+      const [o, r] = slug.split('/');
+      return (await kvGet(keys.projectInstallation(o, r)))?.installationId ? slug : null;
+    }))).filter(Boolean).sort()
+    : [];
   if (newAgent) res.setHeader('Cache-Control', 'no-store');
   res.send(settingsPage({
-    user, hasKey: !!existing, shared, lent, repos, agents, newAgent, slack,
+    user, hasKey: !!existing, shared, lent, repos, agents, newAgent, slack, appConfigured, installed,
     secretsMissing: isPersistent() && !secretsConfigured(),
     saved: req.query.saved === '1',
     rotated: req.query.rotated ? String(req.query.rotated).split(',').filter(Boolean) : [],
@@ -606,7 +624,7 @@ async function waysInFor(returnTo) {
   // which is the connector's rule — applied here too, rather than sending
   // somebody through a sign-in that ends in a refusal.
   const project = /^\/project\/([^/]+)\/([^/]+)$/.exec(path);
-  if (project && !(await kvGet(keys.projectGhCred(project[1], project[2])))?.token) {
+  if (project && !(await projectLendsAccess(project[1], project[2]))) {
     return { google: false, why: lendsNothing(`${project[1]}/${project[2]}`) };
   }
   return { google: true, why: null };
@@ -850,7 +868,7 @@ app.post('/settings', async (req, res) => {
  * the way of removing a key, and a key is the person's own to remove.
  */
 async function isPrimaryManager(user, ref) {
-  const token = user.token || (await kvGet(keys.projectGhCred(ref.owner, ref.repo)))?.token;
+  const token = user.token || (await projectRepoToken(ref.owner, ref.repo));
   if (!token) return false;
   let config;
   try { config = await readConfigJson({ owner: ref.owner, repo: ref.repo, token }); } catch { return false; }
@@ -891,15 +909,15 @@ async function mayAddProjectKey(user, ref) {
     const body = await res.json().catch(() => ({}));
     hasPush = !!body?.permissions?.push;
   } else {
-    const cred = await kvGet(keys.projectGhCred(ref.owner, ref.repo));
-    if (!cred?.token) {
+    const lentToken = await projectRepoToken(ref.owner, ref.repo);
+    if (!lentToken) {
       return {
         ok: false,
         why: `${slug} has not lent GitHub access, so it cannot confirm people who signed in with Google. `
           + 'Ask its manager to lend access, or sign in with GitHub.',
       };
     }
-    token = cred.token;
+    token = lentToken;
   }
 
   let config = null;
@@ -1133,6 +1151,118 @@ app.post('/settings/unlend', async (req, res) => {
 });
 
 /**
+ * Start installing the GitHub App on a project's repository (#110): the narrower
+ * alternative to lending an OAuth token. `state` ties GitHub's return to this
+ * click and this browser, and carries which project it was for.
+ */
+app.get('/settings/github-app/install', async (req, res) => {
+  const user = await currentUser(req);
+  if (!user) return res.redirect(303, '/settings');
+  if (!githubAppConfigured()) return backToSettings(res, 'This deployment has no GitHub App configured, so there is nothing to install.');
+  const ref = parseRepoRef(req.query?.project);
+  if (!ref) return backToSettings(res, 'Write the project as owner/repo.');
+  // Who may record an install is gated exactly as lending is: a manager of the
+  // project, or an admin of the repository. Without this, anyone signed in could
+  // forge the round-trip and claim to have installed the App on a repository the
+  // App already covers — recording themselves as its installer, which the
+  // manager handoff then trusts. GitHub enforces admin to actually install; this
+  // enforces it to be *recorded* as the installer.
+  if (!user.id) return backToSettings(res, 'Installing the GitHub App needs a GitHub sign-in with admin access to the repository.');
+  if (!user.token) return backToSettings(res, 'Your sign-in predates this feature. Sign out and sign in again, then retry.');
+  // The install is recorded against whoever did it, by address — the same way a
+  // lender is, so a manager handoff can still reason about who granted access.
+  if (!user.email) return backToSettings(res, 'Installing the GitHub App records who installed it, by address. Sign out and sign in again to grant your email.');
+  const allowed = await mayLend(user, ref);
+  if (!allowed.ok) return backToSettings(res, allowed.why);
+  const state = randomBytes(18).toString('base64url');
+  const bind = randomBytes(18).toString('base64url');
+  await kvSet(
+    keys.pending(`ghapp:${state}`),
+    { owner: ref.owner, repo: ref.repo, byId: user.id || null, byLogin: user.login || null, byEmail: user.email, bindHash: tokenHash(bind) },
+    { ttlSeconds: TTL.pending },
+  );
+  setBindCookie(res, bind);
+  const url = githubAppInstallUrl(state);
+  if (!url) return backToSettings(res, 'This deployment has no GitHub App configured.');
+  res.redirect(url);
+});
+
+/**
+ * Where GitHub returns after the manager installs the App. The installation id
+ * in the redirect is not trusted on its own: the App is asked which installation
+ * actually covers the repository, and only a confirmed one is recorded — so an
+ * install that landed on a different repository, or was cancelled, records
+ * nothing.
+ */
+app.get('/settings/github-app/callback', async (req, res) => {
+  const state = req.query?.state ? String(req.query.state) : '';
+  if (!state) return backToSettings(res, 'That GitHub App setup link was missing its state.');
+  const pending = await kvTake(keys.pending(`ghapp:${state}`));
+  if (!pending) return backToSettings(res, 'That GitHub App setup link has expired. Start the install again from the settings page.');
+  if (!bindMatches(pending, readBindCookie(req))) {
+    return backToSettings(res, 'This install was started in another browser. Start it again from the settings page.');
+  }
+  const { owner, repo } = pending;
+  let installation;
+  try {
+    installation = await installationForRepo(owner, repo);
+  } catch (e) {
+    return backToSettings(res, `Could not confirm the GitHub App install on ${owner}/${repo}: ${e.message}`);
+  }
+  if (!installation) {
+    return backToSettings(res, `The GitHub App is not installed on ${owner}/${repo}. On GitHub, install it and choose that repository.`);
+  }
+  // Refuse an "all repositories" install: teamctx scopes the minted token to this
+  // one repo, but an all-repos install still means a wider grant than the project
+  // needs, so steer the manager to reinstall on only this repository (#110).
+  if (installation.repositorySelection === 'all') {
+    return backToSettings(res, `The GitHub App is installed on all your repositories. On GitHub, reinstall it on only ${owner}/${repo} so its access is limited to this repository.`);
+  }
+  const installationId = installation.id;
+  await kvSet(keys.projectInstallation(owner, repo), {
+    installationId,
+    repositorySelection: installation.repositorySelection || null,
+    installedById: pending.byId || null,
+    installedByLogin: pending.byLogin || null,
+    installedByEmail: pending.byEmail || null,
+    installedAt: new Date().toISOString(),
+  });
+  // Index it under the installer's address so the settings page can show them
+  // the control to clear it, even for a repository not in their GitHub listing.
+  if (pending.byEmail) {
+    const slug = `${owner}/${repo}`;
+    const list = (await kvGet(keys.appInstalledByAddress(pending.byEmail)))?.projects || [];
+    if (!list.includes(slug)) await kvSet(keys.appInstalledByAddress(pending.byEmail), { projects: [...list, slug] });
+  }
+  backToSettings(res);
+});
+
+/** Stop using the GitHub App for a project — teamctx drops the stored
+ * installation, so it falls back to a lent token if one exists, or to no access.
+ * The App itself is uninstalled on GitHub; this just stops teamctx reaching for
+ * it. Only the person who recorded the install, by id or address, may clear it. */
+app.post('/settings/github-app/forget', async (req, res) => {
+  const user = await currentUser(req);
+  if (!user) return res.redirect(303, '/settings');
+  const ref = parseRepoRef(req.body?.project);
+  if (!ref) return backToSettings(res, 'Write the project as owner/repo.');
+  const existing = await kvGet(keys.projectInstallation(ref.owner, ref.repo));
+  const mine = existing && (
+    (user.id && String(existing.installedById) === String(user.id))
+    || (user.email && existing.installedByEmail && String(existing.installedByEmail).toLowerCase() === String(user.email).toLowerCase())
+  );
+  if (existing && !mine) return backToSettings(res, 'That GitHub App install was set up by someone else.');
+  await kvSet(keys.projectInstallation(ref.owner, ref.repo), null);
+  const slug = `${ref.owner}/${ref.repo}`;
+  const installer = existing?.installedByEmail || user.email;
+  if (installer) {
+    const list = (await kvGet(keys.appInstalledByAddress(installer)))?.projects || [];
+    await kvSet(keys.appInstalledByAddress(installer), { projects: list.filter(p => p !== slug) });
+  }
+  backToSettings(res);
+});
+
+/**
  * The identity a signed-in person matches the project's manager gate with, or
  * null when they are not a manager. Whichever identity the gate recognised is
  * the one handed on: a manager recorded as github:<id> passed a check by
@@ -1168,12 +1298,12 @@ async function agentManagerAccess(user, ref) {
   if (!user.email) {
     return { ok: false, why: 'Your sign-in did not come with a verified email address, so an agent could not be recorded against you. Sign out and sign in again.' };
   }
-  const lent = await kvGet(keys.projectGhCred(ref.owner, ref.repo));
-  if (!lent?.token) {
+  const lentToken = await projectRepoToken(ref.owner, ref.repo);
+  if (!lentToken) {
     return { ok: false, why: `${slug} does not lend GitHub access, and an agent reads the project through it. Lend it first, below.` };
   }
   let config;
-  try { config = await readConfigJson({ owner: ref.owner, repo: ref.repo, token: lent.token }); } catch (e) {
+  try { config = await readConfigJson({ owner: ref.owner, repo: ref.repo, token: lentToken }); } catch (e) {
     return { ok: false, why: e.message };
   }
   if (!managerKeys(config).length) return { ok: false, why: `${slug} has no manager on record, so nobody can issue agents for it.` };
@@ -1181,7 +1311,7 @@ async function agentManagerAccess(user, ref) {
   if (!matched) {
     return { ok: false, why: `Only a manager of ${slug} can issue or revoke its agents.` };
   }
-  return { ok: true, actor: matched, token: lent.token };
+  return { ok: true, actor: matched, token: lentToken };
 }
 
 /**
@@ -1192,7 +1322,7 @@ async function slackManagerAccess(user, ref) {
   const slug = `${ref.owner}/${ref.repo}`;
   // Their own sign-in first, then the access the project lends: a GitHub
   // account an organisation keeps out of the repository can still be a manager.
-  const tokens = [user.token, (await kvGet(keys.projectGhCred(ref.owner, ref.repo)))?.token].filter(Boolean);
+  const tokens = [user.token, await projectRepoToken(ref.owner, ref.repo)].filter(Boolean);
   if (!tokens.length) {
     return { ok: false, why: `${slug} cannot be read without GitHub access. Sign in with GitHub, or ask its manager to lend access below.` };
   }
@@ -1413,7 +1543,7 @@ async function renderProjects(req, res, user, { typed = '', error = null, search
     ? await liveProjects(await projectsKnownFor(user.email), {
       viewer: user.email,
       userToken: user.token,
-      lentToken: async (owner, repo) => (await kvGet(keys.projectGhCred(owner, repo)))?.token || null,
+      lentToken: async (owner, repo) => projectRepoToken(owner, repo),
       check: repoExistence,
     })
     : [];

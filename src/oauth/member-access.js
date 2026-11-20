@@ -1,4 +1,4 @@
-import { kvGet, keys } from './kv.js';
+import { projectRepoToken } from './repo-access.js';
 import { githubIdsFor } from './ai-keys.js';
 import { memberByEmail } from '../../cli/commands/member.core.js';
 import { actorFromMember } from '../actor.js';
@@ -49,8 +49,8 @@ export async function readConfigJson({ owner, repo, token, ref }) {
 }
 
 export async function resolveGoogleMember({ googleUser, owner, repo }) {
-  const cred = await kvGet(keys.projectGhCred(owner, repo));
-  if (!cred?.token) {
+  const token = await projectRepoToken(owner, repo);
+  if (!token) {
     throw new MemberAccessError(
       `${owner}/${repo} has not lent GitHub access, so it cannot accept members without a GitHub account yet. `
       + 'The manager can turn this on from the teamctx settings page.');
@@ -58,7 +58,7 @@ export async function resolveGoogleMember({ googleUser, owner, repo }) {
 
   // Always the default branch, never a ref the caller names. A removed member
   // could otherwise point at an old branch where they are still listed.
-  const config = await readConfigJson({ owner, repo, token: cred.token });
+  const config = await readConfigJson({ owner, repo, token });
 
   // An email address is the one identity every surface can agree on: a clone
   // reads it from `git config`, and Google hands it over verified. So a Google
@@ -87,7 +87,7 @@ export async function resolveGoogleMember({ googleUser, owner, repo }) {
   // everyone else to.
   const gate = managerKeys(config);
   if (gate.some(k => matchesActor(k, asGit))) {
-    return { ghToken: cred.token, actor: asGit, member: null, isManager: true };
+    return { ghToken: token, actor: asGit, member: null, isManager: true };
   }
 
   const member = memberByEmail(config.members, googleUser.email);
@@ -100,5 +100,5 @@ export async function resolveGoogleMember({ googleUser, owner, repo }) {
       + 'Ask the manager to add that exact address, or sign in with the one they invited.');
   }
 
-  return { ghToken: cred.token, actor: actorFromMember(member, googleUser), member };
+  return { ghToken: token, actor: actorFromMember(member, googleUser), member };
 }

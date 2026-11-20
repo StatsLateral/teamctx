@@ -63,8 +63,14 @@ export const BIND_COOKIE = 'teamctx_bind';
 // Concurrent in-browser flows are rare in practice; if they become common, the
 // cookie name should be namespaced per flow (e.g. by `state`) so both coexist.
 export function setBindCookie(res, nonce) {
+  // Path=/ (not /oauth): the bind nonce guards both the OAuth sign-in callbacks
+  // under /oauth and the GitHub App install callback under /settings/github-app.
+  // A cookie scoped to /oauth never reaches the latter, so the browser sends no
+  // bind and the install wrongly fails as "started in another browser". The nonce
+  // is single-use, HttpOnly, Secure, SameSite=Lax and short-lived, so the wider
+  // path is safe.
   res.setHeader('Set-Cookie',
-    `${BIND_COOKIE}=${nonce}; HttpOnly; Secure; SameSite=Lax; Path=/oauth; Max-Age=600`);
+    `${BIND_COOKIE}=${nonce}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=600`);
 }
 
 export function readBindCookie(req) {
