@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from 'crypto';
-import { kvSet, kvTake, keys } from './kv.js';
+import { kvSet, kvGet, kvTake, keys } from './kv.js';
 
 /**
  * One-shot tickets for uploading a file output by URL (#257).
@@ -34,12 +34,14 @@ const sameText = (a, b) => String(a || '').toLowerCase() === String(b || '').toL
  * the file will be called, the size cap, and the credential to write with.
  */
 export async function createUploadTicket({
-  owner, repo, taskId, actor, name, title, notes, ghToken, maxBytes, now = new Date(),
+  owner, repo, taskId, actor, name, title, notes, ghToken, maxBytes,
+  transport = 'direct', blobPathname = null, now = new Date(),
 } = {}) {
   if (!owner || !repo) throw new Error('an upload ticket needs a project');
   if (!taskId) throw new Error('an upload ticket needs a task');
   if (!name) throw new Error('an upload ticket needs a file name');
   if (!ghToken) throw new Error('an upload ticket needs a credential to write with');
+  if (transport === 'blob' && !blobPathname) throw new Error('a transit upload ticket needs a blob pathname');
 
   const token = randomBytes(32).toString('base64url');
   const record = {
@@ -52,6 +54,11 @@ export async function createUploadTicket({
     notes: notes || null,
     ghToken,
     maxBytes: Number(maxBytes) || null,
+    // 'direct' = the bytes arrive on the PUT itself (#257); 'blob' = they went
+    // around the function to a transit blob and this ticket is spent finalising
+    // it (#251).
+    transport: transport === 'blob' ? 'blob' : 'direct',
+    blobPathname: transport === 'blob' ? String(blobPathname) : null,
     createdAt: now.toISOString(),
   };
   await kvSet(keys.uploadTicket(hashTicket(token)), record, { ttlSeconds: UPLOAD_TICKET_TTL_SECONDS });
@@ -60,6 +67,26 @@ export async function createUploadTicket({
     expiresAt: new Date(now.getTime() + UPLOAD_TICKET_TTL_SECONDS * 1000).toISOString(),
     record,
   };
+}
+
+/**
+ * Read a ticket without spending it, for a step that must be able to run again.
+ *
+ * A transit finalise may arrive before its bytes have landed (the two calls are
+ * independent, and a sandbox can race them). Burning the ticket on that first,
+ * fruitless attempt would make the legitimate retry — once the bytes are there —
+ * impossible, so finalise peeks with this first and only `consumeUploadTicket`s
+ * once it has the bytes in hand. Same ownership checks as consuming: a URL for
+ * one task cannot be pointed at another.
+ */
+export async function readUploadTicket(token, { owner, repo, taskId } = {}) {
+  if (!token) return null;
+  const record = await kvGet(keys.uploadTicket(hashTicket(token)));
+  if (!record) return null;
+  if (owner && !sameText(record.owner, owner)) return null;
+  if (repo && !sameText(record.repo, repo)) return null;
+  if (taskId && String(record.taskId) !== String(taskId)) return null;
+  return record;
 }
 
 /**

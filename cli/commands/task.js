@@ -7,7 +7,7 @@ import {
   compileTask, TaskNotFoundError, UnknownTaskWorkstreamError, TaskWithoutWorkstreamError, UnknownRoleError,
   slugify, uniqueTaskId,
 } from './task.core.js';
-import { FileOutputError, FILE_OUTPUT_WARNING, MAX_OUTPUT_FILE_BYTES, humanBytes } from '../../src/file-output.js';
+import { FileOutputError, FILE_OUTPUT_WARNING, MAX_OUTPUT_FILE_BYTES, LARGE_OUTPUT_WARN_BYTES, humanBytes } from '../../src/file-output.js';
 
 /**
  * Presentation for the task commands.
@@ -211,6 +211,10 @@ export async function taskAttachCommand(idOrPrefix, path, opts = {}) {
   const { output, task } = result;
   reportGit(result, `✓ Attached ${output.file.name} to task ${task.key || task.id}`);
   console.log(`  ${output.file.type}, ${humanBytes(output.file.size)} · output ${output.id}`);
+  if (output.file.size > LARGE_OUTPUT_WARN_BYTES) {
+    console.log(`  ⚠ This is a large file (${humanBytes(output.file.size)}). It stays in the repository's `
+      + `history for good and makes every clone heavier — keeping it in a cloud tool and linking it is often better.`);
+  }
   console.log(`  ${FILE_OUTPUT_WARNING}`);
   console.log(`  Send it to the manager with: teamctx task submit ${task.key || task.id}\n`);
 }

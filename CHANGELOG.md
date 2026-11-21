@@ -8,6 +8,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Larger files as task outputs.** The command line now attaches files up to
+  50 MB (was 10 MB) — its ceiling is GitHub's, since it writes to the repository
+  over local git — and cautions once a file passes 25 MB that a large binary
+  stays in the repository's history for good. On the hosted connector,
+  `request_upload` now also carries a file over the 4 MB direct limit (up to
+  25 MB) by routing it *around* the function body: the sandbox PUTs the bytes
+  straight to a short-lived transit store and then makes a small finalize call,
+  and teamctx fetches the bytes back, checks and commits them, and deletes the
+  transit copy. It is pure transit — no second home for the file — and needs a
+  blob store configured on the deployment (`BLOB_READ_WRITE_TOKEN`); the store's
+  access mode is read from `BLOB_ACCESS`, defaulting to `private` to match
+  Vercel's own default for new stores. Where there is no store, or for a file
+  over the ceiling, the tool points at a cloud link or the command line.
+  `request_upload` now also hands back the task's page link for the assistant to
+  close on once the file lands, and a transit finalize that arrives before its
+  bytes no longer burns the ticket — it stays usable so the finalize can retry
+  once the PUT completes (#251).
 - **Upload a generated file as a task output without spending tokens on its bytes.**
   The new `request_upload` MCP tool returns a short-lived, single-use URL; the
   chatbot's own sandbox sends the file's bytes straight to it with an HTTP `PUT`

@@ -19,12 +19,34 @@
 import { createHash } from 'crypto';
 import { fileTypeFromBuffer } from 'file-type';
 
-// Two routes in, two limits. The CLI writes to the repository itself and allows
-// up to 10 MB. The project page posts through the hosted server on Vercel,
-// whose functions refuse request bodies over 4.5 MB, so its limit is 4 MB. A
-// caller passes the limit for its route as `maxBytes`.
-export const MAX_OUTPUT_FILE_BYTES = 10 * 1024 * 1024;
+// Three routes in, three limits (#251). The CLI writes to the repository itself
+// over local git, so its ceiling is GitHub's: a single file over 100 MB is
+// refused on push and one over 50 MB is warned about, so the CLI allows up to
+// 50 MB and cautions past the warn line. The project page posts through the
+// hosted server on Vercel, whose functions refuse request bodies over 4.5 MB,
+// so a file sent *through* the function — the page form, and the single-PUT
+// upload ticket — is capped at 4 MB. A file too big for the function body can
+// still reach a hosted task by going *around* it through a transit blob (see
+// src/oauth/blob-transit.js), which lifts the hosted ceiling to
+// MAX_HOSTED_UPLOAD_BYTES. A caller passes the limit for its route as `maxBytes`.
+export const MAX_OUTPUT_FILE_BYTES = 50 * 1024 * 1024;
 export const MAX_PAGE_UPLOAD_BYTES = 4 * 1024 * 1024;
+
+// Past this the CLI still attaches the file but warns: a large binary sits in
+// the repository's history for good, and the clone gets heavier for everyone.
+export const LARGE_OUTPUT_WARN_BYTES = 25 * 1024 * 1024;
+
+// The ceiling for a hosted upload that goes around the function body through a
+// transit blob. Bytes this large are fetched back into the function and
+// committed, so it is kept well under what a serverless function can hold and
+// GitHub will take. Overridable per deployment, clamped to a sane range.
+const DEFAULT_MAX_HOSTED_UPLOAD_BYTES = 25 * 1024 * 1024;
+export function hostedUploadMaxBytes(env = process.env) {
+  const raw = Number(env?.TEAMCTX_MAX_HOSTED_UPLOAD_BYTES);
+  if (!Number.isFinite(raw) || raw <= 0) return DEFAULT_MAX_HOSTED_UPLOAD_BYTES;
+  // Never below the plain 4 MB path, never above 100 MB (GitHub's own wall).
+  return Math.min(Math.max(raw, MAX_PAGE_UPLOAD_BYTES), 100 * 1024 * 1024);
+}
 
 /**
  * Binary work files, each with the content type it is served as. Verified from
@@ -139,7 +161,7 @@ function isPlainText(bytes) {
  * @param {Uint8Array|Buffer} bytes  the file's contents
  * @param {string} name              the name the person gave it
  * @param {object} [opts]
- * @param {number} [opts.maxBytes]   the limit for this route (default 10 MB)
+ * @param {number} [opts.maxBytes]   the limit for this route (default 50 MB)
  * @returns {Promise<{name, type, size, sha256}>}
  */
 export async function validateFileOutput(bytes, name, { maxBytes = MAX_OUTPUT_FILE_BYTES } = {}) {

@@ -187,7 +187,7 @@ task.command('compile <id>').description('Generate an AI-ready prompt file for t
   .option('--role <slug>', 'Frame the prompt for a specific role')
   .option('--force', 'Regenerate even if the workstream has not changed since last compile')
   .action(taskCompileCommand);
-task.command('attach <id> <path>').description('Attach a file as a working output on the task (up to 10 MB; stored in the repo)')
+task.command('attach <id> <path>').description('Attach a file as a working output on the task (up to 50 MB; stored in the repo)')
   .option('--title <text>', 'A title for the output (default: the file name)')
   .option('--note <text>', 'A note for the manager about what the file is')
   .action(taskAttachCommand);
