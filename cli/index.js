@@ -187,9 +187,10 @@ task.command('compile <id>').description('Generate an AI-ready prompt file for t
   .option('--role <slug>', 'Frame the prompt for a specific role')
   .option('--force', 'Regenerate even if the workstream has not changed since last compile')
   .action(taskCompileCommand);
-task.command('attach <id> <path>').description('Attach a file as a working output on the task (up to 10 MB; stored in the repo)')
-  .option('--title <text>', 'A title for the output (default: the file name)')
-  .option('--note <text>', 'A note for the manager about what the file is')
+task.command('attach <id> <paths...>').description('Attach a file, folder or glob as working output(s) on the task (up to 10 MB each; stored in the repo)')
+  .option('--title <text>', 'A title for the output (one file only; default: the file name)')
+  .option('--note <text>', 'A note for the manager about what the file is (one file only)')
+  .option('--recursive', 'When a folder is given, descend into sub-folders too')
   .action(taskAttachCommand);
 
 const config = program.command('config').description('View or change project settings');

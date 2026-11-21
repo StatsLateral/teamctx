@@ -22,7 +22,7 @@ import { resolveTarget, isProjectLevel } from '../../src/project-level.js';
 import { announceQueued } from '../../src/slack-notify.js';
 import { TaskWithoutWorkstreamError } from '../../src/numbering.js';
 import { cleanExternal, addExternal, removeExternal } from '../../src/external-links.js';
-import { validateFileOutput, MAX_OUTPUT_FILE_BYTES } from '../../src/file-output.js';
+import { validateFileOutput, FileOutputError, MAX_OUTPUT_FILE_BYTES } from '../../src/file-output.js';
 import { validateLinkOutput } from '../../src/link-output.js';
 import { recordSources } from '../../src/sources.js';
 
@@ -465,13 +465,26 @@ export async function saveFileOutput({
   const config = readConfig(teamctxDir);
   const { task } = findTask(id, teamctxDir);
   assertNotAccepted(task, teamctxDir);
-  const file = await validateFileOutput(bytes, name, { maxBytes });
   const saved = listOutputs(task.id, teamctxDir);
   if (basedOn && !saved.some(o => o.id === basedOn)) {
     throw new Error(`no output "${basedOn}" on task ${task.key || task.id} to build on`);
   }
   const resolved = actor || await resolveActor({ config, cwd: projectDir });
   const me = await resolveDisplayName({ actor: resolved, config, teamctxDir });
+  const output = await writeFileOutputRecord({
+    task, bytes, name, title, prompt, notes, basedOn, source, maxBytes, resolved, me, teamctxDir,
+  });
+  const git = await commitAndPush(config, `output: ${me} attached ${output.id} (${output.file.name}) on ${task.id}`, projectDir);
+  return { output, task, ...git };
+}
+
+/**
+ * Validate one file's bytes, write them and the output record, and return the
+ * record — without committing. Shared by the single-file and batch attach so
+ * both store a file identically; the caller commits (once, for a batch).
+ */
+async function writeFileOutputRecord({ task, bytes, name, title, prompt, notes, basedOn, source, maxBytes, resolved, me, teamctxDir }) {
+  const file = await validateFileOutput(bytes, name, { maxBytes });
   const stamp = nextStamp();
   const outputId = `o-${stamp.toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
   // The id prefix keeps two uploads of the same name apart on disk.
@@ -491,8 +504,44 @@ export async function saveFileOutput({
     state: 'working',
   };
   writeOutput(output, teamctxDir);
-  const git = await commitAndPush(config, `output: ${me} attached ${output.id} (${file.name}) on ${task.id}`, projectDir);
-  return { output, task, ...git };
+  return output;
+}
+
+/**
+ * Attach several files at once as working outputs, in one commit (#256).
+ *
+ * One output per file, each stored exactly as {@link saveFileOutput} stores one.
+ * A file that fails validation (wrong type, bytes that do not match its name) is
+ * skipped and recorded in `skipped` with its reason, never aborting the rest; a
+ * real failure (disk, git) still throws. Nothing is committed when every file is
+ * skipped. The caller is responsible for the per-run count and total-size caps
+ * and for reading the bytes — this stores what it is handed.
+ */
+export async function saveFileOutputs({
+  id, files = [], source, maxBytes = MAX_OUTPUT_FILE_BYTES, teamctxDir, projectDir, actor,
+} = {}) {
+  const config = readConfig(teamctxDir);
+  const { task } = findTask(id, teamctxDir);
+  assertNotAccepted(task, teamctxDir);
+  const resolved = actor || await resolveActor({ config, cwd: projectDir });
+  const me = await resolveDisplayName({ actor: resolved, config, teamctxDir });
+
+  const outputs = [];
+  const skipped = [];
+  for (const f of files) {
+    try {
+      outputs.push(await writeFileOutputRecord({
+        task, bytes: f.bytes, name: f.name, title: f.title, notes: f.notes, source, maxBytes, resolved, me, teamctxDir,
+      }));
+    } catch (e) {
+      if (e instanceof FileOutputError) { skipped.push({ name: f.name, reason: e.message }); continue; }
+      throw e;
+    }
+  }
+  if (outputs.length === 0) return { outputs, skipped, task };
+  const what = outputs.length === 1 ? `${outputs[0].id} (${outputs[0].file.name})` : `${outputs.length} files`;
+  const git = await commitAndPush(config, `output: ${me} attached ${what} on ${task.id}`, projectDir);
+  return { outputs, skipped, task, ...git };
 }
 
 /**
