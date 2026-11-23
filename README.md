@@ -190,7 +190,6 @@ teamctx contribute "We decided to use AWS. We are assuming the migration fits in
 | `teamctx role list` | List all roles and their context URLs |
 | `teamctx context <role>` | Print role MD to stdout |
 | `teamctx ask "<question>" [--role <slug>] [--audit]` | Ask a question, answered from your team context. `--audit` appends a per-contribution source list |
-| `teamctx pull` | Fetch and process web contributions |
 | `teamctx review list` | List pending contributions awaiting manager approval |
 | `teamctx review approve <id>` | Approve a pending contribution — applies to shared context |
 | `teamctx review reject <id> [--reason "..."]` | Reject a pending contribution — archives with optional reason |
@@ -374,13 +373,9 @@ you author well-shaped contributions and clean up the shared context. See
 
 ## Self-hosting (web layer)
 
-Deploy to Vercel to give non-technical team members two routes:
+Deploy to Vercel to give non-technical team members their role context online:
 
 - **`/context/<role>`** — downloads their role context file
-- **`/contribute`** — a plain HTML form to submit updates
-- **`/ask`** — a plain HTML form to ask a question, answered from the shared (and optional role) context
-
-Manager runs `teamctx pull` to process web submissions.
 
 ### Setup
 
@@ -453,21 +448,6 @@ Copy the production URL (e.g. `https://team-context-xyz.vercel.app`).
 teamctx config deploy-url https://team-context-xyz.vercel.app
 ```
 
-**6. Enable web contributions** (optional — only needed for `/contribute` and `teamctx pull`)
-
-The contribution form writes directly to your private GitHub repo. Add two env vars to your Vercel project:
-
-```bash
-vercel env add GITHUB_TOKEN production   # fine-grained PAT, Contents: read+write on your private repo
-vercel env add GITHUB_REPO production    # e.g. StatsLateral/myaccount
-```
-
-Then pull them to your local `.env.local` so `teamctx pull` can read them:
-
-```bash
-vercel env pull .env.local
-```
-
 ### Keeping context current
 
 Every `teamctx contribute` commits and pushes to your private repo. Vercel's git integration auto-deploys on push — role files at `/context/<role>` are always up to date within seconds.
@@ -499,8 +479,6 @@ teamctx is pre-1.0 and has not had an independent penetration test. What follows
 
 **Public pages on a single-project deployment**
 - Role files are served at `/context/<role>`: anyone with the URL can read them, so share them like you would a shared document.
-- The `/contribute` form is public (no login required): a manager reviews and approves every submission before anything is committed.
-- The `/ask` form is public too: it only reads context to answer a question and never writes to your repository.
 
 **Reporting a problem:** see [SECURITY.md](SECURITY.md). Published advisories are on the repository's Security tab.
 
@@ -523,7 +501,6 @@ teamctx is pre-1.0 and has not had an independent penetration test. What follows
   queue/                            # pending contributions awaiting manager approval
   rejected/                         # archived rejected contributions (with reason)
   snapshots/                        # versioned context checkpoints; current.json points to the last approved
-  pending/                          # raw web submissions inbox (processed by `teamctx pull`)
 ```
 
 ---

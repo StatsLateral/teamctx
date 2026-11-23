@@ -28,6 +28,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   path keeps working, so existing deployments are untouched until a manager moves
   across. Needs a GitHub App registered on the deployment — see
   `docs/mcp-hosted-setup.md`.
+
+- **Attach many files at once from the command line.** `teamctx task attach` now
+  takes a folder or a glob as well as a single file, and stores one output per
+  file in a single commit — the quickest way to get a batch of generated files
+  (a folder of images, a set of exports) onto a task. A folder takes the files
+  directly inside it (`--recursive` descends into sub-folders); files of a
+  non-attachable type are ignored and a file that fails a check is skipped with a
+  reason, never stopping the rest. A run is refused whole, before anything is
+  written, if it exceeds 50 files or 100 MB in total, with a nudge to keep a
+  large folder in a cloud tool and link it instead (#256).
 - **Flag possible impact on other parts of the work when a record changes.** When
   a change to a decision or rule is proposed, the same check that looks for
   contradictions also looks at the records in sibling parts of the work and lists
@@ -61,6 +71,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   takes 10 MB), and anyone who can see the task can download its files. A file
   downloads as an attachment with the type teamctx checked, and a file for a
   task outside your scope is neither shown nor served.
+- **See a record's history.** A decision, rule or assumption now keeps its
+  earlier wording when it is edited, instead of overwriting it, and a record
+  that was replaced points at the one that replaced it. One read — `teamctx
+  record history <id>`, the `record_history` assistant tool, or
+  `/project/<owner>/<repo>/record/<id>` on the web — returns the whole trail:
+  every version oldest to newest with who changed it and when, who approved it,
+  and the records it replaced or that replaced it. A record from before this
+  reads as a single current version, never an error.
 
 ### Changed
 - **Node 22 or newer is required.** Node 20 reached end of life in April 2026, and
@@ -75,6 +93,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   line about their attempt. No token, authorization code, secret or email is
   logged. The connect docs gain a short recovery section (remove the connector,
   add it again, and what each error means).
+
+### Removed
+- **The `/ask` and `/contribute` web forms, and `teamctx pull`.** These HTML
+  forms predate the hosted connector, which replaced them with the connector,
+  Settings and the review queue. Both were served with no check on the caller,
+  so a deployment that set their env vars exposed an unauthenticated endpoint
+  that spent the server's AI key (`/ask`) or wrote to the repository
+  (`/contribute`). They are gone, along with `teamctx pull`, whose only job was
+  to process what `/contribute` wrote. The command-line `teamctx ask` and
+  `teamctx contribute` are unaffected. If you ran the web forms, process or
+  delete anything left in `.teamctx/pending/` first: nothing reads it now. A
+  deployment that set `GITHUB_REPO`, `GITHUB_RAW_BASE` or `GITHUB_TOKEN` for
+  them can remove those variables, and revoke the token if it is not used
+  elsewhere. `teamctx setup` no longer asks for a GitHub token or sets
+  variables on Vercel; it detects the repository and runs `init`.
 
 ### Fixed
 - **A person added to a project now sees it on their home page.** Adding someone by

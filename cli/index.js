@@ -13,7 +13,6 @@ import { importCommand } from './commands/import.js';
 import { authCommand } from './commands/auth.js';
 import { askCommand } from './commands/ask.js';
 import { briefCommand } from './commands/brief.js';
-import { pullCommand } from './commands/pull.js';
 import { contextCommand } from './commands/context.js';
 import { statusCommand } from './commands/status.js';
 import { doctorCommand } from './commands/doctor.js';
@@ -21,6 +20,7 @@ import { statsCommand } from './commands/stats.js';
 import { DEFAULT_WINDOW_DAYS } from '../src/metrics.js';
 import { configManagerCommand, configModelCommand, configGithubRawBaseCommand, configManagerEmailCommand, configDeployUrlCommand, configProviderCommand, configNameCommand, configReviewPolicyCommand } from './commands/config.js';
 import { reviewListCommand, reviewApproveCommand, reviewRejectCommand } from './commands/review.js';
+import { recordHistoryCommand } from './commands/records.js';
 import {
   managerListCommand, managerAddCommand, managerRemoveCommand, managerTransferCommand,
 } from './commands/manager.js';
@@ -74,7 +74,6 @@ program.command('ask <question>').description("Ask a question, answered from you
   .option('--audit', 'Append a per-contribution source list to the answer')
   .action(askCommand);
 
-program.command('pull').description('Fetch and process pending web contributions').action(pullCommand);
 program.command('import [selector...]').description('Import documents as contributions for manager review')
   .option('--from <connector>', 'Where to import from (default: folder — local .md/.txt paths)')
   .option('--workstream <id>', 'Target workstream (default: active)')
@@ -133,6 +132,10 @@ member.command('list').description('List project members').action(memberListComm
 member.command('rm <username-or-email>').description('Remove someone from the project roster (does not revoke GitHub access)')
   .action(memberRmCommand);
 
+const record = program.command('record').description('Read the governed records — decisions, rules, assumptions');
+record.command('history <id>').description("Show a record's trail: its versions, who changed it, and what it replaced")
+  .action(recordHistoryCommand);
+
 const review = program.command('review').description('Review pending contributions awaiting manager approval');
 review.command('list').description('List all pending contributions').action(reviewListCommand);
 review.command('approve <id>').description('Approve a pending contribution — applies it to shared context')
@@ -189,9 +192,10 @@ task.command('compile <id>').description('Generate an AI-ready prompt file for t
   .option('--role <slug>', 'Frame the prompt for a specific role')
   .option('--force', 'Regenerate even if the workstream has not changed since last compile')
   .action(taskCompileCommand);
-task.command('attach <id> <path>').description('Attach a file as a working output on the task (up to 10 MB; stored in the repo)')
-  .option('--title <text>', 'A title for the output (default: the file name)')
-  .option('--note <text>', 'A note for the manager about what the file is')
+task.command('attach <id> <paths...>').description('Attach a file, folder or glob as working output(s) on the task (up to 10 MB each; stored in the repo)')
+  .option('--title <text>', 'A title for the output (one file only; default: the file name)')
+  .option('--note <text>', 'A note for the manager about what the file is (one file only)')
+  .option('--recursive', 'When a folder is given, descend into sub-folders too')
   .action(taskAttachCommand);
 
 const config = program.command('config').description('View or change project settings');

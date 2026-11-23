@@ -147,8 +147,6 @@ Deliberately terminal-only:
 
 - **`teamctx setup`** — creates a GitHub private repo via the `gh` CLI. Needs
   external auth. Use `init` on a folder you've already made into a git repo.
-- **`teamctx pull`** — processes web-form contributions from a Vercel-hosted
-  `/contribute` page. Interactive per-item; not a good MCP fit.
 
 Everything else is available.
 
