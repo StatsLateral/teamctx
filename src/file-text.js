@@ -19,11 +19,28 @@
  * original file, and the cost is paid when an assistant actually asks.
  */
 
+import { zipDeclaredFootprint } from './formats/docx.js';
+
 /** The most text an excerpt carries. Enough to work from; never a whole file. */
 export const MAX_EXTRACT_CHARS = 20000;
 
 /** Types we can turn into text, by extension. pptx is deliberately absent. */
 export const EXTRACTABLE_EXTENSIONS = ['txt', 'md', 'csv', 'json', 'docx', 'xlsx', 'pdf'];
+
+// A .docx / .xlsx is a ZIP, and the 10 MB upload cap is on its *compressed* size.
+// Before a parser unpacks one into memory, we read what its central directory
+// declares and refuse a file that would expand past these bounds — a small file
+// that claims gigabytes of contents or a flood of entries is a decompression
+// bomb, not a document. 50 MB covers a genuinely large spreadsheet or an
+// image-heavy document with room to spare.
+const MAX_ZIP_UNCOMPRESSED_BYTES = 50 * 1024 * 1024;
+const MAX_ZIP_ENTRIES = 4096;
+
+// A hostile or malformed file must not be able to hold the read open: a slow
+// parse is abandoned after this, and the read returns a reason like any other
+// unreadable file. The dangling parse settles on its own and is discarded.
+const EXTRACT_TIMEOUT_MS = 10000;
+const TIMEOUT_MARK = '__extract_timeout__';
 
 /**
  * Why a type yields no text, in one line — the single source of that wording, so
@@ -34,6 +51,36 @@ export function noTextReason(ext) {
   const e = String(ext || '').toLowerCase();
   if (e === 'pptx') return 'text extraction from .pptx is not supported yet; download the file to read it';
   return `no text can be read from a .${e || '?'} file`;
+}
+
+/**
+ * A reason to refuse a ZIP-based file (docx/xlsx) before unpacking it, or null.
+ *
+ * The declared sizes are read from the central directory without inflating
+ * anything. A file whose bytes are not a readable ZIP returns null, so the real
+ * parser still runs and reports its own failure — this guards only against a
+ * directory that declares more than we will ever keep.
+ */
+function zipFootprintProblem(bytes) {
+  let footprint;
+  try { footprint = zipDeclaredFootprint(Buffer.from(bytes)); }
+  catch { return null; }
+  if (footprint.uncompressedTotal > MAX_ZIP_UNCOMPRESSED_BYTES) {
+    return `the file declares more than ${Math.round(MAX_ZIP_UNCOMPRESSED_BYTES / (1024 * 1024))} MB of contents and was not read`;
+  }
+  if (footprint.entryCount > MAX_ZIP_ENTRIES) {
+    return `the file holds more than ${MAX_ZIP_ENTRIES} entries and was not read`;
+  }
+  return null;
+}
+
+/** Run `promise`, but give up after `ms` so a slow parse cannot hold the read. */
+function withTimeout(promise, ms) {
+  let timer;
+  const limit = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(TIMEOUT_MARK)), ms);
+  });
+  return Promise.race([promise, limit]).finally(() => clearTimeout(timer));
 }
 
 /** Cap `text` to `maxChars`, marking it when it had to be cut. */
@@ -113,20 +160,28 @@ export async function extractOutputText(bytes, ext, { maxChars = MAX_EXTRACT_CHA
   if (!(bytes instanceof Uint8Array) || bytes.length === 0) return none('the file is empty or could not be read');
   const e = String(ext || '').toLowerCase();
 
+  // docx and xlsx are ZIPs: refuse a decompression bomb before any parser
+  // unpacks it, reading only what the archive declares.
+  if (e === 'docx' || e === 'xlsx') {
+    const over = zipFootprintProblem(bytes);
+    if (over) return none(over);
+  }
+
   try {
     let raw;
     if (['txt', 'md', 'csv', 'json'].includes(e)) raw = Buffer.from(bytes).toString('utf8');
-    else if (e === 'docx') raw = await fromDocx(bytes);
-    else if (e === 'xlsx') raw = await fromXlsx(bytes, maxChars);
-    else if (e === 'pdf') raw = await fromPdf(bytes, maxChars);
+    else if (e === 'docx') raw = await withTimeout(fromDocx(bytes), EXTRACT_TIMEOUT_MS);
+    else if (e === 'xlsx') raw = await withTimeout(fromXlsx(bytes, maxChars), EXTRACT_TIMEOUT_MS);
+    else if (e === 'pdf') raw = await withTimeout(fromPdf(bytes, maxChars), EXTRACT_TIMEOUT_MS);
     else if (e === 'pptx') return none(noTextReason('pptx'));
     else return none(noTextReason(e));
 
     if (!raw || !raw.trim()) return none('no readable text was found in the file');
     const { text, truncated } = bound(raw, maxChars);
     return { text, truncated, note: null };
-  } catch {
-    // Never let a malformed or hostile file break the read around it.
+  } catch (err) {
+    // Never let a malformed, hostile or slow file break the read around it.
+    if (err && err.message === TIMEOUT_MARK) return none(`reading the .${e} file timed out`);
     return none(`the .${e} file could not be read as text`);
   }
 }

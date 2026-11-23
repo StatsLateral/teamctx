@@ -46,7 +46,14 @@ unchanged — it still offers download.
 4. **Honest about failure.** A file that cannot be parsed, or a type with no
    extractor, yields no text and a short reason, never a crashed read. Extraction
    runs on untrusted bytes through maintained libraries only, with no macro or
-   script execution and the output bounded.
+   script execution and the output bounded. A docx/xlsx is a ZIP whose upload cap
+   is on its *compressed* size, so before a parser unpacks one its central
+   directory is read and the file refused if it declares more than 50 MB of
+   contents or more than 4096 entries — a decompression bomb is turned away
+   before a byte is expanded. Every extraction is also run under a timeout, so a
+   slow or hostile parse cannot hold the read open. The `text` excerpt is file
+   content and therefore untrusted; `get_task` tells the assistant to read it as
+   data, not as instructions.
 5. **Surface:** the output an assistant reads in full through `get_task` gains a
    `text` excerpt field for a supported type (alongside the existing `file`
    metadata). That is the only read that returns an output's content —

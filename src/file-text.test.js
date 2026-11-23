@@ -112,4 +112,53 @@ describe('extractOutputText', () => {
     expect(EXTRACTABLE_EXTENSIONS).not.toContain('pptx');
     expect(MAX_EXTRACT_CHARS).toBeGreaterThan(0);
   });
+
+  // A docx/xlsx is a ZIP whose on-disk size is the *compressed* size; a small
+  // crafted file can declare gigabytes of contents. Build a ZIP whose central
+  // directory lies about its sizes and entry count — no real data, just the
+  // directory a parser would trust — and check it is refused before any unpack.
+  const craftZip = (entries) => {
+    const CEN = 0x02014b50;
+    const EOCD = 0x06054b50;
+    const headers = entries.map(({ name, uncompressed }) => {
+      const nameBuf = Buffer.from(name, 'utf8');
+      const h = Buffer.alloc(46 + nameBuf.length);
+      h.writeUInt32LE(CEN, 0);
+      h.writeUInt16LE(0, 10);                    // stored
+      h.writeUInt32LE(0, 20);                    // compressed size
+      h.writeUInt32LE(uncompressed >>> 0, 24);   // *declared* uncompressed size
+      h.writeUInt16LE(nameBuf.length, 28);
+      nameBuf.copy(h, 46);
+      return h;
+    });
+    const cd = Buffer.concat(headers);
+    const eocd = Buffer.alloc(22);
+    eocd.writeUInt32LE(EOCD, 0);
+    eocd.writeUInt16LE(entries.length, 8);
+    eocd.writeUInt16LE(entries.length, 10);
+    eocd.writeUInt32LE(cd.length, 12);
+    eocd.writeUInt32LE(0, 16);                   // central directory at offset 0
+    return new Uint8Array(Buffer.concat([cd, eocd]));
+  };
+
+  it('refuses a zip that declares a huge uncompressed size, before unpacking it', async () => {
+    const bomb = craftZip([{ name: 'a', uncompressed: 0xffffffff }]); // ~4 GB declared
+    for (const ext of ['docx', 'xlsx']) {
+      const r = await extractOutputText(bomb, ext);
+      expect(r.text).toBeNull();
+      expect(r.note).toMatch(/more than 50 MB/);
+    }
+  });
+
+  it('refuses a zip that declares too many entries', async () => {
+    const many = craftZip(Array.from({ length: 4097 }, (_, i) => ({ name: `${i}`, uncompressed: 0 })));
+    const r = await extractOutputText(many, 'docx');
+    expect(r.text).toBeNull();
+    expect(r.note).toMatch(/more than 4096 entries/);
+  });
+
+  it('still reads an ordinary docx (the guard does not false-positive)', async () => {
+    const r = await extractOutputText(docx, 'docx');
+    expect(r.text).toContain('Hello from the docx fixture.');
+  });
 });
