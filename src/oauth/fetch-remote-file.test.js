@@ -30,6 +30,21 @@ describe('isPrivateAddress — the ranges a model-supplied URL must never reach'
     expect(isPrivateAddress('::ffff:8.8.8.8')).toBe(false);
   });
 
+  it('blocks every other embedding of a private IPv4 — hex-mapped, 6to4 and NAT64', () => {
+    // These are all 127.0.0.1 or 10.0.0.1 wearing a different IPv6 coat; a string
+    // match on the dotted form alone would let them through.
+    for (const ip of ['::ffff:7f00:1', '::ffff:0a00:1', '2002:7f00:1::', '64:ff9b::7f00:1']) {
+      expect(isPrivateAddress(ip), ip).toBe(true);
+    }
+    // A public IPv4 embedded the same way stays public.
+    expect(isPrivateAddress('::ffff:0808:0808')).toBe(false); // 8.8.8.8 in hex
+    expect(isPrivateAddress('2002:0808:0808::')).toBe(false); // 8.8.8.8 via 6to4
+  });
+
+  it('refuses an IPv6 literal it cannot parse', () => {
+    expect(isPrivateAddress('::gggg')).toBe(true);
+  });
+
   it('allows a public IPv6 address', () => {
     expect(isPrivateAddress('2606:4700:4700::1111')).toBe(false);
   });
@@ -153,5 +168,40 @@ describe('fetchRemoteFile — transport, against a loopback server (allowPrivate
   it('times out a slow response', async () => {
     routes['/slow'] = (_req, res) => { res.writeHead(200); res.write('a'); /* never ends */ };
     await expect(fetchRemoteFile(`${origin}/slow`, { allowPrivate: true, timeoutMs: 150 })).rejects.toThrow(/timed out/);
+  });
+
+  it('abandons a server that drips bytes to stay under an idle timeout', async () => {
+    // One byte every 30ms would keep resetting a socket idle-timeout forever; the
+    // wall-clock deadline still fires at timeoutMs.
+    routes['/drip'] = (_req, res) => {
+      res.writeHead(200);
+      const iv = setInterval(() => { try { res.write('.'); } catch { clearInterval(iv); } }, 30);
+      res.on('close', () => clearInterval(iv));
+    };
+    await expect(fetchRemoteFile(`${origin}/drip`, { allowPrivate: true, timeoutMs: 150 }))
+      .rejects.toThrow(/timed out/);
+  });
+
+  it('asks the origin not to compress the body', async () => {
+    let seen;
+    routes['/enc'] = (req, res) => { seen = req.headers['accept-encoding']; res.end('ok'); };
+    await fetchRemoteFile(`${origin}/enc`, { allowPrivate: true });
+    expect(seen).toBe('identity');
+  });
+
+  it('does not read the body of a non-2xx response', async () => {
+    let bytesRead = 0;
+    routes['/err'] = (req, res) => {
+      req.socket.on('close', () => {}); // keep the test server quiet on abort
+      res.writeHead(404);
+      // A large error body: if we drained it, bytesRead would climb before the reject.
+      const iv = setInterval(() => { try { res.write('x'.repeat(1000)); bytesRead += 1000; } catch { clearInterval(iv); } }, 5);
+      res.on('close', () => clearInterval(iv));
+    };
+    await expect(fetchRemoteFile(`${origin}/err`, { allowPrivate: true })).rejects.toThrow(/HTTP 404/);
+    const atReject = bytesRead;
+    await new Promise(r => setTimeout(r, 60));
+    // The request was torn down, so the server stopped being able to push more.
+    expect(bytesRead - atReject).toBeLessThan(5000);
   });
 });

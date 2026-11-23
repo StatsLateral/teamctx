@@ -57,27 +57,66 @@ const BLOCKED_V4 = [
 ];
 
 /**
+ * Expand an IPv6 literal to its 16 bytes, or null if it does not parse. Handles
+ * `::` compression and a trailing embedded dotted-IPv4 (`::ffff:1.2.3.4`), and
+ * strips a zone id. Working in bytes is what lets the private-address check see
+ * every embedding of an address rather than only the forms a string match knows.
+ */
+function ipv6ToBytes(ip) {
+  let s = String(ip);
+  const zone = s.indexOf('%'); if (zone >= 0) s = s.slice(0, zone);
+  // A trailing dotted-IPv4 becomes two hextets, so the rest parses uniformly.
+  const dotted = s.match(/^(.*:)((?:\d{1,3}\.){3}\d{1,3})$/);
+  if (dotted) {
+    const q = dotted[2].split('.').map(Number);
+    if (q.some(n => n > 255)) return null;
+    s = `${dotted[1]}${((q[0] << 8) | q[1]).toString(16)}:${((q[2] << 8) | q[3]).toString(16)}`;
+  }
+  const halves = s.split('::');
+  if (halves.length > 2) return null;
+  const head = halves[0] ? halves[0].split(':') : [];
+  const tail = halves.length === 2 && halves[1] ? halves[1].split(':') : [];
+  const fill = halves.length === 2 ? 8 - head.length - tail.length : 0;
+  if (fill < 0) return null;
+  const groups = halves.length === 2 ? [...head, ...Array(fill).fill('0'), ...tail] : head;
+  if (groups.length !== 8) return null;
+  const bytes = new Uint8Array(16);
+  for (let i = 0; i < 8; i++) {
+    if (!/^[0-9a-f]{1,4}$/i.test(groups[i])) return null;
+    const v = parseInt(groups[i], 16);
+    bytes[i * 2] = v >> 8; bytes[i * 2 + 1] = v & 0xff;
+  }
+  return bytes;
+}
+
+/**
  * True when an IP literal (v4 or v6) is one we must never connect to.
  *
- * IPv4-mapped and -compatible IPv6 forms are unwrapped to their v4 address and
- * checked as v4, so `::ffff:127.0.0.1` cannot slip a loopback address past the
- * v6 checks.
+ * Every IPv6 form that embeds an IPv4 — mapped (`::ffff:a.b.c.d` and its hex
+ * `::ffff:7f00:1`), compatible (`::a.b.c.d`), 6to4 (`2002::/16`) and NAT64
+ * (`64:ff9b::/96`) — is judged by that embedded IPv4, so a loopback or private
+ * address cannot slip past the v6 checks in any encoding.
  */
 export function isPrivateAddress(ip) {
   const kind = isIP(ip);
   if (kind === 4) return BLOCKED_V4.some(cidr => inV4Range(ip, cidr));
   if (kind !== 6) return true; // not an address we can reason about — refuse it
 
-  const lower = ip.toLowerCase();
-  // Unwrap an embedded IPv4 (::ffff:a.b.c.d or ::a.b.c.d) and judge it as v4.
-  const mapped = lower.match(/(?:::ffff:|::)((?:\d{1,3}\.){3}\d{1,3})$/);
-  if (mapped && isIP(mapped[1]) === 4) return isPrivateAddress(mapped[1]);
+  const b = ipv6ToBytes(ip);
+  if (!b) return true; // a v6 literal we cannot expand — refuse it
+  const v4 = o => `${b[o]}.${b[o + 1]}.${b[o + 2]}.${b[o + 3]}`;
+  const zero = (lo, hi) => { for (let i = lo; i < hi; i++) if (b[i] !== 0) return false; return true; };
 
-  if (lower === '::' || lower === '::1') return true;       // unspecified, loopback
-  if (lower.startsWith('fe8') || lower.startsWith('fe9')
-    || lower.startsWith('fea') || lower.startsWith('feb')) return true; // link-local fe80::/10
-  if (lower.startsWith('fc') || lower.startsWith('fd')) return true;    // unique local fc00::/7
-  if (lower.startsWith('ff')) return true;                   // multicast ff00::/8
+  if (zero(0, 10) && b[10] === 0xff && b[11] === 0xff) return isPrivateAddress(v4(12)); // ::ffff:0:0/96 mapped
+  if (b[0] === 0x00 && b[1] === 0x64 && b[2] === 0xff && b[3] === 0x9b) return true;     // 64:ff9b::/96 NAT64
+  if (b[0] === 0x20 && b[1] === 0x02) return isPrivateAddress(v4(2));                    // 2002::/16 6to4
+  // ::/96 compatible, but not :: (unspecified) or ::1 (loopback) handled below.
+  if (zero(0, 12) && !(b[12] === 0 && b[13] === 0 && b[14] === 0 && b[15] <= 1)) return isPrivateAddress(v4(12));
+
+  if (zero(0, 15) && b[15] <= 1) return true;              // :: unspecified, ::1 loopback
+  if (b[0] === 0xfe && (b[1] & 0xc0) === 0x80) return true; // fe80::/10 link-local
+  if ((b[0] & 0xfe) === 0xfc) return true;                 // fc00::/7 unique local
+  if (b[0] === 0xff) return true;                          // ff00::/8 multicast
   return false;
 }
 
@@ -150,11 +189,18 @@ export async function fetchRemoteFile(urlString, {
   allowPrivate = false,
 } = {}) {
   let current = assertWebUrl(urlString);
+  // A wall-clock deadline over the whole fetch, redirects included: a server that
+  // never responds, OR one that drips a byte at a time to stay under an idle
+  // timeout, is abandoned once this passes — the operation cannot be held open.
+  const deadline = Date.now() + timeoutMs;
 
   for (let hop = 0; hop <= maxRedirects; hop++) {
     const safe = await resolveSafeAddress(current.hostname, { lookup, allowPrivate });
     const result = await new Promise((resolve, reject) => {
       const transport = current.protocol === 'https:' ? https : http;
+      let timer;
+      // Settle once and always clear the deadline timer, whichever way we leave.
+      const finish = (fn, arg) => { clearTimeout(timer); fn(arg); };
       const req = transport.request(current, {
         method: 'GET',
         // Pin the connection to the address we validated. The Host header and TLS
@@ -165,19 +211,23 @@ export async function fetchRemoteFile(urlString, {
         lookup: (_host, opts, cb) => (opts && opts.all
           ? cb(null, [{ address: safe.address, family: safe.family }])
           : cb(null, safe.address, safe.family)),
-        headers: { 'user-agent': 'teamctx', accept: '*/*' },
+        // identity: don't let an origin gzip the body unsolicited — we store the
+        // bytes verbatim and type-check them, so a compressed stream would fail.
+        headers: { 'user-agent': 'teamctx', accept: '*/*', 'accept-encoding': 'identity' },
       }, res => {
         const status = res.statusCode || 0;
         const location = res.headers.location;
         if (status >= 300 && status < 400 && location) {
-          res.resume(); // drain and discard; we re-request the redirect target
-          try { resolve({ redirectTo: new URL(location, current) }); }
-          catch { reject(new RemoteFetchError('that URL redirected to an invalid location')); }
+          // Don't download the body we're about to discard: tear the request down
+          // rather than drain an unbounded redirect body, then re-request the target.
+          req.destroy();
+          try { finish(resolve, { redirectTo: new URL(location, current) }); }
+          catch { finish(reject, new RemoteFetchError('that URL redirected to an invalid location')); }
           return;
         }
         if (status < 200 || status >= 300) {
-          res.resume();
-          reject(new RemoteFetchError(`fetching that URL returned HTTP ${status}`));
+          req.destroy(); // same: a non-2xx error body is uncapped, so don't read it
+          finish(reject, new RemoteFetchError(`fetching that URL returned HTTP ${status}`));
           return;
         }
         const chunks = [];
@@ -186,24 +236,24 @@ export async function fetchRemoteFile(urlString, {
           total += chunk.length;
           if (total > maxBytes) {
             req.destroy();
-            reject(new RemoteFetchError(`that file is larger than the ${maxBytes} byte limit`));
+            finish(reject, new RemoteFetchError(`that file is larger than the ${maxBytes} byte limit`));
             return;
           }
           chunks.push(chunk);
         });
-        res.on('end', () => resolve({
+        res.on('end', () => finish(resolve, {
           bytes: Buffer.concat(chunks),
           contentType: String(res.headers['content-type'] || '').split(';')[0].trim() || null,
         }));
-        res.on('error', e => reject(new RemoteFetchError(`that URL could not be read: ${e.message}`)));
+        res.on('error', e => finish(reject, new RemoteFetchError(`that URL could not be read: ${e.message}`)));
       });
-      req.setTimeout(timeoutMs, () => {
+      timer = setTimeout(() => {
         req.destroy();
-        reject(new RemoteFetchError(`fetching that URL timed out after ${timeoutMs} ms`));
-      });
+        finish(reject, new RemoteFetchError(`fetching that URL timed out after ${timeoutMs} ms`));
+      }, Math.max(1, deadline - Date.now()));
       req.on('error', e => {
-        if (e instanceof RemoteFetchError) reject(e);
-        else reject(new RemoteFetchError(`that URL could not be reached: ${e.message}`));
+        if (e instanceof RemoteFetchError) finish(reject, e);
+        else finish(reject, new RemoteFetchError(`that URL could not be reached: ${e.message}`));
       });
       req.end();
     });
