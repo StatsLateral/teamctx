@@ -10,8 +10,9 @@ import { join } from 'path';
 import { runWithActor } from '../../src/actor.js';
 import { makeConfig, makeProject, makeWorkstream } from '../../src/test-fixtures/model.js';
 import { writeConfig, writeProject, writeWorkstream, listOutputs, readOutputFile } from '../../src/storage.js';
-import { addTask, saveOutput, saveFileOutput } from './task.core.js';
+import { addTask, saveOutput, saveFileOutput, saveFileOutputs } from './task.core.js';
 import { sha256Hex, MAX_PAGE_UPLOAD_BYTES } from '../../src/file-output.js';
+import { commitContext } from '../../src/git.js';
 
 vi.mock('../../src/git.js', () => ({ commitContext: vi.fn(async () => ({ committed: true })), pushContext: vi.fn() }));
 
@@ -92,5 +93,50 @@ describe('attaching a file output', () => {
   it('refuses bytes whose type does not match the name, writing nothing', async () => {
     await expect(attach(member, { bytes: pdf, name: 'trick.png' })).rejects.toThrow(/does not match/);
     expect(existsSync(join(dir, 'outputs', task.id, 'files'))).toBe(false);
+  });
+});
+
+describe('attaching many files at once (#256)', () => {
+  const many = (actor, files) => as(actor, () => saveFileOutputs({ id: task.id, files, source: 'cli', teamctxDir: dir }));
+  // The outer setup's addTask commits once; start each case from a clean count.
+  beforeEach(() => commitContext.mockClear());
+
+  it('stores one output per file in a single commit', async () => {
+    const { outputs, skipped } = await many(member, [
+      { bytes: png, name: 'a.png' }, { bytes: pdf, name: 'b.pdf' }, { bytes: png, name: 'c.png' },
+    ]);
+    expect(outputs).toHaveLength(3);
+    expect(skipped).toEqual([]);
+    expect(listOutputs(task.id, dir).map(o => o.file.name)).toEqual(['a.png', 'b.pdf', 'c.png']);
+    // One commit for the whole batch, not three.
+    expect(commitContext).toHaveBeenCalledTimes(1);
+    expect(readOutputFile(task.id, `${outputs[0].id}-a.png`, dir).equals(png)).toBe(true);
+  });
+
+  it('skips a bad file with a reason and still stores the rest, in one commit', async () => {
+    const { outputs, skipped } = await many(member, [
+      { bytes: png, name: 'good.png' },
+      { bytes: Buffer.from('not a png'), name: 'liar.png' }, // bytes do not match the name
+    ]);
+    expect(outputs.map(o => o.file.name)).toEqual(['good.png']);
+    expect(skipped).toEqual([{ name: 'liar.png', reason: expect.stringMatching(/does not match/) }]);
+    expect(commitContext).toHaveBeenCalledTimes(1);
+  });
+
+  it('commits nothing when every file is skipped', async () => {
+    const { outputs, skipped } = await many(member, [{ bytes: pdf, name: 'trick.png' }]);
+    expect(outputs).toEqual([]);
+    expect(skipped).toHaveLength(1);
+    expect(commitContext).not.toHaveBeenCalled();
+    expect(existsSync(join(dir, 'outputs', task.id, 'files'))).toBe(false);
+  });
+
+  it('refuses the batch cleanly when the task is already accepted', async () => {
+    // Approve the task so no further work is allowed.
+    const { mkdirSync, writeFileSync } = await import('fs');
+    mkdirSync(join(dir, 'approved'), { recursive: true });
+    writeFileSync(join(dir, 'approved', 'a1.json'), JSON.stringify({ id: 'a1', forTask: task.id, approvedBy: { name: 'Manager' } }));
+    await expect(many(member, [{ bytes: png, name: 'a.png' }])).rejects.toThrow();
+    expect(commitContext).not.toHaveBeenCalled();
   });
 });

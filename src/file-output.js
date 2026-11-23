@@ -26,6 +26,13 @@ import { fileTypeFromBuffer } from 'file-type';
 export const MAX_OUTPUT_FILE_BYTES = 10 * 1024 * 1024;
 export const MAX_PAGE_UPLOAD_BYTES = 4 * 1024 * 1024;
 
+// Attaching a folder at once (#256): a run is refused whole, before anything is
+// written, if it has more than this many files or more than this many bytes in
+// total, so a stray glob against a huge folder cannot bloat the repository. Each
+// file still obeys MAX_OUTPUT_FILE_BYTES on its own.
+export const MAX_BATCH_FILES = 50;
+export const MAX_BATCH_TOTAL_BYTES = 100 * 1024 * 1024;
+
 /**
  * Binary work files, each with the content type it is served as. Verified from
  * their leading bytes. The three Office formats (docx, xlsx, pptx) are ZIP
