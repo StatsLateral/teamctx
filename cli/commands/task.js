@@ -157,6 +157,31 @@ export async function taskRmCommand(idOrPrefix, opts = {}) {
   }
 }
 
+export async function taskArchiveCommand(idOrPrefix, opts = {}) {
+  const unarchive = !!opts.unarchive;
+  // Un-archive only moves an archived task; refuse to quietly reopen a done one.
+  if (unarchive) {
+    let current;
+    try { current = getTask({ id: idOrPrefix }); } catch (err) { reportAndExit(err); }
+    if (current.status !== 'archived') {
+      console.log(`\nTask ${current.key || current.id} is not archived, so there is nothing to un-archive.\n`);
+      return;
+    }
+  }
+  let result;
+  try {
+    result = await setTaskStatus({ id: idOrPrefix, status: unarchive ? 'open' : 'archived' });
+  } catch (err) { reportAndExit(err); }
+  const label = result.task.key || result.task.id;
+  if (result.unchanged) {
+    console.log(`\nTask ${label} is ${unarchive ? 'not archived' : 'already archived'}.\n`);
+    return;
+  }
+  reportGit(result, unarchive
+    ? `✓ Task ${label} un-archived`
+    : `✓ Task ${label} archived — keeps its number and outputs, left out of the context until un-archived`);
+}
+
 export async function taskCompileCommand(idOrPrefix, opts = {}) {
   console.log(`\n→ Compiling prompt for task ${idOrPrefix}${opts.role ? ` (role: ${opts.role})` : ''}...`);
   let result;

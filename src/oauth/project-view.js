@@ -1,7 +1,7 @@
 import { GithubSession } from '../adapters/github.js';
 import { runWithSession } from '../session-context.js';
 import { readConfig, readProject, readWorkstream, listTasks, readContributions, readApprovals, listRejected, listQueue, listOutputs, listChanges, prepareChanges, readSourceRefs, readOutputFileBytes } from '../storage.js';
-import { saveFileOutput, assertNotAccepted } from '../../cli/commands/task.core.js';
+import { saveFileOutput, assertNotAccepted, assertNotArchived } from '../../cli/commands/task.core.js';
 import { MAX_PAGE_UPLOAD_BYTES } from '../file-output.js';
 import { outputStates, outputsForReader } from '../outputs.js';
 import { recordTrailFor } from '../../cli/commands/records.core.js';
@@ -239,7 +239,7 @@ export async function readProjectView({ owner, repo, user }) {
     // is a request, so reading it per task would be one per row. Only what is
     // newer than the oldest last activity on an open task can flag anything, so
     // that is all that is fetched and read (#206).
-    const floors = allTasks.filter(t => t.status !== 'done' && inScope(allowed, resolveTarget(t.workstream)))
+    const floors = allTasks.filter(t => t.status !== 'done' && t.status !== 'archived' && inScope(allowed, resolveTarget(t.workstream)))
       .map(t => lastActivity({ outputs: savedOn(t), task: t })).filter(Boolean);
     const floor = floors.length ? floors.reduce((a, b) => (a < b ? a : b)) : null;
     if (floor) await prepareChanges({ after: floor });
@@ -256,7 +256,7 @@ export async function readProjectView({ owner, repo, user }) {
           key: t.key || null,
           title: t.title,
           owner: t.owner || null,
-          status: t.status === 'done' ? 'done' : 'open',
+          status: t.status === 'done' ? 'done' : t.status === 'archived' ? 'archived' : 'open',
           sourceContributionIds: t.sourceContributionIds || [],
           workstream: resolveTarget(t.workstream),
           where: workstreamLocation(workstreams, resolveTarget(t.workstream), config.project),
@@ -386,7 +386,10 @@ export async function readProjectView({ owner, repo, user }) {
       })),
       tasks: {
         open: tasks.filter(t => t.status === 'open'),
-        done: tasks.filter(t => t.status === 'done'),
+        // Archived tasks ride in the history bucket with done (#320): shown
+        // under "Show history" and reachable by an old link, marked archived,
+        // but never counted among the open work.
+        done: tasks.filter(t => t.status === 'done' || t.status === 'archived'),
       },
       pending,
       // What the project was drawn from (#168), for the Connected sources
@@ -455,7 +458,9 @@ export async function attachFileOutput({ owner, repo, user, taskId, bytes, fileN
     // A closed task takes no more work. saveFileOutput would refuse it too, but
     // with a plain Error the route cannot tell from a real failure — so say it
     // here, as the clean refusal it is, rather than a 500 with "try again".
-    try { assertNotAccepted(task); } catch (e) { throw new ProjectViewError(e.message); }
+    // An archived task (#320) takes no more work either; say so cleanly rather
+    // than letting saveFileOutput's plain error fall through as a 500.
+    try { assertNotAccepted(task); assertNotArchived(task); } catch (e) { throw new ProjectViewError(e.message); }
     const { output } = await saveFileOutput({
       id: task.id, bytes, name: fileName, title, notes: note,
       source: 'web', actor, maxBytes: MAX_PAGE_UPLOAD_BYTES,

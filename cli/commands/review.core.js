@@ -302,9 +302,17 @@ export async function approveReview({ id, replaces, tasks, askAboutTasks = false
   if (tasks === 'leave_out') item = { ...item, operations: (item.operations || []).filter(o => o?.type !== 'addTask') };
   // Check before acquiring the key lock: an unresolved conflict must not even
   // backfill existing records, let alone apply or delete the queued proposal.
+  // A removeTask on a task that already has saved work is refused here, where
+  // the change is applied — archive is the way to retire it (#320). Only the
+  // ids an operation would remove are checked, so this costs nothing on an
+  // ordinary approval.
+  const pickedUp = new Set((item.operations || [])
+    .filter(o => o?.type === 'removeTask')
+    .map(o => o.id)
+    .filter(id => { try { return listOutputs(id, teamctxDir).length > 0; } catch { return false; } }));
   const resolvedItem = resolveContradictions(item, { replaces, config, teamctxDir });
   if (item.contradictions?.length) {
-    const preview = applyQueueItem(readTree(targetId, teamctxDir), resolvedItem, { nextKey: config.nextKey, workstreamNumber: workstreamNumber(config, targetId) });
+    const preview = applyQueueItem(readTree(targetId, teamctxDir), resolvedItem, { nextKey: config.nextKey, workstreamNumber: workstreamNumber(config, targetId), pickedUp });
     assertConflictApplied(resolvedItem, preview.dropped);
   }
   // Who approved a record travels with it, not only with the commit.
@@ -313,7 +321,7 @@ export async function approveReview({ id, replaces, tasks, askAboutTasks = false
   const applyDropped = [];
   const updated = withCounters(teamctxDir, current => {
     item = resolveContradictions(item, { replaces, config: current, teamctxDir });
-    const { tree: applied, nextKey, dropped } = applyQueueItem(readTree(targetId, teamctxDir), item, { nextKey: current.nextKey, workstreamNumber: workstreamNumber(current, targetId) });
+    const { tree: applied, nextKey, dropped } = applyQueueItem(readTree(targetId, teamctxDir), item, { nextKey: current.nextKey, workstreamNumber: workstreamNumber(current, targetId), pickedUp });
     assertConflictApplied(item, dropped);
     applyDropped.push(...dropped);
     const tree = {

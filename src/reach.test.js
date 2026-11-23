@@ -33,6 +33,11 @@ describe('reachOf', () => {
     expect(reach().inProgress.map(t => t.key)).toEqual(['1.1', '2.1']);
   });
 
+  it('leaves out an archived task — it has left the plan, like a done one', () => {
+    const withArchived = [...tasks, task('t5', '1.2', 'launch', { status: 'archived', compiledAt: '2026-10-01T00:00:00.000Z' })];
+    expect(reach({ tasks: withArchived }).inProgress.map(t => t.key)).toEqual(['1.1', '2.1']);
+  });
+
   it('reaches every part when the change is to the project', () => {
     const r = reach({ treeId: null });
     expect(r.adds.label).toBe('Ledger');

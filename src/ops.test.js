@@ -77,6 +77,16 @@ describe('applyOps', () => {
     expect(tree.tasks).toEqual([]);
   });
 
+  it('refuses to remove a task flagged as picked up, naming archive (#320)', () => {
+    let { tree } = applyOps(food(), [{ type: 'addTask', title: 'Bake cake' }], C, FOOD);
+    const id = tree.tasks[0].id;
+    const r = applyOps(tree, [{ type: 'removeTask', id }], 'c-3', { pickedUp: new Set([id]) });
+    expect(r.tree.tasks).toHaveLength(1); // not removed
+    expect(r.dropped[0].reason).toMatch(/archive/i);
+    // Without the flag — e.g. on a replay of history — it still removes.
+    expect(applyOps(tree, [{ type: 'removeTask', id }], 'c-3').tree.tasks).toEqual([]);
+  });
+
   describe('a task\'s title says what the work is, not how far it has got', () => {
     const edit = (from, to) => applyOps({ ...food(), tasks: [{ id: 't1', key: '3.1', title: from, status: 'open' }] },
       [{ type: 'editTask', id: 't1', title: to }], 'c-1', FOOD);

@@ -219,6 +219,34 @@ export function assertNotAccepted(task, teamctxDir) {
 }
 
 /**
+ * A task that was retired after work was saved on it (#320). It keeps its number
+ * and its outputs, but nothing more can be worked on it until it is un-archived.
+ */
+export class TaskArchivedError extends Error {
+  constructor(task) {
+    super(`Task ${task.key || task.id} is archived: nothing more can be saved, submitted or compiled on it. Un-archive it first to work on it again.`);
+    this.code = 'TASK_ARCHIVED';
+  }
+}
+
+/**
+ * Refuses to delete a task that already has saved work on it (#320): deleting it
+ * would throw the outputs and the history that points at it away. Archive keeps
+ * them, so the message names it.
+ */
+export class TaskPickedUpError extends Error {
+  constructor(task) {
+    super(`Task ${task.key || task.id} has work saved on it and cannot be deleted — its outputs and history would go with it. Archive it instead to retire it while keeping its number and outputs.`);
+    this.code = 'TASK_PICKED_UP';
+  }
+}
+
+/** Throw if the task is archived, so a path that works a task refuses on it. */
+export function assertNotArchived(task) {
+  if (task?.status === 'archived') throw new TaskArchivedError(task);
+}
+
+/**
  * The most that one output may hold. Refused above it, never cut short: a
  * silently shortened draft is worse than one that was not saved.
  */
@@ -417,6 +445,7 @@ export async function saveOutput({
   const config = readConfig(teamctxDir);
   const { task } = findTask(id, teamctxDir);
   assertNotAccepted(task, teamctxDir);
+  assertNotArchived(task);
   const text = typeof body === 'string' ? body : '';
   if (!text.trim()) throw new Error('the output is empty: there is nothing to save');
   if (text.length > MAX_OUTPUT_CHARS) {
@@ -465,6 +494,7 @@ export async function saveFileOutput({
   const config = readConfig(teamctxDir);
   const { task } = findTask(id, teamctxDir);
   assertNotAccepted(task, teamctxDir);
+  assertNotArchived(task);
   const saved = listOutputs(task.id, teamctxDir);
   if (basedOn && !saved.some(o => o.id === basedOn)) {
     throw new Error(`no output "${basedOn}" on task ${task.key || task.id} to build on`);
@@ -561,6 +591,7 @@ export async function saveLinkOutput({
   const config = readConfig(teamctxDir);
   const { task } = findTask(id, teamctxDir);
   assertNotAccepted(task, teamctxDir);
+  assertNotArchived(task);
   const link = validateLinkOutput({ connector, url, title, version });
   const saved = listOutputs(task.id, teamctxDir);
   if (basedOn && !saved.some(o => o.id === basedOn)) {
@@ -605,6 +636,7 @@ export async function submitTask({
   const config = readConfig(teamctxDir);
   const { task } = findTask(id, teamctxDir);
   assertNotAccepted(task, teamctxDir);
+  assertNotArchived(task);
   const saved = listOutputs(task.id, teamctxDir);
   if (!saved.length) throw new Error(`nothing saved on task ${task.key || task.id} to submit: save the work as an output first`);
   let chosen;
@@ -677,11 +709,20 @@ export async function submitTask({
  * context change so a failure part-way cannot leave one without the other.
  */
 export function withStatus(task, status, by, at = new Date().toISOString()) {
-  const entry = { did: status === 'done' ? 'completed' : 'reopened', by, at };
-  const statusLog = [...(Array.isArray(task.statusLog) ? task.statusLog : []), entry];
-  return status === 'done'
-    ? { ...task, status: 'done', doneAt: todayIso(), doneBy: by, statusLog }
-    : { ...task, status: 'open', doneAt: null, doneBy: null, statusLog };
+  // Archiving and un-archiving share the status trail with done/reopen (#320).
+  // Going back to open from an archived task is "unarchived", from a done one
+  // "reopened".
+  const did = status === 'done' ? 'completed'
+    : status === 'archived' ? 'archived'
+      : task.status === 'archived' ? 'unarchived' : 'reopened';
+  const statusLog = [...(Array.isArray(task.statusLog) ? task.statusLog : []), { did, by, at }];
+  // Clear any archived stamp too, so a task is never both done and archived.
+  if (status === 'done') return { ...task, status: 'done', doneAt: todayIso(), doneBy: by, archivedAt: null, archivedBy: null, statusLog };
+  // Archived keeps its number and outputs; only the state and its stamp change.
+  // Clear any done stamp too, so a task is never both done and archived.
+  if (status === 'archived') return { ...task, status: 'archived', archivedAt: todayIso(), archivedBy: by, doneAt: null, doneBy: null, statusLog };
+  // Open again — clear both the done and the archived stamps so neither lingers.
+  return { ...task, status: 'open', doneAt: null, doneBy: null, archivedAt: null, archivedBy: null, statusLog };
 }
 
 export async function setTaskStatus({
@@ -690,7 +731,12 @@ export async function setTaskStatus({
   const config = readConfig(teamctxDir);
   const { task } = findTask(id, teamctxDir);
   if (task.status === status) return { task, unchanged: true, committed: false, pushed: false };
+  // Reopening or un-archiving an accepted task is refused: accepted work is
+  // closed. Archiving is allowed whatever the state.
   if (status === 'open') assertNotAccepted(task, teamctxDir);
+  // A retired task is out of the plan until a manager un-archives it, so it must
+  // not be quietly completed either — mark it done only after it is back open.
+  if (status === 'done') assertNotArchived(task);
 
   // Who did it and when, appended, so a task completed, reopened and completed
   // again keeps all three for its history (#143). `doneAt` stays a date for
@@ -698,10 +744,20 @@ export async function setTaskStatus({
   const resolved = actor || await resolveActor({ config, cwd: projectDir });
   const me = await resolveDisplayName({ actor: resolved, config, teamctxDir });
   const by = { key: resolved?.key || null, name: me };
+  const wasArchived = task.status === 'archived';
+  // Un-archiving returns a task to the plan everyone reads, exactly as archiving
+  // takes it out of it, so it is a manager's call — and reopen must not be a way
+  // around the archive gate. (Reopening a merely done task stays open to whoever
+  // worked it.)
+  if (status === 'open' && wasArchived) {
+    assertManager(config, { actor: resolved, displayName: me });
+  }
   const updated = withStatus(task, status, by);
   writeTask(updated, teamctxDir);
 
-  const verb = status === 'done' ? 'done' : 'reopen';
+  const verb = status === 'done' ? 'done'
+    : status === 'archived' ? 'archive'
+      : wasArchived ? 'unarchive' : 'reopen';
   const git = await commitAndPush(config, `task: ${verb} ${task.id} by ${me}`, projectDir);
   return { task: updated, unchanged: false, ...git };
 }
@@ -747,6 +803,11 @@ export async function removeTask({ id, reason, source = 'cli', teamctxDir, proje
   const { task } = findTask(id, teamctxDir);
   const accepted = acceptancesOf(task, teamctxDir);
   if (accepted.length) return removeAcceptedTask({ task, accepted, reason, source, config, teamctxDir, projectDir });
+  // Picked up means an output has been saved (#320). Deleting such a task would
+  // take its outputs and history with it, so delete is refused and archive is
+  // named instead. A task nobody has worked is deleted as before, and its number
+  // is never reused.
+  if (listOutputs(task.id, teamctxDir).length) throw new TaskPickedUpError(task);
   // Read before it goes, so the entry can name the task by its title.
   const before = readTree(task.workstream, teamctxDir);
   const { id: removedId, workstream } = deleteTask(id, teamctxDir);
@@ -868,6 +929,7 @@ export async function compileTask({
   await prepareTaskChanges({ id, teamctxDir, sinceCompiled: true });
   const config = readConfig(teamctxDir);
   const { task } = findTask(id, teamctxDir);
+  assertNotArchived(task);
   // A task is always in a workstream, so the project is always the half above it.
   const wsId = task.workstream;
   const workstream = readTree(wsId, teamctxDir);

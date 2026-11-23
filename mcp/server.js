@@ -700,12 +700,25 @@ export const TOOLS = [
   },
   {
     name: 'task_rm',
-    description: RISKY + "permanently deletes a task and its compiled prompt file, then commits. There is no undo short of a git revert. Report the task title to the user and confirm before calling. A task whose work was accepted can be removed only by a manager, with `reason` saying why; its outputs and approval stay, its acceptance is closed, and `stillActive` lists anything else recorded when it was accepted: tell the manager, who decides whether those stand." + REPORT,
+    description: RISKY + "permanently deletes a task and its compiled prompt file, then commits. There is no undo short of a git revert. Report the task title to the user and confirm before calling. A task that already has a saved output cannot be deleted — it would take its outputs and history with it; archive it with task_archive instead. A task whose work was accepted can be removed only by a manager, with `reason` saying why; its outputs and approval stay, its acceptance is closed, and `stillActive` lists anything else recorded when it was accepted: tell the manager, who decides whether those stand." + REPORT,
     inputSchema: {
       type: 'object',
       properties: {
         id: { type: 'string' },
         reason: { type: 'string', description: 'Why an accepted task is leaving the plan. Required for an accepted task; ask the manager for it.' },
+      },
+      required: ['id'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'task_archive',
+    description: "Retire a task that has work on it but should no longer be done, and commit. Managers only. The task keeps its number and its saved outputs, so old links, reviews and history still resolve, but it drops out of the approved context, the brief, the default task list and compiled prompts, and nobody can save, submit or compile on it. Use this instead of task_rm when a task has been picked up (task_rm refuses it). Pass `unarchive:true` to bring it back to open. Returns unchanged:true without committing if it was already in that state." + REPORT,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string' },
+        unarchive: { type: 'boolean', description: 'Bring an archived task back to open instead of archiving it.' },
       },
       required: ['id'],
       additionalProperties: false,
@@ -1823,6 +1836,36 @@ export function makeHandlers(projectRoot) {
           + (r.accepted ? ' Its accepted work and approval are kept in the history.' : '')
           + (still.length ? ` Still in the context from when it was accepted: ${still.join('; ')}. Ask the manager whether those stand.` : ''),
       });
+    },
+
+    async task_archive(args = {}) {
+      const teamctxDir = dir();
+      await assertTaskInScope(teamctxDir, args.id);
+      // Retiring a task shapes the plan everyone reads, so it is a manager's
+      // call — never an agent's, which is never a manager.
+      const config = readConfig(teamctxDir);
+      if (!(await this.isManagerNow(teamctxDir, config))) {
+        throw new Error('Only a manager can archive or un-archive a task.');
+      }
+      const unarchive = !!args.unarchive;
+      // Un-archive only moves an archived task; it must not quietly reopen a done
+      // one that was never archived.
+      if (unarchive) {
+        const current = getTask({ id: args.id, teamctxDir });
+        if (current.status !== 'archived') {
+          return textResult({ task: current, unchanged: true, reportBack: `Task ${current.key || current.id} is not archived, so there is nothing to un-archive.` });
+        }
+      }
+      const r = await setTaskStatus({
+        id: args.id, status: unarchive ? 'open' : 'archived', teamctxDir, projectDir: gitCwd,
+      });
+      const link = await this.viewUrl({ task: r.task.id, ref: r.task.key });
+      const label = r.task.key || r.task.id;
+      const msg = unarchive
+        ? (r.unchanged ? `Task ${label} was not archived.` : `Task ${label} un-archived and back in the plan.`)
+        : (r.unchanged ? `Task ${label} was already archived.`
+          : `Task ${label} archived: it keeps its number and outputs, drops out of the context, and nobody can work it until it is un-archived.`);
+      return textResult({ ...r, ...link, reportBack: withLink(msg, link) });
     },
 
     async task_compile(args = {}) {
