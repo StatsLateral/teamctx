@@ -8,6 +8,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Attach a file to a task straight from a download URL.** The new
+  `attach_file_from_url` MCP tool takes a direct http/https URL whose bytes are
+  the file, fetches them server-side, and stores a copy as a task output — so a
+  chatbot that already holds a file by reference (a platform's download link, a
+  pre-signed object URL) can hand it over without the bytes ever passing through
+  the model. The fetch is guarded: http/https only, public addresses only (a URL
+  resolving to a private or internal host is refused, with the connection pinned
+  to the checked address so a name cannot rebind), redirects re-checked each hop,
+  and the body capped and the request timed. The file is size- and type-checked
+  on arrival and stored under the caller's name, exactly as a page upload is
+  (up to 4 MB). This is the "by reference" counterpart to `request_upload`, which
+  sends bytes up from a sandbox, and to `task_attach_link`, which keeps a file in
+  a cloud tool and only points at it (#258).
 - **Upload a generated file as a task output without spending tokens on its bytes.**
   The new `request_upload` MCP tool returns a short-lived, single-use URL; the
   chatbot's own sandbox sends the file's bytes straight to it with an HTTP `PUT`

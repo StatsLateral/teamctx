@@ -43,7 +43,7 @@ import { assertJoinableContext } from '../src/context-gate.js';
 import { contributeCore } from '../cli/commands/contribute.core.js';
 import { buildBrief } from '../cli/commands/brief.core.js';
 import {
-  listTasksFiltered, getTask, prepareTaskChanges, saveOutput, saveLinkOutput, submitTask, addTask, setTaskStatus, assignTask, linkTask, removeTask, compileTask, assertNotAccepted,
+  listTasksFiltered, getTask, prepareTaskChanges, saveOutput, saveLinkOutput, saveFileOutput, submitTask, addTask, setTaskStatus, assignTask, linkTask, removeTask, compileTask, assertNotAccepted,
 } from '../cli/commands/task.core.js';
 import { listMembers, addMember, removeMember, setMemberWorkstreams, setMemberExternal } from '../cli/commands/member.core.js';
 import { getConfig, setConfig, repairManagerGate, setReviewPolicy } from '../cli/commands/config.core.js';
@@ -65,6 +65,7 @@ import {
 } from '../src/agents.js';
 import { takeDailyContribution } from '../src/oauth/agent-tokens.js';
 import { createUploadTicket } from '../src/oauth/upload-tickets.js';
+import { fetchRemoteFile, fileNameFromUrl, RemoteFetchError } from '../src/oauth/fetch-remote-file.js';
 import { FILE_OUTPUT_EXTENSIONS, FILE_OUTPUT_TYPES, extensionOf, humanBytes, MAX_PAGE_UPLOAD_BYTES } from '../src/file-output.js';
 import { contextFreshness, freshnessLine, withFreshness } from '../src/freshness.js';
 
@@ -336,6 +337,24 @@ export const TOOLS = [
         size: { type: 'number', description: 'The file size in bytes, if you know it. Used only to refuse an over-limit file before you send it; the real check is on the bytes.' },
       },
       required: ['id', 'name'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'attach_file_from_url',
+    description: "**Store a file that already lives at a direct download URL as a task output, without carrying its bytes.** Reach for this when you have a URL whose bytes ARE the file (a platform's download link for a file you generated, a pre-signed object URL, a raw file link) and a copy should be kept on the task. teamctx fetches the bytes server-side and stores them exactly as a page upload is — the bytes never pass through you, so it costs the same handful of tokens whatever the file's size. The file is fetched over http/https only, from a public address only (a URL that points at a private or internal host is refused), size- and type-checked on arrival, and recorded as a working output under your name; nothing is queued and nobody is asked to approve it, as with `task_output`. Allowed types: " + FILE_OUTPUT_EXTENSIONS.join(', ') + ". The most one file may be is " + humanBytes(MAX_PAGE_UPLOAD_BYTES) + "; a larger one should be kept in a cloud tool and attached with `task_attach_link`. One file per call. Choose between the three ways to add a file: this one when the bytes already sit at a fetchable URL; `request_upload` when you must send bytes up from your own sandbox; `task_attach_link` when the deliverable should STAY in a connected cloud tool and only be pointed at (teamctx copies nothing). If the URL does not end in the file's name, pass `name` with the right extension. Returns { output, task }.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: 'Task number such as 3.2, task id, or a unique prefix of one' },
+        url: { type: 'string', description: 'A direct http/https download URL whose bytes are the file itself' },
+        name: { type: 'string', description: 'What the file is called, with its extension (for example chart.png). Defaults to the last segment of the URL; pass it when the URL has no file name.' },
+        title: { type: 'string', description: 'A title for the output; defaults to the file name' },
+        prompt: { type: 'string', description: 'What the person asked for that produced this' },
+        notes: { type: 'string', description: "The person's own notes on it" },
+        basedOn: { type: 'string', description: 'The id of the output this carries on from' },
+      },
+      required: ['id', 'url'],
       additionalProperties: false,
     },
   },
@@ -1676,6 +1695,52 @@ export function makeHandlers(projectRoot) {
               + `your client is not allowed to reach ${uploadHost} — add that domain to your client's allowed websites and retry; it is not a teamctx error. `
             : '')
           + `Once it returns ok, "${name}" is a working output on task ${task.key || task.id}; nothing was sent for approval.`,
+      });
+    },
+
+    async attach_file_from_url(args = {}) {
+      const teamctxDir = dir();
+      const config = readConfig(teamctxDir);
+      await assertTaskInScope(teamctxDir, args.id);
+      let task;
+      try { task = getTask({ id: args.id, teamctxDir }); }
+      catch { throw new Error(`No task matches "${args.id}".`); }
+      assertNotAccepted(task, teamctxDir);
+
+      const url = String(args.url || '').trim();
+      if (!url) throw new Error('A download URL is required.');
+      // Take the name from the caller, else from the URL's last path segment, and
+      // refuse a clearly-wrong type before spending a fetch on it. The bytes are
+      // still the authority — saveFileOutput re-checks size and that the real type
+      // matches the name — but a bad extension is free to catch here.
+      const name = String(args.name || '').trim() || fileNameFromUrl(url);
+      const ext = extensionOf(name);
+      if (!ext || !(ext in FILE_OUTPUT_TYPES)) {
+        throw new Error(`A .${ext || '?'} file is not an allowed output type. Allowed: ${FILE_OUTPUT_EXTENSIONS.join(', ')}.`
+          + (args.name ? '' : ' If the URL does not end in the file name, pass `name` with the right extension.'));
+      }
+
+      let fetched;
+      try {
+        fetched = await fetchRemoteFile(url, { maxBytes: MAX_PAGE_UPLOAD_BYTES });
+      } catch (e) {
+        if (e instanceof RemoteFetchError) throw new Error(`Could not fetch that file: ${e.message}.`);
+        throw e;
+      }
+
+      const { actor } = await who(teamctxDir, config);
+      const r = await saveFileOutput({
+        id: task.id, bytes: fetched.bytes, name, title: args.title, notes: args.notes,
+        prompt: args.prompt, basedOn: args.basedOn, source: 'mcp', actor,
+        maxBytes: MAX_PAGE_UPLOAD_BYTES, teamctxDir, projectDir: gitCwd,
+      });
+      const link = await this.viewUrl({ task: r.task.id, ref: r.task.key });
+      return textResult({
+        ...r,
+        ...link,
+        reportBack: withLink(
+          `Fetched "${r.output.file.name}" from the URL and stored it as a working output on task ${r.task.key || r.task.id}. `
+          + `The bytes never passed through you. Nothing was sent for approval.`, link),
       });
     },
 
