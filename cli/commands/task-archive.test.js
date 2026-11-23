@@ -127,12 +127,30 @@ describe('archiving a task that has been worked', () => {
     expect(md).toContain('Draft the post');
   });
 
-  it('is never both done and archived — each state clears the other stamp', async () => {
-    // Already archived (beforeEach). Marking it done clears the archived stamp.
-    const { task: nowDone } = await as(manager, () => setTaskStatus({ id: task.id, status: 'done', teamctxDir: dir }));
+  it('refuses to un-archive unless the caller is a manager (reopen is not a way around the gate)', async () => {
+    await expect(as(member, () => setTaskStatus({ id: task.id, status: 'open', teamctxDir: dir })))
+      .rejects.toThrow();
+    const still = readTree('sales', dir).tasks.find(t => t.id === task.id);
+    expect(still.status).toBe('archived');
+    // A manager still can.
+    const { task: reopened } = await archiveBackToOpen(task.id);
+    expect(reopened.status).toBe('open');
+  });
+
+  it('refuses to mark an archived task done — it must be un-archived first', async () => {
+    // Already archived (beforeEach). A retired task is out of the plan, so it
+    // cannot be quietly completed; it is refused rather than silently un-archived.
+    await expect(as(member, () => setTaskStatus({ id: task.id, status: 'done', teamctxDir: dir })))
+      .rejects.toThrow(/archived/);
+    const still = readTree('sales', dir).tasks.find(t => t.id === task.id);
+    expect(still.status).toBe('archived');
+  });
+
+  it('is never both done and archived — archiving a done task clears the done stamp', async () => {
+    // Reach "done" the only allowed way (open → done), then archive it.
+    await archiveBackToOpen(task.id);
+    const { task: nowDone } = await as(member, () => setTaskStatus({ id: task.id, status: 'done', teamctxDir: dir }));
     expect(nowDone.status).toBe('done');
-    expect(nowDone.archivedAt).toBeNull();
-    // Archiving a done task clears the done stamp.
     const { task: reArchived } = await archive(task.id);
     expect(reArchived.status).toBe('archived');
     expect(reArchived.doneAt).toBeNull();

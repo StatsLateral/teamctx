@@ -734,6 +734,9 @@ export async function setTaskStatus({
   // Reopening or un-archiving an accepted task is refused: accepted work is
   // closed. Archiving is allowed whatever the state.
   if (status === 'open') assertNotAccepted(task, teamctxDir);
+  // A retired task is out of the plan until a manager un-archives it, so it must
+  // not be quietly completed either — mark it done only after it is back open.
+  if (status === 'done') assertNotArchived(task);
 
   // Who did it and when, appended, so a task completed, reopened and completed
   // again keeps all three for its history (#143). `doneAt` stays a date for
@@ -742,6 +745,13 @@ export async function setTaskStatus({
   const me = await resolveDisplayName({ actor: resolved, config, teamctxDir });
   const by = { key: resolved?.key || null, name: me };
   const wasArchived = task.status === 'archived';
+  // Un-archiving returns a task to the plan everyone reads, exactly as archiving
+  // takes it out of it, so it is a manager's call — and reopen must not be a way
+  // around the archive gate. (Reopening a merely done task stays open to whoever
+  // worked it.)
+  if (status === 'open' && wasArchived) {
+    assertManager(config, { actor: resolved, displayName: me });
+  }
   const updated = withStatus(task, status, by);
   writeTask(updated, teamctxDir);
 

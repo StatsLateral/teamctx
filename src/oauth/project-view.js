@@ -239,7 +239,7 @@ export async function readProjectView({ owner, repo, user }) {
     // is a request, so reading it per task would be one per row. Only what is
     // newer than the oldest last activity on an open task can flag anything, so
     // that is all that is fetched and read (#206).
-    const floors = allTasks.filter(t => t.status !== 'done' && inScope(allowed, resolveTarget(t.workstream)))
+    const floors = allTasks.filter(t => t.status !== 'done' && t.status !== 'archived' && inScope(allowed, resolveTarget(t.workstream)))
       .map(t => lastActivity({ outputs: savedOn(t), task: t })).filter(Boolean);
     const floor = floors.length ? floors.reduce((a, b) => (a < b ? a : b)) : null;
     if (floor) await prepareChanges({ after: floor });

@@ -48,7 +48,7 @@ export function reachOf({ operations, treeId, config, tasks, hasWork, exclude = 
     // Project-level tasks carry no workstream, so a change to the project has to
     // ask for them explicitly.
     inProgress: (tasks || [])
-      .filter(t => t.status !== 'done' && t.id !== exclude && (flagsAll || named.has(t.id)) && (scope.has(t.workstream) || (treeId == null && isProjectLevel(t.workstream))) && hasWork(t))
+      .filter(t => t.status !== 'done' && t.status !== 'archived' && t.id !== exclude && (flagsAll || named.has(t.id)) && (scope.has(t.workstream) || (treeId == null && isProjectLevel(t.workstream))) && hasWork(t))
       .map(t => ({ id: t.id, key: t.key || null, title: t.title, workstream: t.workstream ?? null })),
   };
 }

@@ -24,6 +24,20 @@ describe('digestProject', () => {
     expect(d.more).toBe(true);
   });
 
+  it('does not count an archived task — it has left the plan', () => {
+    const d = digestProject({
+      project: { goal: null, records: [], tasks: [{ id: 'p', title: 'Project task', status: 'open' }] },
+      workstreams: [{ id: 'w', name: 'Work', number: '1', records: [], tasks: [
+        { id: 'a', title: 'Live', status: 'open' },
+        { id: 'b', title: 'Done', status: 'done' },
+        { id: 'c', title: 'Retired', status: 'archived' },
+      ] }],
+    });
+    // The archived task drops from both the per-workstream count and the total.
+    expect(d.workstreams[0].tasks).toBe(2);
+    expect(d.counts.tasks).toBe(3); // 1 project + 2 live-or-done in the workstream
+  });
+
   it('leaves out records that are no longer active', () => {
     const d = digestProject({ project: { records: [{ ...dec('old'), status: 'replaced' }], tasks: [] } });
     expect(d.settled).toEqual([]);

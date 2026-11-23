@@ -28,10 +28,13 @@ function trim(text, chars) {
 export function digestProject({ project, workstreams = [] } = {}, limits = {}) {
   const { settled: maxSettled, workstreams: maxWs, chars } = { ...LIMITS, ...limits };
   const trees = [project, ...workstreams].filter(Boolean);
+  // An archived task has left the plan, so it is not part of the context the
+  // digest summarises — count only the tasks that still stand (#320).
+  const liveTasks = ts => (ts || []).filter(x => x?.status !== 'archived');
   const counts = { tasks: 0 };
   for (const t of trees) {
     for (const r of t.records || []) if (r.status === 'active') counts[r.type] = (counts[r.type] || 0) + 1;
-    counts.tasks += (t.tasks || []).length;
+    counts.tasks += liveTasks(t.tasks).length;
   }
   const allSettled = (project?.records || []).filter(r => ['decision', 'rule'].includes(r.type) && r.status === 'active');
   return {
@@ -41,7 +44,7 @@ export function digestProject({ project, workstreams = [] } = {}, limits = {}) {
     workstreams: workstreams.slice(0, maxWs).map(w => ({
       number: w.number || null,
       name: trim(w.name || w.id, chars),
-      tasks: (w.tasks || []).length,
+      tasks: liveTasks(w.tasks).length,
       records: (w.records || []).filter(r => r.status === 'active').length,
     })),
     counts,
