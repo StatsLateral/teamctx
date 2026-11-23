@@ -49,6 +49,24 @@ describe('taskAttachCommand', () => {
     expect(out()).toContain(FILE_OUTPUT_WARNING);
   });
 
+  it('passes the --allow-secrets override through to saveFileOutput (#252)', async () => {
+    saveFileOutput.mockResolvedValue({
+      output: { id: 'o-2', file: { name: 'banner.png', type: 'image/png', size: 4 } },
+      task: { key: '1.1', id: 't-x' }, committed: false,
+    });
+    await taskAttachCommand('1.1', file, { allowSecrets: true });
+    expect(saveFileOutput.mock.calls[0][0]).toMatchObject({ allowSecrets: true });
+  });
+
+  it('defaults the override off when the flag is absent (#252)', async () => {
+    saveFileOutput.mockResolvedValue({
+      output: { id: 'o-3', file: { name: 'banner.png', type: 'image/png', size: 4 } },
+      task: { key: '1.1', id: 't-x' }, committed: false,
+    });
+    await taskAttachCommand('1.1', file, {});
+    expect(saveFileOutput.mock.calls[0][0]).toMatchObject({ allowSecrets: false });
+  });
+
   it('prints a clean error, not a stack trace, when the file is refused', async () => {
     saveFileOutput.mockRejectedValue(new FileOutputError('the file is too large to attach'));
     await expect(taskAttachCommand('1.1', file, {})).rejects.toThrow('exit');
@@ -93,6 +111,18 @@ describe('taskAttachCommand — many files', () => {
     expect(out()).toContain('ignored 1 non-attachable file');
     expect(out()).toContain(FILE_OUTPUT_WARNING);
     expect(saveFileOutput).not.toHaveBeenCalled();
+  });
+
+  it('passes --allow-secrets through to the batch, so the scan is overridable per file (#252)', async () => {
+    writeFileSync(join(bdir, 'a.png'), PNG);
+    batchReturns();
+    await taskAttachCommand('1.1', bdir, { allowSecrets: true });
+    expect(saveFileOutputs.mock.calls[0][0]).toMatchObject({ allowSecrets: true });
+
+    saveFileOutputs.mockClear();
+    batchReturns();
+    await taskAttachCommand('1.1', bdir, {});
+    expect(saveFileOutputs.mock.calls[0][0]).toMatchObject({ allowSecrets: false });
   });
 
   it('does not descend into sub-folders unless --recursive', async () => {

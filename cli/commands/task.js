@@ -253,6 +253,7 @@ async function attachOne(idOrPrefix, path, opts) {
   try {
     result = await saveFileOutput({
       id: idOrPrefix, bytes, name: basename(path), title: opts.title, notes: opts.note, source: 'cli',
+      allowSecrets: !!opts.allowSecrets,
     });
   } catch (err) {
     // A file refused for its size, type or a name mismatch carries its own
@@ -316,7 +317,7 @@ async function attachMany(idOrPrefix, paths, opts) {
 
   let result;
   try {
-    result = await saveFileOutputs({ id: idOrPrefix, files: batch, source: 'cli' });
+    result = await saveFileOutputs({ id: idOrPrefix, files: batch, source: 'cli', allowSecrets: !!opts.allowSecrets });
   } catch (err) {
     if (err instanceof FileOutputError) fail(err.message);
     reportAndExit(err);

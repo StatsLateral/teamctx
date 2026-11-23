@@ -86,12 +86,14 @@ beforeEach(() => { __resetMemory(); project(); });
 
 async function signedIn() { await kvSet(keys.session('s'), MEMBER); return { cookie: 'teamctx_sid=s' }; }
 
-async function attach(taskId, { bytes = PNG, name = 'banner.png', type = 'image/png', title, note } = {}) {
+async function attach(taskId, { bytes = PNG, name = 'banner.png', type = 'image/png', title, note, allowSecrets, confirmSecret } = {}) {
   const headers = await signedIn();
   const form = new FormData();
   form.set('file', new Blob([bytes], { type }), name);
   if (title != null) form.set('title', title);
   if (note != null) form.set('note', note);
+  if (allowSecrets != null) form.set('allow_secrets', allowSecrets);
+  if (confirmSecret != null) form.set('confirm_secret', confirmSecret);
   const res = await fetch(`${base}/project/acme/ledger/task/${taskId}/attach`, {
     method: 'POST', redirect: 'manual', headers, body: form,
   });
@@ -144,6 +146,39 @@ describe('attaching a file from the project page', () => {
     const r = await attach('tech-task');
     expect(r.status).toBe(403);
     expect(savedOutput('tech-task')).toBeNull();
+  });
+
+  it('stops a text file that looks like a secret, offering an explicit attach-anyway, storing nothing (#252)', async () => {
+    const r = await attach('prod-task', {
+      bytes: Buffer.from('aws = AKIAIOSFODNN7EXAMPLE\n'), name: 'config.txt', type: 'text/plain',
+    });
+    expect(r.status).toBe(400);
+    expect(r.body).toContain('looks like it contains a secret');
+    expect(r.body).toContain('aws-access-key-id');
+    expect(r.body).not.toContain('AKIAIOSFODNN7EXAMPLE');   // redacted, never the whole secret
+    expect(r.body).toMatch(/name="allow_secrets"/);          // the re-attach form carries the override
+    expect(savedOutput('prod-task')).toBeNull();
+  });
+
+  it('attaches a flagged text file when the override and the box are both set (#252)', async () => {
+    const r = await attach('prod-task', {
+      bytes: Buffer.from('aws = AKIAIOSFODNN7EXAMPLE\n'), name: 'config.txt', type: 'text/plain',
+      allowSecrets: '1', confirmSecret: 'on',
+    });
+    expect(r.status).toBe(303);
+    const saved = savedOutput('prod-task');
+    expect(saved?.file?.name).toBe('config.txt');
+    expect(saved?.secretOverride).toBe(true);        // the bypass is recorded, not silent
+    expect(saved?.file?.secretsOverridden).toBeUndefined(); // kept off the stored file metadata
+  });
+
+  it('does not override on the hidden field alone, without the ticked box (#252)', async () => {
+    const r = await attach('prod-task', {
+      bytes: Buffer.from('aws = AKIAIOSFODNN7EXAMPLE\n'), name: 'config.txt', type: 'text/plain',
+      allowSecrets: '1',
+    });
+    expect(r.status).toBe(400);
+    expect(savedOutput('prod-task')).toBeNull();
   });
 
   it('refuses a closed task cleanly, not as a 500 to retry forever', async () => {

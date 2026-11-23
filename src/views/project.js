@@ -165,12 +165,12 @@ a.dl:hover{text-decoration:underline}
 .wout .opreview-note{padding-top:0}
 /* Attach a file: a small form under the working outputs. */
 .attachform{border:1px dashed var(--line, #ddd);border-radius:6px;padding:10px;margin:0 0 10px}
-.attachform input[type=text]{display:block;width:100%;box-sizing:border-box;margin:6px 0 0;padding:6px 8px;font:inherit;border:1px solid var(--line, #ccc);border-radius:5px;background:var(--bg, #fff);color:inherit}
+.attachform input[type=text]{display:block;width:100%;box-sizing:border-box;margin:6px 0 0;padding:6px 8px;font:inherit;border:1px solid var(--line, #ccc);border-radius:5px;background:var(--card, #fff);color:var(--ink)}
 .attachform input[type=file]{display:block;margin:4px 0 0;font-size:13px;max-width:100%}
 .attachrow{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:8px}
-.attachbtn{padding:6px 14px;font:inherit;border:1px solid var(--line, #ccc);border-radius:5px;background:var(--ink, #1a1a1a);color:var(--bg, #fff);cursor:pointer}
+.attachbtn{padding:6px 14px;font:inherit;border:1px solid var(--accent);border-radius:5px;background:var(--accent);color:#fff;cursor:pointer}
 .attachbtn:hover{opacity:.9}
-.attachform .hint{font-size:12px;color:var(--muted, #666)}
+.attachform .hint{font-size:12px;color:var(--faint, #666)}
 .attachform code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px}
 .plain li{margin:0 0 .4rem;line-height:1.45;overflow-wrap:anywhere}
 /* A task's history: the date, who, what happened, one line each. */

@@ -7,7 +7,7 @@ import { describe, it, expect } from 'vitest';
 import { createHash } from 'crypto';
 import {
   validateFileOutput, safeFileName, extensionOf, sha256Hex,
-  FileOutputError, MAX_OUTPUT_FILE_BYTES, MAX_PAGE_UPLOAD_BYTES,
+  FileOutputError, SecretInUploadError, MAX_OUTPUT_FILE_BYTES, MAX_PAGE_UPLOAD_BYTES,
   FILE_OUTPUT_EXTENSIONS,
 } from './file-output.js';
 import { buildZip, buildDocx, wordDocument, para, run } from './formats/zip-fixture.js';
@@ -132,6 +132,43 @@ describe('validateFileOutput — refuses', () => {
 
   it('refuses non-bytes', async () => {
     await expect(validateFileOutput('a string', 'a.txt')).rejects.toThrow(FileOutputError);
+  });
+});
+
+describe('validateFileOutput — secret scan (#252)', () => {
+  const withKey = Buffer.from('aws_secret = AKIAIOSFODNN7EXAMPLE\nmore text\n', 'utf8');
+
+  it('refuses a text file that looks like it carries a secret', async () => {
+    const err = await validateFileOutput(withKey, 'config.txt').catch(e => e);
+    expect(err).toBeInstanceOf(SecretInUploadError);
+    expect(err).toBeInstanceOf(FileOutputError);          // CLI prints it like any refusal
+    expect(err.code).toBe('FILE_OUTPUT_SECRET');
+    expect(err.findings[0].rule).toBe('aws-access-key-id');
+    expect(err.findings[0].line).toBe(1);
+    expect(err.message).toContain('--allow-secrets');
+    expect(err.message).not.toContain('AKIAIOSFODNN7EXAMPLE'); // never the whole secret
+  });
+
+  it('attaches the same file when the override is set, and records that it was overridden', async () => {
+    const meta = await validateFileOutput(withKey, 'config.txt', { allowSecrets: true });
+    expect(meta.type).toBe('text/plain');
+    expect(meta.secretsOverridden).toBe(true);
+  });
+
+  it('does not mark a clean file as overridden, even with the override set', async () => {
+    const meta = await validateFileOutput(Buffer.from('all clear\n', 'utf8'), 'notes.txt', { allowSecrets: true });
+    expect(meta.secretsOverridden).toBeUndefined();
+  });
+
+  it('does not scan the office/pdf binaries in v1', async () => {
+    // A docx whose text holds a token-shaped string is not cracked open, so it
+    // is accepted — the message is honest that binaries are not deeply scanned.
+    const d = buildDocx(wordDocument(para(run('ghp_' + 'a'.repeat(36)))));
+    expect((await validateFileOutput(d, 'doc.docx')).type).toContain('wordprocessing');
+  });
+
+  it('lets a clean text file through untouched', async () => {
+    expect((await validateFileOutput(Buffer.from('nothing secret here\n', 'utf8'), 'notes.txt')).type).toBe('text/plain');
   });
 });
 

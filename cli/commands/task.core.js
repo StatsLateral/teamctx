@@ -460,7 +460,7 @@ export async function saveOutput({
  */
 export async function saveFileOutput({
   id, bytes, name, title, prompt, notes, basedOn, source,
-  maxBytes = MAX_OUTPUT_FILE_BYTES, teamctxDir, projectDir, actor,
+  maxBytes = MAX_OUTPUT_FILE_BYTES, allowSecrets = false, teamctxDir, projectDir, actor,
 } = {}) {
   const config = readConfig(teamctxDir);
   const { task } = findTask(id, teamctxDir);
@@ -472,9 +472,10 @@ export async function saveFileOutput({
   const resolved = actor || await resolveActor({ config, cwd: projectDir });
   const me = await resolveDisplayName({ actor: resolved, config, teamctxDir });
   const output = await writeFileOutputRecord({
-    task, bytes, name, title, prompt, notes, basedOn, source, maxBytes, resolved, me, teamctxDir,
+    task, bytes, name, title, prompt, notes, basedOn, source, maxBytes, allowSecrets, resolved, me, teamctxDir,
   });
-  const git = await commitAndPush(config, `output: ${me} attached ${output.id} (${output.file.name}) on ${task.id}`, projectDir);
+  const note = output.secretOverride ? `${output.file.name}, secret-scan override` : output.file.name;
+  const git = await commitAndPush(config, `output: ${me} attached ${output.id} (${note}) on ${task.id}`, projectDir);
   return { output, task, ...git };
 }
 
@@ -483,8 +484,13 @@ export async function saveFileOutput({
  * record — without committing. Shared by the single-file and batch attach so
  * both store a file identically; the caller commits (once, for a batch).
  */
-async function writeFileOutputRecord({ task, bytes, name, title, prompt, notes, basedOn, source, maxBytes, resolved, me, teamctxDir }) {
-  const file = await validateFileOutput(bytes, name, { maxBytes });
+async function writeFileOutputRecord({ task, bytes, name, title, prompt, notes, basedOn, source, maxBytes, allowSecrets = false, resolved, me, teamctxDir }) {
+  // `secretsOverridden` is true only when the scan found something and the person
+  // chose to attach anyway; it is kept off the stored file metadata and recorded
+  // on the output (and in the commit message) instead, so the bypass is visible
+  // to a manager or auditor rather than silent. Done here, in the shared writer,
+  // so a batch attach scans each of its files exactly as a single attach does.
+  const { secretsOverridden, ...file } = await validateFileOutput(bytes, name, { maxBytes, allowSecrets });
   const stamp = nextStamp();
   const outputId = `o-${stamp.toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
   // The id prefix keeps two uploads of the same name apart on disk.
@@ -501,6 +507,7 @@ async function writeFileOutputRecord({ task, bytes, name, title, prompt, notes, 
     prompt: typeof prompt === 'string' && prompt.trim() ? prompt : null,
     notes: typeof notes === 'string' && notes.trim() ? notes : null,
     basedOn: basedOn || null,
+    ...(secretsOverridden ? { secretOverride: true } : {}),
     state: 'working',
   };
   writeOutput(output, teamctxDir);
@@ -518,7 +525,7 @@ async function writeFileOutputRecord({ task, bytes, name, title, prompt, notes, 
  * and for reading the bytes — this stores what it is handed.
  */
 export async function saveFileOutputs({
-  id, files = [], source, maxBytes = MAX_OUTPUT_FILE_BYTES, teamctxDir, projectDir, actor,
+  id, files = [], source, maxBytes = MAX_OUTPUT_FILE_BYTES, allowSecrets = false, teamctxDir, projectDir, actor,
 } = {}) {
   const config = readConfig(teamctxDir);
   const { task } = findTask(id, teamctxDir);
@@ -531,7 +538,7 @@ export async function saveFileOutputs({
   for (const f of files) {
     try {
       outputs.push(await writeFileOutputRecord({
-        task, bytes: f.bytes, name: f.name, title: f.title, notes: f.notes, source, maxBytes, resolved, me, teamctxDir,
+        task, bytes: f.bytes, name: f.name, title: f.title, notes: f.notes, source, maxBytes, allowSecrets, resolved, me, teamctxDir,
       }));
     } catch (e) {
       if (e instanceof FileOutputError) { skipped.push({ name: f.name, reason: e.message }); continue; }
@@ -539,7 +546,9 @@ export async function saveFileOutputs({
     }
   }
   if (outputs.length === 0) return { outputs, skipped, task };
-  const what = outputs.length === 1 ? `${outputs[0].id} (${outputs[0].file.name})` : `${outputs.length} files`;
+  const overrides = outputs.filter(o => o.secretOverride).length;
+  const base = outputs.length === 1 ? `${outputs[0].id} (${outputs[0].file.name})` : `${outputs.length} files`;
+  const what = overrides ? `${base}, ${overrides} secret-scan override${overrides === 1 ? '' : 's'}` : base;
   const git = await commitAndPush(config, `output: ${me} attached ${what} on ${task.id}`, projectDir);
   return { outputs, skipped, task, ...git };
 }
