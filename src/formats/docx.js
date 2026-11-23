@@ -96,6 +96,42 @@ function findEntry(buf, wanted) {
 }
 
 /**
+ * What a ZIP's central directory *claims* it holds, without inflating anything:
+ * the number of entries and the sum of their declared uncompressed sizes.
+ *
+ * A .docx or .xlsx is a ZIP, and its on-disk size is the *compressed* size. A
+ * small crafted file can declare gigabytes of contents, so a parser that unpacks
+ * it into memory before any cap applies is a decompression-bomb risk. Reading
+ * the central directory first — the sizes it declares, not the bytes themselves —
+ * lets a caller refuse such a file before a single entry is expanded.
+ *
+ * The declared sizes are untrusted (a hostile file can lie either way), so this
+ * is a cheap pre-filter, not a guarantee: a caller still bounds what it keeps.
+ * Throws {@link DocxError} if the bytes are not a ZIP whose directory can be read.
+ */
+export function zipDeclaredFootprint(buffer) {
+  const buf = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer);
+  const eocd = findEndOfCentralDirectory(buf);
+  if (buf.length > 22 + 20 && buf.readUInt32LE(eocd - 20) === ZIP64_LOCATOR_SIG) {
+    throw new DocxError('ZIP64 archives are not supported');
+  }
+  const entryCount = buf.readUInt16LE(eocd + 10);
+  let at = buf.readUInt32LE(eocd + 16);
+  let uncompressedTotal = 0;
+  for (let n = 0; n < entryCount; n++) {
+    if (at + 46 > buf.length || buf.readUInt32LE(at) !== CEN_SIG) {
+      throw new DocxError('the central directory is malformed');
+    }
+    uncompressedTotal += buf.readUInt32LE(at + 24);
+    const nameLength = buf.readUInt16LE(at + 28);
+    const extraLength = buf.readUInt16LE(at + 30);
+    const commentLength = buf.readUInt16LE(at + 32);
+    at += 46 + nameLength + extraLength + commentLength;
+  }
+  return { entryCount, uncompressedTotal };
+}
+
+/**
  * The bytes of one entry.
  *
  * The local header repeats the name and extra fields, and its extra-field
