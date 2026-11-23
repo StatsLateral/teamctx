@@ -28,7 +28,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   path keeps working, so existing deployments are untouched until a manager moves
   across. Needs a GitHub App registered on the deployment — see
   `docs/mcp-hosted-setup.md`.
-
 - **Attach many files at once from the command line.** `teamctx task attach` now
   takes a folder or a glob as well as a single file, and stores one output per
   file in a single commit — the quickest way to get a batch of generated files
