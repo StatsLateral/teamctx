@@ -160,7 +160,11 @@ export async function fetchRemoteFile(urlString, {
         // Pin the connection to the address we validated. The Host header and TLS
         // SNI still carry the real hostname, so virtual hosts and certificates
         // keep working; only the IP is fixed, which is what shuts the rebind.
-        lookup: (_host, _opts, cb) => cb(null, safe.address, safe.family),
+        // Node asks for every address (`all: true`) when it drives the lookup, so
+        // answer in the shape it asked for: an array for `all`, else (addr, family).
+        lookup: (_host, opts, cb) => (opts && opts.all
+          ? cb(null, [{ address: safe.address, family: safe.family }])
+          : cb(null, safe.address, safe.family)),
         headers: { 'user-agent': 'teamctx', accept: '*/*' },
       }, res => {
         const status = res.statusCode || 0;

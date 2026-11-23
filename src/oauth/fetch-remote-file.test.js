@@ -113,6 +113,18 @@ describe('fetchRemoteFile — transport, against a loopback server (allowPrivate
     expect(out.fileName).toBe('chart.png');
   });
 
+  it('pins the connection through the lookup when the host is a name, not a literal IP', async () => {
+    // A literal-IP URL skips Node's `lookup` entirely, so only a hostname
+    // exercises the pinned lookup — and Node drives it with `all: true`, so the
+    // callback has to answer with an array. This is the real-world path (every
+    // name-based fetch); a loopback-literal URL never reaches it.
+    routes['/pinned.txt'] = (_req, res) => { res.end('pinned'); };
+    const port = server.address().port;
+    const toLoopback = (_host, _opts, cb) => cb(null, [{ address: '127.0.0.1', family: 4 }]);
+    const out = await fetchRemoteFile(`http://pinned.test:${port}/pinned.txt`, { allowPrivate: true, lookup: toLoopback });
+    expect(out.bytes.toString()).toBe('pinned');
+  });
+
   it('caps the body and destroys the stream past the limit', async () => {
     routes['/big.bin'] = (_req, res) => { res.end(Buffer.alloc(10000, 7)); };
     await expect(fetchRemoteFile(`${origin}/big.bin`, { allowPrivate: true, maxBytes: 1000 }))
