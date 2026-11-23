@@ -46,7 +46,7 @@
     "express-rate-limit": "^8.6.0",
     "file-type": "^22.3.0",
     "jsonrepair": "^3.0.0",
-    "openai": "^6.46.0"
+    "openai": "^7.62.0"
   },
   "devDependencies": {
     "jsdom": "^31.0.1",
