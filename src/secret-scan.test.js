@@ -38,6 +38,14 @@ describe('scanForSecrets — finds obvious secrets', () => {
     const f = scanForSecrets('api_key = "f3Kd9zQ1mPx7Lw0aB4nR8sT2uV6yH5c"');
     expect(f.some(x => x.rule === 'generic-api-key')).toBe(true);
   });
+
+  it('finds an Anthropic API key by its prefix, with no keyword in front', () => {
+    const key = 'sk-ant-api03-' + 'Ab9_'.repeat(23) + 'xyzAA';
+    const f = scanForSecrets(`${key}\n`);
+    expect(f.some(x => x.rule === 'anthropic-api-key')).toBe(true);
+    // The admin variant too.
+    expect(scanForSecrets('sk-ant-admin01-' + 'Zq8-'.repeat(22) + 'aaAA').some(x => x.rule === 'anthropic-api-key')).toBe(true);
+  });
 });
 
 describe('scanForSecrets — does not cry wolf', () => {
@@ -60,6 +68,19 @@ describe('scanForSecrets — does not cry wolf', () => {
 
   it('does not flag an ordinary sk- identifier without the OpenAI marker', () => {
     expect(scanForSecrets('ref = sk-item-code-abcdefghijklmnopqrstuvwx')).toEqual([]);
+  });
+
+  it('does not flag a short sk-ant- string that is not a full key', () => {
+    expect(scanForSecrets('note = sk-ant-but-not-really-a-key')).toEqual([]);
+  });
+
+  // A 40-char git sha after `token:` clears the entropy gate and trips the
+  // generic rule. It is a known false positive: the scan errs toward catching
+  // too much, and the person clears it with the override (--allow-secrets). This
+  // pins the behaviour so a future change to the generic rule is a deliberate one.
+  it('flags a git hash after `token:` as a generic match (documented false positive)', () => {
+    const f = scanForSecrets('token: a94a8fe5ccb19ba61c4c0873d391e987982fbbd3');
+    expect(f.some(x => x.rule === 'generic-api-key')).toBe(true);
   });
 
   it('reports a repeated key on one line once', () => {
@@ -85,6 +106,15 @@ describe('redaction and helpers', () => {
 
   it('masks a short value too', () => {
     expect(redactSecret('abc')).toBe('ab…');
+  });
+
+  it('shows only the first few characters for the generic rule (no trailing tail)', () => {
+    // prefixOnly: the tail could be the live part of a short credential, so the
+    // generic rule gets head-only, unlike the fixed-shape provider tokens.
+    expect(redactSecret('f3Kd9zQ1mPx7Lw0aB4nR8sT2uV6yH5c', true)).toBe('f3Kd…');
+    const f = scanForSecrets('api_key = "f3Kd9zQ1mPx7Lw0aB4nR8sT2uV6yH5c"');
+    const generic = f.find(x => x.rule === 'generic-api-key');
+    expect(generic.match).toBe('f3Kd…');
   });
 
   it('entropyOf is higher for random than repeated text', () => {

@@ -231,6 +231,8 @@ export async function validateFileOutput(bytes, name, { maxBytes = MAX_OUTPUT_FI
           + 'Rotate the credential if it is real — that is the real fix, since anyone who has pulled already has it. '
           + 'If this is a false positive, attach again with the override '
           + '(--allow-secrets on the command line, or the second confirm on the page). '
+          + `Only text files (${Object.keys(TEXT_TYPES).map(t => `.${t}`).join(', ')}) are scanned; `
+          + '.docx, .xlsx and .pdf are not opened, so check those yourself. '
           + 'To remove a file already committed, see docs/removing-a-mistaken-upload.md.',
           findings,
         );

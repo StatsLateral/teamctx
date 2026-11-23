@@ -113,6 +113,18 @@ describe('taskAttachCommand — many files', () => {
     expect(saveFileOutput).not.toHaveBeenCalled();
   });
 
+  it('passes --allow-secrets through to the batch, so the scan is overridable per file (#252)', async () => {
+    writeFileSync(join(bdir, 'a.png'), PNG);
+    batchReturns();
+    await taskAttachCommand('1.1', bdir, { allowSecrets: true });
+    expect(saveFileOutputs.mock.calls[0][0]).toMatchObject({ allowSecrets: true });
+
+    saveFileOutputs.mockClear();
+    batchReturns();
+    await taskAttachCommand('1.1', bdir, {});
+    expect(saveFileOutputs.mock.calls[0][0]).toMatchObject({ allowSecrets: false });
+  });
+
   it('does not descend into sub-folders unless --recursive', async () => {
     writeFileSync(join(bdir, 'top.png'), PNG);
     const sub = join(bdir, 'sub');

@@ -317,7 +317,7 @@ async function attachMany(idOrPrefix, paths, opts) {
 
   let result;
   try {
-    result = await saveFileOutputs({ id: idOrPrefix, files: batch, source: 'cli' });
+    result = await saveFileOutputs({ id: idOrPrefix, files: batch, source: 'cli', allowSecrets: !!opts.allowSecrets });
   } catch (err) {
     if (err instanceof FileOutputError) fail(err.message);
     reportAndExit(err);

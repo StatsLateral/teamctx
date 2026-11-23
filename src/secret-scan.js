@@ -43,6 +43,11 @@ const RULES = [
   // on the marker and so do we. A keyed `sk-proj-…=…` is still caught by the
   // generic rule below.
   { name: 'openai-key', re: /\bsk-(?:proj-)?[A-Za-z0-9_-]{20,}T3BlbkFJ[A-Za-z0-9_-]{20,}\b/g, group: 0 },
+  // Anthropic keys carry their own distinctive prefix (`sk-ant-api03-`,
+  // `sk-ant-admin01-`), so unlike a bare `sk-` the prefix alone is the signal and
+  // no entropy gate is needed. People using teamctx are especially likely to
+  // paste one. Matches the gitleaks `anthropic-api-key` shape.
+  { name: 'anthropic-api-key', re: /\bsk-ant-(?:api03|admin01)-[A-Za-z0-9_-]{80,}\b/g, group: 0 },
   { name: 'jwt', re: /\beyJ[0-9A-Za-z_-]{10,}\.[0-9A-Za-z_-]{10,}\.[0-9A-Za-z_-]{10,}\b/g, group: 0 },
   {
     // Generic: a credential-ish name assigned a long value. Entropy-gated so a
@@ -70,10 +75,17 @@ export function entropyOf(s) {
 /**
  * Show enough of a matched secret to recognise it, never the whole thing: the
  * first few and last couple of characters, the middle replaced by an ellipsis.
+ *
+ * `prefixOnly` drops the trailing characters and shows only the first few. The
+ * provider rules match a whole token with a fixed shape, so a head and tail
+ * identify it safely; the generic rule matches an arbitrary assigned value, where
+ * the tail could be the live part of a short credential — so for it, show the
+ * head alone.
  */
-export function redactSecret(s) {
+export function redactSecret(s, prefixOnly = false) {
   const str = String(s);
   if (str.length <= 8) return `${str.slice(0, 2)}…`;
+  if (prefixOnly) return `${str.slice(0, 4)}…`;
   return `${str.slice(0, 4)}…${str.slice(-2)}`;
 }
 
@@ -125,7 +137,7 @@ export function scanForSecrets(text) {
   const seen = new Set();
   for (const hit of hits) {
     const line = lineAt(hit.offset);
-    const redacted = redactSecret(hit.value);
+    const redacted = redactSecret(hit.value, hit.rule === 'generic-api-key');
     const key = `${hit.rule}:${line}:${redacted}`;
     if (seen.has(key)) continue;
     seen.add(key);
