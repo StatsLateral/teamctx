@@ -181,3 +181,43 @@ describe('the step-out check, for a manager recorded the older ways', () => {
     expect((await stepOutCheckFor({ owner: 'acme', repo: 'ledger' })({ email: null, key: 'github:7' })).ok).toBe(true);
   });
 });
+
+describe('the checks when a project is on a GitHub App installation (#110)', () => {
+  const install = record => kvSet(keys.projectInstallation('acme', 'ledger'), { installationId: 5, ...record });
+
+  it('lets the installer become primary', async () => {
+    await install({ installedByEmail: 'maya@example.com' });
+    expect((await lendCheckFor({ owner: 'acme', repo: 'ledger' })({ email: 'Maya@Example.com' })).ok).toBe(true);
+  });
+
+  it('refuses a primary who did not install it, naming the install step', async () => {
+    await install({ installedByEmail: 'maya@example.com' });
+    const r = await lendCheckFor({ owner: 'acme', repo: 'ledger' })({ email: 'priya@example.com' });
+    expect(r.ok).toBe(false);
+    expect(r.why).toMatch(/Install the GitHub App/);
+  });
+
+  it('keeps the installer from stepping out while it is theirs, by address or id', async () => {
+    await install({ installedByEmail: 'maya@example.com', installedById: '7' });
+    expect((await stepOutCheckFor({ owner: 'acme', repo: 'ledger' })({ email: 'maya@example.com' })).ok).toBe(false);
+    expect((await stepOutCheckFor({ owner: 'acme', repo: 'ledger' })({ email: null, key: 'github:7' })).ok).toBe(false);
+  });
+
+  it('lets a non-installer step out', async () => {
+    await install({ installedByEmail: 'maya@example.com', installedById: '7' });
+    expect((await stepOutCheckFor({ owner: 'acme', repo: 'ledger' })({ email: 'priya@example.com' })).ok).toBe(true);
+  });
+
+  it('governs over a legacy lent token that names someone else', async () => {
+    await install({ installedByEmail: 'maya@example.com' });
+    await kvSet(keys.projectGhCred('acme', 'ledger'), { token: 't', lentByEmail: 'someone@else.com' });
+    expect((await lendCheckFor({ owner: 'acme', repo: 'ledger' })({ email: 'maya@example.com' })).ok).toBe(true);
+  });
+
+  it('refuses with recover-it guidance, not a dead end, when no installer was recorded', async () => {
+    await install({}); // installationId but no installedByEmail
+    const r = await lendCheckFor({ owner: 'acme', repo: 'ledger' })({ email: 'maya@example.com' });
+    expect(r.ok).toBe(false);
+    expect(r.why).toMatch(/installed before teamctx recorded who by/);
+  });
+});

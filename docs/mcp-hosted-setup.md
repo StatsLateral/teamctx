@@ -92,6 +92,46 @@ deploy, then run `node scripts/rotate-secrets.js` and drop the old key. Keep the
 key out of git; store it only in the deployment's environment. Losing every key
 makes the encrypted records unreadable.
 
+### Optional: narrower repository access with a GitHub App
+
+How a project lets Google-signed-in members and agents reach its repository is by
+a manager **lending** GitHub access. The simple way (below) lends an OAuth token,
+which GitHub cannot scope to one repository — it can read and write every
+repository the lender owns. A **GitHub App** installed on only the project's
+repository fixes that: the deployment reaches the repository through short-lived
+tokens scoped to it, and loses access the moment the App is uninstalled.
+
+Set this up and a manager gets an **Install the GitHub App** option on the
+settings page, beside lending. It is preferred over a lent token when a project
+has both; the lent-token path keeps working, so existing projects are untouched
+until a manager installs the App and withdraws the old token.
+
+1. <https://github.com/settings/apps> → **New GitHub App**.
+2. **Permissions → Repository**: **Contents** Read and write, **Metadata** Read.
+   Nothing else.
+3. **Where can this GitHub App be installed?** Any account (so members can
+   install it on their own repositories).
+4. **Post-installation → Setup URL**:
+   `https://<your-deployment>.vercel.app/settings/github-app/callback`, and tick
+   **Redirect on update**.
+5. Create it, then **Generate a private key** (a `.pem` downloads — shown once).
+6. Note the App's **URL slug** (the `...` in `github.com/apps/...`), its **App
+   ID**, and keep the private key.
+
+Then add these environment variables (step 3's table):
+
+| Variable | Value |
+| --- | --- |
+| `GITHUB_APP_ID` | the App ID |
+| `GITHUB_APP_PRIVATE_KEY` | the `.pem` contents (newlines may be written `\n`) |
+| `GITHUB_APP_SLUG` | the App's URL slug |
+
+> Narrowing the GitHub **sign-in** scope away from `repo` is a separate, larger
+> step: a person signing in with GitHub still reaches their own repository, and
+> creating a repository still needs it, so the sign-in keeps `repo` for now. This
+> change only moves the **lent** credential — the broad one the deployment
+> holds — onto the App.
+
 ### Optional: let members join without a GitHub account
 
 Skip this and teamctx behaves exactly as before: every member needs a GitHub

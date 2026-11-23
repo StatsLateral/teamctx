@@ -6,7 +6,7 @@ import { esc, navBar, shell } from './theme.js';
  * agents. Moved here whole from the routes file — see src/views/theme.js.
  */
 export const settingsPage = ({
-  user, hasKey, saved, error, confirmRemove = null, shared = [], lent = [], repos = [], agents = [], newAgent = null, rotated = [], stillShared = [], slack = [], secretsMissing = false }) => shell('Settings', `
+  user, hasKey, saved, error, confirmRemove = null, shared = [], lent = [], repos = [], agents = [], newAgent = null, rotated = [], stillShared = [], slack = [], secretsMissing = false, appConfigured = false, installed = [] }) => shell('Settings', `
 ${navBar({ user, current: '/settings' })}
 <h1>Settings</h1>
 ${secretsMissing ? '<div class="bad">An administrator must set <code>TEAMCTX_SECRET_KEYS</code> on this deployment before a key or credential can be saved — until then those writes are refused rather than stored in the clear.</div>' : ''}
@@ -100,9 +100,10 @@ ${hasKey ? `
 
 <section class="card">
 <h2>Let members join without GitHub</h2>
-<p class="muted">Lets people on the roster sign in with Google instead of GitHub,
-using the email you invited. Their work is committed under their own name and
-still comes to you for review. Roster only, this repository only.</p>
+<p class="muted">Roster members sign in with Google instead of GitHub; their work
+still comes to you for review. This repository only.</p>
+${appConfigured ? `<p class="muted"><strong>Legacy.</strong> Lends a token to every repository
+you can reach. Prefer the GitHub App below — scoped to this one repository.</p>` : ''}
 ${lent.length ? `<p class="muted">Lending access to:</p>${lent.map(slug => `
 <form method="POST" action="/settings/unlend" style="margin:.35rem 0">
   <input type="hidden" name="project" value="${esc(slug)}">
@@ -113,8 +114,24 @@ ${user.id ? `<form method="POST" action="/settings/lend">
   <label for="lendProject">Project</label>
   ${projectPicker('lendProject', repos)}
   <button type="submit">Lend GitHub access</button>
-</form>` : `<p class="muted">Lending GitHub access needs a GitHub sign-in: it hands the
-project a GitHub credential, which a Google sign-in does not have.</p>`}
+</form>` : `<p class="muted">Lending needs a GitHub sign-in; a Google sign-in has no
+GitHub credential to lend.</p>`}
+${appConfigured ? `
+<h3>Narrower: install the GitHub App</h3>
+<p class="muted">Installs on just this repository. teamctx reaches it with a short-lived,
+repo-scoped token and loses access the moment you uninstall. Preferred over lending.</p>
+${installed.length ? `<p class="muted">Using the App on:</p>${installed.map(slug => `
+<form method="POST" action="/settings/github-app/forget" style="margin:.35rem 0">
+  <input type="hidden" name="project" value="${esc(slug)}">
+  <code>${esc(slug)}</code>
+  <button type="submit" class="link">Stop using the App</button>
+  <span class="muted">— then uninstall it on GitHub to cut access</span>
+</form>`).join('')}` : ''}
+<form method="GET" action="/settings/github-app/install" style="margin-top:.4rem">
+  <label for="appProject">Project</label>
+  ${projectPicker('appProject', repos)}
+  <button type="submit">Install the GitHub App</button>
+</form>` : ''}
 </section>
 
 <section class="card">

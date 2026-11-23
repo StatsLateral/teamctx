@@ -17,6 +17,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   under the uploader's name, nothing queued for approval. The URL is good once,
   for ten minutes, and names one project and task. Hosted connector only; on the
   command line, `teamctx task attach` still reads a file from disk (#257).
+- **Reach a project's repository through a GitHub App, not a broad lent token.**
+  A manager can install the teamctx GitHub App on just a project's repository
+  from the settings page, instead of lending an OAuth token that can read and
+  write every repository they own. The deployment then reaches that repository
+  through short-lived tokens scoped to it alone, so a leak of its store no longer
+  exposes the lender's other repositories, and uninstalling the App on GitHub
+  cuts the project's Google-signed-in members and agents off on the next request.
+  The App is preferred over a lent token when a project has both; the lent-token
+  path keeps working, so existing deployments are untouched until a manager moves
+  across. Needs a GitHub App registered on the deployment — see
+  `docs/mcp-hosted-setup.md`.
 - **Attach many files at once from the command line.** `teamctx task attach` now
   takes a folder or a glob as well as a single file, and stores one output per
   file in a single commit — the quickest way to get a batch of generated files
