@@ -53,6 +53,7 @@ export function diffTexts(before, after, { maxChars = MAX_DIFF_CHARS, maxHunkLin
   const parts = diffLines(nb, na);
   let added = 0;
   let removed = 0;
+  let shown = 0; // changed lines in the preview; the gap markers do not count
   let truncated = false;
   let gap = false;
   const hunks = [];
@@ -62,9 +63,10 @@ export function diffTexts(before, after, { maxChars = MAX_DIFF_CHARS, maxHunkLin
     if (lines.length && lines[lines.length - 1] === '') lines.pop(); // the trailing newline is not a line
     for (const line of lines) {
       if (p.added) added += 1; else removed += 1;
-      if (hunks.length >= maxHunkLines) { truncated = true; continue; }
+      if (shown >= maxHunkLines) { truncated = true; continue; }
       if (gap) { hunks.push('···'); gap = false; }
       hunks.push((p.added ? '+ ' : '- ') + line);
+      shown += 1;
     }
   }
   return { added, removed, hunks, truncated };

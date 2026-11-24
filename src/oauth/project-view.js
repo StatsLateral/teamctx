@@ -242,14 +242,23 @@ export async function readProjectView({ owner, repo, user }) {
     // scope already checked above. Only computed when something is actually based
     // on something, so the common task pays nothing.
     const decodeUtf8 = (bytes) => { try { return new TextDecoder('utf-8', { fatal: true }).decode(bytes); } catch { return null; } };
+    // One read per file for the whole page: the same output is diffed in the task
+    // pass and again, for a manager, in the review-queue pass, and need not be
+    // fetched twice.
+    const fileTextCache = new Map();
+    const readFileText = async (taskId, o) => {
+      const onDisk = o.file?.path ? String(o.file.path).split('/').pop() : null;
+      if (!onDisk) return null;
+      const key = `${taskId}/${onDisk}`;
+      if (fileTextCache.has(key)) return fileTextCache.get(key);
+      let text = null;
+      try { const b = await readOutputFileBytes(taskId, onDisk, undefined); text = b ? decodeUtf8(b) : null; } catch { text = null; }
+      fileTextCache.set(key, text);
+      return text;
+    };
     const diffsFor = async (taskId, outs) => {
       if (!Array.isArray(outs) || !outs.some(o => o?.basedOn)) return {};
-      const readFileText = async (o) => {
-        const onDisk = o.file?.path ? String(o.file.path).split('/').pop() : null;
-        if (!onDisk) return null;
-        try { const b = await readOutputFileBytes(taskId, onDisk, undefined); return b ? decodeUtf8(b) : null; } catch { return null; }
-      };
-      return diffsForOutputs(outs, readFileText);
+      return diffsForOutputs(outs, (o) => readFileText(taskId, o));
     };
     const withDiffs = (outs, diffs) => outs.map(o => (diffs[o.id] ? { ...o, diff: diffs[o.id] } : o));
     // A submitted output is diffed against the task's full history, not only the

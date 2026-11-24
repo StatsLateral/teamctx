@@ -53,6 +53,15 @@ describe('diffTexts', () => {
     expect(d.hunks.length).toBeLessThanOrEqual(MAX_HUNK_LINES);
   });
 
+  it('does not count the gap markers toward the preview cap', () => {
+    // three changes each separated by a kept line, so two gap markers appear
+    const d = diffTexts('k\nA\nk\nB\nk\nC', 'k\nk\nk', { maxHunkLines: 3 });
+    const changed = d.hunks.filter(h => h !== '···');
+    expect(changed.length).toBe(3);          // all three changed lines fit the budget
+    expect(d.truncated).toBe(false);         // the separators did not eat into it
+    expect(d.hunks).toContain('···');
+  });
+
   it('refuses to diff when a side is over the char limit, giving counts null', () => {
     const big = 'x'.repeat(60000);
     const d = diffTexts('small', big, { maxChars: 50000 });
