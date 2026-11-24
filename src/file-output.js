@@ -71,6 +71,12 @@ const EXT_ALIAS = { jpeg: 'jpg' };
 export const FILE_OUTPUT_TYPES = { ...BINARY_TYPES, ...TEXT_TYPES };
 export const FILE_OUTPUT_EXTENSIONS = Object.keys(FILE_OUTPUT_TYPES);
 
+/** Whether a file output's name is one of the readable text types (csv, txt, md,
+ *  json) — the only kinds an assistant may read and the only kinds #253 diffs. */
+export function isReadableTextType(name) {
+  return extensionOf(name) in TEXT_TYPES;
+}
+
 /** Deliberately refused, so the message can name them: they run in a browser. */
 const DANGEROUS_EXTENSIONS = ['svg', 'html', 'htm', 'js', 'exe', 'sh', 'bat'];
 
