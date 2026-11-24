@@ -5,6 +5,7 @@ import { saveFileOutput, assertNotAccepted } from '../../cli/commands/task.core.
 import { MAX_PAGE_UPLOAD_BYTES } from '../file-output.js';
 import { outputStates, outputsForReader } from '../outputs.js';
 import { recordTrailFor } from '../../cli/commands/records.core.js';
+import { diffsForOutputs } from '../output-diff.js';
 import { visibleSources } from '../sources.js';
 import { taskHistory, touchesTask } from '../task-history.js';
 import { listAllWorkstreams } from '../../cli/commands/workstream.core.js';
@@ -235,6 +236,34 @@ export async function readProjectView({ owner, repo, user }) {
         || (config.members || []).some(m => m?.key && actorKeys.includes(m.key) && !!task.owner && m.name === task.owner),
     });
 
+    // How each output compares to the version it is based on (#253). The diff is
+    // mechanical and needs no credential — the bodies are in hand, and a text
+    // file's bytes are read the same way the download route reads them, under the
+    // scope already checked above. Only computed when something is actually based
+    // on something, so the common task pays nothing.
+    const decodeUtf8 = (bytes) => { try { return new TextDecoder('utf-8', { fatal: true }).decode(bytes); } catch { return null; } };
+    const diffsFor = async (taskId, outs) => {
+      if (!Array.isArray(outs) || !outs.some(o => o?.basedOn)) return {};
+      const readFileText = async (o) => {
+        const onDisk = o.file?.path ? String(o.file.path).split('/').pop() : null;
+        if (!onDisk) return null;
+        try { const b = await readOutputFileBytes(taskId, onDisk, undefined); return b ? decodeUtf8(b) : null; } catch { return null; }
+      };
+      return diffsForOutputs(outs, readFileText);
+    };
+    const withDiffs = (outs, diffs) => outs.map(o => (diffs[o.id] ? { ...o, diff: diffs[o.id] } : o));
+    // A submitted output is diffed against the task's full history, not only the
+    // submitted subset, so its parent (often an earlier, unsubmitted version) is
+    // found. Only the submitted ones carry the result to the review drawer.
+    const attachSubmittedDiffs = async (forTask, submitted) => {
+      const sub = Array.isArray(submitted) ? submitted : [];
+      if (!sub.some(o => o?.basedOn)) return sub;
+      const task = allTasks.find(t => t.id === forTask);
+      if (!task) return sub;
+      const diffs = await diffsFor(forTask, outputsOn(task, savedOn(task)));
+      return sub.map(o => (o?.id && diffs[o.id] ? { ...o, diff: diffs[o.id] } : o));
+    };
+
     // The log is read once and indexed in memory: on hosted storage every read
     // is a request, so reading it per task would be one per row. Only what is
     // newer than the oldest last activity on an open task can flag anything, so
@@ -244,10 +273,11 @@ export async function readProjectView({ owner, repo, user }) {
     const floor = floors.length ? floors.reduce((a, b) => (a < b ? a : b)) : null;
     if (floor) await prepareChanges({ after: floor });
     const allChanges = floor ? listChanges({ after: floor }) : [];
-    const tasks = allTasks
+    const tasks = await Promise.all(allTasks
       .filter(t => inScope(allowed, resolveTarget(t.workstream)))
-      .map(t => {
+      .map(async (t) => {
         const saved = savedOn(t);
+        const outs = outputsOn(t, saved);
         return {
           id: t.id,
           // The handle a person has in front of them. The payload is built field by
@@ -261,7 +291,7 @@ export async function readProjectView({ owner, repo, user }) {
           workstream: resolveTarget(t.workstream),
           where: workstreamLocation(workstreams, resolveTarget(t.workstream), config.project),
           history: historyOf(t),
-          outputs: outputsOn(t, saved),
+          outputs: withDiffs(outs, await diffsFor(t.id, outs)),
           // Only the project, the ancestors, the own part and changes touching
           // this task: a sibling part's changes are not this reader's to see.
           changedSince: (() => {
@@ -276,7 +306,7 @@ export async function readProjectView({ owner, repo, user }) {
             return found.changes.length || found.others ? changedSummary(found, labelFor(config)) : null;
           })(),
         };
-      });
+      }));
 
     // The queue is the manager's to clear, so only they are shown what is in it.
     // What a queued break would take with it, so the manager reads the impact
@@ -296,7 +326,7 @@ export async function readProjectView({ owner, repo, user }) {
         records: restingOn(everything, a.id).records.map(r => ({ id: r.id, type: r.type, text: r.text })),
       }));
     const pending = isManager
-      ? queued.map(q => ({
+      ? await Promise.all(queued.map(async q => ({
         id: q.id,
         // The number it is known by while it waits, if its workstream gave it one.
         number: q.number || null,
@@ -307,7 +337,7 @@ export async function readProjectView({ owner, repo, user }) {
         operations: q.operations || [],
         // Work submitted for a task: the outputs in full, which the manager is
         // asked about, rather than a line describing them.
-        ...(q.forTask ? { forTask: q.forTask, submittedOutputs: q.submittedOutputs || [] } : {}),
+        ...(q.forTask ? { forTask: q.forTask, submittedOutputs: await attachSubmittedDiffs(q.forTask, q.submittedOutputs) } : {}),
         reachLines: q.reachLines || [],
         contradictions: Array.isArray(q.contradictions) ? q.contradictions : [],
         impact: impactOf(q.operations),
@@ -324,7 +354,7 @@ export async function readProjectView({ owner, repo, user }) {
           const task = allTasks.find(t => touchesTask(q, t.id));
           return task ? historyOf(task) : historyOf(null, [q]);
         })(),
-      }))
+      })))
       : null;
 
     // What the project was drawn from (#168), for the Connected sources drawer.
