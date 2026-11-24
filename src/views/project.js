@@ -155,6 +155,14 @@ h1{font-size:28px;line-height:1.25;margin:0 0 .35rem}
 .out .obody{white-space:pre-wrap;line-height:1.5;margin:0;overflow-wrap:anywhere}
 .out .onote{font-size:12px;color:var(--muted, #666);margin:6px 0 0;white-space:pre-wrap;overflow-wrap:anywhere}
 .out .onote.hash{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px}
+.lineage{font-size:12px;color:var(--muted, #666);font-style:italic;margin:6px 0 0}
+.difnote{font-size:12px;color:var(--muted, #666);margin:4px 0 0;white-space:pre-wrap;overflow-wrap:anywhere}
+details.diff{margin:6px 0 0}
+details.diff>summary{font-size:12px;color:var(--link, #1a56db);cursor:pointer}
+.diffbody{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px;line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere;margin:4px 0 0;padding:6px 8px;border:1px solid var(--line, #ddd);border-radius:5px;background:var(--card, #fafafa)}
+.diffbody .add{color:var(--green, #2a7)}
+.diffbody .del{color:var(--rust, #c0392b)}
+.diffbody .ctx{color:var(--muted, #888)}
 a.dl{display:inline-block;font-size:12px;margin:0 0 8px;padding:0 10px;color:var(--link, #1a56db);text-decoration:none}
 .out a.dl{padding:4px 0 0}
 a.dl:hover{text-decoration:underline}
@@ -426,6 +434,39 @@ const SCRIPT = `
       }).catch(function () { /* preview is best-effort; the Download link stands */ });
     }
   }
+  // How this output changed from the one it is based on (#253). A short lineage
+  // line for every kind, and, when both versions are readable text, a collapsible
+  // line diff. Honest when there is no diff: it says why, never a guess.
+  function diffSummary(d) {
+    var parts = [];
+    if (d.added) parts.push('+' + d.added);
+    if (d.removed) parts.push('\\u2212' + d.removed);
+    return 'Changes from the previous version (' + (parts.join(' ') || 'none') + ')';
+  }
+  function appendVersion(parent, o) {
+    var d = o.diff;
+    if (!d) return;
+    var lin = document.createElement('p'); lin.className = 'onote lineage';
+    lin.textContent = 'New version of ' + (d.basedOnTitle ? '\\u201c' + d.basedOnTitle + '\\u201d' : 'an earlier output');
+    parent.appendChild(lin);
+    var note = function (text) { var p = document.createElement('p'); p.className = 'onote difnote'; p.textContent = text; parent.appendChild(p); };
+    if (!d.diffable) { if (d.reason) note('No text diff \\u00b7 ' + d.reason); return; }
+    if (d.unchanged) { note('No change from the previous version'); return; }
+    if (d.tooLarge) { note('Changed \\u2014 too large to preview; download both to compare'); return; }
+    var det = document.createElement('details'); det.className = 'diff';
+    var s = document.createElement('summary'); s.textContent = diffSummary(d); det.appendChild(s);
+    var pre = document.createElement('pre'); pre.className = 'diffbody';
+    (d.hunks || []).forEach(function (line) {
+      var row = document.createElement('div');
+      var c = line.charAt(0);
+      row.className = c === '+' ? 'add' : c === '-' ? 'del' : 'ctx';
+      row.textContent = line;
+      pre.appendChild(row);
+    });
+    if (d.truncated) { var m = document.createElement('div'); m.className = 'ctx'; m.textContent = '\\u2026 more changes not shown'; pre.appendChild(m); }
+    det.appendChild(pre);
+    parent.appendChild(det);
+  }
   function showWork(items) {
     var wrap = document.getElementById('d-work-wrap');
     var box = document.getElementById('d-work');
@@ -448,6 +489,7 @@ const SCRIPT = `
       var body = document.createElement('p'); body.className = 'wbody'; body.textContent = outputText(o); d.appendChild(body);
       addPreview(d, o);
       if (o.dl) { var dla = document.createElement('a'); dla.className = 'dl'; dla.href = o.dl; dla.setAttribute('download', ''); dla.textContent = 'Download file'; d.appendChild(dla); }
+      appendVersion(d, o);
       if (o.notes) { var n = document.createElement('p'); n.className = 'wnote'; n.textContent = 'Notes: ' + o.notes; d.appendChild(n); }
       if (o.prompt) { var q = document.createElement('p'); q.className = 'wnote'; q.textContent = 'Asked: ' + o.prompt; d.appendChild(q); }
       box.appendChild(d);
@@ -508,6 +550,7 @@ const SCRIPT = `
         var b = document.createElement('p'); b.className = 'obody'; b.textContent = outputText(o); card.appendChild(b);
         if (o.dl) { var odl = document.createElement('a'); odl.className = 'dl'; odl.href = o.dl; odl.setAttribute('download', ''); odl.textContent = 'Download file'; card.appendChild(odl); }
         if (o.kind === 'file' && o.file && o.file.sha256) { var h = document.createElement('p'); h.className = 'onote hash'; h.textContent = 'SHA-256: ' + o.file.sha256; card.appendChild(h); }
+        appendVersion(card, o);
         if (o.notes) { var n = document.createElement('p'); n.className = 'onote'; n.textContent = 'Notes: ' + o.notes; card.appendChild(n); }
         if (o.prompt) { var q = document.createElement('p'); q.className = 'onote'; q.textContent = 'Asked: ' + o.prompt; card.appendChild(q); }
         outBox.appendChild(card);

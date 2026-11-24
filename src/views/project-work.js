@@ -120,7 +120,7 @@ function workData(outputs) {
   return (Array.isArray(outputs) ? outputs : []).map(o => ({
     id: o.id, title: o.title || '', kind: o.kind || 'text', body: o.body || '',
     file: o.file || null, link: o.link || null, notes: o.notes || null, prompt: o.prompt || null,
-    basedOn: o.basedOn || null, at: o.at || null, state: o.state, author: o.author || 'someone', mine: Boolean(o.mine),
+    basedOn: o.basedOn || null, diff: o.diff || null, at: o.at || null, state: o.state, author: o.author || 'someone', mine: Boolean(o.mine),
     turnedDown: o.turnedDown ? { reason: o.turnedDown.reason || null, at: o.turnedDown.at || null } : null,
   }));
 }
@@ -203,7 +203,7 @@ function waitingItem({ q, view, origin, marked }) {
   const outputs = q.forTask && Array.isArray(q.submittedOutputs)
     ? withDownloads(q.submittedOutputs.map(o => ({
       id: o.id || null, title: o.title || '', kind: o.kind || 'text', body: o.body || '',
-      file: o.file || null, link: o.link || null, notes: o.notes || null, prompt: o.prompt || null,
+      file: o.file || null, link: o.link || null, diff: o.diff || null, notes: o.notes || null, prompt: o.prompt || null,
     })), projectBase(view), q.forTask)
     : [];
   const changes = q.forTask
