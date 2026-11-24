@@ -2245,7 +2245,7 @@ describe('working outputs on a task', () => {
       await lend();
       const d = await drawerFor(MEMBER_GOOGLE);
       expect(d.$('#d-work-wrap').hidden).toBe(false);
-      const items = d.all('#d-work details');
+      const items = d.all('#d-work > details');
       expect(items.map(i => i.querySelector('summary').firstChild.textContent)).toEqual(['Third <b>draft</b>', 'Second draft', 'First draft']);
       expect(items.map(i => i.open)).toEqual([true, false, false]);
       expect(items[0].querySelector('.wbody').textContent).toBe('Line one\n\n<script>alert(1)</script> & more');
@@ -2253,6 +2253,13 @@ describe('working outputs on a task', () => {
       expect(items[0].textContent).toContain('Notes: Mind the tone');
       expect(items[0].textContent).toContain('Asked: Make it warmer');
       expect(items[0].querySelector('.wstate').textContent).toBe('you · 2026-10-12 · working');
+      // The second draft is a new version of the first, so the drawer shows the
+      // lineage and a line diff of what changed (#253). The third is based on
+      // nothing, so it has none.
+      expect(items[1].textContent).toContain('New version of');
+      expect(items[1].querySelector('.diffbody').textContent).toContain('- Page text v1');
+      expect(items[1].querySelector('.diffbody').textContent).toContain('+ Page text v2');
+      expect(items[0].querySelector('.diff')).toBe(null);
     });
 
     it('says an output is waiting for the manager, and shows why one was turned down', async () => {
@@ -2260,7 +2267,7 @@ describe('working outputs on a task', () => {
       repo.files.set('.teamctx/rejected/q-0.json', JSON.stringify({ id: 'q-0', forTask: 'pricing-page', outputs: ['o1'], reason: 'Shorten the opening', rejectedAt: '2026-10-10T12:00:00Z', status: 'rejected' }));
       await lend();
       const d = await drawerFor(MEMBER_GOOGLE);
-      const [second, first] = d.all('#d-work details');
+      const [second, first] = d.all('#d-work > details');
       expect(second.querySelector('.wstate').textContent).toMatch(/waiting for the manager$/);
       expect(first.classList.contains('turned')).toBe(true);
       expect(first.textContent).toContain('Feedback: Shorten the opening');

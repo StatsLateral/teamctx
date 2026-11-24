@@ -70,6 +70,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   takes 10 MB), and anyone who can see the task can download its files. A file
   downloads as an attachment with the type teamctx checked, and a file for a
   task outside your scope is neither shown nor served.
+- **See how a file output changed from the version before it.** When a new
+  output is saved as a new version of an earlier one (its `basedOn`), the task
+  and review drawers show the lineage, and — when both versions are readable
+  text (txt, md, csv, json) — a short diff of what was added and removed. Images,
+  spreadsheets and linked files show the lineage without a diff.
 - **See a record's history.** A decision, rule or assumption now keeps its
   earlier wording when it is edited, instead of overwriting it, and a record
   that was replaced points at the one that replaced it. One read — `teamctx
