@@ -60,6 +60,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the fallback for members who have not connected their own. teamctx stores only
   the OAuth token, in its own key store, and uses it to read one thing — whether
   a linked file still exists and when it last changed — never a file's contents.
+- **See when a linked cloud file changed after it was approved.** A link output
+  now records the tool's own version marker when it is attached; the new
+  `task_check_links` later compares it with the file's current version, and the
+  project page shows "changed since approved", "unchanged" or "can't tell" on the
+  task and in the review drawer. The check runs through the connector of whoever
+  has access, so teamctx stores no new credential; a file with no recorded
+  version, or one that cannot be read, is reported honestly, never guessed as
+  unchanged. (#248)
 - **Attach a file as a task output.** `teamctx task attach <task> <path>` keeps a
   deliverable — an image, a PDF, a spreadsheet — in the project’s repository as a
   working output, up to 10 MB, reviewed like any other output. The type is checked
