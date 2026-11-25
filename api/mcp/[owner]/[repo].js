@@ -6,11 +6,13 @@ import { providerFromEnv } from '../../../src/oauth/provider.js';
 import {
   readPersonalKey, readProjectKeys, pickProjectKey, recordConnectedProject,
 } from '../../../src/oauth/ai-keys.js';
+import { pickConnection } from '../../../src/oauth/connectors.js';
+import { driveCredsFromConnection } from '../../../src/oauth/connector-google.js';
 import { baseUrlFrom } from '../../../src/base-url.js';
 import { connectorAddressPage } from '../../../src/views/connect.js';
 import { mcpUrl } from '../../../src/views/mcp-url.js';
 import { readConfig } from '../../../src/storage.js';
-import { managersOf } from '../../../src/managers.js';
+import { managersOf, emailOfKey } from '../../../src/managers.js';
 import { resolveGoogleMember } from '../../../src/oauth/member-access.js';
 import { projectRepoToken } from '../../../src/oauth/repo-access.js';
 import { primaryEmail } from '../../../src/oauth/github-identity.js';
@@ -86,6 +88,17 @@ export function primaryManagerKey({ projectKeys, config }) {
   return picked ? { apiKey: picked.apiKey, provider: picked.provider } : null;
 }
 
+/**
+ * The email address of the project's primary manager, for the shared-connection
+ * fallback. `managersOf` yields a manager *key* (`git:<email>` or `github:<id>`),
+ * but a connection is matched by address — so a key must be resolved, not passed
+ * through. A `github:`-only key has no address here and yields null (no fallback),
+ * which is safer than a key that can never match a stored connection.
+ */
+export function managerFallbackEmail(config) {
+  return emailOfKey(managersOf(config || {}).primary || null);
+}
+
 export default async function handler(req, res) {
   // A person who was sent this address and opened it. It is meant for pasting
   // into an assistant, which speaks to it by POST, so say what it is and where
@@ -148,6 +161,10 @@ export default async function handler(req, res) {
   let googleUser = null;
   let agent = null;
   let signInAgain = null;
+  // The verified email behind this request, for resolving the caller's cloud
+  // connector connection (#248). Null for an agent, which has none of its own
+  // and reads through the primary manager's connection like it does the key.
+  let callerEmail = null;
   // True once the project's own lent credential is what will read and write.
   let onLentCredential = false;
 
@@ -198,6 +215,7 @@ export default async function handler(req, res) {
       // By verified email first, so a key saved while signed in through Google is
       // found here too; the GitHub-id record from before is the fallback.
       const githubUser = auth.extra?.githubUser;
+      if (githubUser?.email) callerEmail = String(githubUser.email).toLowerCase();
       const stored = githubUser?.id || githubUser?.email
         ? await readPersonalKey({ email: githubUser.email, githubId: githubUser.id })
         : null;
@@ -239,6 +257,7 @@ export default async function handler(req, res) {
         ghToken = access.ghToken;
         onLentCredential = true;
         actor = access.actor;
+        if (googleUser?.email) callerEmail = String(googleUser.email).toLowerCase();
         // Remembered against the address so the settings page can offer this
         // project — a Google account has no repository list. Only here, once the
         // roster has confirmed them: recorded at sign-in, any Google account
@@ -302,6 +321,24 @@ export default async function handler(req, res) {
   // branch the caller names could carry a different roster, manager or review
   // policy than the one that let them in.
   const ref = onLentCredential ? null : (readParam(req, 'ref') || null);
+
+  // How a server-side staleness check (#248) gets a credential for a linked
+  // cloud file: the caller's own connection, or — as with the AI key — the
+  // project's primary manager's as a fallback. Resolved on use (inside the
+  // dispatch, where the session's config is loaded), and only for providers we
+  // can connect on the web today. Returns connector-shaped creds and which
+  // connection answered, or null when there is none to read the file with.
+  const authFor = async ({ connector } = {}) => {
+    if (connector !== 'gdrive') return null;
+    // The fallback is matched by address; managerFallbackEmail resolves the
+    // primary manager's key to one (or null), never the raw key pickConnection
+    // could not match.
+    const conn = await pickConnection({ email: callerEmail, provider: connector, owner, repo, primaryEmail: managerFallbackEmail(readConfig()) });
+    if (!conn) return null;
+    const creds = driveCredsFromConnection(conn);
+    return creds?.ok ? { creds, via: conn.via } : null;
+  };
+
   // The deployment's own address, carried through so the handlers can hand out
   // a connector URL for a project that never recorded one. Every hosted request
   // arrives at the host it would name, so asking the config for it was asking
@@ -309,6 +346,8 @@ export default async function handler(req, res) {
   // there, which made "invite someone" fail on every one of them.
   const projectContext = {
     __backend: 'github', owner, repo, ref, ghToken, baseUrl: baseUrl(req),
+    // How a link-output staleness check reads the file server-side (#248).
+    authFor,
     // What holds an agent to its tools — see mcp/server.js.
     ...(agent ? { agent } : {}),
     // Taken out again by handleMcpHttp before the server is built.

@@ -348,6 +348,51 @@ export function listOutputs(taskId, dir) {
 }
 
 /**
+ * The last staleness check on each link output (#248): one file per output,
+ * `checks/<task id>/<output id>.json`.
+ *
+ * Kept apart from outputs, and for the opposite reason — an output is written
+ * once and never changed, but a check is *meant* to change, overwritten each
+ * time someone with access re-checks. So it cannot live on the write-once
+ * output, and a file per output keeps two checks from colliding.
+ */
+export function writeCheck(check, dir) {
+  sanitizeTaskId(check?.task);
+  sanitizeQueueId(check?.output);
+  const body = JSON.stringify(check, null, 2);
+  if (sessionWrite(ctxPath('checks', check.task, `${check.output}.json`), body)) return;
+  const d = resolve(dir, 'checks', check.task);
+  mkdirSync(d, { recursive: true });
+  writeFileSync(join(d, `${check.output}.json`), body);
+}
+
+/**
+ * Every stored check on a task, keyed by the output id it is about. A file that
+ * is not valid JSON, or names no output, is skipped rather than allowed to take
+ * a page down — the same tolerance `listOutputs` keeps.
+ */
+export function readChecks(taskId, dir) {
+  sanitizeTaskId(taskId);
+  const parse = (text) => { try { return JSON.parse(text); } catch { return null; } };
+  const out = {};
+  const add = (c) => { if (c && typeof c === 'object' && typeof c.output === 'string') out[c.output] = c; };
+  const s = sessionListDir(ctxPath('checks', taskId));
+  if (s !== null) {
+    for (const name of s.filter(n => n.endsWith('.json'))) {
+      const f = getCurrentSession().read(ctxPath('checks', taskId, name));
+      add(f && parse(f.content));
+    }
+    return out;
+  }
+  const d = resolve(dir, 'checks', taskId);
+  if (!existsSync(d)) return {};
+  for (const name of readdirSync(d).filter(n => n.endsWith('.json'))) {
+    add(parse(readFileSync(join(d, name), 'utf-8')));
+  }
+  return out;
+}
+
+/**
  * The bytes of a file output, beside its record: `outputs/<task>/files/<name>`
  * (#244). The name already carries the output id, so it is unique; the file is
  * written once and never overwritten, matching the append-only output records.

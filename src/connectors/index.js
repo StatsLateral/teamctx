@@ -35,6 +35,14 @@ import * as m365 from './m365.js';
  * A connector may also export:
  *
  *   authorize({ ask, askSecret, loopback, log, env }) → { ENV_VAR: value, … }  // optional
+ *   currentVersion(auth, ref, opts) → string | null                            // optional (#248)
+ *
+ * `currentVersion` reads one file's current version marker — the same kind of
+ * value `list` reports (Drive `modifiedTime`, Dropbox `rev`, m365
+ * `lastModifiedDateTime`) — so a link task output recorded at attach time can be
+ * compared against it later. It returns null when the reference names no single
+ * readable file, and a connector that cannot answer simply does not export it:
+ * both cases are "can't tell", never "unchanged".
  *
  * which `teamctx auth <connector>` runs to obtain long-lived credentials and
  * write them to `.env.local`. Optional because it makes no sense for `folder`,
