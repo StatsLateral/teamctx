@@ -645,3 +645,22 @@ describe('links for a connected source', () => {
     ]) expect(m365.fileLink(other), other).toBe(other);
   });
 });
+
+describe('currentVersion (#248)', () => {
+  it('returns the file lastModifiedDateTime for a OneDrive path', async () => {
+    globalThis.fetch = route([['me/drive/root:/', json(file('Spec.docx', { lastModifiedDateTime: '2026-09-09T09:00:00Z' }))]]);
+    const v = await m365.currentVersion(authed(), { url: '/Documents/Spec.docx' }, nowait);
+    expect(v).toBe('2026-09-09T09:00:00Z');
+  });
+
+  it('is null for a folder', async () => {
+    globalThis.fetch = route([['me/drive/root:/', json(folder('Specs'))]]);
+    const v = await m365.currentVersion(authed(), { url: '/Documents/Specs' }, nowait);
+    expect(v).toBeNull();
+  });
+
+  it('is null when there is no url to resolve', async () => {
+    const v = await m365.currentVersion(authed(), { title: 'A deck' }, nowait);
+    expect(v).toBeNull();
+  });
+});

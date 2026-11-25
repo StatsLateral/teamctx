@@ -555,3 +555,34 @@ export async function fetch(a, ref, opts = {}) {
     text: await call(a, path, { ...opts, raw: true }),
   };
 }
+
+// ---- staleness (#248) --------------------------------------------------
+
+/** The Drive file id a stored link reference names, or null. */
+function refFileId(ref) {
+  if (ref?.url) {
+    try {
+      const sel = parseSelector(ref.url);
+      if (sel.folderId) return null; // a folder is not a versioned file
+      return sel.fileId || sel.unresolvedId || null;
+    } catch { /* not a Drive link — fall through */ }
+  }
+  return ref?.itemId && ID.test(ref.itemId) ? ref.itemId : null;
+}
+
+/**
+ * The file's current version marker, for the staleness check (#248).
+ *
+ * `modifiedTime` is the marker `list`/`metadata` already return (`FILE_FIELDS`),
+ * and it changes on every edit, so it is what a link output records at attach
+ * time and what a later check compares against. Returns null when the reference
+ * does not name a single readable Drive file — the caller treats that as
+ * "can't tell", never as "unchanged".
+ */
+export async function currentVersion(a, ref, opts = {}) {
+  const id = refFileId(ref);
+  if (!id) return null;
+  const file = await metadata(a, id, opts);
+  if (classify(file).folder) return null;
+  return file.modifiedTime || null;
+}
