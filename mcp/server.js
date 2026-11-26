@@ -64,8 +64,9 @@ import {
   AGENT_TOOLS, agentOnRoster, agentOwnsTask, AgentRefusedError,
 } from '../src/agents.js';
 import { takeDailyContribution } from '../src/oauth/agent-tokens.js';
-import { createUploadTicket } from '../src/oauth/upload-tickets.js';
-import { FILE_OUTPUT_EXTENSIONS, FILE_OUTPUT_TYPES, extensionOf, humanBytes, MAX_PAGE_UPLOAD_BYTES } from '../src/file-output.js';
+import { createUploadTicket, UPLOAD_TICKET_TTL_SECONDS } from '../src/oauth/upload-tickets.js';
+import { blobConfigured, mintBlobUpload } from '../src/oauth/blob-transit.js';
+import { FILE_OUTPUT_EXTENSIONS, FILE_OUTPUT_TYPES, extensionOf, humanBytes, MAX_PAGE_UPLOAD_BYTES, MAX_OUTPUT_FILE_BYTES, hostedUploadMaxBytes } from '../src/file-output.js';
 import { contextFreshness, freshnessLine, withFreshness } from '../src/freshness.js';
 
 export function resolveProjectDir(argv = process.argv.slice(2), env = process.env, cwd = process.cwd()) {
@@ -325,7 +326,7 @@ export const TOOLS = [
   },
   {
     name: 'request_upload',
-    description: "**Upload a file you generated as a task output, without spending tokens on its bytes.** When you have made a file (an image, a spreadsheet, a PDF, a document) and it should become an output on a task, call this to get a short-lived, single-use URL; then, from your code sandbox, send the raw bytes to that URL with an HTTP PUT (for example `curl --upload-file chart.png \"<uploadUrl>\"`). The bytes go straight to teamctx and never pass through you, so a file of any size costs the same handful of tokens. The file is size- and type-checked and stored on the task exactly as an upload through the project page is, recorded as a working output under your name — nothing is queued and nobody is asked to approve it, as with `task_output`. The URL is good once and for ten minutes; if it lapses, call this again. Allowed types: " + FILE_OUTPUT_EXTENSIONS.join(', ') + ". The most one upload takes is " + humanBytes(MAX_PAGE_UPLOAD_BYTES) + "; a larger file should be kept in a cloud tool and attached with `task_attach_link`. One file per call. The bytes go from your sandbox straight to the upload host, so your sandbox must be allowed to reach it; if the PUT is refused by your own network, `reportBack` says which host to allow. Only on the hosted connector — on the command line, use `teamctx task attach`. Returns { uploadUrl, method: \"PUT\", uploadHost, expiresAt, maxBytes, reportBack }.",
+    description: "**Upload a file you generated as a task output, without spending tokens on its bytes.** When you have made a file (an image, a spreadsheet, a PDF, a document) and it should become an output on a task, call this to get a short-lived, single-use URL; then, from your code sandbox, send the raw bytes to that URL with an HTTP PUT (for example `curl --upload-file chart.png \"<uploadUrl>\"`). The bytes go straight to teamctx and never pass through you, so a file of any size costs the same handful of tokens. The file is size- and type-checked and stored on the task exactly as an upload through the project page is, recorded as a working output under your name — nothing is queued and nobody is asked to approve it, as with `task_output`. The URL is good once and for ten minutes; if it lapses, call this again. Allowed types: " + FILE_OUTPUT_EXTENSIONS.join(', ') + ". A file up to " + humanBytes(MAX_PAGE_UPLOAD_BYTES) + " uploads in one PUT; a larger one (up to " + humanBytes(hostedUploadMaxBytes()) + ", where the hosted connector supports it) goes in two steps — a PUT of the bytes to a transit store, then a short finalize call — and `reportBack` gives both commands. A file bigger than that should be kept in a cloud tool and attached with `task_attach_link`. One file per call. The bytes go from your sandbox straight to the upload host, so your sandbox must be allowed to reach it (and, for a large file, the finalize host too); if a call is refused by your own network, `reportBack` says which host to allow. Only on the hosted connector — on the command line, use `teamctx task attach`. Once the upload returns ok, end your reply with `viewUrl`, the task's page where the person opens the file, as a markdown link whose text is `viewLabel`, and directly beneath it `tipsUrl` (the Tips & Tricks page) as `[Tips & Tricks](tipsUrl)`, also on its own line; if the client cannot show links, give each as a plain URL. Returns { uploadUrl, method: \"PUT\", uploadHost, expiresAt, maxBytes, reportBack, viewUrl, viewLabel, tipsUrl }, plus `headers` and a `finalizeUrl` for a large two-step upload.",
     inputSchema: {
       type: 'object',
       properties: {
@@ -1641,18 +1642,78 @@ export function makeHandlers(projectRoot) {
       if (!ext || !(ext in FILE_OUTPUT_TYPES)) {
         throw new Error(`A .${ext || '?'} file is not an allowed output type. Allowed: ${FILE_OUTPUT_EXTENSIONS.join(', ')}.`);
       }
-      if (Number(args.size) > MAX_PAGE_UPLOAD_BYTES) {
-        throw new Error(`That file is ${humanBytes(Number(args.size))}, over the ${humanBytes(MAX_PAGE_UPLOAD_BYTES)} an upload allows. `
-          + 'Keep it in a cloud tool and attach it with task_attach_link.');
+      const declared = Number(args.size) || 0;
+      const hostedMax = hostedUploadMaxBytes();
+      const large = declared > MAX_PAGE_UPLOAD_BYTES;
+      // Over the ceiling for a hosted upload: the repository is not the home for
+      // a file this big. Point at a cloud link, or the command line.
+      if (declared > hostedMax) {
+        throw new Error(`That file is ${humanBytes(declared)}, over the ${humanBytes(hostedMax)} a hosted upload allows. `
+          + `Keep it in a cloud tool and attach it with task_attach_link, or attach it from the command line `
+          + `(up to ${humanBytes(MAX_OUTPUT_FILE_BYTES)}): teamctx task attach.`);
+      }
+      // Larger than the function body allows, and no transit store to go around
+      // it: say so plainly rather than mint a URL the bytes cannot reach.
+      if (large && !blobConfigured()) {
+        throw new Error(`That file is ${humanBytes(declared)}, over the ${humanBytes(MAX_PAGE_UPLOAD_BYTES)} a direct upload takes, `
+          + `and larger uploads are not configured on this deployment. Keep it in a cloud tool and attach it with task_attach_link, `
+          + `or attach it from the command line (up to ${humanBytes(MAX_OUTPUT_FILE_BYTES)}): teamctx task attach.`);
       }
 
       const { actor } = await who(teamctxDir, config);
+      const base = String(projectRoot.baseUrl || '').replace(/\/$/, '');
+      const taskLabel = task.key || task.id;
+      // The task's page, to hand the person once the upload lands — the same
+      // link task_output ends on. Carried in the result and named in reportBack
+      // so the assistant closes on it rather than a bare "done".
+      const link = await this.viewUrl({ task: task.id, ref: task.key });
+
+      if (large) {
+        // The bytes are too big for the function body, so they go around it: the
+        // sandbox PUTs them straight to a transit blob, then calls finalize so
+        // teamctx fetches, validates, commits and deletes them.
+        const blob = await mintBlobUpload({
+          taskId: task.id, name, contentType: FILE_OUTPUT_TYPES[ext],
+          maxBytes: hostedMax, ttlSeconds: UPLOAD_TICKET_TTL_SECONDS,
+        });
+        const { token, expiresAt } = await createUploadTicket({
+          owner: projectRoot.owner, repo: projectRoot.repo, taskId: task.id,
+          actor, name, title: args.title, notes: args.notes,
+          ghToken: projectRoot.ghToken, maxBytes: hostedMax,
+          transport: 'blob', blobPathname: blob.pathname,
+        });
+        const finalizeUrl = `${base}/project/${encodeURIComponent(projectRoot.owner)}`
+          + `/${encodeURIComponent(projectRoot.repo)}/task/${encodeURIComponent(task.id)}/finalize/${token}`;
+        let finalizeHost = null;
+        try { finalizeHost = new URL(finalizeUrl).host; } catch { /* no base URL recorded */ }
+        const headerFlags = Object.entries(blob.headers).map(([k, v]) => `-H "${k}: ${v}"`).join(' ');
+        return textResult({
+          uploadUrl: blob.uploadUrl,
+          method: 'PUT',
+          headers: blob.headers,
+          uploadHost: blob.uploadHost,
+          finalizeUrl,
+          finalizeHost,
+          expiresAt: blob.expiresAt,
+          maxBytes: hostedMax,
+          name,
+          task: taskLabel,
+          ...link,
+          reportBack: withLink(`This file is larger than a direct upload takes, so it goes through a transit store in two steps, both from your sandbox. `
+            + `1) PUT the bytes with these headers: curl -X PUT ${headerFlags} --data-binary @"${name}" "${blob.uploadUrl}". `
+            + `2) Then finalize so teamctx fetches, checks and commits them: curl -X POST "${finalizeUrl}". `
+            + `The bytes go to ${blob.uploadHost} and the finalize call to ${finalizeHost || 'teamctx'} — your sandbox must be allowed to reach BOTH. `
+            + `If either is refused by your network (curl exit 56, or "403 CONNECT tunnel failed"), add that host to your client's allowed websites and retry; it is not a teamctx error. `
+            + `Do not read the bytes into this conversation. The upload is good once, until ${blob.expiresAt}. `
+            + `After finalize returns ok, "${name}" is a working output on task ${taskLabel}; nothing was sent for approval.`, link),
+        });
+      }
+
       const { token, expiresAt } = await createUploadTicket({
         owner: projectRoot.owner, repo: projectRoot.repo, taskId: task.id,
         actor, name, title: args.title, notes: args.notes,
         ghToken: projectRoot.ghToken, maxBytes: MAX_PAGE_UPLOAD_BYTES,
       });
-      const base = String(projectRoot.baseUrl || '').replace(/\/$/, '');
       const uploadUrl = `${base}/project/${encodeURIComponent(projectRoot.owner)}`
         + `/${encodeURIComponent(projectRoot.repo)}/task/${encodeURIComponent(task.id)}/upload/${token}`;
       // The host the sandbox must reach, read off this deployment's own address
@@ -1667,15 +1728,16 @@ export function makeHandlers(projectRoot) {
         expiresAt,
         maxBytes: MAX_PAGE_UPLOAD_BYTES,
         name,
-        task: task.key || task.id,
-        reportBack: `Send the file's bytes to the upload URL with an HTTP PUT from your sandbox `
+        task: taskLabel,
+        ...link,
+        reportBack: withLink(`Send the file's bytes to the upload URL with an HTTP PUT from your sandbox `
           + `(for example: curl --upload-file "${name}" "${uploadUrl}"). It is good once, until ${expiresAt}. `
           + `The bytes go straight to teamctx — do not read them into this conversation. `
           + (uploadHost
             ? `If the PUT is refused by your sandbox's network (for example curl exit 56, or "403 CONNECT tunnel failed"), `
               + `your client is not allowed to reach ${uploadHost} — add that domain to your client's allowed websites and retry; it is not a teamctx error. `
             : '')
-          + `Once it returns ok, "${name}" is a working output on task ${task.key || task.id}; nothing was sent for approval.`,
+          + `Once it returns ok, "${name}" is a working output on task ${taskLabel}; nothing was sent for approval.`, link),
       });
     },
 

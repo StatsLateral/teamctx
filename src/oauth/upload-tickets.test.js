@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { __resetMemory, __resetSecrets, __dumpMemory, keys } from './kv.js';
 import {
-  createUploadTicket, consumeUploadTicket, UPLOAD_TICKET_TTL_SECONDS,
+  createUploadTicket, consumeUploadTicket, readUploadTicket, UPLOAD_TICKET_TTL_SECONDS,
 } from './upload-tickets.js';
 
 beforeEach(() => { __resetMemory(); __resetSecrets(); });
@@ -24,6 +24,26 @@ describe('upload tickets', () => {
 
     // Spent: a second attempt finds nothing.
     expect(await consumeUploadTicket(token, { owner: 'Acme', repo: 'Ledger', taskId: 't-1' })).toBeNull();
+  });
+
+  it('peeks a ticket without spending it, so it can still be consumed after', async () => {
+    const { token } = await createUploadTicket(base);
+    // Peek twice: both see it, and it is still there to consume.
+    expect(await readUploadTicket(token, { owner: 'Acme', repo: 'Ledger', taskId: 't-1' }))
+      .toMatchObject({ taskId: 't-1', name: 'chart.png' });
+    expect(await readUploadTicket(token, { owner: 'Acme', repo: 'Ledger', taskId: 't-1' })).not.toBeNull();
+    expect(await consumeUploadTicket(token, { owner: 'Acme', repo: 'Ledger', taskId: 't-1' })).not.toBeNull();
+    // Consumed now: a later peek finds nothing.
+    expect(await readUploadTicket(token, { owner: 'Acme', repo: 'Ledger', taskId: 't-1' })).toBeNull();
+  });
+
+  it('peek honours the project and task, and an empty token', async () => {
+    const { token } = await createUploadTicket(base);
+    expect(await readUploadTicket(token, { owner: 'Acme', repo: 'Ledger', taskId: 't-OTHER' })).toBeNull();
+    expect(await readUploadTicket(token, { owner: 'other', repo: 'Ledger', taskId: 't-1' })).toBeNull();
+    expect(await readUploadTicket('')).toBeNull();
+    // Peeking the wrong task does not burn it — it is still consumable.
+    expect(await consumeUploadTicket(token, { owner: 'Acme', repo: 'Ledger', taskId: 't-1' })).not.toBeNull();
   });
 
   it('matches the project case-insensitively, as GitHub does', async () => {
@@ -78,5 +98,21 @@ describe('upload tickets', () => {
   it('returns null for an unknown or empty token', async () => {
     expect(await consumeUploadTicket('')).toBeNull();
     expect(await consumeUploadTicket('nope')).toBeNull();
+  });
+
+  it('defaults to a direct ticket; a blob ticket records its transit pathname', async () => {
+    const direct = await createUploadTicket(base);
+    expect(direct.record.transport).toBe('direct');
+    expect(direct.record.blobPathname).toBeNull();
+
+    const blob = await createUploadTicket({ ...base, transport: 'blob', blobPathname: 'teamctx-transit/t-1/abc/chart.png' });
+    expect(blob.record.transport).toBe('blob');
+    expect(blob.record.blobPathname).toBe('teamctx-transit/t-1/abc/chart.png');
+    const got = await consumeUploadTicket(blob.token, { owner: 'Acme', repo: 'Ledger', taskId: 't-1' });
+    expect(got).toMatchObject({ transport: 'blob', blobPathname: 'teamctx-transit/t-1/abc/chart.png' });
+  });
+
+  it('refuses a blob ticket with no transit pathname', async () => {
+    await expect(createUploadTicket({ ...base, transport: 'blob' })).rejects.toThrow(/blob pathname/);
   });
 });

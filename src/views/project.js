@@ -828,7 +828,7 @@ ${note ? `<p class="note">${esc(note)}</p>` : ''}
         <input type="text" name="note" maxlength="500" placeholder="Note (optional)">
         <div class="attachrow">
           <button type="submit" class="attachbtn">Attach file</button>
-          <span class="hint">Up to 4&nbsp;MB here. The command line (<code>teamctx task attach</code>) takes up to 10&nbsp;MB.</span>
+          <span class="hint">Up to 4&nbsp;MB here. The command line (<code>teamctx task attach</code>) takes up to 50&nbsp;MB.</span>
         </div>
       </form>
       <div id="d-history-wrap" hidden>
